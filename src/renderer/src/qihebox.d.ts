@@ -2,6 +2,14 @@
  * window.qihebox 类型声明（由 preload contextBridge 暴露）
  */
 interface QiheboxApi {
+  account: {
+    status: () => Promise<unknown>
+    login: (email: string, password: string) => Promise<unknown>
+    logout: () => Promise<unknown>
+  }
+  ai: {
+    call: (action: string, payload: unknown) => Promise<unknown>
+  }
   workspace: {
     list: () => Promise<unknown>
     current: () => Promise<unknown>
