@@ -5,7 +5,7 @@
  * - 注册 IPC 与 qihebox:// 文件协议
  * - 系统托盘 + 关闭隐藏到托盘 + 崩溃自愈骨架
  */
-import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, protocol } from 'electron'
 import path from 'node:path'
 import { BoxService } from './core'
 import { WorkspaceService } from './core/workspace'
@@ -19,7 +19,24 @@ import {
   windowHideToTray,
   windowQuit,
   setQuitting,
+  isQuitting,
 } from './window'
+
+// —— 自定义协议特权注册（必须在 app ready 前）——
+// 声明 qihebox:// 为 standard/secure scheme，支持 fetch 与流式响应
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'qihebox',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true,
+      corsEnabled: true,
+    },
+  },
+])
 
 // —— 单实例锁（替代原 Go CreateMutex）——
 const gotLock = app.requestSingleInstanceLock()
@@ -82,6 +99,11 @@ function setupCloseToTray(win: BrowserWindow): void {
   })
 }
 
+// 系统级退出（托盘退出菜单 / 应用退出）→ 置 quitting 放行窗口关闭
+app.on('before-quit', () => {
+  setQuitting(true)
+})
+
 app.whenReady().then(() => {
   // 单一 workspace 实例贯穿全部服务
   const workspace = new WorkspaceService()
@@ -89,6 +111,7 @@ app.whenReady().then(() => {
 
   registerIpc(box)
   registerQiheboxProtocol(box)
+  console.log('[main] qihebox protocol handled:', protocol.isProtocolHandled('qihebox'))
 
   const win = createMainWindow()
   setupTray()
