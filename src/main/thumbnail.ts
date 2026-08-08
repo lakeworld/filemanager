@@ -32,7 +32,8 @@ export class SharpThumbnailService implements ThumbnailProvider {
         .jpeg({ quality: 85 })
         .toFile(thumb)
       return thumb
-    } catch {
+    } catch (err) {
+      console.error('[thumbnail] 生成失败:', filePath, err)
       return ''
     }
   }
