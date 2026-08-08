@@ -5,39 +5,38 @@
 
 ## 一、进程架构（Electron 多进程模型）
 
-应用启动后共 **4 个进程**（Deepin x64，v2.1.1 进程瘦身生效）：
+应用启动后共 **3 个进程**（Deepin x64，v2.2.1 进程瘦身生效）：
 
 | 进程 | 类型 | 职责 | 空载 RSS 参考 |
 |---|---|---|---|
-| 主进程 | `Browser` | 窗口/托盘/IPC/协议/缩略图调度 | ~280MB |
-| 渲染进程 | `Renderer` | 页面 UI、虚拟滚动、PDF 预览 | ~148MB |
-| GPU 进程 | `GPU` | 软件渲染空壳（--disable-gpu 后） | ~90MB |
+| 主进程 | `Browser` | 窗口/托盘/IPC/协议/缩略图调度（含 in-process GPU） | ~350MB |
+| 渲染进程 | `Renderer` | 页面 UI、虚拟滚动、PDF 预览（PDFViewer） | ~150MB |
 | 工具进程 | `utility` | 网络栈（NetworkService，架构强制） | ~77MB |
 
-> 空载总内存 ~600MB（v2.1.1 前 ~800MB / 7 进程）。~520MB 是 **Electron 43 + Deepin 软件渲染** 的
+> 空载总内存 ~580MB（v2.1.1 前 ~800MB / 7 进程；v2.2.1 起 GPU 并入主进程减为 3 进程）。~500MB 是 **Electron 43 + Deepin 软件渲染** 的
 > 固有基线（Chromium 平台成本），不是应用逻辑开销。Windows 有 GPU 加速且无 zygote。
 
-**v2.1.1 进程瘦身**（`electron-builder.yml` `linux.executableArgs`）：
+**进程瘦身**（`electron-builder.yml` `linux.executableArgs`）：
 
 - `--no-zygote`：去掉 3 个 zygote 孵化器（-3 进程 -118MB）。必须为启动参数（appendSwitch 运行时设置时机太晚不生效）
-- `--disable-gpu`：Deepin 本就软件渲染，GPU 进程 207MB → 90MB 空壳，无崩溃
+- `--disable-gpu` + `--in-process-gpu`（v2.2.1）：Deepin 本就软件渲染，GPU 逻辑并入主进程，**常驻 4 进程 → 3 进程**
+- `--js-flags=--max-old-space-size=2048 --max-semi-space-size=32`（v2.2.1）：半空间调小，长期运行更快归还内存（实测不崩；历史上其他 --js-flags 组合有崩溃记录，此组合已验证）
 - 仅 Linux 生效；Windows 无 zygote 且保留 GPU 加速，不加参数
-- ⚠️ 实测证伪：`--single-process`（极限合并为 1 进程）在 Deepin 上启动即崩（SIGTRAP），已放弃；
-  `--js-flags` 与 `disableHardwareAcceleration` 历史上有启动崩溃记录，均不启用
+- ⚠️ 实测证伪：`--single-process`（极限合并为 1 进程）在 Deepin 上启动即崩（SIGTRAP），已放弃
 
 **进程可靠性设计**：
 
-- **渲染进程崩溃** → 自动 reload，最多 3 次后退出（`index.ts setupCrashRecovery`）
+- **渲染进程崩溃** → 自动 reload，最多 3 次后退出；`did-finish-load` 重置计数（v2.2.1）
 - **主进程崩溃** = 应用退出（无法自愈）→ 所以一切**原生渲染一律不进主进程**：
   - 图片缩略图：sharp（纯 C 库，经多年验证稳定）
-  - PDF 预览：pdfjs 渲染进程 canvas（Chromium Skia）
+  - PDF 预览：pdfjs 官方 PDFViewer 渲染进程 canvas（Chromium Skia）
   - ⚠️ 历史教训：`pdfjs + @napi-rs/canvas` 渲染真实证书 PDF 会原生段错误（SEGV）导致主进程闪退，已禁用该路径；PDF 不做缩略图（见下文"产品决策"）
 
-## 一·五、内存实测（v2.1.1 进程瘦身后，Deepin，1 万张图目录）
+## 一·五、内存实测（v2.2.1 进程瘦身后，Deepin，1 万张图目录）
 
 | 阶段 | 渲染进程 RSS | DOM 节点 | 说明 |
 |---|---|---|---|
-| 空载（Dashboard） | ~150MB | — | 总内存 ~600MB（4 进程） |
+| 空载（Dashboard） | ~150MB | — | 总内存 ~580MB（3 进程，GPU 并入主进程） |
 | 打开图包库（1万图） | ~190MB | 36 卡片 | 虚拟滚动只渲染视口 ± overscan |
 | 滚动到底 / 回顶 | ~194MB | ~36 卡片 | 节点恒定，**回落**（无泄漏） |
 | 峰值 | ~197MB | 54 卡片 | 增量 ≤41MB |
