@@ -6,7 +6,16 @@ import {
   updateWorkspaceConfig,
   defaultWorkspaceConfig,
 } from "~/stores/workspace";
-import type { ApiResult, WorkspaceConfig } from "~/types";
+import { api } from "~/wails/api";
+import { loadTagDefs, refreshTags } from "~/stores/tags";
+import type { ApiResult, TagInfo, WorkspaceConfig } from "~/types";
+
+/** 预设色板（标签颜色选择） */
+const PALETTE = [
+  "#ef4444", "#f97316", "#f59e0b", "#eab308", "#22c55e",
+  "#14b8a6", "#0ea5e9", "#3b82f6", "#8b5cf6", "#ec4899",
+  "#64748b",
+];
 
 export default function Settings() {
   const [config, setConfig] = createSignal<WorkspaceConfig>(defaultWorkspaceConfig());
@@ -79,6 +88,66 @@ export default function Settings() {
     }));
   };
 
+  // —— 标签管理 ——
+  const [tags, setTags] = createSignal<TagInfo[]>([]);
+  const [newTagName, setNewTagName] = createSignal("");
+  const [newTagColor, setNewTagColor] = createSignal(PALETTE[0]);
+  const [editingColor, setEditingColor] = createSignal<string | null>(null); // 正在改色的标签
+  const [renaming, setRenaming] = createSignal<string | null>(null); // 正在重命名的标签
+  const [renameValue, setRenameValue] = createSignal("");
+
+  const loadTags = async () => {
+    const r = await api.tags.list();
+    if (r.success && r.data) setTags(r.data);
+  };
+
+  createEffect(() => {
+    if (currentWorkspace()) {
+      loadTags();
+      loadTagDefs();
+    }
+  });
+
+  const handleAddTag = async () => {
+    const name = newTagName().trim();
+    if (!name) return;
+    await api.tags.setColor(name, newTagColor());
+    setNewTagName("");
+    await loadTags();
+    refreshTags();
+  };
+
+  const handleSetColor = async (name: string, color: string) => {
+    await api.tags.setColor(name, color);
+    setEditingColor(null);
+    await loadTags();
+    refreshTags();
+  };
+
+  const handleRename = async (oldName: string) => {
+    const newName = renameValue().trim();
+    if (!newName || newName === oldName) {
+      setRenaming(null);
+      return;
+    }
+    const r = await api.tags.rename(oldName, newName);
+    if (r.success) {
+      setRenaming(null);
+      setRenameValue("");
+      await loadTags();
+      refreshTags();
+    }
+  };
+
+  const handleDeleteTag = async (name: string) => {
+    if (!confirm(`确定删除标签「${name}」？将同时从所有文件与产品集中移除。`)) return;
+    const r = await api.tags.delete(name);
+    if (r.success) {
+      await loadTags();
+      refreshTags();
+    }
+  };
+
   return (
     <div class="p-6 max-w-4xl mx-auto">
       <div class="mb-8">
@@ -97,6 +166,103 @@ export default function Settings() {
         }
       >
         <div class="space-y-6">
+          {/* 标签管理 */}
+          <div class="card p-6">
+            <h2 class="text-lg font-semibold mb-2">标签管理</h2>
+            <p class="text-sm text-surface-500 mb-4">统一管理标签颜色；重命名/删除会同步所有文件与产品集</p>
+
+            {/* 新建标签 */}
+            <div class="flex items-center gap-2 mb-4 flex-wrap">
+              <input
+                class="px-3 py-2 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 w-40"
+                placeholder="新标签名称"
+                value={newTagName()}
+                onInput={(e) => setNewTagName(e.currentTarget.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddTag()}
+              />
+              <div class="flex items-center gap-1">
+                <For each={PALETTE}>
+                  {(c) => (
+                    <button
+                      class={`w-5 h-5 rounded-full transition-transform ${newTagColor() === c ? "ring-2 ring-offset-1 ring-surface-700 scale-110" : ""}`}
+                      style={{ backgroundColor: c }}
+                      onClick={() => setNewTagColor(c)}
+                    />
+                  )}
+                </For>
+              </div>
+              <button class="btn-primary px-3 py-2 text-sm" onClick={handleAddTag}>
+                + 添加标签
+              </button>
+            </div>
+
+            {/* 标签列表 */}
+            <Show
+              when={tags().length > 0}
+              fallback={<div class="text-sm text-surface-400 py-4 text-center">暂无标签，先给文件或产品集打上标签吧</div>}
+            >
+              <div class="space-y-2">
+                <For each={tags()}>
+                  {(tag) => (
+                    <div class="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-surface-100 transition-colors">
+                      <button
+                        class="w-5 h-5 rounded-full shrink-0 cursor-pointer"
+                        style={{ backgroundColor: tag.color }}
+                        title="点击改颜色"
+                        onClick={() => setEditingColor(editingColor() === tag.name ? null : tag.name)}
+                      />
+                      <Show when={editingColor() === tag.name}>
+                        <div class="flex items-center gap-1">
+                          <For each={PALETTE}>
+                            {(c) => (
+                              <button
+                                class={`w-4 h-4 rounded-full ${tag.color === c ? "ring-2 ring-offset-1 ring-surface-700" : ""}`}
+                                style={{ backgroundColor: c }}
+                                onClick={() => handleSetColor(tag.name, c)}
+                              />
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                      <Show
+                        when={renaming() === tag.name}
+                        fallback={
+                          <span class="text-sm font-medium flex-1">{tag.name}</span>
+                        }
+                      >
+                        <input
+                          class="px-2 py-1 border border-surface-200 rounded text-sm flex-1 min-w-0"
+                          value={renameValue()}
+                          onInput={(e) => setRenameValue(e.currentTarget.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleRename(tag.name);
+                            if (e.key === "Escape") setRenaming(null);
+                          }}
+                        />
+                      </Show>
+                      <span class="text-xs text-surface-400 shrink-0">{tag.count} 处使用</span>
+                      <button
+                        class="text-xs text-surface-500 hover:text-primary-600 shrink-0"
+                        onClick={() => {
+                          setRenaming(tag.name);
+                          setRenameValue(tag.name);
+                        }}
+                      >
+                        重命名
+                      </button>
+                      <button
+                        class="text-xs text-red-500 hover:text-red-600 shrink-0"
+                        onClick={() => handleDeleteTag(tag.name)}
+                      >
+                        删除
+                      </button>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
+
           {/* Naming Template */}
           <div class="card p-6">
             <h2 class="text-lg font-semibold mb-4">命名模板</h2>

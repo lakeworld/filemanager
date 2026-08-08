@@ -1,6 +1,7 @@
 import { Show, For, createSignal, createEffect, onMount } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
+import { tagChipStyle } from "~/stores/tags";
 import {
   currentWorkspace,
   productSets,
@@ -293,7 +294,10 @@ export default function ProductSets() {
                     <div class="flex flex-wrap gap-1 mt-3">
                       <For each={ps.tags}>
                         {(tag) => (
-                          <span class="text-[10px] px-2 py-0.5 rounded-full bg-primary-50 text-primary-700">
+                          <span
+                            class="text-[10px] px-2 py-0.5 rounded-full text-white"
+                            style={tagChipStyle(tag)}
+                          >
                             {tag}
                           </span>
                         )}

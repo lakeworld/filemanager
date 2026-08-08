@@ -1,5 +1,6 @@
 import { Show, For, Switch, Match, createSignal } from "solid-js";
 import { api } from "~/wails/api";
+import { tagChipStyle } from "~/stores/tags";
 import {
   showPreview,
   previewFile,
@@ -235,9 +236,12 @@ export default function FilePreviewModal() {
                   <div class="flex flex-wrap gap-1">
                     <For each={metadata().tags}>
                       {(tag, index) => (
-                        <span class="inline-flex items-center gap-1 px-2 py-1 bg-primary-50 text-primary-700 rounded text-xs">
+                        <span
+                          class="inline-flex items-center gap-1 px-2 py-1 text-white rounded text-xs"
+                          style={tagChipStyle(tag)}
+                        >
                           {tag}
-                          <button class="hover:text-primary-900" onClick={() => removeTag(index())}>
+                          <button class="hover:opacity-80" onClick={() => removeTag(index())}>
                             ✕
                           </button>
                         </span>

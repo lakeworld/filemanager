@@ -4,6 +4,8 @@ import { api } from "~/wails/api";
 import { workspaceConfig, loadWorkspaceConfig, currentWorkspace, fileBrowserRefreshTrigger } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
 import FileThumbnail from "~/components/FileThumbnail";
+import ContextMenu from "~/components/ContextMenu";
+import { handleDragOut } from "~/utils/dragout";
 import type { FileEntry } from "~/types";
 
 function formatBytes(bytes: number): string {
@@ -319,6 +321,8 @@ export default function FileBrowser() {
               {(file) => (
                 <div
                   class={`card p-3 cursor-pointer hover:shadow-card-hover transition-all select-none ${selectedFilePaths().includes(file.path) ? "border-primary-500 bg-primary-50" : ""}`}
+                  draggable={true}
+                  onDragStart={(e) => handleDragOut(e, file.path, selectedFilePaths())}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     const paths = selectedFilePaths().includes(file.path)
@@ -336,7 +340,7 @@ export default function FileBrowser() {
                       onClick={(e) => e.stopPropagation()}
                       onChange={() => toggleFileSelection(file)}
                     />
-                    <FileThumbnail path={file.thumbnail_path} fileType={file.file_type} />
+                    <FileThumbnail filePath={file.path} fileType={file.file_type} />
                   </div>
                   <div class="text-sm font-medium truncate">{file.name}</div>
                   <div class="text-xs text-surface-400 flex justify-between mt-1">
@@ -371,74 +375,71 @@ export default function FileBrowser() {
         </div>
       </Show>
 
-      {/* Context Menu */}
+      {/* Context Menu（统一组件） */}
       <Show when={contextMenu().show}>
-        <div
-          class="fixed z-50 bg-white shadow-lg rounded-lg border border-surface-200 py-1 min-w-[160px]"
-          style={{ left: `${contextMenu().x}px`, top: `${contextMenu().y}px` }}
-        >
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              const file = files().find((f) => f.path === contextMenu().paths[0]);
-              if (file) handleOpenPreview(file);
-              closeContextMenu();
-            }}
-          >
-            👁️ 预览
-          </button>
-          <Show when={contextMenu().paths.length === 1}>
-            <button
-              class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-              onClick={() => {
+        <ContextMenu
+          x={contextMenu().x}
+          y={contextMenu().y}
+          onClose={closeContextMenu}
+          items={[
+            {
+              label: "预览",
+              icon: "👁️",
+              action: () => {
+                const file = files().find((f) => f.path === contextMenu().paths[0]);
+                if (file) handleOpenPreview(file);
+              },
+            },
+            {
+              label: "编辑信息",
+              icon: "✏️",
+              show: contextMenu().paths.length === 1,
+              action: () => {
                 const file = files().find((f) => f.path === contextMenu().paths[0]);
                 if (file) handleEditMetadata(file);
-                closeContextMenu();
-              }}
-            >
-              ✏️ 编辑信息
-            </button>
-          </Show>
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              handleCopyPaths(contextMenu().paths);
-              closeContextMenu();
-            }}
-          >
-            📋 复制
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              handleShowPathsInExplorer(contextMenu().paths);
-              closeContextMenu();
-            }}
-          >
-            📂 在文件夹中显示
-          </button>
-          <Show when={contextMenu().paths.length === 1}>
-            <button
-              class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-              onClick={() => {
+              },
+            },
+            {
+              label: "用默认程序打开",
+              icon: "🖥️",
+              show: contextMenu().paths.length === 1,
+              action: () => {
+                const file = files().find((f) => f.path === contextMenu().paths[0]);
+                if (file) void api.files.openWithDefaultApp(file.path);
+              },
+            },
+            {
+              label: "复制",
+              icon: "📋",
+              action: () => handleCopyPaths(contextMenu().paths),
+            },
+            {
+              label: "复制路径",
+              icon: "🔗",
+              action: () => void api.files.copyPaths(contextMenu().paths),
+            },
+            {
+              label: "在文件夹中显示",
+              icon: "📂",
+              action: () => handleShowPathsInExplorer(contextMenu().paths),
+            },
+            {
+              label: "重命名",
+              icon: "✏️",
+              show: contextMenu().paths.length === 1,
+              action: () => {
                 const file = files().find((f) => f.path === contextMenu().paths[0]);
                 if (file) handleRename(file);
-                closeContextMenu();
-              }}
-            >
-              ✏️ 重命名
-            </button>
-          </Show>
-          <button
-            class="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-            onClick={() => {
-              handleDelete(contextMenu().paths);
-              closeContextMenu();
-            }}
-          >
-            🗑️ 删除
-          </button>
-        </div>
+              },
+            },
+            {
+              label: "删除",
+              icon: "🗑️",
+              danger: true,
+              action: () => handleDelete(contextMenu().paths),
+            },
+          ]}
+        />
       </Show>
     </div>
   );

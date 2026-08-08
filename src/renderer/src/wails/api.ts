@@ -16,6 +16,7 @@ import type {
   DeleteSubfolderRequest,
   FileRenameRequest,
   UpdateInfo,
+  TagInfo,
   ApiResult,
 } from "~/types";
 
@@ -56,6 +57,7 @@ export const api = {
     rename: (req: FileRenameRequest) => qb.files.rename(req as any) as Promise<ApiResult<boolean>>,
     copyFilesToClipboard: (paths: string[]) =>
       qb.files.copyFilesToClipboard(paths) as Promise<ApiResult<boolean>>,
+    copyPaths: (paths: string[]) => qb.files.copyPaths(paths) as Promise<ApiResult<boolean>>,
     showFilesInExplorer: (paths: string[]) =>
       qb.files.showFilesInExplorer(paths) as Promise<ApiResult<boolean>>,
     saveTextFile: (path: string, content: string) =>
@@ -81,6 +83,14 @@ export const api = {
   },
   search: (query: string) => qb.search(query) as Promise<ApiResult<SearchResult>>,
   csvTemplate: () => qb.csvTemplate() as Promise<ApiResult<string>>,
+  tags: {
+    list: () => qb.tags.list() as Promise<ApiResult<TagInfo[]>>,
+    setColor: (name: string, color: string) =>
+      qb.tags.setColor(name, color) as Promise<ApiResult<boolean>>,
+    rename: (oldName: string, newName: string) =>
+      qb.tags.rename(oldName, newName) as Promise<ApiResult<boolean>>,
+    delete: (name: string) => qb.tags.delete(name) as Promise<ApiResult<boolean>>,
+  },
   xlsx: {
     exportTemplate: (path: string) => qb.xlsx.exportTemplate(path) as Promise<ApiResult<boolean>>,
     import: (path: string) => qb.xlsx.import(path) as Promise<ApiResult<ProductSetInfo[]>>,

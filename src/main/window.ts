@@ -30,6 +30,7 @@ export function createMainWindow(): BrowserWindow {
     show: false,
     frame: false, // 无边框：前端 TitleBar 用 -webkit-app-region 实现拖拽
     backgroundColor: '#0f172a',
+    icon: path.join(app.getAppPath(), 'build/appicon.png'), // Linux 任务栏/窗口图标
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,

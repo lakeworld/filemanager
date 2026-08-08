@@ -5,6 +5,7 @@ import TitleBar from "~/components/TitleBar";
 import GlobalDropOverlay from "~/components/GlobalDropOverlay";
 import FilePreviewModal from "~/components/FilePreviewModal";
 import { loadCurrentWorkspace, loadWorkspaces, setFileBrowserRefreshTrigger } from "~/stores/workspace";
+import { loadTagDefs } from "~/stores/tags";
 import { onMount, createSignal, onCleanup } from "solid-js";
 
 function FramelessResizer() {
@@ -156,6 +157,7 @@ export default function App(props: RouteSectionProps) {
   onMount(() => {
     loadCurrentWorkspace();
     loadWorkspaces();
+    loadTagDefs(); // 全局加载标签颜色定义
 
     // Listen for import completion events from the main process
     unsubImport = window.qihebox.events.on("import:complete", (data: any) => {

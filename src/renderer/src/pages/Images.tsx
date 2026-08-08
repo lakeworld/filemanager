@@ -10,7 +10,9 @@ import {
 } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
 import FileThumbnail from "~/components/FileThumbnail";
+import ContextMenu from "~/components/ContextMenu";
 import type { FileEntry, ProductSetInfo } from "~/types";
+import { handleDragOut } from "~/utils/dragout";
 
 interface ImageItem extends FileEntry {
   productSet: string;
@@ -264,6 +266,8 @@ export default function Images() {
             {(img) => (
               <div
                 class={`card p-2 cursor-pointer select-none hover:shadow-card-hover transition-all ${selectedPaths().includes(img.path) ? "border-primary-500 bg-primary-50" : ""}`}
+                draggable={true}
+                onDragStart={(e) => handleDragOut(e, img.path, selectedPaths())}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ show: true, x: e.clientX, y: e.clientY, path: img.path });
@@ -278,7 +282,7 @@ export default function Images() {
                     onClick={(e) => e.stopPropagation()}
                     onChange={() => toggleSelection(img.path)}
                   />
-                  <FileThumbnail path={img.thumbnail_path} fileType={img.file_type} />
+                  <FileThumbnail filePath={img.path} fileType={img.file_type} />
                 </div>
                 <div class="text-xs font-medium truncate mt-2 px-1">{img.name}</div>
                 <div class="text-[10px] text-surface-400 px-1 truncate">{img.productSet} / {img.subFolder}</div>
@@ -289,60 +293,60 @@ export default function Images() {
         </div>
       </Show>
 
-      {/* Context Menu */}
+      {/* Context Menu（统一组件） */}
       <Show when={contextMenu().show}>
-        <div
-          class="fixed z-50 bg-white shadow-lg rounded-lg border border-surface-200 py-1 min-w-[160px]"
-          style={{ left: `${contextMenu().x}px`, top: `${contextMenu().y}px` }}
-        >
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              const img = items().find((i) => i.path === contextMenu().path);
-              if (img) openPreview(img, { onDelete: loadAllImages });
-              closeContextMenu();
-            }}
-          >
-            👁️ 预览
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              handleCopy([contextMenu().path]);
-              closeContextMenu();
-            }}
-          >
-            📋 复制
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              handleShowInExplorer([contextMenu().path]);
-              closeContextMenu();
-            }}
-          >
-            📂 在文件夹中显示
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              const img = items().find((i) => i.path === contextMenu().path);
-              if (img) handleRename(img);
-              closeContextMenu();
-            }}
-          >
-            ✏️ 重命名
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-            onClick={() => {
-              handleDelete([contextMenu().path]);
-              closeContextMenu();
-            }}
-          >
-            🗑️ 删除
-          </button>
-        </div>
+        <ContextMenu
+          x={contextMenu().x}
+          y={contextMenu().y}
+          onClose={closeContextMenu}
+          items={[
+            {
+              label: "预览",
+              icon: "👁️",
+              action: () => {
+                const img = items().find((i) => i.path === contextMenu().path);
+                if (img) openPreview(img, { onDelete: loadAllImages });
+              },
+            },
+            {
+              label: "用默认程序打开",
+              icon: "🖥️",
+              action: () => {
+                const img = items().find((i) => i.path === contextMenu().path);
+                if (img) void api.files.openWithDefaultApp(img.path);
+              },
+            },
+            {
+              label: "复制",
+              icon: "📋",
+              action: () => handleCopy([contextMenu().path]),
+            },
+            {
+              label: "复制路径",
+              icon: "🔗",
+              action: () => void api.files.copyPaths([contextMenu().path]),
+            },
+            {
+              label: "在文件夹中显示",
+              icon: "📂",
+              action: () => handleShowInExplorer([contextMenu().path]),
+            },
+            {
+              label: "重命名",
+              icon: "✏️",
+              action: () => {
+                const img = items().find((i) => i.path === contextMenu().path);
+                if (img) handleRename(img);
+              },
+            },
+            {
+              label: "删除",
+              icon: "🗑️",
+              danger: true,
+              action: () => handleDelete([contextMenu().path]),
+            },
+          ]}
+        />
       </Show>
     </div>
   );
