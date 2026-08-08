@@ -10,6 +10,7 @@ import {
 } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
 import FileThumbnail from "~/components/FileThumbnail";
+import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
 import type { FileEntry, ProductSetInfo } from "~/types";
 import { handleDragOut } from "~/utils/dragout";
@@ -56,20 +57,9 @@ export default function Images() {
     return () => window.removeEventListener("click", onClick);
   });
 
-  // —— 分批渲染：大列表只渲染可见区，滚动加载更多（性能优化）——
-  const [renderCount, setRenderCount] = createSignal(60);
-  let sentinelRef: HTMLDivElement | undefined;
-  onMount(() => {
-    const el = sentinelRef;
-    if (!el || typeof IntersectionObserver === "undefined") return;
-    const io = new IntersectionObserver((entries) => {
-      if (entries[0]?.isIntersecting) {
-        setRenderCount((c) => c + 60);
-      }
-    });
-    io.observe(el);
-    onCleanup(() => io.disconnect());
-  });
+  // —— 虚拟滚动由 VirtualGrid 承担：只渲染可见行，滚出即卸载（替代旧 slice+哨兵分批）——
+  // 卡片固定行高（图 160px + 文本区），行高常量与卡片 CSS 保持一致
+  const ITEM_HEIGHT = 252;
 
   createEffect(() => {
     if (currentWorkspace()) {
@@ -190,7 +180,7 @@ export default function Images() {
   const visibleCount = () => filteredItems().length;
 
   return (
-    <div class="p-6 max-w-7xl mx-auto">
+    <div class="p-6 max-w-7xl mx-auto flex flex-col h-full">
       <div class="flex items-center justify-between mb-6">
         <div>
           <h1 class="text-2xl font-bold text-surface-900">图包库</h1>
@@ -270,15 +260,19 @@ export default function Images() {
           <p class="text-sm text-surface-400 mt-1">导入图片到产品集中</p>
         </div>
       }>
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center justify-between mb-3 shrink-0">
           <span class="text-sm text-surface-500">{visibleCount()} 个文件</span>
           <button class="text-sm text-primary-600 hover:text-primary-700" onClick={selectAllVisible}>
             全选当前结果
           </button>
         </div>
-        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-          <For each={filteredItems().slice(0, renderCount())}>
-            {(img) => (
+        <div class="flex-1 min-h-0">
+          <VirtualGrid
+            items={filteredItems()}
+            itemHeight={ITEM_HEIGHT}
+            columns={{ base: 2, md: 4, lg: 5, xl: 6 }}
+            gap={16}
+            renderItem={(img) => (
               <div
                 class={`card p-2 cursor-pointer select-none hover:shadow-card-hover transition-all ${selectedPaths().includes(img.path) ? "border-primary-500 bg-primary-50" : ""}`}
                 draggable={true}
@@ -289,7 +283,7 @@ export default function Images() {
                 }}
                 onClick={() => openPreview(img, { onDelete: loadAllImages })}
               >
-                <div class="relative aspect-square rounded-lg bg-surface-100 overflow-hidden">
+                <div class="relative h-40 rounded-lg bg-surface-100 overflow-hidden">
                   <input
                     type="checkbox"
                     class="absolute top-2 left-2 w-4 h-4 accent-primary-600 cursor-pointer z-10"
@@ -304,15 +298,8 @@ export default function Images() {
                 <div class="text-[10px] text-surface-400 px-1">{formatBytes(img.size)}</div>
               </div>
             )}
-          </For>
+          />
         </div>
-        {/* 分批渲染哨兵：滚动到此处加载更多 */}
-        <div ref={sentinelRef} class="h-1" />
-        <Show when={filteredItems().length > renderCount()}>
-          <div class="text-center text-xs text-surface-400 py-2">
-            已显示 {Math.min(renderCount(), filteredItems().length)} / {filteredItems().length}，滚动加载更多
-          </div>
-        </Show>
       </Show>
 
       {/* Context Menu（统一组件） */}

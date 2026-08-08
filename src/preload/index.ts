@@ -42,6 +42,7 @@ const api = {
     deleteSubfolder: (req: unknown) => invoke('qihebox:files:deleteSubfolder', req),
     dataUrl: (filePath: string) => invoke('qihebox:files:dataUrl', filePath),
     ensureThumbnail: (filePath: string) => invoke('qihebox:files:ensureThumbnail', filePath),
+    thumbnailUrl: (filePath: string) => invoke('qihebox:files:thumbnailUrl', filePath),
     copyPaths: (paths: string[]) => invoke('qihebox:files:copyPaths', paths),
     startDrag: (paths: string[]) => invoke('qihebox:files:startDrag', paths),
     workspaceUrl: (filePath: string) => invoke('qihebox:files:workspaceUrl', filePath),

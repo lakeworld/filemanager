@@ -57,12 +57,13 @@ export class BoxService {
     await this.metadata.removeFileMetadataForProductSet(name.trim())
   }
 
-  /** 确保图片缩略图存在（缺失自动生成，mtime 命中直接返回），返回缩略图路径 */
+  /** 确保图片/PDF 缩略图存在（缺失自动生成，mtime 命中直接返回），返回缩略图路径 */
   async ensureThumbnailFor(filePath: string): Promise<string> {
     const ws = this.workspace.currentWorkspacePath()
     if (!ws) throw new Error('未打开工作区')
     if (!isPathInsideWorkspace(ws, filePath)) throw new Error('只能访问工作区内的文件')
-    if (classifyFileType(filePath) !== 'image') return ''
+    const t = classifyFileType(filePath)
+    if (t !== 'image' && t !== 'pdf') return ''
     return this.thumbs.ensureThumbnail(filePath)
   }
 }

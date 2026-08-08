@@ -15,14 +15,23 @@ export function workspaceFileUrl(filePath: string): string {
   return `qihebox://file/${encoded}`
 }
 
-export function registerQiheboxProtocol(box: BoxService): void {
+/** 缩略图 URL（v2.1.0）：缩略图缓存位于 userData，不走工作区前缀校验，独立 thumb host */
+export function thumbnailFileUrl(thumbPath: string): string {
+  const encoded = Buffer.from(thumbPath, 'utf-8').toString('base64url')
+  return `qihebox://thumb/${encoded}`
+}
+
+export function registerQiheboxProtocol(
+  box: BoxService,
+  getThumbsRoot?: () => string,
+): void {
   protocol.handle('qihebox', async (request) => {
     try {
       const url = new URL(request.url)
       if (request.method !== 'GET') {
         return new Response('method not allowed', { status: 405 })
       }
-      if (url.hostname !== 'file') {
+      if (url.hostname !== 'file' && url.hostname !== 'thumb') {
         console.error('[protocol] bad host:', url.hostname, request.url)
         return new Response('bad request', { status: 400 })
       }
@@ -40,12 +49,22 @@ export function registerQiheboxProtocol(box: BoxService): void {
       const ws = box.workspace.currentWorkspacePath()
       if (!ws) return new Response('no workspace open', { status: 503 })
 
-      // 工作区前缀校验（对照原 HasPrefix 逻辑）
+      // 前缀校验：file → 工作区；thumb → 缩略图缓存根（userData）
       const resolved = path.resolve(filePath)
-      const wsResolved = path.resolve(ws)
-      if (resolved !== wsResolved && !resolved.startsWith(wsResolved + path.sep)) {
-        console.error('[protocol] outside workspace:', resolved)
-        return new Response('file outside workspace', { status: 403 })
+      if (url.hostname === 'file') {
+        const wsResolved = path.resolve(ws)
+        if (resolved !== wsResolved && !resolved.startsWith(wsResolved + path.sep)) {
+          console.error('[protocol] outside workspace:', resolved)
+          return new Response('file outside workspace', { status: 403 })
+        }
+      } else {
+        const root = getThumbsRoot?.() ?? ''
+        if (!root) return new Response('no thumb cache root', { status: 503 })
+        const rootResolved = path.resolve(root)
+        if (resolved !== rootResolved && !resolved.startsWith(rootResolved + path.sep)) {
+          console.error('[protocol] thumb outside cache root:', resolved)
+          return new Response('thumb outside cache root', { status: 403 })
+        }
       }
 
       // 校验文件存在

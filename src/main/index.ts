@@ -111,10 +111,14 @@ app.whenReady().then(() => {
   initLogger()
   // 单一 workspace 实例贯穿全部服务
   const workspace = new WorkspaceService()
-  const box = new BoxService(new SharpThumbnailService(workspace), workspace)
+  // v2.1.0：缩略图缓存根迁移到 userData（工作区不再被 .thumbnails 污染，坚果云不同步缓存）
+  const thumbs = new SharpThumbnailService(workspace, {
+    userDataThumbsDir: path.join(app.getPath('userData'), 'thumbs'),
+  })
+  const box = new BoxService(thumbs, workspace)
 
   registerIpc(box)
-  registerQiheboxProtocol(box)
+  registerQiheboxProtocol(box, () => thumbs.currentThumbsRoot())
 
   // 启动恢复/创建默认工作区（有最近工作区则恢复，无则自动创建）
   workspace.restoreOrCreateDefault().catch((err) => {

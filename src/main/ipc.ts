@@ -7,9 +7,9 @@ import path from 'node:path'
 import { BoxService } from './core'
 import { copyFilesToClipboard } from './clipboard'
 import { showFilesInExplorer } from './explorer'
-import { workspaceFileUrl } from './protocol'
+import { workspaceFileUrl, thumbnailFileUrl } from './protocol'
 import { checkUpdate, downloadUpdate, applyUpdate, UpdateInfo } from './updater'
-import { isPathInsideWorkspace } from './core/paths'
+import { isPathInsideWorkspace, classifyFileType } from './core/paths'
 import { FilesService } from './core/files'
 import { openFileWithDefaultApp } from './open'
 import {
@@ -129,6 +129,19 @@ export function registerIpc(box: BoxService): void {
   ipcMain.handle('qihebox:files:dataUrl', (_e, filePath: string) => handle(() => box.files.getFileDataUrl(filePath)))
   ipcMain.handle('qihebox:files:ensureThumbnail', (_e, filePath: string) =>
     handle(() => box.ensureThumbnailFor(filePath)),
+  )
+  // v2.1.0：一次 IPC 返回可直接加载的缩略图 URL（内部 ensureThumbnail + qihebox://thumb/），
+  // 渲染层无需两次往返，且缩略图缓存位于 userData（不进坚果云同步）
+  ipcMain.handle('qihebox:files:thumbnailUrl', (_e, filePath: string) =>
+    handle(async () => {
+      const ws = box.workspace.currentWorkspacePath()
+      if (!ws) throw new Error('未打开工作区')
+      if (!isPathInsideWorkspace(ws, filePath)) throw new Error('只能访问工作区内的文件')
+      const t = classifyFileType(filePath)
+      if (t !== 'image' && t !== 'pdf') return ''
+      const thumb = await box.ensureThumbnailFor(filePath)
+      return thumb ? thumbnailFileUrl(thumb) : ''
+    }),
   )
   ipcMain.handle('qihebox:files:copyPaths', (_e, paths: string[]) =>
     handle(() => {

@@ -122,12 +122,15 @@ export function isPathInsideWorkspace(workspace: string, filePath: string): bool
 // —— 缩略图路径（对照 files.go thumbnailPath：sha256 前 16 字节 hex 前 2 位分桶）——
 // v2.0.1 起 hash 输入改为「相对工作区路径」，跨平台（Win/Linux）一致，
 // 避免旧版绝对路径 hash 在平台切换后缩略图失效（工作区经坚果云双机共享时也能复用）
-export function thumbnailPath(workspace: string, filePath: string): string {
+// v2.1.0 起支持注入 root：主进程把缓存根迁移到 userData（thumbs/<workspaceHash>），
+// 工作区不再被缩略图污染（不进坚果云同步）；不传 root 时保持旧行为（工作区 .thumbnails）
+export function thumbnailPath(workspace: string, filePath: string, root?: string): string {
   const rel = path.relative(path.resolve(workspace), path.resolve(filePath))
   const sum = createHash('sha256').update(rel).digest('hex')
   const key = sum.slice(0, 32) // sha256[:16] 字节 = 32 hex 字符
   const ext = path.extname(filePath).toLowerCase()
-  return path.join(cmDir(workspace), THUMBNAIL_DIR, key.slice(0, 2), `${key}${ext}.thumb.jpg`)
+  const base = root ?? path.join(cmDir(workspace), THUMBNAIL_DIR)
+  return path.join(base, key.slice(0, 2), `${key}${ext}.thumb.jpg`)
 }
 
 // —— 文件类型分类（对照 files.go classifyFileType）——

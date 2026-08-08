@@ -36,6 +36,7 @@ export function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false, // ESM preload 需要；阶段 6 安全评估
+      spellcheck: false, // v2.1.0：关拼写检查，省渲染进程资源
     },
   })
 
