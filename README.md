@@ -1,8 +1,8 @@
 # 启禾文件管理
 
-一个基于 **Wails v2 + Go + SolidJS + Tailwind CSS** 的 Windows 桌面应用，用于管理电商产品图包与证书文件。
+一个基于 **Electron + TypeScript + SolidJS + Tailwind CSS** 的跨平台桌面应用（Windows / Linux），用于管理电商产品图包与证书文件。
 
-> 核心理念：**产品集驱动的文件工厂**。以产品集为组织单元、SKU 为最小操作原子，整个工作区自包含，复制到任何位置即可使用。
+> 核心理念：**产品集驱动的文件工厂**。以产品集为组织单元、图包/证书为内容分类，整个工作区自包含，复制到任何位置即可使用。
 >
 > 授权模式：**开源免费**。无需激活，下载即用全部功能。
 
@@ -22,80 +22,86 @@
 
 **典型用户**：电商卖家、品牌方运营、供应链销售、需要频繁给客户发送产品资料的线下业务人员。
 
-**典型场景**：
+## 架构
 
-1. 运营/美工把产品图片、证书按产品集导入。
-2. 销售在「图包库」或「证书库」中搜索客户需要的资料。
-3. 选中文件后复制到剪贴板，直接粘贴到微信/钉钉/邮件发送给客户；或在资源管理器中打开，拖拽到聊天窗口。
+**v2.0 起由 Wails v2 + Go 迁移至 Electron**（迁移动机：Linux 支持硬需求 + 全 TS 技术栈统一 + 自带 Chromium 绕开系统 WebKitGTK 兼容风险）。
 
-## 架构哲学
-
-- **本地优先，数据不上云**：文件、配置、元数据、缩略图全部存放在同一个工作区目录内。无需注册账号，无需联网即可使用，资料留在用户自己的电脑上。
-- **文件夹即真相源**：不使用私有数据库，元数据以 `metadata.json`、配置以 `config.json` 等开放格式保存在工作区中。用户随时可以拿走原始文件，不会被工具锁定。
-- **简单直接**：一个产品集对应一个客户或一个产品系列；图包与证书二分；命名模板、搜索、筛选都只围绕「更快找到并发出去」这一目标，不追求专业素材管理软件的复杂度。
-- **协作不锁定**：工作区可以放在坚果云、OneDrive、NAS 等共享同步目录中，支持单人多机或团队轮流使用，不需要额外部署服务器。
-- **可商业化但轻量**：核心体验保持单机、快速、无网络依赖；后续可通过授权码/账号登录进行商业化封装，但不会改变本地优先的本质。
+```
+src/
+├── main/            # 主进程（TypeScript）
+│   ├── core/        # 纯 TS 业务层（不依赖 electron，可 node 直测）
+│   │   ├── workspace.ts   # 工作区/产品集/配置/最近工作区
+│   │   ├── files.ts       # 文件列表/导入/重命名/删除
+│   │   ├── naming.ts      # 命名模板引擎 + 冲突后缀
+│   │   ├── metadata.ts    # 元数据（损坏自动备份降级）
+│   │   ├── search.ts      # 全局搜索
+│   │   ├── dashboard.ts   # 仪表盘统计
+│   │   ├── xlsx.ts        # XLSX 模板/批量导入
+│   │   ├── paths.ts       # 路径常量/安全校验/原子写
+│   │   └── scanCache.ts   # 目录树 mtime 签名扫描缓存
+│   ├── thumbnail.ts  # sharp 缩略图（限并发队列）
+│   ├── protocol.ts   # qihebox:// 文件协议（流式 + Range + 越界校验）
+│   ├── clipboard.ts  # Win CF_HDROP / Linux text/uri-list
+│   ├── explorer.ts   # 资源管理器选中（dde-file-manager/nautilus/dolphin/shell）
+│   ├── ipc.ts        # IPC 薄壳（仅透传 + ApiResult 包装）
+│   └── window.ts     # 无边框窗口/托盘/隐藏到托盘
+├── preload/         # contextBridge 暴露 window.qihebox（白名单 API）
+└── renderer/        # SolidJS 前端（页面零改动，仅绑定层换源）
+```
 
 ## 主要功能
 
 - 工作区自包含：文件、配置、元数据、缩略图全部在同一个文件夹内
-- 产品集 / SKU 层级管理
-- 拖拽导入文件，自动按命名模板重命名
-- 批量创建产品集与 SKU
-- XLSX 模板导入/导出
-- 证书到期提醒
-- 全局搜索
-- 系统托盘常驻
+- 产品集 → 图包/证书 → 子文件夹 层级管理
+- 拖拽导入文件，自动按命名模板重命名（冲突自动加 `_1` 序号）
+- XLSX 模板导入/导出（批量建产品集）
+- 证书到期提醒（30 天内）
+- 全局搜索（异步 + 防抖 + 扫描缓存）
+- 一键复制文件到剪贴板（微信/钉钉直接粘贴）、资源管理器选中
+- 系统托盘常驻、无边框窗口、单实例
+- 大图/PDF/视频流式预览（qihebox:// 协议，支持 Range）
+- 崩溃自愈：渲染进程崩溃自动 reload、元数据损坏自动备份
 
-## 快速开始
+## 开发
 
-详细功能与架构说明请阅读：
-
-- [本地文件管理项目.md](本地文件管理项目.md)
-- [BUILD.md](BUILD.md)
-- [CHANGELOG.md](CHANGELOG.md)
-
-官网与下载：
-
-- `https://www.qihebook.cloud/box/`：ERP 与文件管理器介绍、下载入口（源码 `web-tools/`）
-- `https://www.qihebook.cloud/license-api/`：文件管理器授权服务 API（源码 `license-server/`）
-
-## 构建
+环境要求：Node.js 20+（Electron 43 建议 Node 22+）
 
 ```bash
-# 开发模式
-wails dev
+npm install          # 安装依赖（.npmrc 已配置国内镜像加速）
 
-# 构建 Windows 可执行文件
-wails build -platform windows/amd64
-
-# 构建 Windows 安装包（需要 NSIS）
-wails build -platform windows/amd64 -nsis
+npm run dev          # 开发模式（热更新 + 应用窗口）
+npm test             # 单元测试（vitest，core 层 24 用例）
+npm run test:e2e     # 端到端测试（Playwright _electron，11 用例）
+npm run bench        # 性能基准 → docs/PERF.md
+npm run build        # 构建三段产物到 out/
+npm run build:linux  # 打包 Linux（AppImage + deb）
+npm run build:win    # 打包 Windows（NSIS，需在 Windows/CI 构建）
 ```
 
-构建前如需更新图标，请先运行：
+## 打包产物
 
-```bash
-pip install Pillow
-python scripts/render_logo.py
-```
+| 平台 | 产物 | 目标体积 |
+|---|---|---|
+| Linux | `release/启禾文件管理-2.0.0.AppImage` / `.deb` | ≤ 90MB |
+| Windows | `release/启禾文件管理 Setup 2.0.0.exe`（NSIS） | ≤ 65MB |
 
-## 目录结构
+## 数据兼容性
+
+工作区数据格式与 v1.x（Wails 版）完全兼容：`config.json` / `metadata.json` / `product_sets.json` / `.thumbnails/` 哈希路径结构不变，旧工作区**零迁移直接打开**。
+
+## 目录说明
 
 ```
 .
-├── build/                  # 构建产物与图标
-├── frontend/               # SolidJS + Tailwind 前端
-├── internal/               # 内部包（含 license 开源免授权兼容模块）
-├── scripts/                # 图标生成等辅助脚本
-├── app.go                  # 应用生命周期、系统托盘
-├── files.go                # 文件操作
-├── metadata.go             # 元数据管理
-├── search.go               # 搜索
-├── dashboard.go            # 仪表盘
-├── workspace.go            # 工作区与产品集/SKU 管理
-├── xlsx.go                 # XLSX 模板与批量导入
-└── ...
+├── src/main/        # 主进程（TS，业务在 core/ 与 electron 解耦）
+├── src/preload/     # 预加载（contextBridge）
+├── src/renderer/    # SolidJS 前端（原 frontend/ 迁入）
+├── tests/
+│   ├── unit/        # vitest 单测（core 层）
+│   ├── bench/       # 性能基准
+│   └── e2e/         # Playwright _electron
+├── docs/            # PERF.md 性能基线等
+└── scripts/         # 辅助脚本
 ```
 
 ## 许可证

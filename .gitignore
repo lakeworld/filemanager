@@ -7,7 +7,6 @@ out/
 src/renderer/dist/
 
 # Packaged apps (electron-builder)
-dist/
 release/
 
 # Test / debug
@@ -35,16 +34,5 @@ desktop.ini
 .env
 .env.*
 
-# --- 遗留 Wails 产物（迁移完成后清理） ---
-build/bin/
-build/certmanager
-build/windows/installer/tmp/
+# 官网静态站点构建产物
 web-tools/dist/
-web-tools/node_modules/
-.venv/
-downloads/*.exe
-downloads/*.zip
-downloads/*.crt
-certs/
-internal/updater/*.exe
-license-server/

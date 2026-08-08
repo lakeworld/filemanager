@@ -1,0 +1,49 @@
+# 打包配置（electron-builder）
+# Linux: AppImage + deb（本机 Deepin 构建验证）
+# Windows: NSIS 安装包 + 便携 exe（配置就绪，Windows/CI 构建）
+appId: com.qihe.filemanager
+productName: 启禾文件管理
+copyright: Copyright © 2026 启禾软件
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+  - build/trayicon.png
+  - build/appicon.png
+
+# asar + maximum 压缩：体积优化
+asar: true
+compression: maximum
+
+# 精简 Chromium 语言包（只留中文+英文，省 ~20MB）
+electronLanguages:
+  - zh-CN
+  - en-US
+
+# sharp 为 N-API 模块，无需 rebuild；跳过以加速构建
+npmRebuild: false
+
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: build/appicon.png
+  category: Office
+  maintainer: 启禾软件 <dev@qihe.local>
+  synopsis: 电商产品图包与证书管理工具
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/windows/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: 启禾文件管理
