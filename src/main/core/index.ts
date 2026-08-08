@@ -12,7 +12,8 @@ import { FilesService, ThumbnailProvider } from './files'
 import { DashboardService } from './dashboard'
 import { SearchService } from './search'
 import { XlsxService } from './xlsx'
-import { PRODUCT_SETS_DIR } from './paths'
+import { PRODUCT_SETS_DIR, isPathInsideWorkspace, classifyFileType } from './paths'
+import { TagService } from './tags'
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 
@@ -23,6 +24,7 @@ export class BoxService {
   dashboard: DashboardService
   search: SearchService
   xlsx: XlsxService
+  tags: TagService
   private thumbs: ThumbnailProvider
 
   constructor(thumbs: ThumbnailProvider, workspace?: WorkspaceService) {
@@ -32,6 +34,7 @@ export class BoxService {
     this.dashboard = new DashboardService(this.workspace, this.metadata, this.files)
     this.search = new SearchService(this.workspace, this.files)
     this.xlsx = new XlsxService(this.workspace)
+    this.tags = new TagService(this.workspace, this.metadata)
     this.thumbs = thumbs
   }
 
@@ -52,5 +55,14 @@ export class BoxService {
     await this.thumbs.removeThumbnailsInDir(dir)
     await this.workspace.productSetDelete(name)
     await this.metadata.removeFileMetadataForProductSet(name.trim())
+  }
+
+  /** 确保图片缩略图存在（缺失自动生成，mtime 命中直接返回），返回缩略图路径 */
+  async ensureThumbnailFor(filePath: string): Promise<string> {
+    const ws = this.workspace.currentWorkspacePath()
+    if (!ws) throw new Error('未打开工作区')
+    if (!isPathInsideWorkspace(ws, filePath)) throw new Error('只能访问工作区内的文件')
+    if (classifyFileType(filePath) !== 'image') return ''
+    return this.thumbs.ensureThumbnail(filePath)
   }
 }

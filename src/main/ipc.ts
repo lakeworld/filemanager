@@ -2,7 +2,8 @@
  * IPC 注册层：薄壳，只做参数透传与 ApiResult 包装（无业务逻辑）。
  * 业务全部在 core/（BoxService），保证可测性。
  */
-import { ipcMain, dialog, app, BrowserWindow } from 'electron'
+import { ipcMain, dialog, app, BrowserWindow, clipboard as electronClipboard, nativeImage } from 'electron'
+import path from 'node:path'
 import { BoxService } from './core'
 import { copyFilesToClipboard } from './clipboard'
 import { showFilesInExplorer } from './explorer'
@@ -126,6 +127,30 @@ export function registerIpc(box: BoxService): void {
   ipcMain.handle('qihebox:files:createSubfolder', (_e, req) => handle(() => box.files.createSubfolder(req)))
   ipcMain.handle('qihebox:files:deleteSubfolder', (_e, req) => handle(() => box.files.deleteSubfolder(req)))
   ipcMain.handle('qihebox:files:dataUrl', (_e, filePath: string) => handle(() => box.files.getFileDataUrl(filePath)))
+  ipcMain.handle('qihebox:files:ensureThumbnail', (_e, filePath: string) =>
+    handle(() => box.ensureThumbnailFor(filePath)),
+  )
+  ipcMain.handle('qihebox:files:copyPaths', (_e, paths: string[]) =>
+    handle(() => {
+      if (!paths || paths.length === 0) throw new Error('没有选择文件')
+      electronClipboard.writeText(paths.join('\n'))
+    }),
+  )
+  ipcMain.handle('qihebox:files:startDrag', (e, paths: string[]) =>
+    handle(() => {
+      const ws = box.workspace.currentWorkspacePath()
+      if (!ws) throw new Error('未打开工作区')
+      if (!paths || paths.length === 0) throw new Error('没有选择文件')
+      for (const p of paths) {
+        if (!isPathInsideWorkspace(ws, p)) throw new Error('只能拖出工作区内的文件')
+      }
+      const win = BrowserWindow.fromWebContents(e.sender)
+      if (!win) throw new Error('窗口不存在')
+      const icon = nativeImage.createFromPath(path.join(app.getAppPath(), 'build/logo.png'))
+      // 原生文件拖出（files 支持多文件，覆盖 file 字段）
+      win.webContents.startDrag({ files: paths, icon })
+    }),
+  )
   ipcMain.handle('qihebox:files:workspaceUrl', (_e, filePath: string) =>
     handle(() => box.files.resolveWorkspaceFile(filePath).then(() => workspaceFileUrl(filePath))),
   )
@@ -149,6 +174,16 @@ export function registerIpc(box: BoxService): void {
   ipcMain.handle('qihebox:dashboard:expiringCerts', () => handle(() => box.dashboard.checkExpiringCerts()))
   ipcMain.handle('qihebox:search', (_e, query: string) => handle(() => box.search.search(query)))
   ipcMain.handle('qihebox:csvTemplate', () => handle(() => csvTemplate()))
+
+  // —— 标签 ——
+  ipcMain.handle('qihebox:tags:list', () => handle(() => box.tags.list()))
+  ipcMain.handle('qihebox:tags:setColor', (_e, name: string, color: string) =>
+    handle(() => box.tags.setColor(name, color)),
+  )
+  ipcMain.handle('qihebox:tags:rename', (_e, oldName: string, newName: string) =>
+    handle(() => box.tags.rename(oldName, newName)),
+  )
+  ipcMain.handle('qihebox:tags:delete', (_e, name: string) => handle(() => box.tags.delete(name)))
 
   // —— XLSX ——
   ipcMain.handle('qihebox:xlsx:exportTemplate', (_e, p: string) => handle(() => box.xlsxExportTemplate(p)))

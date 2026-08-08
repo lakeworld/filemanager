@@ -121,9 +121,11 @@ test.describe('qihe-box e2e', () => {
     expect(listRes.data).toHaveLength(1)
     const entry = listRes.data[0]
 
-    // 缩略图文件真实生成（sharp 在主进程工作）
-    expect(entry.thumbnail_path).toBeTruthy()
-    await expect(fsp.stat(entry.thumbnail_path)).resolves.toBeTruthy()
+    // 缩略图：ensureThumbnail 返回路径（缺失自动生成）
+    const thumbRes = await page.evaluate(async (p) => (window as any).qihebox.files.ensureThumbnail(p), entry.path)
+    expect(thumbRes.success).toBe(true)
+    expect(thumbRes.data).toBeTruthy()
+    await expect(fsp.stat(thumbRes.data)).resolves.toBeTruthy()
 
     // 文件 URL → qihebox:// 协议
     const urlRes = await page.evaluate(async (p) => (window as any).qihebox.files.workspaceUrl(p), entry.path)
@@ -139,7 +141,7 @@ test.describe('qihe-box e2e', () => {
     expect(imgResp.type).toContain('image/png')
 
     // 协议加载缩略图
-    const thumbUrlRes = await page.evaluate(async (p) => (window as any).qihebox.files.workspaceUrl(p), entry.thumbnail_path)
+    const thumbUrlRes = await page.evaluate(async (p) => (window as any).qihebox.files.workspaceUrl(p), thumbRes.data)
     const thumbResp = await page.evaluate(async (u) => {
       const r = await fetch(u)
       return { status: r.status, type: r.headers.get('content-type') }

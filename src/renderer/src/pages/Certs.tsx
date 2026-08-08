@@ -10,6 +10,8 @@ import {
 } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
 import FileThumbnail from "~/components/FileThumbnail";
+import ContextMenu from "~/components/ContextMenu";
+import { handleDragOut } from "~/utils/dragout";
 import type { FileEntry, ProductSetInfo } from "~/types";
 
 interface CertItem extends FileEntry {
@@ -264,6 +266,8 @@ export default function Certs() {
             {(cert) => (
               <div
                 class={`card p-4 flex items-center gap-4 cursor-pointer select-none hover:shadow-card-hover transition-all ${selectedPaths().includes(cert.path) ? "border-primary-500 bg-primary-50" : ""}`}
+                draggable={true}
+                onDragStart={(e) => handleDragOut(e, cert.path, selectedPaths())}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ show: true, x: e.clientX, y: e.clientY, path: cert.path });
@@ -271,7 +275,7 @@ export default function Certs() {
                 onClick={() => openPreview(cert, { onDelete: loadAllCerts })}
               >
                 <div class="w-12 h-12 rounded-lg bg-orange-50 flex items-center justify-center text-2xl overflow-hidden shrink-0">
-                  <FileThumbnail path={cert.thumbnail_path} fileType={cert.file_type} class="w-full h-full object-cover" />
+                  <FileThumbnail filePath={cert.path} fileType={cert.file_type} class="w-full h-full object-cover" />
                 </div>
                 <div class="flex-1 min-w-0">
                   <div class="font-medium truncate">{cert.name}</div>
@@ -291,60 +295,60 @@ export default function Certs() {
         </div>
       </Show>
 
-      {/* Context Menu */}
+      {/* Context Menu（统一组件） */}
       <Show when={contextMenu().show}>
-        <div
-          class="fixed z-50 bg-white shadow-lg rounded-lg border border-surface-200 py-1 min-w-[160px]"
-          style={{ left: `${contextMenu().x}px`, top: `${contextMenu().y}px` }}
-        >
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              const cert = items().find((c) => c.path === contextMenu().path);
-              if (cert) openPreview(cert, { onDelete: loadAllCerts });
-              closeContextMenu();
-            }}
-          >
-            👁️ 预览
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              handleCopy([contextMenu().path]);
-              closeContextMenu();
-            }}
-          >
-            📋 复制
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              handleShowInExplorer([contextMenu().path]);
-              closeContextMenu();
-            }}
-          >
-            📂 在文件夹中显示
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              const cert = items().find((c) => c.path === contextMenu().path);
-              if (cert) handleRename(cert);
-              closeContextMenu();
-            }}
-          >
-            ✏️ 重命名
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-            onClick={() => {
-              handleDelete([contextMenu().path]);
-              closeContextMenu();
-            }}
-          >
-            🗑️ 删除
-          </button>
-        </div>
+        <ContextMenu
+          x={contextMenu().x}
+          y={contextMenu().y}
+          onClose={closeContextMenu}
+          items={[
+            {
+              label: "预览",
+              icon: "👁️",
+              action: () => {
+                const cert = items().find((c) => c.path === contextMenu().path);
+                if (cert) openPreview(cert, { onDelete: loadAllCerts });
+              },
+            },
+            {
+              label: "用默认程序打开",
+              icon: "🖥️",
+              action: () => {
+                const cert = items().find((c) => c.path === contextMenu().path);
+                if (cert) void api.files.openWithDefaultApp(cert.path);
+              },
+            },
+            {
+              label: "复制",
+              icon: "📋",
+              action: () => handleCopy([contextMenu().path]),
+            },
+            {
+              label: "复制路径",
+              icon: "🔗",
+              action: () => void api.files.copyPaths([contextMenu().path]),
+            },
+            {
+              label: "在文件夹中显示",
+              icon: "📂",
+              action: () => handleShowInExplorer([contextMenu().path]),
+            },
+            {
+              label: "重命名",
+              icon: "✏️",
+              action: () => {
+                const cert = items().find((c) => c.path === contextMenu().path);
+                if (cert) handleRename(cert);
+              },
+            },
+            {
+              label: "删除",
+              icon: "🗑️",
+              danger: true,
+              action: () => handleDelete([contextMenu().path]),
+            },
+          ]}
+        />
       </Show>
     </div>
   );

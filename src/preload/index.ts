@@ -41,6 +41,9 @@ const api = {
     createSubfolder: (req: unknown) => invoke('qihebox:files:createSubfolder', req),
     deleteSubfolder: (req: unknown) => invoke('qihebox:files:deleteSubfolder', req),
     dataUrl: (filePath: string) => invoke('qihebox:files:dataUrl', filePath),
+    ensureThumbnail: (filePath: string) => invoke('qihebox:files:ensureThumbnail', filePath),
+    copyPaths: (paths: string[]) => invoke('qihebox:files:copyPaths', paths),
+    startDrag: (paths: string[]) => invoke('qihebox:files:startDrag', paths),
     workspaceUrl: (filePath: string) => invoke('qihebox:files:workspaceUrl', filePath),
     openWithDefaultApp: (filePath: string) => invoke('qihebox:files:openWithDefaultApp', filePath),
   },
@@ -55,6 +58,12 @@ const api = {
   },
   search: (query: string) => invoke('qihebox:search', query),
   csvTemplate: () => invoke('qihebox:csvTemplate'),
+  tags: {
+    list: () => invoke('qihebox:tags:list'),
+    setColor: (name: string, color: string) => invoke('qihebox:tags:setColor', name, color),
+    rename: (oldName: string, newName: string) => invoke('qihebox:tags:rename', oldName, newName),
+    delete: (name: string) => invoke('qihebox:tags:delete', name),
+  },
   xlsx: {
     exportTemplate: (path: string) => invoke('qihebox:xlsx:exportTemplate', path),
     import: (path: string) => invoke('qihebox:xlsx:import', path),

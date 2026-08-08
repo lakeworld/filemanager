@@ -4,6 +4,7 @@ import { api } from "~/wails/api";
 import { currentWorkspace, workspaceConfig, loadWorkspaceConfig } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
 import FileThumbnail from "~/components/FileThumbnail";
+import ContextMenu from "~/components/ContextMenu";
 import type { SearchResult, FileEntry, ProductSetInfo } from "~/types";
 
 export default function Search() {
@@ -163,7 +164,7 @@ export default function Search() {
                   }}
                 >
                   <div class="aspect-square rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden mb-2">
-                    <FileThumbnail path={file.thumbnail_path} fileType={file.file_type} />
+                    <FileThumbnail filePath={file.path} fileType={file.file_type} />
                   </div>
                   <div class="text-sm font-medium truncate">{file.name}</div>
                 </div>
@@ -182,61 +183,70 @@ export default function Search() {
 
       {/* Context Menu */}
       <Show when={contextMenu().show && contextMenu().file}>
-        <div
-          class="fixed z-50 bg-white shadow-lg rounded-lg border border-surface-200 py-1 min-w-[160px]"
-          style={{ left: `${contextMenu().x}px`, top: `${contextMenu().y}px` }}
-        >
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              const f = contextMenu().file;
-              if (f) openFilePreview(f);
-              closeContextMenu();
-            }}
-          >
-            👁️ 预览
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              const f = contextMenu().file;
-              if (f) handleCopy([f.path]);
-              closeContextMenu();
-            }}
-          >
-            📋 复制
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              const f = contextMenu().file;
-              if (f) handleShowInExplorer([f.path]);
-              closeContextMenu();
-            }}
-          >
-            📂 在文件夹中显示
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              const f = contextMenu().file;
-              if (f) handleRename(f);
-              closeContextMenu();
-            }}
-          >
-            ✏️ 重命名
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-            onClick={() => {
-              const f = contextMenu().file;
-              if (f) handleDelete([f.path]);
-              closeContextMenu();
-            }}
-          >
-            🗑️ 删除
-          </button>
-        </div>
+        <ContextMenu
+          x={contextMenu().x}
+          y={contextMenu().y}
+          onClose={closeContextMenu}
+          items={[
+            {
+              label: "预览",
+              icon: "👁️",
+              action: () => {
+                const f = contextMenu().file;
+                if (f) openFilePreview(f);
+              },
+            },
+            {
+              label: "用默认程序打开",
+              icon: "🖥️",
+              action: () => {
+                const f = contextMenu().file;
+                if (f) void api.files.openWithDefaultApp(f.path);
+              },
+            },
+            {
+              label: "复制",
+              icon: "📋",
+              action: () => {
+                const f = contextMenu().file;
+                if (f) handleCopy([f.path]);
+              },
+            },
+            {
+              label: "复制路径",
+              icon: "🔗",
+              action: () => {
+                const f = contextMenu().file;
+                if (f) void api.files.copyPaths([f.path]);
+              },
+            },
+            {
+              label: "在文件夹中显示",
+              icon: "📂",
+              action: () => {
+                const f = contextMenu().file;
+                if (f) handleShowInExplorer([f.path]);
+              },
+            },
+            {
+              label: "重命名",
+              icon: "✏️",
+              action: () => {
+                const f = contextMenu().file;
+                if (f) handleRename(f);
+              },
+            },
+            {
+              label: "删除",
+              icon: "🗑️",
+              danger: true,
+              action: () => {
+                const f = contextMenu().file;
+                if (f) handleDelete([f.path]);
+              },
+            },
+          ]}
+        />
       </Show>
     </div>
   );

@@ -17,6 +17,7 @@ export const IMAGES_DIR = '图包'
 export const CERTS_DIR = '证书'
 export const EXPORTS_DIR = '导出'
 export const RECENT_FILE = '.qihefilemanager_recent.json'
+export const TAGS_FILE = 'tags.json'
 export const THUMBNAIL_DIR = '.thumbnails'
 
 export interface NamingTemplate {
@@ -119,8 +120,11 @@ export function isPathInsideWorkspace(workspace: string, filePath: string): bool
 }
 
 // —— 缩略图路径（对照 files.go thumbnailPath：sha256 前 16 字节 hex 前 2 位分桶）——
+// v2.0.1 起 hash 输入改为「相对工作区路径」，跨平台（Win/Linux）一致，
+// 避免旧版绝对路径 hash 在平台切换后缩略图失效（工作区经坚果云双机共享时也能复用）
 export function thumbnailPath(workspace: string, filePath: string): string {
-  const sum = createHash('sha256').update(filePath).digest('hex')
+  const rel = path.relative(path.resolve(workspace), path.resolve(filePath))
+  const sum = createHash('sha256').update(rel).digest('hex')
   const key = sum.slice(0, 32) // sha256[:16] 字节 = 32 hex 字符
   const ext = path.extname(filePath).toLowerCase()
   return path.join(cmDir(workspace), THUMBNAIL_DIR, key.slice(0, 2), `${key}${ext}.thumb.jpg`)

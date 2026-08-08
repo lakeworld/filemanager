@@ -32,6 +32,9 @@ interface QiheboxApi {
     createSubfolder: (req: unknown) => Promise<unknown>
     deleteSubfolder: (req: unknown) => Promise<unknown>
     dataUrl: (filePath: string) => Promise<unknown>
+    ensureThumbnail: (filePath: string) => Promise<unknown>
+    copyPaths: (paths: string[]) => Promise<unknown>
+    startDrag: (paths: string[]) => Promise<unknown>
     workspaceUrl: (filePath: string) => Promise<unknown>
     openWithDefaultApp: (filePath: string) => Promise<unknown>
   }
@@ -45,6 +48,12 @@ interface QiheboxApi {
   }
   search: (query: string) => Promise<unknown>
   csvTemplate: () => Promise<unknown>
+  tags: {
+    list: () => Promise<unknown>
+    setColor: (name: string, color: string) => Promise<unknown>
+    rename: (oldName: string, newName: string) => Promise<unknown>
+    delete: (name: string) => Promise<unknown>
+  }
   xlsx: {
     exportTemplate: (path: string) => Promise<unknown>
     import: (path: string) => Promise<unknown>

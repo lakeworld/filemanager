@@ -122,6 +122,12 @@ export interface FileRenameRequest {
   newName: string;
 }
 
+export interface TagInfo {
+  name: string;
+  color: string;
+  count: number;
+}
+
 export interface LicenseInfo {
   license: string;
   email: string;
