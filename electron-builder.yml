@@ -14,6 +14,10 @@ files:
   - package.json
   - build/trayicon.png
   - build/appicon.png
+  # v2.1.2 包瘦身：渲染层已把 pdfjs / @tanstack/solid-virtual 打进 bundle
+  # （pdf.worker 也已复制到 renderer assets），node_modules 里的 101MB pdfjs-dist 是死重，排除
+  - '!node_modules/pdfjs-dist/**'
+  - '!node_modules/@tanstack/**'
 
 # asar + maximum 压缩：体积优化
 asar: true
