@@ -113,4 +113,49 @@ describe('工作区全链路（对照原 app_test.go）', () => {
     const store = await box.metadata.loadMetadataStore()
     expect(Object.keys(store.files)).toHaveLength(0)
   })
+
+  // —— v2.2.1：子文件夹重命名 + 同步迁移已有产品集 ——
+  it('子文件夹重命名：迁移所有产品集目录 + 更新配置', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    await box.workspace.productSetCreate({ name: '系列B' })
+
+    const cfg = await box.workspace.renameSubfolder('image', '主图', '场景图')
+    expect(cfg.image_subfolders).toContain('场景图')
+    expect(cfg.image_subfolders).not.toContain('主图')
+
+    // 两个产品集的图包目录都已迁移
+    for (const ps of ['系列A', '系列B']) {
+      const oldDir = path.join(ws, '产品集', ps, '图包', '主图')
+      await expect(fsp.stat(oldDir)).rejects.toThrow()
+      const newDir = path.join(ws, '产品集', ps, '图包', '场景图')
+      expect((await fsp.stat(newDir)).isDirectory()).toBe(true)
+    }
+    // 证书目录不受影响
+    const certDir = path.join(ws, '产品集', '系列A', '证书', '3C')
+    expect((await fsp.stat(certDir)).isDirectory()).toBe(true)
+  })
+
+  it('子文件夹重命名：重名拒绝 + 不存在的旧名拒绝 + 幂等', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+
+    // 重名拒绝
+    await expect(box.workspace.renameSubfolder('image', '主图', '详情页')).rejects.toThrow('已存在')
+    // 旧名不存在拒绝
+    await expect(box.workspace.renameSubfolder('image', '不存在的', '新名')).rejects.toThrow('不存在')
+    // 同名（old === new）幂等返回
+    const cfg = await box.workspace.renameSubfolder('image', '主图', '主图')
+    expect(cfg.image_subfolders).toContain('主图')
+    // 未建子目录的产品集不报错（源不存在跳过）
+    await box.workspace.productSetCreate({ name: '空集' })
+    const cfg2 = await box.workspace.renameSubfolder('cert', '3C', 'CCC')
+    expect(cfg2.cert_subfolders).toContain('CCC')
+  })
 })

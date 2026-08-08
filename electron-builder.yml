@@ -14,6 +14,8 @@ files:
   - package.json
   - build/trayicon.png
   - build/appicon.png
+  - build/logo.png
+  # v2.2.1：logo.png 用于 startDrag 拖拽图标，缺失则安装版拖拽失败（打包回归）
   # v2.1.2 包瘦身：渲染层已把 pdfjs / @tanstack/solid-virtual 打进 bundle
   # （pdf.worker 也已复制到 renderer assets），node_modules 里的 101MB pdfjs-dist 是死重，排除
   - '!node_modules/pdfjs-dist/**'
@@ -46,10 +48,14 @@ linux:
   synopsis: 电商产品图包与证书管理工具
   # v2.1.1 进程瘦身：去 zygote（-3 进程 -118MB）+ 禁用 GPU（Deepin 软件渲染纯开销，-117MB）。
   # 参数必须为启动参数（appendSwitch 运行时设置不生效）；仅 Linux 生效（Windows 无 zygote 且保留 GPU 加速）。
+  # v2.2.1：V8 半空间调小（长期运行更快归还 OS 内存）；--in-process-gpu 并入主进程省 GPU 空壳进程。
+  #        注：--js-flags / in-process-gpu 需打包版实测，若启动崩溃则回退移除。
   executableArgs:
     - --no-zygote
     - --no-sandbox
     - --disable-gpu
+    - --in-process-gpu
+    - --js-flags=--max-old-space-size=2048 --max-semi-space-size=32
 
 win:
   target:

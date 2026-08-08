@@ -78,6 +78,82 @@ export default function Settings() {
     }));
   };
 
+  // —— v2.2.1：子文件夹重命名（立即生效并同步迁移所有已有产品集）——
+  const [renamingFolder, setRenamingFolder] = createSignal<{ type: "image" | "cert"; oldName: string } | null>(null);
+  const [subfolderRenameValue, setSubfolderRenameValue] = createSignal("");
+  const [renameError, setRenameError] = createSignal("");
+
+  const startRename = (type: "image" | "cert", oldName: string) => {
+    setRenamingFolder({ type, oldName });
+    setSubfolderRenameValue(oldName);
+    setRenameError("");
+  };
+
+  const cancelRename = () => {
+    setRenamingFolder(null);
+    setSubfolderRenameValue("");
+    setRenameError("");
+  };
+
+  const confirmRename = async () => {
+    const target = renamingFolder();
+    if (!target) return;
+    const newName = subfolderRenameValue().trim();
+    if (!newName) {
+      setRenameError("名称不能为空");
+      return;
+    }
+    const r = await api.workspace.renameSubfolder(target.type, target.oldName, newName);
+    if (r.success && r.data) {
+      setConfig(r.data);
+      await loadWorkspaceConfig();
+      cancelRename();
+    } else {
+      setRenameError(r.error || "重命名失败");
+    }
+  };
+
+  /** 子文件夹 chip（图包/证书通用）：名称 + ✎重命名 + ✕删除；重命名中变输入框 */
+  const SubfolderChip = (props: {
+    name: string;
+    type: "image" | "cert";
+    onRemove: (index: number) => void;
+    index: number;
+  }) => {
+    const isRenaming = () => renamingFolder()?.type === props.type && renamingFolder()?.oldName === props.name;
+    return (
+      <Show
+        when={!isRenaming()}
+        fallback={
+          <span class="inline-flex items-center gap-1 px-3 py-1.5 bg-surface-100 rounded-lg text-sm">
+            <input
+              class="w-32 px-1.5 py-0.5 border border-primary-300 rounded text-sm focus:outline-none"
+              value={subfolderRenameValue()}
+              autofocus
+              onInput={(e) => setSubfolderRenameValue(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void confirmRename();
+                if (e.key === "Escape") cancelRename();
+              }}
+            />
+            <button class="text-primary-600 hover:text-primary-700 text-xs" onClick={() => void confirmRename()}>✓</button>
+            <button class="text-surface-400 hover:text-surface-600 text-xs" onClick={cancelRename}>✕</button>
+          </span>
+        }
+      >
+        <span class="inline-flex items-center gap-1 px-3 py-1.5 bg-surface-100 rounded-lg text-sm">
+          <span>{props.name}</span>
+          <button class="text-surface-400 hover:text-primary-600 ml-0.5" title="重命名（同步所有产品集）" onClick={() => startRename(props.type, props.name)}>
+            ✎
+          </button>
+          <button class="text-surface-400 hover:text-red-500 ml-0.5" onClick={() => props.onRemove(props.index)}>
+            ✕
+          </button>
+        </span>
+      </Show>
+    );
+  };
+
   const updateNamingField = (field: keyof WorkspaceConfig["naming_template"], value: string) => {
     setConfig((prev) => ({
       ...prev,
@@ -430,15 +506,7 @@ export default function Settings() {
             <div class="flex flex-wrap gap-2">
               <For each={config().image_subfolders}>
                 {(folder, index) => (
-                  <div class="flex items-center gap-1 px-3 py-1.5 bg-surface-100 rounded-lg text-sm">
-                    <span>{folder}</span>
-                    <button
-                      class="text-surface-400 hover:text-red-500 ml-1"
-                      onClick={() => removeImageFolder(index())}
-                    >
-                      ✕
-                    </button>
-                  </div>
+                  <SubfolderChip name={folder} type="image" index={index()} onRemove={removeImageFolder} />
                 )}
               </For>
             </div>
@@ -463,18 +531,13 @@ export default function Settings() {
             <div class="flex flex-wrap gap-2">
               <For each={config().cert_subfolders}>
                 {(folder, index) => (
-                  <div class="flex items-center gap-1 px-3 py-1.5 bg-surface-100 rounded-lg text-sm">
-                    <span>{folder}</span>
-                    <button
-                      class="text-surface-400 hover:text-red-500 ml-1"
-                      onClick={() => removeCertFolder(index())}
-                    >
-                      ✕
-                    </button>
-                  </div>
+                  <SubfolderChip name={folder} type="cert" index={index()} onRemove={removeCertFolder} />
                 )}
               </For>
             </div>
+            <Show when={renameError()}>
+              <div class="mt-2 text-sm text-red-600">{renameError()}</div>
+            </Show>
           </div>
 
           <div class="flex items-center gap-4">

@@ -37,8 +37,10 @@ export function currentTimeString(): string {
 }
 
 export class MetadataService {
-  /** 内存缓存：按工作区路径缓存 store，避免大 metadata.json 反复全量解析 */
+  /** 内存缓存：按工作区路径缓存 store，避免大 metadata.json 反复全量解析。
+   *  v2.2.1：LRU 上限 3 个工作区，防长期运行无界增长 */
   private cache = new Map<string, MetadataStore>()
+  private readonly CACHE_MAX = 3
 
   constructor(private workspace: WorkspaceService) {}
 
@@ -52,8 +54,17 @@ export class MetadataService {
   async loadMetadataStore(ws?: string): Promise<MetadataStore> {
     const w = ws ?? this.requireWS()
     const hit = this.cache.get(w)
-    if (hit) return hit
+    if (hit) {
+      // LRU 触摸：移到末尾
+      this.cache.delete(w)
+      this.cache.set(w, hit)
+      return hit
+    }
     const store = await this.readFromDisk(w)
+    if (this.cache.size >= this.CACHE_MAX) {
+      const oldest = this.cache.keys().next().value
+      if (oldest !== undefined) this.cache.delete(oldest)
+    }
     this.cache.set(w, store)
     return store
   }
