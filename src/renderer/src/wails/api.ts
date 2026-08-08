@@ -85,9 +85,6 @@ export const api = {
     openWithDefaultApp: (path: string) =>
       qb.files.openWithDefaultApp(path) as Promise<ApiResult<boolean>>,
   },
-  preview: {
-    open: (filePath: string) => qb.preview.open(filePath) as Promise<ApiResult<boolean>>,
-  },
   metadata: {
     get: (productSet: string, fileName: string) =>
       qb.metadata.get(productSet, fileName) as Promise<ApiResult<FileMetadata>>,
