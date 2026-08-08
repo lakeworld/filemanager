@@ -1,5 +1,10 @@
 # 更新日志
 
+## v2.1.2 — 2026-08-08（包瘦身）
+
+- **安装包 -10%**：pdfjs-dist（101MB）实际进包的 39MB 全部排除——渲染层已把它打进 bundle（worker 复制到 assets），node_modules 里是死重。asar 68MB → 29MB（-57%），deb/AppImage 137MB → **124MB**，Windows zip 同步减小
+- 验证：安装版冒烟全绿（PDF 预览 bundle 加载正常、缩略图 36/36、4 进程）
+
 ## v2.1.1 — 2026-08-08（进程瘦身）
 
 ### 进程合并（7 → 4，总内存 ~800MB → ~600MB）
