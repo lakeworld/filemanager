@@ -3,9 +3,12 @@ import { useParams, useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { workspaceConfig, loadWorkspaceConfig, currentWorkspace, fileBrowserRefreshTrigger } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
+import { requireLogin } from "~/stores/account";
+import { loadTagDefs, tagList } from "~/stores/tags";
 import FileThumbnail from "~/components/FileThumbnail";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
+import AiSuggestionPanel, { AiPanelItem } from "~/components/AiSuggestionPanel";
 import { handleDragOut } from "~/utils/dragout";
 import type { FileEntry } from "~/types";
 
@@ -31,6 +34,8 @@ export default function FileBrowser() {
     paths: string[];
   }>({ show: false, x: 0, y: 0, paths: [] });
   const [actionMessage, setActionMessage] = createSignal("");
+  const [aiPanel, setAiPanel] = createSignal<{ mode: "rename" | "tag"; items: AiPanelItem[] } | null>(null);
+  const [aiBusy, setAiBusy] = createSignal(false);
 
   const showActionMessage = (msg: string) => {
     setActionMessage(msg);
@@ -40,6 +45,7 @@ export default function FileBrowser() {
   createEffect(() => {
     if (currentWorkspace()) {
       loadWorkspaceConfig();
+      loadTagDefs();
     }
   });
 
@@ -220,6 +226,130 @@ export default function FileBrowser() {
 
   const handleEditMetadata = (file: FileEntry) => {
     openPreview(file, { productSet: decodedProductSet(), editMetadata: true, onDelete: loadFiles });
+  };
+
+  // —— v2.2.0：AI 智能整理（命名 / 打标）——
+
+  const aiSelectedNames = () => {
+    const paths = selectedFilePaths().length > 0 ? selectedFilePaths() : (contextMenu().paths ?? []);
+    const byPath = new Map(files().map((f) => [f.path, f]));
+    const names: string[] = [];
+    for (const p of paths) {
+      const f = byPath.get(p);
+      if (f) names.push(f.name);
+    }
+    return names;
+  };
+
+  const handleAiRename = async () => {
+    if (!requireLogin()) return;
+    const names = aiSelectedNames();
+    if (names.length === 0) return;
+    setAiBusy(true);
+    const r = await api.ai.call("rename", {
+      files: names,
+      template: workspaceConfig()?.naming_template ?? {},
+      product_set: productSetDisplayName(),
+    });
+    setAiBusy(false);
+    if (!r.success || !r.data) {
+      window.alert(r.error || "AI 命名失败，请稍后重试");
+      return;
+    }
+    const suggestions = (r.data as { suggestions?: { original: string; suggested: string; note?: string }[] })?.suggestions ?? [];
+    if (suggestions.length === 0) {
+      window.alert("AI 没有返回命名建议，请重试");
+      return;
+    }
+    setAiPanel({ mode: "rename", items: suggestions });
+  };
+
+  const handleAiTag = async () => {
+    if (!requireLogin()) return;
+    const names = aiSelectedNames();
+    if (names.length === 0) return;
+    await loadTagDefs();
+    setAiBusy(true);
+    const r = await api.ai.call("tag", {
+      files: names,
+      existing_tags: tagList().map((t) => t.name),
+    });
+    setAiBusy(false);
+    if (!r.success || !r.data) {
+      window.alert(r.error || "AI 打标失败，请稍后重试");
+      return;
+    }
+    const suggestions = (r.data as { suggestions?: { file: string; tags: string[] }[] })?.suggestions ?? [];
+    if (suggestions.length === 0) {
+      window.alert("AI 没有返回标签建议，请重试");
+      return;
+    }
+    setAiPanel({
+      mode: "tag",
+      items: suggestions.map((s) => ({ original: s.file, tags: s.tags })),
+    });
+  };
+
+  const applyAiRename = async (selected: number[]) => {
+    const panel = aiPanel();
+    if (!panel) return;
+    let applied = 0;
+    let failed = 0;
+    for (const i of selected) {
+      const item = panel.items[i];
+      if (!item.suggested || item.suggested === item.original) continue;
+      const file = files().find((f) => f.name === item.original);
+      if (!file) continue;
+      const r = await api.files.rename({ path: file.path, newName: item.suggested });
+      if (r.success) {
+        applied++;
+      } else {
+        failed++;
+        window.alert(`「${item.original}」重命名失败：${r.error ?? "未知错误"}`);
+      }
+    }
+    setAiPanel(null);
+    setSelectedFilePaths([]);
+    loadFiles();
+    showActionMessage(
+      applied > 0 ? `AI 命名完成：成功 ${applied} 项${failed ? `，失败 ${failed} 项` : ""}` : "没有可应用的命名建议",
+    );
+  };
+
+  const applyAiTag = async (selected: number[]) => {
+    const panel = aiPanel();
+    if (!panel) return;
+    const ps = decodedProductSet();
+    let applied = 0;
+    let failed = 0;
+    for (const i of selected) {
+      const item = panel.items[i];
+      if (!item.tags || item.tags.length === 0) continue;
+      const file = files().find((f) => f.name === item.original);
+      if (!file) continue;
+      const meta = await api.metadata.get(ps, file.name);
+      const current = meta.success && meta.data ? meta.data : { cert_type: "", expiry_date: "", tags: [] as string[], notes: "" };
+      const merged = Array.from(new Set([...(current.tags ?? []), ...item.tags]));
+      const r = await api.metadata.update({
+        product_set: ps,
+        file_name: file.name,
+        cert_type: current.cert_type ?? "",
+        expiry_date: current.expiry_date ?? "",
+        tags: merged,
+        notes: current.notes ?? "",
+      });
+      if (r.success) {
+        applied++;
+      } else {
+        failed++;
+        window.alert(`「${item.original}」打标失败：${r.error ?? "未知错误"}`);
+      }
+    }
+    setAiPanel(null);
+    loadFiles();
+    showActionMessage(
+      applied > 0 ? `AI 打标完成：成功 ${applied} 项${failed ? `，失败 ${failed} 项` : ""}` : "没有可应用的标签建议",
+    );
   };
 
   return (
@@ -414,6 +544,18 @@ export default function FileBrowser() {
               },
             },
             {
+              label: "AI 命名",
+              icon: "🤖",
+              show: contextMenu().paths.length >= 1,
+              action: () => void handleAiRename(),
+            },
+            {
+              label: "AI 打标",
+              icon: "🏷️",
+              show: contextMenu().paths.length >= 1,
+              action: () => void handleAiTag(),
+            },
+            {
               label: "复制",
               icon: "📋",
               action: () => handleCopyPaths(contextMenu().paths),
@@ -444,6 +586,17 @@ export default function FileBrowser() {
               action: () => handleDelete(contextMenu().paths),
             },
           ]}
+        />
+      </Show>
+
+      {/* AI 建议面板（v2.2.0） */}
+      <Show when={aiPanel()}>
+        <AiSuggestionPanel
+          title={aiPanel()!.mode === "rename" ? "AI 批量命名" : "AI 标签建议"}
+          mode={aiPanel()!.mode}
+          items={aiPanel()!.items}
+          onApply={aiPanel()!.mode === "rename" ? applyAiRename : applyAiTag}
+          onClose={() => setAiPanel(null)}
         />
       </Show>
     </div>

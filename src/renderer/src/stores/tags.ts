@@ -5,7 +5,7 @@ import type { TagInfo } from "~/types";
 /** 标签定义缓存：name → { color, parent }（v2.0.2 含层级） */
 const [tagMeta, setTagMeta] = createSignal<Record<string, { color: string; parent: string | null }>>({});
 /** 完整标签列表（含 children，供打标选择器分组） */
-const [tagList, setTagList] = createSignal<TagInfo[]>([]);
+export const [tagList, setTagList] = createSignal<TagInfo[]>([]);
 
 export const DEFAULT_TAG_COLOR = "#94a3b8";
 
