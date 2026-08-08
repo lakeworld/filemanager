@@ -11,6 +11,8 @@ import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 interface PdfPreviewProps {
   url: string;
   onError?: (msg: string) => void;
+  /** v2.2.0：PDF 加载完成后提供文本提取函数（供 AI 证书抽取；只取文本不上传图片） */
+  onTextExtract?: (extract: () => Promise<string>) => void;
 }
 
 export default function PdfPreview(props: PdfPreviewProps) {
@@ -44,6 +46,27 @@ export default function PdfPreview(props: PdfPreviewProps) {
     renderTask = null
   }
 
+  // v2.2.0：惰性提取 PDF 文本（前 5 页，2 万字符上限），供 AI 证书抽取使用
+  const extractText = async (): Promise<string> => {
+    if (!doc) return "";
+    try {
+      const parts: string[] = [];
+      const maxPages = Math.min(doc.numPages, 5);
+      for (let i = 1; i <= maxPages; i++) {
+        const page = await doc.getPage(i);
+        const tc = await page.getTextContent();
+        const str = (tc.items as { str?: string }[])
+          .map((it) => (typeof it.str === "string" ? it.str : ""))
+          .join(" ");
+        parts.push(str);
+        if (parts.join("\n").length > 12000) break;
+      }
+      return parts.join("\n").slice(0, 20000);
+    } catch {
+      return "";
+    }
+  };
+
   onMount(async () => {
     try {
       setLoading(true)
@@ -59,6 +82,7 @@ export default function PdfPreview(props: PdfPreviewProps) {
       const loadingTask = pdfjs.getDocument({ data: buf })
       doc = await loadingTask.promise
       setNumPages(doc.numPages)
+      props.onTextExtract?.(extractText)
       await renderPage(1, scale())
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)

@@ -5,6 +5,7 @@
 import { ipcMain, dialog, app, BrowserWindow, clipboard as electronClipboard, nativeImage } from 'electron'
 import path from 'node:path'
 import { BoxService } from './core'
+import { AccountService } from './account'
 import { copyFilesToClipboard } from './clipboard'
 import { showFilesInExplorer } from './explorer'
 import { workspaceFileUrl, thumbnailFileUrl } from './protocol'
@@ -54,7 +55,17 @@ function csvTemplate(): string {
   return '产品集\n示例产品集\n'
 }
 
-export function registerIpc(box: BoxService): void {
+export function registerIpc(box: BoxService, account: AccountService): void {
+  // —— 账号（v2.2.0：可选登录复用 ERP 账号，解锁 AI；心跳统计活跃）——
+  ipcMain.handle('qihebox:account:status', () => handle(() => account.status()))
+  ipcMain.handle('qihebox:account:login', (_e, email: string, password: string) =>
+    handle(() => account.login(email, password)),
+  )
+  ipcMain.handle('qihebox:account:logout', () => handle(() => account.logout()))
+  ipcMain.handle('qihebox:ai:call', (_e, action: string, payload: unknown) =>
+    handle(() => account.aiCall(action as Parameters<AccountService['aiCall']>[0], payload)),
+  )
+
   // —— 工作区 / 配置 / 产品集 ——
   ipcMain.handle('qihebox:workspace:list', () => handle(() => box.workspace.list()))
   ipcMain.handle('qihebox:workspace:current', () => handle(() => box.workspace.current()))

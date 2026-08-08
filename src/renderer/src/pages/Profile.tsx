@@ -1,13 +1,17 @@
-import { Show, For, createSignal, onCleanup, onMount } from "solid-js";
+import { Show, For, createSignal, onCleanup, onMount, createEffect } from "solid-js";
 import { api } from "~/wails/api";
 import { simpleMarkdownToHtml } from "~/utils/markdown";
+import { accountStatus, loginAccount, logoutAccount } from "~/stores/account";
 import helpMarkdown from "../../../../HELP.md?raw";
 import privacyMarkdown from "../../../../PRIVACY.md?raw";
 import type { UpdateInfo } from "~/types";
 
-type SectionKey = "update" | "help" | "privacy";
+type SectionKey = "account" | "update" | "help" | "privacy";
 
 const icons = {
+  account: (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"/></svg>
+  ),
   update: (
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
   ),
@@ -20,6 +24,7 @@ const icons = {
 };
 
 const menuItems: { key: SectionKey; label: string; desc: string }[] = [
+  { key: "account", label: "账号", desc: "登录解锁 AI 智能整理" },
   { key: "update", label: "检查更新", desc: "版本、下载、自动安装" },
   { key: "help", label: "使用帮助", desc: "功能说明与常见问题" },
   { key: "privacy", label: "隐私协议", desc: "数据与隐私说明" },
@@ -208,6 +213,10 @@ export default function Profile() {
 
           {/* Right content */}
           <div class="min-w-0">
+            <Show when={active() === "account"}>
+              <AccountSection />
+            </Show>
+
             <Show when={active() === "update"}>
               <div class="rounded-2xl border border-surface-200 bg-white p-6 shadow-card">
                 <div class="mb-6 flex items-center justify-between gap-4">
@@ -341,6 +350,145 @@ export default function Profile() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// —— 账号区（v2.2.0：可选登录复用 ERP 账号，解锁 AI 智能整理）——
+
+const AI_FEATURES = [
+  { icon: "✏️", title: "AI 批量命名", desc: "按命名模板批量生成规范文件名" },
+  { icon: "🏷️", title: "AI 标签建议", desc: "按文件名自动推荐现有标签" },
+  { icon: "📄", title: "证书信息抽取", desc: "从证书 PDF 提取名称/编号/有效期" },
+  { icon: "🔍", title: "AI 语义搜索", desc: "自然语言找到你要的文件" },
+];
+
+function AccountSection() {
+  const [email, setEmail] = createSignal("");
+  const [password, setPassword] = createSignal("");
+  const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal("");
+
+  const handleLogin = async () => {
+    const e = email().trim();
+    if (!e || !password()) {
+      setError("请输入邮箱和密码");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    const r = await loginAccount(e, password());
+    if (!r.ok) {
+      setError(r.error ?? "登录失败");
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div class="rounded-2xl border border-surface-200 bg-white p-6 shadow-card">
+      <div class="mb-4 flex items-center gap-2 border-b border-surface-100 pb-4">
+        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-700">{icons.account}</span>
+        <h2 class="text-lg font-semibold text-surface-900">账号</h2>
+      </div>
+
+      <Show
+        when={accountStatus().loggedIn}
+        fallback={
+          <>
+            {/* 试用横幅 */}
+            <div class="rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 px-4 py-3 text-white">
+              <div class="font-semibold">新用户 50 次 AI 免费试用 🎁</div>
+              <div class="mt-0.5 text-xs text-primary-100">
+                登录账号即可使用 AI 批量命名、打标、证书抽取与语义搜索
+              </div>
+            </div>
+
+            {/* AI 功能简介 */}
+            <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <For each={AI_FEATURES}>
+                {(f) => (
+                  <div class="flex items-start gap-3 rounded-xl border border-surface-100 bg-surface-50 p-3">
+                    <span class="text-xl">{f.icon}</span>
+                    <div>
+                      <div class="text-sm font-semibold text-surface-800">{f.title}</div>
+                      <div class="mt-0.5 text-xs text-surface-500">{f.desc}</div>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </div>
+
+            {/* 登录表单 */}
+            <form
+              class="mt-5 space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleLogin();
+              }}
+            >
+              <input
+                type="email"
+                class="w-full rounded-lg border border-surface-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="邮箱"
+                value={email()}
+                onInput={(e) => setEmail(e.currentTarget.value)}
+              />
+              <input
+                type="password"
+                class="w-full rounded-lg border border-surface-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="密码"
+                value={password()}
+                onInput={(e) => setPassword(e.currentTarget.value)}
+              />
+              <Show when={error()}>
+                <div class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error()}</div>
+              </Show>
+              <div class="flex items-center justify-between">
+                <button type="submit" class="btn-primary px-5" disabled={busy()}>
+                  {busy() ? "登录中..." : "登录"}
+                </button>
+                <button
+                  type="button"
+                  class="text-xs text-primary-600 hover:text-primary-700"
+                  onClick={() => window.open("https://www.qihebook.cloud/", "_blank")}
+                >
+                  没有账号？去官网注册 →
+                </button>
+              </div>
+              <p class="text-xs text-surface-400">
+                🔒 AI 仅上传文件名与文本，图片与文件本体永不出本机。
+              </p>
+            </form>
+          </>
+        }
+      >
+        {/* 已登录态 */}
+        <div class="flex items-center gap-4">
+          <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary-600 text-lg font-bold text-white">
+            {(accountStatus().email || "Q").slice(0, 1).toUpperCase()}
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="truncate text-sm font-semibold text-surface-900">{accountStatus().email}</div>
+            <div class="mt-0.5 text-xs text-surface-500">
+              AI 试用剩余 {accountStatus().remaining ?? 50}/50 次
+            </div>
+          </div>
+          <button
+            class="shrink-0 rounded-lg border border-surface-200 px-4 py-2 text-sm text-surface-700 transition hover:bg-surface-50"
+            onClick={() => logoutAccount()}
+          >
+            登出
+          </button>
+        </div>
+        <Show when={accountStatus().sessionExpired}>
+          <div class="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+            登录已过期，请重新登录后继续使用 AI 功能。
+          </div>
+        </Show>
+        <p class="mt-4 text-xs text-surface-400">
+          AI 额度与账号绑定，换设备不重置。试用额度用完后本地功能完全不受影响。
+        </p>
+      </Show>
     </div>
   );
 }
