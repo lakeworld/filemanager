@@ -18,9 +18,12 @@ import { log, initLogger } from './log'
 import {
   createMainWindow,
   getMainWindow,
+  ensureMainWindow,
   windowShow,
   windowHideToTray,
   windowQuit,
+  setWindowCreateHandler,
+  scheduleDestroy,
   setQuitting,
   isQuitting,
 } from './window'
@@ -58,6 +61,9 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 }
+
+// —— v2.3.0 内存压制：frameless 无原生菜单，禁用默认菜单初始化（官方 Performance 清单）——
+Menu.setApplicationMenu(null)
 
 let tray: Tray | null = null
 let rendererCrashes = 0
@@ -109,18 +115,27 @@ function setupCrashRecovery(win: BrowserWindow): void {
   })
 }
 
-// 关闭窗口 → 隐藏到托盘（对照原 Go beforeClose）
+// 关闭窗口 → 隐藏到托盘（对照原 Go beforeClose）；v2.3.0：隐藏后启动销毁倒计时（第三层休眠）
 function setupCloseToTray(win: BrowserWindow): void {
   win.on('close', (e) => {
     if (isQuitting()) return
     e.preventDefault()
+    void log('info', '[sleep] close 事件触发 → 隐藏到托盘 + 销毁倒计时')
     win.hide()
+    scheduleDestroy()
   })
 }
 
 // 系统级退出（托盘退出菜单 / 应用退出）→ 置 quitting 放行窗口关闭
 app.on('before-quit', () => {
   setQuitting(true)
+})
+
+// v2.3.0 分层休眠：窗口被休眠销毁（close → 托盘 → 2 分钟无活跃 → destroy）时，
+// 必须监听 window-all-closed 阻止 Electron 默认退出（Windows/Linux 无监听时全窗口关闭即退出）。
+// 空监听即视为自定义处理：主进程 + 托盘图标常驻，等待托盘点击 / 二次启动重建窗口。
+app.on('window-all-closed', () => {
+  void log('info', '[window] 所有窗口已关闭（休眠态），主进程+托盘常驻等待唤醒')
 })
 
 // —— 账号服务（v2.2.0：可选登录 + AI + 心跳）——
@@ -176,6 +191,15 @@ app.whenReady().then(() => {
     void log('warn', `默认工作区恢复失败: ${String(err)}`)
   })
 
+  // v2.3.0：统一窗口初始化钩子——休眠销毁后的重建（ensureMainWindow）自动带上崩溃自愈与托盘行为
+  setWindowCreateHandler((win) => {
+    setupCrashRecovery(win)
+    setupCloseToTray(win)
+    win.on('closed', () => {
+      void log('info', '[window] 主窗口已销毁（休眠回收或退出）')
+    })
+  })
+
   const win = createMainWindow()
   setupTray()
   setupCrashRecovery(win)
@@ -183,20 +207,23 @@ app.whenReady().then(() => {
 })
 
 app.on('activate', () => {
+  // 休眠销毁窗口后，激活（macOS dock / Linux）即重建
   if (BrowserWindow.getAllWindows().length === 0) {
-    const win = createMainWindow()
-    setupCrashRecovery(win)
-    setupCloseToTray(win)
+    ensureMainWindow()
+  } else {
+    windowShow()
   }
 })
 
-// 二次启动：聚焦已有窗口（替代原 FindWindow/SetForegroundWindow）
+// 二次启动：聚焦已有窗口（替代原 FindWindow/SetForegroundWindow）；窗口被休眠销毁则重建
 app.on('second-instance', () => {
   const win = getMainWindow()
-  if (win) {
+  if (win && !win.isDestroyed()) {
     if (win.isMinimized()) win.restore()
     win.show()
     win.focus()
+  } else {
+    ensureMainWindow()
   }
 })
 

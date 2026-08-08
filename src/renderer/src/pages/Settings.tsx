@@ -236,6 +236,27 @@ export default function Settings() {
     refreshTags();
   };
 
+  // —— v2.3.0：未定义标签（孤儿）治理 ——
+  const orphanTags = () => tags().filter((t) => t.defined === false);
+  const [adoptingOrphan, setAdoptingOrphan] = createSignal<string | null>(null);
+
+  const handleAdopt = async (name: string, color: string) => {
+    const r = await api.tags.adopt(name, color);
+    if (!r.success && r.error) alert(r.error);
+    setAdoptingOrphan(null);
+    await loadTags();
+    refreshTags();
+  };
+
+  const handleRemoveOrphan = async (name: string) => {
+    if (!confirm(`确定清除标签「${name}」的所有引用吗？将从所有文件与产品集中移除。`)) return;
+    const r = await api.tags.delete(name);
+    if (r.success) {
+      await loadTags();
+      refreshTags();
+    }
+  };
+
   return (
     <div class="p-6 max-w-4xl mx-auto">
       <div class="mb-8">
@@ -439,6 +460,57 @@ export default function Settings() {
                     </>
                   )}
                 </For>
+              </div>
+            </Show>
+
+            {/* v2.3.0：未定义标签（孤儿）治理区块 */}
+            <Show when={orphanTags().length > 0}>
+              <div class="mt-4 pt-3 border-t border-surface-100">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-sm font-medium text-surface-600">未定义标签</span>
+                  <span class="text-[11px] text-surface-400">
+                    存在于文件/产品集但未在此定义（历史自由输入或 AI 打标引入），可转为正式标签或清除引用
+                  </span>
+                </div>
+                <div class="space-y-1">
+                  <For each={orphanTags()}>
+                    {(tag) => (
+                      <div class="flex items-center gap-3 py-2 px-3 rounded-lg bg-amber-50/60 hover:bg-amber-50 transition-colors">
+                        <button
+                          class="w-5 h-5 rounded-full shrink-0 cursor-default bg-surface-300 border border-dashed border-surface-400"
+                          title="未定义标签"
+                        />
+                        <span class="text-sm font-medium flex-1 text-amber-800">{tag.name}</span>
+                        <span class="text-xs text-surface-400 shrink-0">{tag.count} 处</span>
+                        <Show when={adoptingOrphan() === tag.name}>
+                          <div class="flex items-center gap-1">
+                            <For each={PALETTE}>
+                              {(c) => (
+                                <button
+                                  class="w-4 h-4 rounded-full"
+                                  style={{ backgroundColor: c }}
+                                  onClick={() => handleAdopt(tag.name, c)}
+                                />
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                        <button
+                          class="text-xs text-surface-500 hover:text-primary-600 shrink-0"
+                          onClick={() => setAdoptingOrphan(adoptingOrphan() === tag.name ? null : tag.name)}
+                        >
+                          {adoptingOrphan() === tag.name ? "取消" : "转为正式标签"}
+                        </button>
+                        <button
+                          class="text-xs text-red-500 hover:text-red-600 shrink-0"
+                          onClick={() => handleRemoveOrphan(tag.name)}
+                        >
+                          清除引用
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </div>
               </div>
             </Show>
           </div>

@@ -118,4 +118,58 @@ describe('标签体系（v2.0.2）', () => {
     const tags = await box.tags.list()
     expect(tags.find((t) => t.name === '新标')?.color).toBe('#abcdef')
   })
+
+  it('孤儿标签：未定义但被引用 → list 返回 defined:false 可治理', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    // 历史自由输入 / AI 打标引入的未定义标签
+    await box.workspace.productSetCreate({ name: '系列A', tags: ['野生标'], notes: '' })
+    await box.metadata.update({ product_set: '系列A', file_name: 'a.jpg', tags: ['野生标', '另一个野生'] })
+
+    const tags = await box.tags.list()
+    const orphan = tags.find((t) => t.name === '野生标')
+    expect(orphan).toBeTruthy()
+    expect(orphan?.defined).toBe(false)
+    expect(orphan?.color).toBe('#94a3b8') // 默认灰
+    expect(orphan?.count).toBe(2)
+    expect(orphan?.parent).toBeNull()
+    const orphan2 = tags.find((t) => t.name === '另一个野生')
+    expect(orphan2?.defined).toBe(false)
+    // 已定义标签不受影响
+    expect(tags.find((t) => t.name === '重要')?.defined).toBe(true)
+  })
+
+  it('adopt 孤儿标签：补定义，引用不动，颜色生效', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A', tags: ['野生标'], notes: '' })
+
+    await box.tags.adopt('野生标', '#ef4444')
+    const tags = await box.tags.list()
+    const t = tags.find((x) => x.name === '野生标')
+    expect(t?.defined).toBe(true)
+    expect(t?.color).toBe('#ef4444')
+    // 引用仍在
+    expect(t?.count).toBe(1)
+    // 未使用标签不可 adopt
+    await expect(box.tags.adopt('不存在的', '#000000')).rejects.toThrow('未被使用')
+  })
+
+  it('delete 孤儿标签：仅清理引用（定义不存在时跳过定义删除）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A', tags: ['野生标'], notes: '' })
+
+    await box.tags.delete('野生标')
+    const tags = await box.tags.list()
+    expect(tags.find((t) => t.name === '野生标')).toBeFalsy()
+    const list = await box.workspace.productSetList()
+    expect(list[0].tags).toEqual([])
+  })
 })

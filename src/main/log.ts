@@ -20,7 +20,9 @@ export function initLogger(): void {
 }
 
 async function getStream(): Promise<fsp.FileHandle | null> {
-  const date = new Date().toISOString().slice(0, 10)
+  // 用本地日期命名日志文件（toISOString 是 UTC，会导致跨时区文件错日）
+  const d = new Date()
+  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   if (stream && currentDate === date) return stream
   try {
     await stream?.close()

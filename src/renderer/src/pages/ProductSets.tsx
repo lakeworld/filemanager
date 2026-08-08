@@ -1,7 +1,7 @@
 import { Show, For, createSignal, createEffect, onMount } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
-import { tagChipStyle, tagLabel } from "~/stores/tags";
+import { tagChipStyle, tagLabel, tagList } from "~/stores/tags";
 import {
   currentWorkspace,
   productSets,
@@ -63,6 +63,10 @@ export default function ProductSets() {
       return name;
     }
   };
+
+  // v2.3.0：已定义标签名集合（自动完成候选 + 孤儿标签警告）
+  const definedTagNames = () => new Set(tagList().flatMap((t) => [t.name, ...(t.children ?? [])]));
+  const tagOptions = () => tagList().flatMap((t) => [t.name, ...(t.children ?? [])]);
 
   createEffect(() => {
     if (currentWorkspace()) {
@@ -295,8 +299,9 @@ export default function ProductSets() {
                       <For each={ps.tags}>
                         {(tag) => (
                           <span
-                            class="text-[10px] px-2 py-0.5 rounded-full text-white"
+                            class={`text-[10px] px-2 py-0.5 rounded-full text-white ${definedTagNames().has(tag) ? "" : "ring-2 ring-amber-400"}`}
                             style={tagChipStyle(tag)}
+                            title={definedTagNames().has(tag) ? undefined : "未在设置中定义，可在设置中转为正式标签"}
                           >
                             {tagLabel(tag)}
                           </span>
@@ -419,13 +424,14 @@ export default function ProductSets() {
               />
             </div>
             <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">标签（用逗号分隔）</label>
+              <label class="block text-sm font-medium text-surface-700 mb-1">标签（用逗号分隔，建议从已定义标签中选择）</label>
               <input
                 type="text"
                 class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="如：客户, 重点"
                 value={newPsTags()}
                 onInput={(e) => setNewPsTags(e.currentTarget.value)}
+                list="ps-tag-autocomplete"
               />
             </div>
             <div class="mb-4">
@@ -452,13 +458,14 @@ export default function ProductSets() {
           <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h2 class="text-xl font-bold mb-4">编辑产品集信息</h2>
             <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">标签（用逗号分隔）</label>
+              <label class="block text-sm font-medium text-surface-700 mb-1">标签（用逗号分隔，建议从已定义标签中选择）</label>
               <input
                 type="text"
                 class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="如：客户, 重点"
                 value={editTags()}
                 onInput={(e) => setEditTags(e.currentTarget.value)}
+                list="ps-tag-autocomplete"
               />
             </div>
             <div class="mb-4">
@@ -506,6 +513,13 @@ export default function ProductSets() {
           </button>
         </div>
       </Show>
+
+      {/* 标签自动完成候选（v2.3.0） */}
+      <datalist id="ps-tag-autocomplete">
+        <For each={tagOptions()}>
+          {(t) => <option value={t} />}
+        </For>
+      </datalist>
     </div>
   );
 }

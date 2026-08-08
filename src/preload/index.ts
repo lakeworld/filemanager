@@ -42,6 +42,7 @@ const api = {
   files: {
     list: (req: unknown) => invoke('qihebox:files:list', req),
     import: (req: unknown) => invoke('qihebox:files:import', req),
+    importCancel: (token: string) => invoke('qihebox:files:importCancel', token),
     delete: (paths: string[]) => invoke('qihebox:files:delete', paths),
     rename: (req: unknown) => invoke('qihebox:files:rename', req),
     copyFilesToClipboard: (paths: string[]) => invoke('qihebox:files:copyFilesToClipboard', paths),
@@ -78,6 +79,7 @@ const api = {
     setColor: (name: string, color: string) => invoke('qihebox:tags:setColor', name, color),
     rename: (oldName: string, newName: string) => invoke('qihebox:tags:rename', oldName, newName),
     delete: (name: string) => invoke('qihebox:tags:delete', name),
+    adopt: (name: string, color: string) => invoke('qihebox:tags:adopt', name, color),
   },
   xlsx: {
     exportTemplate: (path: string) => invoke('qihebox:xlsx:exportTemplate', path),

@@ -1,6 +1,6 @@
 import { Show, For, Switch, Match, createSignal } from "solid-js";
 import { api } from "~/wails/api";
-import { tagChipStyle, tagLabel, topLevelTags } from "~/stores/tags";
+import { tagChipStyle, tagLabel, topLevelTags, tagList } from "~/stores/tags";
 import { requireLogin } from "~/stores/account";
 import { FEATURE_AI } from "~/features";
 import PdfPreview from "~/components/PdfPreview";
@@ -45,6 +45,10 @@ export default function FilePreviewModal() {
   });
 
   const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
+
+  // v2.3.0：已定义标签名集合（自动完成候选 + 孤儿标签警告）
+  const definedTagNames = () => new Set(tagList().flatMap((t) => [t.name, ...(t.children ?? [])]));
+  const tagOptions = () => tagList().flatMap((t) => [t.name, ...(t.children ?? [])]);
 
   // —— v2.2.0：AI 证书信息抽取 ——
   const [extractText, setExtractText] = createSignal<(() => Promise<string>) | null>(null);
@@ -287,7 +291,13 @@ export default function FilePreviewModal() {
                       onInput={(e) => setTagInput(e.currentTarget.value)}
                       onKeyDown={(e) => e.key === "Enter" && addTag(tagInput())}
                       placeholder="输入标签按回车"
+                      list="tag-autocomplete"
                     />
+                    <datalist id="tag-autocomplete">
+                      <For each={tagOptions()}>
+                        {(t) => <option value={t} />}
+                      </For>
+                    </datalist>
                     <button class="btn-secondary px-3 text-sm" onClick={() => addTag(tagInput())}>
                       添加
                     </button>
@@ -296,8 +306,9 @@ export default function FilePreviewModal() {
                     <For each={metadata().tags}>
                       {(tag, index) => (
                         <span
-                          class="inline-flex items-center gap-1 px-2 py-1 text-white rounded text-xs"
+                          class={`inline-flex items-center gap-1 px-2 py-1 text-white rounded text-xs ${definedTagNames().has(tag) ? "" : "ring-2 ring-amber-400"}`}
                           style={tagChipStyle(tag)}
+                          title={definedTagNames().has(tag) ? undefined : "未在设置中定义，可在设置中转为正式标签"}
                         >
                           {tagLabel(tag)}
                           <button class="hover:opacity-80" onClick={() => removeTag(index())}>

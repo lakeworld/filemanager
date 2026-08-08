@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildTestBox } from './helpers'
+import { ImportCancelledError } from '../../src/main/core/files'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -101,6 +102,78 @@ describe('文件导入与命名（对照原 files.go / app_test.go 链路）', (
       sub_folder: '3C',
     })
     expect(imported[0].file_type).toBe('pdf')
+  })
+
+  it('v2.3.0：导入进度回调（done/total 逐项递增）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '进度' })
+
+    const srcs: string[] = []
+    for (let i = 0; i < 3; i++) {
+      const s = path.join(ws, '..', `p-${i}.jpg`)
+      await fsp.writeFile(s, PNG_1PX)
+      srcs.push(s)
+    }
+
+    const progress: Array<{ done: number; total: number }> = []
+    await box.files.importFiles(
+      {
+        source_paths: srcs,
+        target_product_set: '进度',
+        target_folder: '主图',
+        target_type: 'image',
+        sub_folder: '主图',
+      },
+      { onProgress: (done, total) => progress.push({ done, total }) },
+    )
+    expect(progress).toEqual([
+      { done: 1, total: 3 },
+      { done: 2, total: 3 },
+      { done: 3, total: 3 },
+    ])
+  })
+
+  it('v2.3.0：导入取消 → 抛 ImportCancelledError 且已导入部分保留', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '取消' })
+
+    const srcs: string[] = []
+    for (let i = 0; i < 4; i++) {
+      const s = path.join(ws, '..', `c-${i}.jpg`)
+      await fsp.writeFile(s, PNG_1PX)
+      srcs.push(s)
+    }
+
+    let count = 0
+    await expect(
+      box.files.importFiles(
+        {
+          source_paths: srcs,
+          target_product_set: '取消',
+          target_folder: '主图',
+          target_type: 'image',
+          sub_folder: '主图',
+        },
+        {
+          onProgress: () => {
+            count++
+          },
+          // 第 3 个文件复制完成后置位取消
+          isCancelled: () => count >= 2,
+        },
+      ),
+    ).rejects.toBeInstanceOf(ImportCancelledError)
+
+    // 已导入 2 个文件真实落盘
+    const destDir = path.join(ws, '产品集', '取消', '图包', '主图')
+    const files = await fsp.readdir(destDir)
+    expect(files).toHaveLength(2)
   })
 })
 

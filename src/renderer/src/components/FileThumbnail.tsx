@@ -31,6 +31,7 @@ function storeThumbUrl(filePath: string, url: string): void {
 export default function FileThumbnail(props: { filePath: string | null; fileType: string; class?: string }) {
   const [url, setUrl] = createSignal<string | null>(null);
   const [error, setError] = createSignal(false);
+  let imgRef: HTMLImageElement | undefined;
 
   createEffect(() => {
     const fp = props.filePath;
@@ -69,6 +70,9 @@ export default function FileThumbnail(props: { filePath: string | null; fileType
 
     onCleanup(() => {
       cancelled = true;
+      // v2.3.0 内存压制：卸载即释放解码位图（虚拟滚动滚出视口 → 内存只留当前屏）。
+      // URL 保留在 LRU 缓存，重挂载时复用 URL 免重复 IPC，仅重新解码。
+      if (imgRef) imgRef.src = "";
     });
   });
 
@@ -87,6 +91,7 @@ export default function FileThumbnail(props: { filePath: string | null; fileType
       fallback={<span class="text-3xl">{fallbackIcon()}</span>}
     >
       <img
+        ref={imgRef}
         src={url()!}
         class={props.class || "w-full h-full object-cover"}
         alt=""

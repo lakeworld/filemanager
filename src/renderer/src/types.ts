@@ -132,6 +132,8 @@ export interface TagInfo {
   children: string[];
   /** 固定色预设标签（颜色不可改） */
   builtin: boolean;
+  /** v2.3.0：是否已定义；false = 被引用但 tags.json 无定义的「孤儿标签」 */
+  defined?: boolean;
 }
 
 export interface LicenseInfo {

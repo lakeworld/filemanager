@@ -323,14 +323,22 @@ export default function FileBrowser() {
     const ps = decodedProductSet();
     let applied = 0;
     let failed = 0;
+    let skipped = 0;
+    // v2.3.0：AI 建议仅应用已定义标签，未定义者忽略（避免引入孤儿标签）
+    const definedNames = new Set(tagList().flatMap((t) => [t.name, ...(t.children ?? [])]));
     for (const i of selected) {
       const item = panel.items[i];
       if (!item.tags || item.tags.length === 0) continue;
       const file = files().find((f) => f.name === item.original);
       if (!file) continue;
+      const valid = item.tags.filter((t) => definedNames.has(t));
+      if (valid.length === 0) {
+        skipped++;
+        continue;
+      }
       const meta = await api.metadata.get(ps, file.name);
       const current = meta.success && meta.data ? meta.data : { cert_type: "", expiry_date: "", tags: [] as string[], notes: "" };
-      const merged = Array.from(new Set([...(current.tags ?? []), ...item.tags]));
+      const merged = Array.from(new Set([...(current.tags ?? []), ...valid]));
       const r = await api.metadata.update({
         product_set: ps,
         file_name: file.name,
@@ -349,7 +357,9 @@ export default function FileBrowser() {
     setAiPanel(null);
     loadFiles();
     showActionMessage(
-      applied > 0 ? `AI 打标完成：成功 ${applied} 项${failed ? `，失败 ${failed} 项` : ""}` : "没有可应用的标签建议",
+      applied > 0
+        ? `AI 打标完成：成功 ${applied} 项${failed ? `，失败 ${failed} 项` : ""}${skipped ? `，忽略未定义标签 ${skipped} 项` : ""}`
+        : (skipped > 0 ? "AI 建议的标签均未在设置中定义，未应用" : "没有可应用的标签建议"),
     );
   };
 
