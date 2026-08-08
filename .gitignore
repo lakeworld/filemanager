@@ -1,14 +1,22 @@
-# Build outputs
-build/bin/
-build/certmanager
-build/windows/installer/tmp/
-frontend/dist/
-web-tools/dist/
-
+# --- Electron 项目 ---
 # Dependencies
-frontend/node_modules/
-web-tools/node_modules/
-.venv/
+node_modules/
+
+# Build outputs (electron-vite)
+out/
+src/renderer/dist/
+
+# Packaged apps (electron-builder)
+dist/
+release/
+
+# Test / debug
+*.log
+test-results/
+playwright-report/
+playwright/.cache/
+*.tsbuildinfo
+coverage/
 
 # OS files
 .DS_Store
@@ -22,33 +30,21 @@ desktop.ini
 *.swo
 *~
 
-# Test / debug
-*.log
-test-results/
-
 # Local config / secrets
 *.local
 .env
-license-server/.env
+.env.*
 
-# Certificate manager artifact
-certmanager.exe
-
-# License server runtime
-license-server/license-server
-license-server/pb_data/
-license-server/pb_data_backup*/
-license-server/license-private.pem
-license-server/license-public.pem
-
-# Published installer downloads
+# --- 遗留 Wails 产物（迁移完成后清理） ---
+build/bin/
+build/certmanager
+build/windows/installer/tmp/
+web-tools/dist/
+web-tools/node_modules/
+.venv/
 downloads/*.exe
 downloads/*.zip
-
-# Embedded updater binary (built by scripts/build-server.sh)
-internal/updater/*.exe
-
-# Open-source edition: strip commercial/license assets
-certs/
 downloads/*.crt
+certs/
+internal/updater/*.exe
 license-server/
