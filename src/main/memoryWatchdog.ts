@@ -10,7 +10,6 @@
  */
 import { app, BrowserWindow } from 'electron'
 import { log } from './log'
-import { hasPreviewWindow } from './previewWindow'
 
 const BASELINE_DELAY_MS = 5 * 60 * 1000
 const SAMPLE_INTERVAL_MS = 60 * 1000
@@ -51,7 +50,6 @@ export function startMemoryWatchdog(opts: WatchdogOptions): void {
     if (now - lastReload < RELOAD_COOLDOWN_MS) return
     const win = opts.getMainWindow()
     if (!win || win.isDestroyed()) return
-    if (hasPreviewWindow()) return // 预览窗口打开中不打断
     if (opts.isBusy()) return
     lastReload = now
     void log('info', '[watchdog] 触发渲染进程优雅 reload（内存回收）')

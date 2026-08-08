@@ -37,11 +37,28 @@ const loadMetadata = async (file: FileEntry, productSet: string) => {
 };
 
 export const openPreview = async (file: FileEntry, context?: PreviewContext) => {
-  // v2.2.1：预览改在独立窗口（独立渲染进程，关闭即释放内存），主窗口不再内嵌大图/PDF
-  const result = await api.preview.open(file.path);
-  if (!result.success) {
-    setPreviewError(result.error || "无法打开预览窗口");
+  // v2.2.1 终版：PDF/图片内嵌主窗口预览（用户确认不要独立窗口形态），
+  // 渲染用优化后的 PdfPreview（流式/页缓存/渐进），关闭即卸载销毁
+  const ctx = context || {};
+  setPreviewFile(file);
+  setPreviewContext(ctx);
+  setPreviewUrl("");
+  setPreviewError("");
+  setMetadata({ ...defaultMetadata });
+  setTagInput("");
+
+  if (ctx.productSet) {
+    loadMetadata(file, ctx.productSet);
   }
+
+  const urlResult = await api.files.workspaceUrl(file.path);
+  if (urlResult.success && urlResult.data) {
+    setPreviewUrl(urlResult.data);
+  } else {
+    setPreviewError(urlResult.error || "无法加载预览");
+  }
+
+  setShowPreview(true);
 };
 
 export const closePreview = () => {
