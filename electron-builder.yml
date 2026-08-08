@@ -19,6 +19,11 @@ files:
 asar: true
 compression: maximum
 
+# sharp 原生 .so 库必须从 asar 解包（否则 dlopen 失败，缩略图功能全废）
+asarUnpack:
+  - node_modules/@img/**
+  - node_modules/sharp/**
+
 # 精简 Chromium 语言包（只留中文+英文，省 ~20MB）
 electronLanguages:
   - zh-CN
