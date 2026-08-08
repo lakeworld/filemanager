@@ -48,11 +48,14 @@ cp -r "工作区目录" 备份目录/$(date +%Y%m%d)
 - 系统级崩溃（主进程 SEGV 等）：`journalctl --since today | grep qihe-box` / `dmesg | grep segfault`
 
 ```bash
-# 查看进程（正常 7 个：主/渲染/GPU/zygote×3/utility）
+# 查看进程（v2.1.1 起正常 4 个：主/渲染/GPU空壳/utility；--no-zygote 去掉了 zygote×3）
 ps aux | grep qihe-box
 
 # 应用运行期间二次启动会直接退出（单实例锁，托盘常驻设计）——不是崩溃
 ```
+
+> v2.1.1 进程瘦身参数（`electron-builder.yml` `linux.executableArgs`）：`--no-zygote --no-sandbox --disable-gpu`。
+> 仅 Linux；Windows 无 zygote 且保留 GPU 加速。
 
 ## 四、常见故障排查
 

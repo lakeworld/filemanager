@@ -1,5 +1,19 @@
 # 更新日志
 
+## v2.1.1 — 2026-08-08（进程瘦身）
+
+### 进程合并（7 → 4，总内存 ~800MB → ~600MB）
+
+- **去掉 3 个 zygote 孵化器**（`--no-zygote`，-118MB）：Chromium 直接 spawn 子进程；参数固化为启动参数（`linux.executableArgs`），Linux 生效
+- **禁用 GPU 进程**（`--disable-gpu`，207MB → 90MB 空壳）：Deepin 本就软件渲染，纯开销；无崩溃
+- **实测证伪**：`--single-process` 极限合并（1 进程）在 Deepin 上启动即崩（SIGTRAP），已放弃；`--js-flags` / `disableHardwareAcceleration` 历史崩溃坑，不启用
+- Windows 不受影响（无 zygote，保留 GPU 加速）
+
+### 实测（Deepin 安装版）
+
+- 进程：7 → 4（主 280 / 渲染 148 / GPU 90 / utility 77）
+- 总内存：~800MB → **~600MB**；万图滚动渲染进程增量 ≤41MB 不变
+
 ## v2.1.0 — 2026-08-08（内存性能专项 + PDF 预览）
 
 ### 修复（真实环境验证）
