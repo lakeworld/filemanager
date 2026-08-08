@@ -37,6 +37,9 @@ export function currentTimeString(): string {
 }
 
 export class MetadataService {
+  /** 内存缓存：按工作区路径缓存 store，避免大 metadata.json 反复全量解析 */
+  private cache = new Map<string, MetadataStore>()
+
   constructor(private workspace: WorkspaceService) {}
 
   private requireWS(): string {
@@ -48,6 +51,14 @@ export class MetadataService {
   /** 读取元数据存储；损坏时自动备份原文件并降级为空库（稳定性增强，原 Go 无备份） */
   async loadMetadataStore(ws?: string): Promise<MetadataStore> {
     const w = ws ?? this.requireWS()
+    const hit = this.cache.get(w)
+    if (hit) return hit
+    const store = await this.readFromDisk(w)
+    this.cache.set(w, store)
+    return store
+  }
+
+  private async readFromDisk(w: string): Promise<MetadataStore> {
     const p = metadataPath(w)
     let raw: string
     try {
@@ -74,6 +85,8 @@ export class MetadataService {
 
   async saveMetadataStore(store: MetadataStore, ws?: string): Promise<void> {
     const w = ws ?? this.requireWS()
+    // 写入时同步更新缓存，保持读一致性
+    this.cache.set(w, store)
     ensureWorkspaceDirs(w)
     await writeJsonAtomic(metadataPath(w), store)
   }

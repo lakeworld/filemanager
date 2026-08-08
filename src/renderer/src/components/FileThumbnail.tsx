@@ -58,6 +58,7 @@ export default function FileThumbnail(props: { filePath: string | null; fileType
         class={props.class || "w-full h-full object-cover"}
         alt=""
         draggable={false}
+        loading="lazy"
         onError={() => setError(true)}
       />
     </Show>
