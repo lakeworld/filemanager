@@ -1,4 +1,5 @@
 import type { RouteSectionProps } from "@solidjs/router";
+import { useLocation, useNavigate } from "@solidjs/router";
 import Sidebar from "~/components/Sidebar";
 import Header from "~/components/Header";
 import TitleBar from "~/components/TitleBar";
@@ -6,7 +7,7 @@ import GlobalDropOverlay from "~/components/GlobalDropOverlay";
 import FilePreviewModal from "~/components/FilePreviewModal";
 import { loadCurrentWorkspace, loadWorkspaces, setFileBrowserRefreshTrigger } from "~/stores/workspace";
 import { loadTagDefs } from "~/stores/tags";
-import { onMount, createSignal, onCleanup } from "solid-js";
+import { onMount, createSignal, createEffect, onCleanup } from "solid-js";
 
 function FramelessResizer() {
   const [resizing, setResizing] = createSignal(false);
@@ -154,17 +155,43 @@ function FramelessResizer() {
 
 export default function App(props: RouteSectionProps) {
   let unsubImport: (() => void) | null = null;
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // v2.3.0：路由持久化——休眠销毁窗口重建后回到原页面（localStorage 跨会话存活）
+  createEffect(() => {
+    const path = location.pathname;
+    if (path) localStorage.setItem("qihebox:lastRoute", path);
+  });
+
   onMount(() => {
     loadCurrentWorkspace();
     loadWorkspaces();
     loadTagDefs(); // 全局加载标签颜色定义
 
+    // v2.3.0：恢复上次所在页面（首次启动/窗口重建均生效）
+    const last = localStorage.getItem("qihebox:lastRoute");
+    if (last && last !== location.pathname) {
+      navigate(last, { replace: true });
+    }
+
     // v2.2.1：窗口隐藏（托盘常驻）时清理 Blink 图像解码缓存，回收内存
+    // v2.3.0 第一层：失焦 30 秒后同样清理（用户短暂离开即回收，回来重新解码）
+    let blurTimer: number | undefined;
+    const onBlur = () => {
+      window.clearTimeout(blurTimer);
+      blurTimer = window.setTimeout(() => {
+        window.qihebox.clearCache();
+      }, 30_000);
+    };
+    const onFocus = () => window.clearTimeout(blurTimer);
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
         window.qihebox.clearCache();
       }
     };
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
 
     // Listen for import completion events from the main process
@@ -175,6 +202,9 @@ export default function App(props: RouteSectionProps) {
     });
 
     onCleanup(() => {
+      window.clearTimeout(blurTimer);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
       unsubImport?.();
     });

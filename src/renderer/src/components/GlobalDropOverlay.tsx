@@ -12,8 +12,11 @@ export default function GlobalDropOverlay() {
   const [selectedProductSet, setSelectedProductSet] = createSignal("");
   const [targetType, setTargetType] = createSignal<"image" | "cert">("image");
   const [subFolder, setSubFolder] = createSignal("");
-  const [importStatus, setImportStatus] = createSignal<"idle" | "importing" | "done" | "error">("idle");
+  const [importStatus, setImportStatus] = createSignal<"idle" | "importing" | "done" | "error" | "cancelled">("idle");
   const [importError, setImportError] = createSignal("");
+  // v2.3.0：批量导入进度 + 取消
+  const [importProgress, setImportProgress] = createSignal<{ done: number; total: number } | null>(null);
+  const [cancelToken, setCancelToken] = createSignal<string | null>(null);
 
   createEffect(() => {
     if (currentWorkspace()) {
@@ -40,6 +43,9 @@ export default function GlobalDropOverlay() {
     setImportError("");
     setImportStatus("importing");
     setShowDialog(false);
+    setImportProgress(null);
+    const token = crypto.randomUUID();
+    setCancelToken(token);
 
     try {
       const result = await api.files.import({
@@ -48,6 +54,7 @@ export default function GlobalDropOverlay() {
         target_folder: folder,
         target_type: type,
         sub_folder: folder,
+        cancelToken: token,
       });
       if (!result.success) {
         setImportError(result.error || "导入失败");
@@ -84,6 +91,9 @@ export default function GlobalDropOverlay() {
 
     setImportError("");
     setImportStatus("importing");
+    setImportProgress(null);
+    const token = crypto.randomUUID();
+    setCancelToken(token);
 
     try {
       const result = await api.files.import({
@@ -92,6 +102,7 @@ export default function GlobalDropOverlay() {
         target_folder: folder,
         target_type: type,
         sub_folder: folder,
+        cancelToken: token,
       });
       console.log("[GlobalDropOverlay] import API result", result);
       if (!result.success) {
@@ -108,12 +119,23 @@ export default function GlobalDropOverlay() {
 
   // Listen for import completion events from the main process
   let unsubImport: (() => void) | null = null;
+  let unsubProgress: (() => void) | null = null;
   onMount(() => {
+    // v2.3.0：批量导入进度
+    unsubProgress = window.qihebox.events.on("import:progress", (data: any) => {
+      if (data && typeof data.done === "number" && typeof data.total === "number") {
+        setImportProgress({ done: data.done, total: data.total });
+      }
+    });
     unsubImport = window.qihebox.events.on("import:complete", (data: any) => {
       console.log("[GlobalDropOverlay] import:complete", data);
+      setImportProgress(null);
+      setCancelToken(null);
       if (data && data.success) {
         setImportStatus("done");
         setFileBrowserRefreshTrigger((k) => k + 1);
+      } else if (data && data.cancelled) {
+        setImportStatus("cancelled");
       } else {
         console.error("[GlobalDropOverlay] import failed", data);
         setImportError(data?.error || "导入失败");
@@ -123,6 +145,14 @@ export default function GlobalDropOverlay() {
       setTimeout(() => setImportStatus("idle"), 3000);
     });
   });
+
+  /** v2.3.0：取消导入（置位主进程取消标记，已复制文件保留） */
+  const handleCancelImport = async () => {
+    const token = cancelToken();
+    if (!token) return;
+    await api.files.importCancel(token);
+    setImportStatus("cancelled");
+  };
 
   // Attach global drag listeners once on mount.
   // Using onMount instead of createEffect avoids re-registering listeners when
@@ -213,6 +243,7 @@ export default function GlobalDropOverlay() {
       window.removeEventListener("drop", onDrop);
       clearHideTimeout();
       unsubImport?.();
+      unsubProgress?.();
     });
   });
 
@@ -229,9 +260,37 @@ export default function GlobalDropOverlay() {
       </Show>
 
       <Show when={importStatus() === "importing"}>
-        <div class="fixed bottom-4 right-4 z-50 bg-primary-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2">
-          <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-          <span>正在导入...</span>
+        <div class="fixed bottom-4 right-4 z-50 bg-surface-900 text-white px-4 py-3 rounded-xl shadow-lg flex flex-col gap-2 min-w-[260px]">
+          <div class="flex items-center gap-2 text-sm">
+            <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            <span>
+              {importProgress()
+                ? `正在导入... ${importProgress()!.done}/${importProgress()!.total}`
+                : "正在导入..."}
+            </span>
+          </div>
+          <div class="h-1.5 w-full bg-white/20 rounded-full overflow-hidden">
+            <div
+              class="h-full bg-primary-400 rounded-full transition-all duration-200"
+              style={{
+                width: importProgress()
+                  ? `${Math.round((importProgress()!.done / Math.max(1, importProgress()!.total)) * 100)}%`
+                  : "8%",
+              }}
+            />
+          </div>
+          <button
+            class="text-xs text-surface-300 hover:text-white self-end"
+            onClick={handleCancelImport}
+          >
+            取消导入
+          </button>
+        </div>
+      </Show>
+
+      <Show when={importStatus() === "cancelled"}>
+        <div class="fixed bottom-4 right-4 z-50 bg-amber-600 text-white px-4 py-2 rounded-lg shadow-lg">
+          已取消导入（已复制的文件保留）
         </div>
       </Show>
 

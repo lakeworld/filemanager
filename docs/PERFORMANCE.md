@@ -20,9 +20,34 @@
 
 - `--no-zygote`：去掉 3 个 zygote 孵化器（-3 进程 -118MB）。必须为启动参数（appendSwitch 运行时设置时机太晚不生效）
 - `--disable-gpu` + `--in-process-gpu`（v2.2.1）：Deepin 本就软件渲染，GPU 逻辑并入主进程，**常驻 4 进程 → 3 进程**
-- `--js-flags=--max-old-space-size=2048 --max-semi-space-size=32`（v2.2.1）：半空间调小，长期运行更快归还内存（实测不崩；历史上其他 --js-flags 组合有崩溃记录，此组合已验证）
+- `--js-flags=--max-old-space-size=1024 --max-semi-space-size=16`（v2.3.0）：堆上限 2048 → 1024、半空间 32 → 16。实测：主进程 Node 代码量小，堆上限对常驻影响有限（见下），主要收益在 GC 触发更早、长期运行不膨胀
 - 仅 Linux 生效；Windows 无 zygote 且保留 GPU 加速，不加参数
 - ⚠️ 实测证伪：`--single-process`（极限合并为 1 进程）在 Deepin 上启动即崩（SIGTRAP），已放弃
+
+## 一·六、分层休眠（v2.3.0，不用时降内存）
+
+三层递进，全部实测通过（打包版，Deepin）：
+
+| 层级 | 触发 | 动作 | 内存效果 |
+|---|---|---|---|
+| 第一层 | 窗口失焦 30 秒 | 清理 Blink 图像解码缓存（`webFrame.clearCache`） | 回来重新解码，短暂释放 |
+| 第二层 | 窗口最小化 2 分钟无恢复 | 渲染进程 `reload` 回收（不可见无感） | 渲染进程回落 |
+| 第三层 | 关闭到托盘 2 分钟无活跃 | **销毁 BrowserWindow**，渲染进程归零；`window-all-closed` 空监听阻止 Electron 默认退出 | **575MB → 408MB**（主 329 + utility 77，托盘常驻） |
+
+- 唤醒：托盘点击 / 二次启动（`second-instance`）/ `activate` → `ensureMainWindow` 重建窗口，渲染层读 localStorage 恢复上次页面；重建后回到 580MB
+- 销毁时机精确 2 分钟（日志 `[sleep]` 链路可查）；`window-all-closed` 必须监听，否则 Electron 在 Windows/Linux 全窗口关闭后默认退出（v2.3.0 修复项）
+- 主进程休眠态 ~330MB 为 Electron/Chromium 基础 + in-process GPU 的物理下限（Node + 托盘），用户设想的"只剩 20-30MB"不可达（已实测确认）
+
+**内存实测（v2.3.0 打包版，Deepin，3 进程结构）**：
+
+| 阶段 | 总内存 | 说明 |
+|---|---|---|
+| 空载（恢复工作区页面） | ~580MB | 主 355 / 渲染 151 / utility 77 |
+| 关闭到托盘后 2 分钟内 | ~580MB | 渲染仍存活（销毁倒计时中） |
+| **休眠态（销毁后）** | **~408MB** | 主 329 / utility 77，渲染 0 |
+| 二次启动唤醒 | ~580MB | 渲染进程重建（151MB） |
+
+> 与 v2.2.1 对比：常驻内存基本持平（~580MB 是 Electron 43 + Deepin 软件渲染的固有基线），本批的真实收益在**休眠态 -170MB** 与长期运行稳定性（V8 参数 + 缩略图卸载释放 + 失焦清理）。
 
 **进程可靠性设计**：
 

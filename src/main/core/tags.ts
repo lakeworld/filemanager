@@ -26,6 +26,8 @@ export interface TagInfo {
   parent: string | null
   children: string[]
   builtin: boolean
+  /** v2.3.0：是否为已定义标签；false = 被引用但 tags.json 无定义的「孤儿标签」 */
+  defined: boolean
 }
 
 export const DEFAULT_TAG_COLOR = '#94a3b8'
@@ -148,6 +150,7 @@ export class TagService {
         parent: def?.parent ?? null,
         children: childrenOf.get(name) ?? [],
         builtin: !!def?.builtin,
+        defined: !!def,
       }
     }
 
@@ -168,7 +171,28 @@ export class TagService {
       children.sort((a, b) => a.localeCompare(b, 'zh'))
       for (const c of children) out.push(mkInfo(c))
     }
+
+    // v2.3.0：孤儿标签（被引用但无定义）追加在末尾，设置页可治理
+    const orphanNames = Array.from(counts.keys())
+      .filter((n) => !normalized[n])
+      .sort((a, b) => (counts.get(b) ?? 0) - (counts.get(a) ?? 0) || a.localeCompare(b, 'zh'))
+    for (const name of orphanNames) out.push(mkInfo(name))
     return out
+  }
+
+  /** v2.3.0：孤儿标签转为正式定义（引用不动，仅补 tags.json 定义） */
+  async adopt(name: string, color: string): Promise<void> {
+    const ws = this.requireWS()
+    await this.migrateAndInit(ws)
+    name = name.trim()
+    color = (color || DEFAULT_TAG_COLOR).trim()
+    if (!name) throw new Error('名称不能为空')
+    const defs = await this.loadDefs(ws)
+    if (defs[name]) return // 已定义
+    const counts = await this.collectUsedTags(ws)
+    if (!counts.has(name)) throw new Error(`标签「${name}」未被使用`)
+    defs[name] = { color }
+    await this.saveDefs(ws, defs)
   }
 
   async setColor(name: string, color: string): Promise<void> {
@@ -284,13 +308,16 @@ export class TagService {
     if (!name) throw new Error('名称不能为空')
 
     const defs = await this.loadDefs(ws)
-    if (!defs[name]) throw new Error('标签不存在')
-    delete defs[name]
-    // 子标签提升为顶层
-    for (const def of Object.values(defs)) {
-      if (def.parent === name) delete def.parent
+    const defined = !!defs[name]
+    // v2.3.0：孤儿标签（未定义但被引用）也可删除——仅清理引用，跳过定义
+    if (defined) {
+      delete defs[name]
+      // 子标签提升为顶层
+      for (const def of Object.values(defs)) {
+        if (def.parent === name) delete def.parent
+      }
+      await this.saveDefs(ws, defs)
     }
-    await this.saveDefs(ws, defs)
 
     const store = await this.metadata.loadMetadataStore(ws)
     let fileChanged = false

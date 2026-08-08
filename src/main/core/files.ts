@@ -74,6 +74,16 @@ export interface ThumbnailProvider {
   removeThumbnailsInDir(dir: string): Promise<void>
 }
 
+/** v2.3.0：导入被用户取消（携带已导入部分，供事件上报） */
+export class ImportCancelledError extends Error {
+  imported: FileEntry[]
+  constructor(imported: FileEntry[]) {
+    super('导入已取消')
+    this.name = 'ImportCancelledError'
+    this.imported = imported
+  }
+}
+
 interface FileWithTime {
   entry: FileEntry
   mod: number
@@ -183,7 +193,10 @@ export class FilesService {
   }
 
   // —— FileImport（完整导入，返回导入结果；异步事件由 ipc 层处理）——
-  async importFiles(req: ImportFileRequest): Promise<FileEntry[]> {
+  async importFiles(
+    req: ImportFileRequest,
+    opts?: { onProgress?: (done: number, total: number) => void; isCancelled?: () => boolean },
+  ): Promise<FileEntry[]> {
     const ws = this.requireWS()
     if (!req.source_paths || req.source_paths.length === 0) throw new Error('没有选择文件')
     const cfg = await this.loadConfig(ws)
@@ -191,8 +204,12 @@ export class FilesService {
     await fsp.mkdir(targetDir, { recursive: true })
 
     const imported: FileEntry[] = []
-    for (const src of req.source_paths) {
-      imported.push(await this.importOneFile(src, targetDir, req, cfg))
+    const total = req.source_paths.length
+    for (let i = 0; i < total; i++) {
+      // v2.3.0：支持取消（渲染层 importCancel 置位后中断抛错，已复制文件保留）
+      if (opts?.isCancelled?.()) throw new ImportCancelledError(imported)
+      imported.push(await this.importOneFile(req.source_paths[i], targetDir, req, cfg))
+      opts?.onProgress?.(i + 1, total)
     }
     return imported
   }

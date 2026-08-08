@@ -11,7 +11,7 @@ import { showFilesInExplorer } from './explorer'
 import { workspaceFileUrl, thumbnailFileUrl } from './protocol'
 import { checkUpdate, downloadUpdate, applyUpdate, UpdateInfo } from './updater'
 import { isPathInsideWorkspace, classifyFileType } from './core/paths'
-import { FilesService } from './core/files'
+import { FilesService, ImportCancelledError } from './core/files'
 import { openFileWithDefaultApp } from './open'
 import {
   getMainWindow,
@@ -55,6 +55,9 @@ function csvTemplate(): string {
   return '产品集\n示例产品集\n'
 }
 
+/** v2.3.0：导入取消标记集合（渲染层 importCancel(token) 置位，importFiles 循环检测） */
+const importCancelled = new Set<string>()
+
 export function registerIpc(box: BoxService, account: AccountService): void {
   // —— 账号（v2.2.0：可选登录复用 ERP 账号，解锁 AI；心跳统计活跃）——
   ipcMain.handle('qihebox:account:status', () => handle(() => account.status()))
@@ -93,23 +96,50 @@ export function registerIpc(box: BoxService, account: AccountService): void {
   ipcMain.handle('qihebox:files:import', async (e, req) => {
     // 与原 Go goroutine 模式一致：立即返回，完成后发 import:complete 事件
     const win = BrowserWindow.fromWebContents(e.sender)
+    const token: string | undefined = req?.cancelToken
     box.files
-      .importFiles(req)
+      .importFiles(req, {
+        onProgress: (done, total) => {
+          win?.webContents.send('qihebox:event:import:progress', { done, total })
+        },
+        isCancelled: () => !!token && importCancelled.has(token),
+      })
       .then((imported) => {
         win?.webContents.send('qihebox:event:import:complete', {
           success: true,
           count: imported.length,
+          cancelled: false,
           error: null,
         })
       })
       .catch((err: unknown) => {
-        win?.webContents.send('qihebox:event:import:complete', {
-          success: false,
-          count: 0,
-          error: err instanceof Error ? err.message : String(err),
-        })
+        if (err instanceof ImportCancelledError) {
+          win?.webContents.send('qihebox:event:import:complete', {
+            success: false,
+            count: err.imported.length,
+            cancelled: true,
+            error: null,
+          })
+        } else {
+          win?.webContents.send('qihebox:event:import:complete', {
+            success: false,
+            count: 0,
+            cancelled: false,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
+      })
+      .finally(() => {
+        if (token) {
+          importCancelled.delete(token)
+        }
       })
     return ok<never[]>([])
+  })
+  // v2.3.0：取消导入（置位取消标记，importFiles 循环内检测中断；已复制文件保留）
+  ipcMain.handle('qihebox:files:importCancel', (_e, token: string) => {
+    if (token) importCancelled.add(token)
+    return ok<boolean>(true)
   })
   ipcMain.handle('qihebox:files:delete', (_e, paths: string[]) => handle(() => box.files.fileDelete(paths)))
   ipcMain.handle('qihebox:files:rename', (_e, req) => handle(() => box.files.renameFile(req)))
@@ -163,8 +193,8 @@ export function registerIpc(box: BoxService, account: AccountService): void {
       electronClipboard.writeText(paths.join('\n'))
     }),
   )
-  ipcMain.handle('qihebox:files:startDrag', (e, paths: string[]) =>
-    handle(() => {
+  ipcMain.handle('qihebox:files:startDrag', async (e, paths: string[]) =>
+    handle(async () => {
       const ws = box.workspace.currentWorkspacePath()
       if (!ws) throw new Error('未打开工作区')
       if (!paths || paths.length === 0) throw new Error('没有选择文件')
@@ -173,8 +203,18 @@ export function registerIpc(box: BoxService, account: AccountService): void {
       }
       const win = BrowserWindow.fromWebContents(e.sender)
       if (!win) throw new Error('窗口不存在')
-      const icon = nativeImage.createFromPath(path.join(app.getAppPath(), 'build/logo.png'))
-      // 原生文件拖出（files 支持多文件，覆盖 file 字段）
+      // v2.3.0 ghost 图：首文件缩略图磁盘缓存（image/pdf 才有）作为拖拽图标，跟手看到真实图
+      let icon = nativeImage.createFromPath(path.join(app.getAppPath(), 'build/logo.png'))
+      try {
+        const thumb = await box.ensureThumbnailFor(paths[0])
+        if (thumb) {
+          const t = nativeImage.createFromPath(thumb)
+          if (!t.isEmpty()) icon = t
+        }
+      } catch {
+        // 缩略图获取失败兜底 logo
+      }
+      // 原生文件拖出（files 支持多文件，覆盖 file 字段；多文件由系统显示叠影）
       win.webContents.startDrag({ files: paths, icon })
     }),
   )
@@ -217,6 +257,9 @@ export function registerIpc(box: BoxService, account: AccountService): void {
     handle(() => box.tags.rename(oldName, newName)),
   )
   ipcMain.handle('qihebox:tags:delete', (_e, name: string) => handle(() => box.tags.delete(name)))
+  ipcMain.handle('qihebox:tags:adopt', (_e, name: string, color: string) =>
+    handle(() => box.tags.adopt(name, color)),
+  )
 
   // —— XLSX ——
   ipcMain.handle('qihebox:xlsx:exportTemplate', (_e, p: string) => handle(() => box.xlsxExportTemplate(p)))
