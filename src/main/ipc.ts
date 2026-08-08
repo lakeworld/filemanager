@@ -1,0 +1,232 @@
+/**
+ * IPC 注册层：薄壳，只做参数透传与 ApiResult 包装（无业务逻辑）。
+ * 业务全部在 core/（BoxService），保证可测性。
+ */
+import { ipcMain, dialog, app, BrowserWindow } from 'electron'
+import { BoxService } from './core'
+import { copyFilesToClipboard } from './clipboard'
+import { showFilesInExplorer } from './explorer'
+import { workspaceFileUrl } from './protocol'
+import { checkUpdate, downloadUpdate, applyUpdate, UpdateInfo } from './updater'
+import { isPathInsideWorkspace } from './core/paths'
+import { FilesService } from './core/files'
+import { openFileWithDefaultApp } from './open'
+import {
+  getMainWindow,
+  windowHideToTray,
+  windowShow,
+  windowMinimize,
+  windowToggleMaximize,
+  windowIsMaximised,
+  windowQuit,
+  windowGetSize,
+  windowSetSize,
+  windowGetPosition,
+  windowSetPosition,
+} from './window'
+
+/** 与前端 types.ts 一致的响应包装 */
+export interface ApiResult<T> {
+  success: boolean
+  data: T | null
+  error: string | null
+}
+
+function ok<T>(data: T): ApiResult<T> {
+  return { success: true, data, error: null }
+}
+
+function fail<T>(err: unknown): ApiResult<T> {
+  return { success: false, data: null, error: err instanceof Error ? err.message : String(err) }
+}
+
+async function handle<T>(fn: () => Promise<T> | T): Promise<ApiResult<T>> {
+  try {
+    return ok(await fn())
+  } catch (err) {
+    return fail<T>(err)
+  }
+}
+
+/** CSV 模板（对照原 csv.go） */
+function csvTemplate(): string {
+  return '产品集\n示例产品集\n'
+}
+
+export function registerIpc(box: BoxService): void {
+  // —— 工作区 / 配置 / 产品集 ——
+  ipcMain.handle('qihebox:workspace:list', () => handle(() => box.workspace.list()))
+  ipcMain.handle('qihebox:workspace:current', () => handle(() => box.workspace.current()))
+  ipcMain.handle('qihebox:workspace:create', (_e, p: string) => handle(() => box.workspace.create(p)))
+  ipcMain.handle('qihebox:workspace:open', (_e, p: string) => handle(() => box.workspace.open(p)))
+  ipcMain.handle('qihebox:workspace:switch', (_e, p: string) => handle(() => box.workspace.switchTo(p)))
+
+  ipcMain.handle('qihebox:config:get', () => handle(() => box.workspace.getConfig()))
+  ipcMain.handle('qihebox:config:update', (_e, cfg) => handle(() => box.workspace.updateConfig(cfg)))
+
+  ipcMain.handle('qihebox:productSets:list', () => handle(() => box.workspace.productSetList()))
+  ipcMain.handle('qihebox:productSets:create', (_e, req) => handle(() => box.workspace.productSetCreate(req)))
+  ipcMain.handle('qihebox:productSets:delete', (_e, name: string) => handle(() => box.deleteProductSet(name)))
+  ipcMain.handle('qihebox:productSets:stats', (_e, name: string) => handle(() => box.workspace.productSetStats(name)))
+  ipcMain.handle('qihebox:productSets:rename', (_e, oldName: string, newName: string) =>
+    handle(() => box.workspace.renameProductSet(oldName, newName)),
+  )
+  ipcMain.handle('qihebox:productSets:updateInfo', (_e, req) => handle(() => box.workspace.updateProductSetInfo(req)))
+
+  // —— 文件 ——
+  ipcMain.handle('qihebox:files:list', (_e, req) => handle(() => box.files.fileList(req)))
+  ipcMain.handle('qihebox:files:import', async (e, req) => {
+    // 与原 Go goroutine 模式一致：立即返回，完成后发 import:complete 事件
+    const win = BrowserWindow.fromWebContents(e.sender)
+    box.files
+      .importFiles(req)
+      .then((imported) => {
+        win?.webContents.send('qihebox:event:import:complete', {
+          success: true,
+          count: imported.length,
+          error: null,
+        })
+      })
+      .catch((err: unknown) => {
+        win?.webContents.send('qihebox:event:import:complete', {
+          success: false,
+          count: 0,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      })
+    return ok<never[]>([])
+  })
+  ipcMain.handle('qihebox:files:delete', (_e, paths: string[]) => handle(() => box.files.fileDelete(paths)))
+  ipcMain.handle('qihebox:files:rename', (_e, req) => handle(() => box.files.renameFile(req)))
+  ipcMain.handle('qihebox:files:copyFilesToClipboard', (_e, paths: string[]) =>
+    handle(() => {
+      const ws = box.workspace.currentWorkspacePath()
+      if (!ws) throw new Error('未打开工作区')
+      if (!paths || paths.length === 0) throw new Error('没有选择文件')
+      for (const p of paths) {
+        if (!isPathInsideWorkspace(ws, p)) throw new Error('只能复制工作区内的文件')
+      }
+      return copyFilesToClipboard(paths)
+    }),
+  )
+  ipcMain.handle('qihebox:files:showFilesInExplorer', (_e, paths: string[]) =>
+    handle(() => {
+      const ws = box.workspace.currentWorkspacePath()
+      if (!ws) throw new Error('未打开工作区')
+      if (!paths || paths.length === 0) throw new Error('没有选择文件')
+      for (const p of paths) {
+        if (!isPathInsideWorkspace(ws, p)) throw new Error('只能显示工作区内的文件')
+      }
+      return showFilesInExplorer(paths)
+    }),
+  )
+  ipcMain.handle('qihebox:files:saveTextFile', (_e, filePath: string, content: string) =>
+    handle(() => FilesService.writeFileUtf8(filePath, content)),
+  )
+  ipcMain.handle('qihebox:files:createSubfolder', (_e, req) => handle(() => box.files.createSubfolder(req)))
+  ipcMain.handle('qihebox:files:deleteSubfolder', (_e, req) => handle(() => box.files.deleteSubfolder(req)))
+  ipcMain.handle('qihebox:files:dataUrl', (_e, filePath: string) => handle(() => box.files.getFileDataUrl(filePath)))
+  ipcMain.handle('qihebox:files:workspaceUrl', (_e, filePath: string) =>
+    handle(() => box.files.resolveWorkspaceFile(filePath).then(() => workspaceFileUrl(filePath))),
+  )
+  ipcMain.handle('qihebox:files:openWithDefaultApp', (_e, filePath: string) =>
+    handle(() => {
+      const ws = box.workspace.currentWorkspacePath()
+      if (!ws) throw new Error('未打开工作区')
+      if (!isPathInsideWorkspace(ws, filePath)) throw new Error('只能打开工作区内的文件')
+      return openFileWithDefaultApp(filePath)
+    }),
+  )
+
+  // —— 元数据 ——
+  ipcMain.handle('qihebox:metadata:get', (_e, productSet: string, fileName: string) =>
+    handle(() => box.metadata.get(productSet, fileName)),
+  )
+  ipcMain.handle('qihebox:metadata:update', (_e, req) => handle(() => box.metadata.update(req)))
+
+  // —— 仪表盘 / 搜索 ——
+  ipcMain.handle('qihebox:dashboard:stats', () => handle(() => box.dashboard.dashboardStats()))
+  ipcMain.handle('qihebox:dashboard:expiringCerts', () => handle(() => box.dashboard.checkExpiringCerts()))
+  ipcMain.handle('qihebox:search', (_e, query: string) => handle(() => box.search.search(query)))
+  ipcMain.handle('qihebox:csvTemplate', () => handle(() => csvTemplate()))
+
+  // —— XLSX ——
+  ipcMain.handle('qihebox:xlsx:exportTemplate', (_e, p: string) => handle(() => box.xlsxExportTemplate(p)))
+  ipcMain.handle('qihebox:xlsx:import', (_e, p: string) => handle(() => box.xlsxImport(p)))
+
+  // —— 对话框 ——
+  ipcMain.handle('qihebox:dialog:openDirectory', (_e, title: string) =>
+    handle(async () => {
+      const r = await dialog.showOpenDialog(getMainWindow() ?? undefined, {
+        title: title || '选择文件夹',
+        properties: ['openDirectory', 'createDirectory'],
+      })
+      if (r.canceled || r.filePaths.length === 0) return ''
+      return r.filePaths[0]
+    }),
+  )
+  ipcMain.handle('qihebox:dialog:openFile', (_e, title: string, filters: unknown[]) =>
+    handle(async () => {
+      const r = await dialog.showOpenDialog(getMainWindow() ?? undefined, {
+        title: title || '选择文件',
+        filters: filters as Electron.FileFilter[],
+        properties: ['openFile'],
+      })
+      if (r.canceled || r.filePaths.length === 0) return ''
+      return r.filePaths[0]
+    }),
+  )
+  ipcMain.handle('qihebox:dialog:saveFile', (_e, title: string, defaultFilename: string) =>
+    handle(async () => {
+      const r = await dialog.showSaveDialog(getMainWindow() ?? undefined, {
+        title: title || '保存文件',
+        defaultPath: defaultFilename || undefined,
+      })
+      if (r.canceled || !r.filePath) return ''
+      return r.filePath
+    }),
+  )
+
+  // —— 窗口 ——
+  ipcMain.handle('qihebox:window:hideToTray', () => {
+    windowHideToTray()
+    return ok(true)
+  })
+  ipcMain.handle('qihebox:window:show', () => {
+    windowShow()
+    return ok(true)
+  })
+  ipcMain.handle('qihebox:window:minimize', () => {
+    windowMinimize()
+    return ok(true)
+  })
+  ipcMain.handle('qihebox:window:toggleMaximize', () => {
+    windowToggleMaximize()
+    return ok(true)
+  })
+  ipcMain.handle('qihebox:window:isMaximised', () => ok(windowIsMaximised()))
+  ipcMain.handle('qihebox:window:quit', () => {
+    windowQuit()
+    return ok(true)
+  })
+  ipcMain.handle('qihebox:window:getSize', () => ok(windowGetSize()))
+  ipcMain.handle('qihebox:window:setSize', (_e, w: number, h: number) => {
+    windowSetSize(w, h)
+    return ok(true)
+  })
+  ipcMain.handle('qihebox:window:getPosition', () => ok(windowGetPosition()))
+  ipcMain.handle('qihebox:window:setPosition', (_e, x: number, y: number) => {
+    windowSetPosition(x, y)
+    return ok(true)
+  })
+
+  // —— 应用信息 ——
+  ipcMain.handle('qihebox:app:version', () => app.getVersion())
+
+  // —— 更新（占位）——
+  ipcMain.handle('qihebox:updater:check', () => handle(() => checkUpdate(app.getVersion())))
+  ipcMain.handle('qihebox:updater:download', (_e, info: UpdateInfo) => handle(() => downloadUpdate(info)))
+  ipcMain.handle('qihebox:updater:apply', (_e, installerPath: string, checksum: string) =>
+    handle(() => applyUpdate(installerPath, checksum)),
+  )
+}
