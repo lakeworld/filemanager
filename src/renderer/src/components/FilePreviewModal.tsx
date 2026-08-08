@@ -2,6 +2,7 @@ import { Show, For, Switch, Match, createSignal } from "solid-js";
 import { api } from "~/wails/api";
 import { tagChipStyle, tagLabel, topLevelTags } from "~/stores/tags";
 import { requireLogin } from "~/stores/account";
+import { FEATURE_AI } from "~/features";
 import PdfPreview from "~/components/PdfPreview";
 import type { AiCertInfo } from "~/types";
 import {
@@ -122,7 +123,7 @@ export default function FilePreviewModal() {
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-lg font-semibold">{previewFile()?.name}</h3>
             <div class="flex gap-2">
-              <Show when={isPdf()}>
+              <Show when={isPdf() && FEATURE_AI}>
                 <button class="btn-secondary text-sm" onClick={handleAiExtract} disabled={aiCertBusy()}>
                   {aiCertBusy() ? "AI 抽取中..." : "🤖 AI 抽取信息"}
                 </button>

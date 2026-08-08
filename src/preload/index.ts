@@ -58,9 +58,6 @@ const api = {
     workspaceUrl: (filePath: string) => invoke('qihebox:files:workspaceUrl', filePath),
     openWithDefaultApp: (filePath: string) => invoke('qihebox:files:openWithDefaultApp', filePath),
   },
-  preview: {
-    open: (filePath: string) => invoke('qihebox:preview:open', filePath),
-  },
   metadata: {
     get: (productSet: string, fileName: string) =>
       invoke('qihebox:metadata:get', productSet, fileName),

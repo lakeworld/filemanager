@@ -48,9 +48,6 @@ interface QiheboxApi {
     workspaceUrl: (filePath: string) => Promise<unknown>
     openWithDefaultApp: (filePath: string) => Promise<unknown>
   }
-  preview: {
-    open: (filePath: string) => Promise<unknown>
-  }
   metadata: {
     get: (productSet: string, fileName: string) => Promise<unknown>
     update: (req: unknown) => Promise<unknown>
