@@ -3,7 +3,7 @@
  * 渲染进程不接触 Node/Electron 能力，全部经 IPC 与主进程交互。
  * 事件：events.on('import:complete', cb) → 主进程发 'qihebox:event:import:complete'
  */
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, webFrame } from 'electron'
 
 const invoke = (channel: string, ...args: unknown[]): Promise<unknown> =>
   ipcRenderer.invoke(channel, ...args)
@@ -23,6 +23,8 @@ const api = {
     create: (path: string) => invoke('qihebox:workspace:create', path),
     open: (path: string) => invoke('qihebox:workspace:open', path),
     switch: (path: string) => invoke('qihebox:workspace:switch', path),
+    renameSubfolder: (type: string, oldName: string, newName: string) =>
+      invoke('qihebox:workspace:renameSubfolder', type, oldName, newName),
   },
   config: {
     get: () => invoke('qihebox:config:get'),
@@ -55,6 +57,9 @@ const api = {
     startDrag: (paths: string[]) => invoke('qihebox:files:startDrag', paths),
     workspaceUrl: (filePath: string) => invoke('qihebox:files:workspaceUrl', filePath),
     openWithDefaultApp: (filePath: string) => invoke('qihebox:files:openWithDefaultApp', filePath),
+  },
+  preview: {
+    open: (filePath: string) => invoke('qihebox:preview:open', filePath),
   },
   metadata: {
     get: (productSet: string, fileName: string) =>
@@ -130,6 +135,8 @@ const api = {
   },
   /** 拖拽：从 File 对象取真实路径（替代原 Wails OnFileDrop） */
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
+  /** v2.2.1：清理 Blink 图像解码缓存（窗口隐藏时调用，回收内存） */
+  clearCache: (): void => webFrame.clearCache(),
 }
 
 contextBridge.exposeInMainWorld('qihebox', api)

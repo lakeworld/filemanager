@@ -13,6 +13,7 @@ import { SharpThumbnailService } from './thumbnail'
 import { registerIpc } from './ipc'
 import { registerQiheboxProtocol } from './protocol'
 import { AccountService } from './account'
+import { startMemoryWatchdog } from './memoryWatchdog'
 import { log, initLogger } from './log'
 import {
   createMainWindow,
@@ -95,6 +96,10 @@ function setupCrashRecovery(win: BrowserWindow): void {
     setTimeout(() => {
       if (!win.isDestroyed()) win.reload()
     }, 500)
+  })
+  // v2.2.1：did-finish-load 重置崩溃计数 —— 崩溃自愈成功后不再累计，避免数月内偶发崩溃提前退出
+  win.webContents.on('did-finish-load', () => {
+    rendererCrashes = 0
   })
   // GPU 进程崩溃 → 记录（后续自动切 --disable-gpu）
   app.on('child-process-gone', (_e, details) => {

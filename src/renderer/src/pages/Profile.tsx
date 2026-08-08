@@ -2,6 +2,7 @@ import { Show, For, createSignal, onCleanup, onMount, createEffect } from "solid
 import { api } from "~/wails/api";
 import { simpleMarkdownToHtml } from "~/utils/markdown";
 import { accountStatus, loginAccount, logoutAccount } from "~/stores/account";
+import { FEATURE_AI } from "~/features";
 import helpMarkdown from "../../../../HELP.md?raw";
 import privacyMarkdown from "../../../../PRIVACY.md?raw";
 import type { UpdateInfo } from "~/types";
@@ -395,28 +396,40 @@ function AccountSection() {
         when={accountStatus().loggedIn}
         fallback={
           <>
-            {/* 试用横幅 */}
-            <div class="rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 px-4 py-3 text-white">
-              <div class="font-semibold">新用户 50 次 AI 免费试用 🎁</div>
-              <div class="mt-0.5 text-xs text-primary-100">
-                登录账号即可使用 AI 批量命名、打标、证书抽取与语义搜索
+            {/* 登录价值说明（AI 未发布时中性文案；FEATURE_AI=true 时显示 AI 试用横幅） */}
+            <Show when={FEATURE_AI}>
+              <div class="rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 px-4 py-3 text-white">
+                <div class="font-semibold">新用户 50 次 AI 免费试用 🎁</div>
+                <div class="mt-0.5 text-xs text-primary-100">
+                  登录账号即可使用 AI 批量命名、打标、证书抽取与语义搜索
+                </div>
               </div>
-            </div>
+            </Show>
+            <Show when={!FEATURE_AI}>
+              <div class="rounded-xl bg-surface-100 px-4 py-3 text-surface-700">
+                <div class="font-semibold">登录启禾账号</div>
+                <div class="mt-0.5 text-xs text-surface-500">
+                  登录后自动上报活跃信息（设备标识、版本、使用时间），仅用于统计产品使用情况，可随时登出停止
+                </div>
+              </div>
+            </Show>
 
-            {/* AI 功能简介 */}
-            <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <For each={AI_FEATURES}>
-                {(f) => (
-                  <div class="flex items-start gap-3 rounded-xl border border-surface-100 bg-surface-50 p-3">
-                    <span class="text-xl">{f.icon}</span>
-                    <div>
-                      <div class="text-sm font-semibold text-surface-800">{f.title}</div>
-                      <div class="mt-0.5 text-xs text-surface-500">{f.desc}</div>
+            {/* AI 功能简介（仅 AI 发布时显示） */}
+            <Show when={FEATURE_AI}>
+              <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <For each={AI_FEATURES}>
+                  {(f) => (
+                    <div class="flex items-start gap-3 rounded-xl border border-surface-100 bg-surface-50 p-3">
+                      <span class="text-xl">{f.icon}</span>
+                      <div>
+                        <div class="text-sm font-semibold text-surface-800">{f.title}</div>
+                        <div class="mt-0.5 text-xs text-surface-500">{f.desc}</div>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </For>
-            </div>
+                  )}
+                </For>
+              </div>
+            </Show>
 
             {/* 登录表单 */}
             <form
@@ -469,9 +482,11 @@ function AccountSection() {
           </div>
           <div class="min-w-0 flex-1">
             <div class="truncate text-sm font-semibold text-surface-900">{accountStatus().email}</div>
-            <div class="mt-0.5 text-xs text-surface-500">
-              AI 试用剩余 {accountStatus().remaining ?? 50}/50 次
-            </div>
+            <Show when={FEATURE_AI}>
+              <div class="mt-0.5 text-xs text-surface-500">
+                AI 试用剩余 {accountStatus().remaining ?? 50}/50 次
+              </div>
+            </Show>
           </div>
           <button
             class="shrink-0 rounded-lg border border-surface-200 px-4 py-2 text-sm text-surface-700 transition hover:bg-surface-50"
