@@ -12,6 +12,7 @@ import { WorkspaceService } from './core/workspace'
 import { SharpThumbnailService } from './thumbnail'
 import { registerIpc } from './ipc'
 import { registerQiheboxProtocol } from './protocol'
+import { log, initLogger } from './log'
 import {
   createMainWindow,
   getMainWindow,
@@ -71,7 +72,7 @@ function setupTray(): void {
 function setupCrashRecovery(win: BrowserWindow): void {
   // 渲染进程崩溃 → 自动 reload（最多 3 次，避免死循环）
   win.webContents.on('render-process-gone', (_e, details) => {
-    console.error(`[main] renderer gone: ${details.reason}`)
+    void log('error', `renderer gone: ${details.reason}`)
     rendererCrashes++
     if (rendererCrashes > 3) {
       setQuitting(true)
@@ -82,10 +83,10 @@ function setupCrashRecovery(win: BrowserWindow): void {
       if (!win.isDestroyed()) win.reload()
     }, 500)
   })
-  // GPU 进程崩溃 → 记录（阶段 6 加 --disable-gpu 自动回退）
+  // GPU 进程崩溃 → 记录（后续自动切 --disable-gpu）
   app.on('child-process-gone', (_e, details) => {
     if (details.type === 'GPU') {
-      console.error('[main] gpu process gone, will fallback to software rendering')
+      void log('warn', 'gpu process gone, may fallback to software rendering')
     }
   })
 }
@@ -105,6 +106,7 @@ app.on('before-quit', () => {
 })
 
 app.whenReady().then(() => {
+  initLogger()
   // 单一 workspace 实例贯穿全部服务
   const workspace = new WorkspaceService()
   const box = new BoxService(new SharpThumbnailService(workspace), workspace)
@@ -112,7 +114,6 @@ app.whenReady().then(() => {
   registerIpc(box)
   registerQiheboxProtocol(box)
   console.log('[main] qihebox protocol handled:', protocol.isProtocolHandled('qihebox'))
-
   const win = createMainWindow()
   setupTray()
   setupCrashRecovery(win)
@@ -137,10 +138,10 @@ app.on('second-instance', () => {
   }
 })
 
-// 主进程未捕获异常处理（阶段 6 完善为文件日志）
+// 主进程未捕获异常 → 日志落盘
 process.on('uncaughtException', (err) => {
-  console.error('[main] uncaughtException:', err)
+  void log('error', `uncaughtException: ${err?.stack ?? err}`)
 })
 process.on('unhandledRejection', (reason) => {
-  console.error('[main] unhandledRejection:', reason)
+  void log('error', `unhandledRejection: ${String(reason)}`)
 })

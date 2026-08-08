@@ -4,7 +4,7 @@
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
-import { metadataPath, readJsonFile, writeJsonAtomic, ensureWorkspaceDirs, METADATA_FILE } from './paths'
+import { metadataPath, writeJsonAtomic, ensureWorkspaceDirs } from './paths'
 import { WorkspaceService } from './workspace'
 
 export interface FileMetadata {
@@ -45,11 +45,31 @@ export class MetadataService {
     return ws
   }
 
+  /** 读取元数据存储；损坏时自动备份原文件并降级为空库（稳定性增强，原 Go 无备份） */
   async loadMetadataStore(ws?: string): Promise<MetadataStore> {
     const w = ws ?? this.requireWS()
-    const store = await readJsonFile<MetadataStore>(metadataPath(w))
-    if (store && store.files) return store
-    return { files: {} }
+    const p = metadataPath(w)
+    let raw: string
+    try {
+      raw = await fsp.readFile(p, 'utf-8')
+    } catch {
+      return { files: {} } // 文件不存在视为空库
+    }
+    try {
+      const parsed = JSON.parse(raw) as MetadataStore
+      if (parsed && typeof parsed === 'object' && parsed.files && typeof parsed.files === 'object') {
+        return parsed
+      }
+      throw new Error('结构非法')
+    } catch {
+      // 损坏：备份原文件（不丢数据），降级为空库
+      try {
+        await fsp.copyFile(p, `${p}.corrupt-${Date.now()}`)
+      } catch {
+        // 备份失败不阻断
+      }
+      return { files: {} }
+    }
   }
 
   async saveMetadataStore(store: MetadataStore, ws?: string): Promise<void> {
@@ -113,29 +133,5 @@ export class MetadataService {
     }
     if (!changed) return
     await this.saveMetadataStore(store, ws)
-  }
-
-  /** 损坏的 metadata.json 备份并降级为空库（稳定性增强，原 Go 无备份） */
-  async loadMetadataStoreSafe(ws?: string): Promise<MetadataStore> {
-    const w = ws ?? this.requireWS()
-    const p = metadataPath(w)
-    try {
-      const raw = await fsp.readFile(p, 'utf-8')
-      const parsed = JSON.parse(raw) as MetadataStore
-      if (parsed && typeof parsed === 'object' && parsed.files) return parsed
-      throw new Error('结构非法')
-    } catch {
-      try {
-        await fsp.copyFile(p, `${p}.corrupt-${Date.now()}`)
-      } catch {
-        // 无原文件则跳过
-      }
-      return { files: {} }
-    }
-  }
-
-  /** 备份文件名（供删除产品集时清理该工作区的 metadata 文件） */
-  static metadataFileName(): string {
-    return METADATA_FILE
   }
 }
