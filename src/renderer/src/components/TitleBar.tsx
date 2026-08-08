@@ -26,6 +26,7 @@ export default function TitleBar() {
 
   return (
     <div
+      data-e2e-titlebar
       class="h-9 flex items-center justify-between select-none bg-surface-0/90 backdrop-blur border-b border-surface-200"
       style={{ "-webkit-app-region": "drag" } as any}
     >

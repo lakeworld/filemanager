@@ -44,14 +44,20 @@ async function showFilesLinux(paths: string[]): Promise<void> {
   }
 
   let ok = false
-  if (desktop.includes('kde')) {
+  if (desktop.includes('deepin')) {
+    // Deepin：dde-file-manager --show-item 打开并选中
+    for (const p of paths) {
+      const code = await execTool(['dde-file-manager', '--show-item', p]).catch(() => -1)
+      if (code === 0) ok = true
+    }
+  } else if (desktop.includes('kde')) {
     // dolphin --select 仅支持单文件，多文件逐个
     for (const p of paths) {
       const code = await execTool(['dolphin', '--select', p]).catch(() => -1)
       if (code === 0) ok = true
     }
   } else {
-    // GNOME/Deepin 优先 nautilus（支持多个 --select 参数）
+    // GNOME 优先 nautilus（支持多个 --select 参数）
     ok = await trySelect('nautilus', (p) => ['--select', p])
     if (!ok) ok = await trySelect('pcmanfm', (p) => ['--select', p])
   }
