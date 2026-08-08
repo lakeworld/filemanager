@@ -177,6 +177,12 @@ export function registerIpc(box: BoxService): void {
 
   // —— 标签 ——
   ipcMain.handle('qihebox:tags:list', () => handle(() => box.tags.list()))
+  ipcMain.handle('qihebox:tags:create', (_e, name: string, color: string, parentName: string | null) =>
+    handle(() => box.tags.create(name, color, parentName)),
+  )
+  ipcMain.handle('qihebox:tags:setParent', (_e, name: string, parentName: string | null) =>
+    handle(() => box.tags.setParent(name, parentName)),
+  )
   ipcMain.handle('qihebox:tags:setColor', (_e, name: string, color: string) =>
     handle(() => box.tags.setColor(name, color)),
   )

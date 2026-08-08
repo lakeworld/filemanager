@@ -39,6 +39,8 @@ protocol.registerSchemesAsPrivileged([
   },
 ])
 
+// 主进程堆上限（防止长时间运行内存膨胀）
+
 // —— 单实例锁（替代原 Go CreateMutex）——
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {

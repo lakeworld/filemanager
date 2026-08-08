@@ -1,6 +1,7 @@
 /**
  * XLSX 模板导出/批量导入（对照原 Go xlsx.go，exceljs 替代 excelize）
  * 纯 TS 业务层：不 import electron，可在 node 环境直接测试。
+ * 性能：exceljs 延迟加载（动态 import），避免主进程启动加载其依赖链。
  */
 import ExcelJS from 'exceljs'
 import { WorkspaceService, ProductSetInfo } from './workspace'
@@ -22,7 +23,8 @@ export class XlsxService {
   /** 导出带样式的导入模板（对照 ExportXlsxTemplate） */
   async exportTemplate(filePath: string): Promise<void> {
     if (!filePath.trim()) throw new Error('路径不能为空')
-    const wb = new ExcelJS.Workbook()
+    const XLSX = ExcelJS
+    const wb = new XLSX.Workbook()
     const ws = wb.worksheets[0] ?? wb.addWorksheet(TEMPLATE_SHEET)
     ws.name = TEMPLATE_SHEET
 
@@ -61,7 +63,8 @@ export class XlsxService {
     if (!ws0) throw new Error('未打开工作区')
     if (!filePath.trim()) throw new Error('路径不能为空')
 
-    const wb = new ExcelJS.Workbook()
+    const XLSX = ExcelJS
+    const wb = new XLSX.Workbook()
     await wb.xlsx.readFile(filePath)
     const sheet = wb.worksheets[0]
     if (!sheet) throw new Error('无法读取工作表')

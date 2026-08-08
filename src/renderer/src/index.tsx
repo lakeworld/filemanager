@@ -1,16 +1,20 @@
 import { render } from "solid-js/web";
+import { lazy } from "solid-js";
 import { Router, Route } from "@solidjs/router";
 import type { RouteSectionProps } from "@solidjs/router";
 import App from "./App";
-import Dashboard from "./pages/Dashboard";
-import ProductSets from "./pages/ProductSets";
-import FileBrowser from "./pages/FileBrowser";
-import Search from "./pages/Search";
-import Images from "./pages/Images";
-import Certs from "./pages/Certs";
-import Settings from "./pages/Settings";
-import Profile from "./pages/Profile";
 import "./index.css";
+
+// 路由级懒加载：首屏只加载仪表盘，其余页面按需分包（性能优化）
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const ProductSets = lazy(() => import("./pages/ProductSets"));
+const FileBrowser = lazy(() => import("./pages/FileBrowser"));
+const Search = lazy(() => import("./pages/Search"));
+const Images = lazy(() => import("./pages/Images"));
+const Certs = lazy(() => import("./pages/Certs"));
+const Settings = lazy(() => import("./pages/Settings"));
+const Profile = lazy(() => import("./pages/Profile"));
+const Help = lazy(() => import("./pages/Help"));
 
 function RootApp(props: RouteSectionProps) {
   return <App {...props} />;
@@ -27,6 +31,7 @@ render(
       <Route path="/search" component={Search} />
       <Route path="/settings" component={Settings} />
       <Route path="/profile" component={Profile} />
+      <Route path="/help" component={Help} />
       <Route path="/files/:type/:productSet/:subFolder" component={FileBrowser} />
     </Router>
   ),

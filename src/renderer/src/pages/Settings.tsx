@@ -92,9 +92,13 @@ export default function Settings() {
   const [tags, setTags] = createSignal<TagInfo[]>([]);
   const [newTagName, setNewTagName] = createSignal("");
   const [newTagColor, setNewTagColor] = createSignal(PALETTE[0]);
+  const [newTagParent, setNewTagParent] = createSignal<string | null>(null);
   const [editingColor, setEditingColor] = createSignal<string | null>(null); // 正在改色的标签
   const [renaming, setRenaming] = createSignal<string | null>(null); // 正在重命名的标签
   const [renameValue, setRenameValue] = createSignal("");
+
+  /** 顶层标签（供新建时选父级） */
+  const topLevelTags = () => tags().filter((t) => !t.parent);
 
   const loadTags = async () => {
     const r = await api.tags.list();
@@ -111,14 +115,16 @@ export default function Settings() {
   const handleAddTag = async () => {
     const name = newTagName().trim();
     if (!name) return;
-    await api.tags.setColor(name, newTagColor());
+    await api.tags.create(name, newTagColor(), newTagParent());
     setNewTagName("");
+    setNewTagParent(null);
     await loadTags();
     refreshTags();
   };
 
   const handleSetColor = async (name: string, color: string) => {
-    await api.tags.setColor(name, color);
+    const r = await api.tags.setColor(name, color);
+    if (!r.success && r.error) alert(r.error);
     setEditingColor(null);
     await loadTags();
     refreshTags();
@@ -148,6 +154,12 @@ export default function Settings() {
     }
   };
 
+  const handlePromote = async (name: string) => {
+    await api.tags.setParent(name, null);
+    await loadTags();
+    refreshTags();
+  };
+
   return (
     <div class="p-6 max-w-4xl mx-auto">
       <div class="mb-8">
@@ -174,12 +186,22 @@ export default function Settings() {
             {/* 新建标签 */}
             <div class="flex items-center gap-2 mb-4 flex-wrap">
               <input
-                class="px-3 py-2 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 w-40"
-                placeholder="新标签名称"
+                class="px-3 py-2 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 w-36"
+                placeholder="标签名称"
                 value={newTagName()}
                 onInput={(e) => setNewTagName(e.currentTarget.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleAddTag()}
               />
+              <select
+                class="px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                value={newTagParent() ?? ""}
+                onChange={(e) => setNewTagParent(e.currentTarget.value || null)}
+              >
+                <option value="">顶层标签</option>
+                <For each={topLevelTags()}>
+                  {(t) => <option value={t.name}>作为 {t.name} 的子标签</option>}
+                </For>
+              </select>
               <div class="flex items-center gap-1">
                 <For each={PALETTE}>
                   {(c) => (
@@ -192,71 +214,153 @@ export default function Settings() {
                 </For>
               </div>
               <button class="btn-primary px-3 py-2 text-sm" onClick={handleAddTag}>
-                + 添加标签
+                + 添加
               </button>
             </div>
 
-            {/* 标签列表 */}
+            {/* 标签树（顶层 + 子标签） */}
             <Show
-              when={tags().length > 0}
+              when={topLevelTags().length > 0}
               fallback={<div class="text-sm text-surface-400 py-4 text-center">暂无标签，先给文件或产品集打上标签吧</div>}
             >
-              <div class="space-y-2">
-                <For each={tags()}>
+              <div class="space-y-1">
+                <For each={topLevelTags()}>
                   {(tag) => (
-                    <div class="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-surface-100 transition-colors">
-                      <button
-                        class="w-5 h-5 rounded-full shrink-0 cursor-pointer"
-                        style={{ backgroundColor: tag.color }}
-                        title="点击改颜色"
-                        onClick={() => setEditingColor(editingColor() === tag.name ? null : tag.name)}
-                      />
-                      <Show when={editingColor() === tag.name}>
-                        <div class="flex items-center gap-1">
-                          <For each={PALETTE}>
-                            {(c) => (
-                              <button
-                                class={`w-4 h-4 rounded-full ${tag.color === c ? "ring-2 ring-offset-1 ring-surface-700" : ""}`}
-                                style={{ backgroundColor: c }}
-                                onClick={() => handleSetColor(tag.name, c)}
-                              />
-                            )}
+                    <>
+                      <div class="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-surface-100 transition-colors">
+                        <button
+                          class="w-5 h-5 rounded-full shrink-0 cursor-pointer"
+                          style={{ backgroundColor: tag.color }}
+                          title={tag.builtin ? "固定色标签（颜色不可改）" : "点击改颜色"}
+                          onClick={() => !tag.builtin && setEditingColor(editingColor() === tag.name ? null : tag.name)}
+                        />
+                        <Show when={editingColor() === tag.name && !tag.builtin}>
+                          <div class="flex items-center gap-1">
+                            <For each={PALETTE}>
+                              {(c) => (
+                                <button
+                                  class={`w-4 h-4 rounded-full ${tag.color === c ? "ring-2 ring-offset-1 ring-surface-700" : ""}`}
+                                  style={{ backgroundColor: c }}
+                                  onClick={() => handleSetColor(tag.name, c)}
+                                />
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                        <Show
+                          when={renaming() === tag.name}
+                          fallback={
+                            <span class="text-sm font-medium flex-1">
+                              {tag.name}
+                              {tag.builtin && <span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-surface-100 text-surface-400">固定色</span>}
+                            </span>
+                          }
+                        >
+                          <input
+                            class="px-2 py-1 border border-surface-200 rounded text-sm flex-1 min-w-0"
+                            value={renameValue()}
+                            onInput={(e) => setRenameValue(e.currentTarget.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleRename(tag.name);
+                              if (e.key === "Escape") setRenaming(null);
+                            }}
+                          />
+                        </Show>
+                        <span class="text-xs text-surface-400 shrink-0">{tag.count} 处</span>
+                        <button
+                          class="text-xs text-surface-500 hover:text-primary-600 shrink-0"
+                          onClick={() => {
+                            setRenaming(tag.name);
+                            setRenameValue(tag.name);
+                          }}
+                        >
+                          重命名
+                        </button>
+                        <button
+                          class="text-xs text-red-500 hover:text-red-600 shrink-0"
+                          onClick={() => handleDeleteTag(tag.name)}
+                        >
+                          删除
+                        </button>
+                      </div>
+
+                      {/* 子标签（缩进） */}
+                      <Show when={tag.children.length > 0}>
+                        <div class="ml-8 border-l-2 border-surface-100 pl-3 space-y-1">
+                          <For each={tag.children}>
+                            {(childName) => {
+                              const child = tags().find((t) => t.name === childName);
+                              if (!child) return null;
+                              return (
+                                <div class="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-surface-100 transition-colors">
+                                  <button
+                                    class="w-4 h-4 rounded-full shrink-0 cursor-pointer"
+                                    style={{ backgroundColor: child.color }}
+                                    title={child.builtin ? "固定色标签" : "点击改颜色"}
+                                    onClick={() => !child.builtin && setEditingColor(editingColor() === child.name ? null : child.name)}
+                                  />
+                                  <Show when={editingColor() === child.name && !child.builtin}>
+                                    <div class="flex items-center gap-1">
+                                      <For each={PALETTE}>
+                                        {(c) => (
+                                          <button
+                                            class={`w-4 h-4 rounded-full ${child.color === c ? "ring-2 ring-offset-1 ring-surface-700" : ""}`}
+                                            style={{ backgroundColor: c }}
+                                            onClick={() => handleSetColor(child.name, c)}
+                                          />
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                  <Show
+                                    when={renaming() === child.name}
+                                    fallback={
+                                      <span class="text-sm flex-1 min-w-0">
+                                        <span class="text-[11px] text-surface-400 mr-1">└ {tag.name}/</span>
+                                        <span class="font-medium">{child.name}</span>
+                                      </span>
+                                    }
+                                  >
+                                    <input
+                                      class="px-2 py-1 border border-surface-200 rounded text-sm flex-1 min-w-0"
+                                      value={renameValue()}
+                                      onInput={(e) => setRenameValue(e.currentTarget.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleRename(child.name);
+                                        if (e.key === "Escape") setRenaming(null);
+                                      }}
+                                    />
+                                  </Show>
+                                  <span class="text-xs text-surface-400 shrink-0">{child.count} 处</span>
+                                  <button
+                                    class="text-xs text-surface-500 hover:text-primary-600 shrink-0"
+                                    title="提升为顶层标签"
+                                    onClick={() => handlePromote(child.name)}
+                                  >
+                                    ⬆ 顶层
+                                  </button>
+                                  <button
+                                    class="text-xs text-surface-500 hover:text-primary-600 shrink-0"
+                                    onClick={() => {
+                                      setRenaming(child.name);
+                                      setRenameValue(child.name);
+                                    }}
+                                  >
+                                    重命名
+                                  </button>
+                                  <button
+                                    class="text-xs text-red-500 hover:text-red-600 shrink-0"
+                                    onClick={() => handleDeleteTag(child.name)}
+                                  >
+                                    删除
+                                  </button>
+                                </div>
+                              );
+                            }}
                           </For>
                         </div>
                       </Show>
-                      <Show
-                        when={renaming() === tag.name}
-                        fallback={
-                          <span class="text-sm font-medium flex-1">{tag.name}</span>
-                        }
-                      >
-                        <input
-                          class="px-2 py-1 border border-surface-200 rounded text-sm flex-1 min-w-0"
-                          value={renameValue()}
-                          onInput={(e) => setRenameValue(e.currentTarget.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleRename(tag.name);
-                            if (e.key === "Escape") setRenaming(null);
-                          }}
-                        />
-                      </Show>
-                      <span class="text-xs text-surface-400 shrink-0">{tag.count} 处使用</span>
-                      <button
-                        class="text-xs text-surface-500 hover:text-primary-600 shrink-0"
-                        onClick={() => {
-                          setRenaming(tag.name);
-                          setRenameValue(tag.name);
-                        }}
-                      >
-                        重命名
-                      </button>
-                      <button
-                        class="text-xs text-red-500 hover:text-red-600 shrink-0"
-                        onClick={() => handleDeleteTag(tag.name)}
-                      >
-                        删除
-                      </button>
-                    </div>
+                    </>
                   )}
                 </For>
               </div>
