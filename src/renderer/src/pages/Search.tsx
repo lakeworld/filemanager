@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createEffect, onMount } from "solid-js";
+import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { useSearchParams, useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { currentWorkspace, workspaceConfig, loadWorkspaceConfig } from "~/stores/workspace";
@@ -47,7 +47,9 @@ export default function Search() {
     const q = searchParams.q;
     if (q && typeof q === "string") {
       setQuery(q);
-      doSearch(q);
+      // 防抖：连续输入只触发最后一次搜索
+      const t = setTimeout(() => doSearch(q), 300);
+      onCleanup(() => clearTimeout(t));
     }
   });
 

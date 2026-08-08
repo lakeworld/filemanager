@@ -13,6 +13,36 @@ import type { ThumbnailProvider } from './core/files'
 export class SharpThumbnailService implements ThumbnailProvider {
   constructor(private workspace: WorkspaceService) {}
 
+  /** 限并发队列：批量导入时最多 2 个 sharp 任务并行，避免资源争抢 */
+  private queue: Array<() => Promise<void>> = []
+  private running = 0
+  private readonly MAX_CONCURRENCY = 2
+
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const run = async (): Promise<void> => {
+        this.running++
+        try {
+          resolve(await task())
+        } catch (e) {
+          reject(e)
+        } finally {
+          this.running--
+          this.pump()
+        }
+      }
+      this.queue.push(run)
+      this.pump()
+    })
+  }
+
+  private pump(): void {
+    while (this.running < this.MAX_CONCURRENCY && this.queue.length > 0) {
+      const next = this.queue.shift()
+      if (next) void next()
+    }
+  }
+
   async ensureThumbnail(filePath: string): Promise<string> {
     if (classifyFileType(filePath) !== 'image') return ''
     const ws = this.workspace.currentWorkspacePath()
@@ -25,17 +55,19 @@ export class SharpThumbnailService implements ThumbnailProvider {
     } catch {
       // 缩略图或源图不存在 → 继续生成
     }
-    try {
-      await fsp.mkdir(path.dirname(thumb), { recursive: true })
-      await sharp(filePath, { limitInputPixels: false })
-        .resize(256, 256, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 85 })
-        .toFile(thumb)
-      return thumb
-    } catch (err) {
-      console.error('[thumbnail] 生成失败:', filePath, err)
-      return ''
-    }
+    return this.enqueue(async () => {
+      try {
+        await fsp.mkdir(path.dirname(thumb), { recursive: true })
+        await sharp(filePath, { limitInputPixels: false })
+          .resize(256, 256, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 85 })
+          .toFile(thumb)
+        return thumb
+      } catch (err) {
+        console.error('[thumbnail] 生成失败:', filePath, err)
+        return ''
+      }
+    })
   }
 
   async thumbnailUrl(filePath: string): Promise<string> {

@@ -21,6 +21,7 @@ import {
   writeJsonAtomic,
   readJsonFile,
 } from './paths'
+import { globalCountCache } from './scanCache'
 
 export interface WorkspaceInfo {
   path: string
@@ -66,23 +67,9 @@ export function formatTime(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-/** 递归统计目录内非隐藏文件数（原 countFiles 同步版 → 异步版） */
+/** 递归统计目录内非隐藏文件数（带 mtime 签名缓存，原 countFiles 同步版 → 缓存异步版） */
 export async function countFiles(dir: string): Promise<number> {
-  let count = 0
-  try {
-    const entries = await fsp.readdir(dir, { withFileTypes: true })
-    for (const e of entries) {
-      if (e.name.startsWith('.')) continue
-      if (e.isDirectory()) {
-        count += await countFiles(path.join(dir, e.name))
-      } else {
-        count++
-      }
-    }
-  } catch {
-    // 目录不存在视为 0
-  }
-  return count
+  return globalCountCache.countFiles(dir)
 }
 
 export class WorkspaceService {
@@ -112,6 +99,7 @@ export class WorkspaceService {
     if (!stat.isDirectory()) throw new Error('不是有效目录')
     ensureWorkspaceDirs(workspace)
     this.currentWS = workspace
+    globalCountCache.clear() // 切换工作区后清理扫描缓存
     await this.addRecentWorkspace(workspace)
   }
 
