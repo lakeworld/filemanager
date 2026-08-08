@@ -10,7 +10,7 @@
 
 **启禾文件管理** 是一款面向 **电商运营、销售团队以及线下客户经理** 的本地化产品资料管理工具。
 
-> **与启禾 ERP 的关系**：文件管理器是独立于 ERP 的开源免费桌面产品，不依赖 ERP 账号即可使用；但它延续启禾 ERP 的品牌、设计语言与工程标准，可视为启禾产品生态向本地工具场景的延伸（BOX 项目）。
+> **与启禾 ERP 的关系**：文件管理器是独立于 ERP 的开源免费桌面产品，不依赖 ERP 账号即可使用；但它延续启禾 ERP 的品牌、设计语言与工程标准，可视为启禾产品生态向本地工具场景的延伸（BOX 项目）。需要完整企业业务系统（订单/库存/财务/协作）时，可了解启禾生态的云端产品：[启禾 OS · 仓迹](https://www.qihebook.cloud/)——AI 原生 ERP，自然语言操作。
 
 它解决的核心痛点是：
 
@@ -87,8 +87,8 @@ npm run build:win    # 打包 Windows（NSIS，需在 Windows/CI 构建）
 
 | 平台 | 产物 | 目标体积 |
 |---|---|---|
-| Linux | `release/启禾文件管理-2.0.0.AppImage` / `.deb` | ≤ 90MB |
-| Windows | `release/启禾文件管理 Setup 2.0.0.exe`（NSIS） | ≤ 65MB |
+| Linux | `release/启禾文件管理-2.1.1.AppImage` / `.deb` | ≤ 140MB |
+| Windows | `release/启禾文件管理-2.1.1-win-x64.zip`（便携） | ≤ 195MB |
 
 ## 数据兼容性
 
@@ -108,6 +108,10 @@ npm run build:win    # 打包 Windows（NSIS，需在 Windows/CI 构建）
 ├── docs/            # PERF.md 性能基线等
 └── scripts/         # 辅助脚本
 ```
+
+## 相关项目
+
+- [启禾 OS · 仓迹](https://www.qihebook.cloud/) —— 启禾生态的云端 ERP：AI 原生、自然语言操作，覆盖订单/库存/财务/客户
 
 ## 许可证
 
