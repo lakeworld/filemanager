@@ -13,7 +13,6 @@ import { checkUpdate, downloadUpdate, applyUpdate, UpdateInfo } from './updater'
 import { isPathInsideWorkspace, classifyFileType } from './core/paths'
 import { FilesService } from './core/files'
 import { openFileWithDefaultApp } from './open'
-import { openPreviewWindow } from './previewWindow'
 import {
   getMainWindow,
   windowHideToTray,
@@ -188,16 +187,6 @@ export function registerIpc(box: BoxService, account: AccountService): void {
       if (!ws) throw new Error('未打开工作区')
       if (!isPathInsideWorkspace(ws, filePath)) throw new Error('只能打开工作区内的文件')
       return openFileWithDefaultApp(filePath)
-    }),
-  )
-
-  // —— 预览（v2.2.1：独立预览窗口，按需临时进程，关闭即释放内存）——
-  ipcMain.handle('qihebox:preview:open', (_e, filePath: string) =>
-    handle(async () => {
-      const ws = box.workspace.currentWorkspacePath()
-      if (!ws) throw new Error('未打开工作区')
-      if (!isPathInsideWorkspace(ws, filePath)) throw new Error('只能预览工作区内的文件')
-      await openPreviewWindow(filePath)
     }),
   )
 
