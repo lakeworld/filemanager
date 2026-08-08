@@ -159,16 +159,25 @@ export default function App(props: RouteSectionProps) {
     loadWorkspaces();
     loadTagDefs(); // 全局加载标签颜色定义
 
+    // v2.2.1：窗口隐藏（托盘常驻）时清理 Blink 图像解码缓存，回收内存
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        window.qihebox.clearCache();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     // Listen for import completion events from the main process
     unsubImport = window.qihebox.events.on("import:complete", (data: any) => {
       if (data && data.success) {
         setFileBrowserRefreshTrigger((k: number) => k + 1);
       }
     });
-  });
 
-  onCleanup(() => {
-    unsubImport?.();
+    onCleanup(() => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      unsubImport?.();
+    });
   });
 
   return (

@@ -16,6 +16,7 @@ interface QiheboxApi {
     create: (path: string) => Promise<unknown>
     open: (path: string) => Promise<unknown>
     switch: (path: string) => Promise<unknown>
+    renameSubfolder: (type: string, oldName: string, newName: string) => Promise<unknown>
   }
   config: {
     get: () => Promise<unknown>
@@ -46,6 +47,9 @@ interface QiheboxApi {
     startDrag: (paths: string[]) => Promise<unknown>
     workspaceUrl: (filePath: string) => Promise<unknown>
     openWithDefaultApp: (filePath: string) => Promise<unknown>
+  }
+  preview: {
+    open: (filePath: string) => Promise<unknown>
   }
   metadata: {
     get: (productSet: string, fileName: string) => Promise<unknown>
@@ -98,6 +102,7 @@ interface QiheboxApi {
     apply: (installerPath: string, checksum: string) => Promise<unknown>
   }
   getPathForFile: (file: File) => string
+  clearCache: () => void
 }
 
 declare global {

@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { currentWorkspace, workspaceConfig, loadWorkspaceConfig, productSets, loadProductSets } from "~/stores/workspace";
 import { requireLogin } from "~/stores/account";
+import { FEATURE_AI } from "~/features";
 import { loadTagDefs, tagList } from "~/stores/tags";
 import { openPreview } from "~/stores/preview";
 import FileThumbnail from "~/components/FileThumbnail";
@@ -193,14 +194,16 @@ export default function Search() {
           >
             搜索
           </button>
-          <button
-            type="button"
-            class="px-4 py-1.5 text-sm rounded-lg bg-primary-50 text-primary-700 border border-primary-200 hover:bg-primary-100 transition-colors"
-            onClick={() => void handleAiSearch()}
-            disabled={aiSearching()}
-          >
-            {aiSearching() ? "AI 理解中..." : "🤖 AI 搜索"}
-          </button>
+          <Show when={FEATURE_AI}>
+            <button
+              type="button"
+              class="px-4 py-1.5 text-sm rounded-lg bg-primary-50 text-primary-700 border border-primary-200 hover:bg-primary-100 transition-colors"
+              onClick={() => void handleAiSearch()}
+              disabled={aiSearching()}
+            >
+              {aiSearching() ? "AI 理解中..." : "🤖 AI 搜索"}
+            </button>
+          </Show>
           <Show when={aiTranslation()}>
             <span class="text-xs text-primary-600 truncate">{aiTranslation()}</span>
           </Show>
