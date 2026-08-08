@@ -3,6 +3,8 @@
   "productName": "启禾文件管理",
   "version": "2.0.0",
   "description": "启禾文件管理（BOX 项目）—— Electron 重构版：电商产品图包与证书管理",
+  "homepage": "https://www.qihebook.cloud/box/",
+  "desktopName": "qihe-box",
   "main": "./out/main/index.js",
   "author": "启禾软件 <dev@qihe.local>",
   "license": "MIT",
@@ -20,19 +22,20 @@
     "build:win": "electron-vite build && electron-builder --win"
   },
   "dependencies": {
-    "@solidjs/router": "^1.0.0",
-    "autoprefixer": "^10.5.4",
     "exceljs": "^4.4.0",
-    "postcss": "^8.5.26",
-    "sharp": "^0.35.3",
-    "solid-js": "^1.9.14",
-    "tailwindcss": "^3.4.19"
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
+    "@solidjs/router": "^1.0.0",
     "@types/node": "^26.2.0",
+    "autoprefixer": "^10.5.4",
     "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "postcss": "^8.5.26",
+    "solid-js": "^1.9.14",
+    "tailwindcss": "^3.4.19",
     "typescript": "^5.9.3",
     "vite": "^7.3.6",
     "vite-plugin-solid": "^2.11.14",

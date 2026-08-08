@@ -1,5 +1,40 @@
 # 更新日志
 
+## v2.0.0 — 2026-08-08（Electron 重构版）
+
+### 技术栈迁移：Wails v2 + Go → Electron + TypeScript
+
+- **主进程**：TypeScript 全栈（原 Go 2866 行 → TS），业务层 `src/main/core/` 与 Electron 解耦，可在 node 环境直接单测
+- **前端**：SolidJS + Tailwind 原样保留（4595 行零重写），仅替换 Wails 绑定层为 preload IPC（`window.qihebox`）
+- **平台支持**：Windows + Linux（Deepin 实测）。自带 Chromium 绕开系统 WebKitGTK 依赖，修复原版 Linux 剪贴板/资源管理器空实现问题
+- **数据兼容**：工作区格式（config/metadata/缩略图哈希路径）与 v1.x 完全一致，旧工作区零迁移
+
+### 性能（对比原版优化）
+
+- 目录扫描缓存（目录树 mtime 签名）：Dashboard 首扫 2000 文件 **130ms**（原同步递归）
+- 搜索异步 + 防抖 + 缓存：**138ms / 2000 文件**
+- 导入 100 文件（含 sharp 缩略图）：**293ms** 不阻塞 UI
+- 大图/PDF/视频预览走 `qihebox://` 自定义协议（流式 + Range），不再整读内存
+
+### 稳定性
+
+- 渲染进程崩溃自动 reload（限 3 次）；GPU 崩溃降级记录
+- JSON 原子写（tmp+rename）；`metadata.json` 损坏自动备份 `.corrupt-<ts>` 并降级
+- 主进程日志落盘（`app.getPath('logs')` 按日期轮转）
+- 单实例锁（替代原 CreateMutex）；关闭窗口=隐藏托盘
+
+### 平台能力
+
+- 剪贴板复制文件：Windows CF_HDROP / Linux text/uri-list（Deepin X11 实测）
+- 资源管理器选中：dde-file-manager（Deepin）/ nautilus / dolphin / shell
+- 打包：AppImage + deb（Linux）/ NSIS（Windows）；体积 104MB（asar+maximum 压缩+语言包精简）
+
+### 测试体系（原 Go 测试迁移 + 新增）
+
+- vitest 单测 24 用例（命名引擎/路径校验/工作区/元数据/XLSX）
+- Playwright e2e 11 用例（窗口/IPC/缩略图/协议/剪贴板/资源管理器/窗口控制/XLSX）
+- 性能基准 `npm run bench` → docs/PERF.md
+
 ## v1.3.0 — 2026-08-05（开源版）
 
 ### 开源免费化
