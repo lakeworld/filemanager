@@ -116,8 +116,8 @@ export default function Profile() {
   };
 
   const openDownloadPage = () => {
-    // 触发主进程 setWindowOpenHandler → 系统浏览器打开（对照原 BrowserOpenURL）
-    window.open("https://www.qihebook.cloud/box/", "_blank");
+    // 触发主进程 setWindowOpenHandler → 系统浏览器打开官网文件管理页
+    window.open("https://www.qihebook.cloud/file-manager", "_blank");
   };
 
   const helpHtml = () => simpleMarkdownToHtml(helpMarkdown);
@@ -229,7 +229,16 @@ export default function Profile() {
 
                 <Show when={updatePhase() === "latest"}>
                   <div class="rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700">
-                    当前已是最新版本。
+                    <div class="font-semibold">当前已是最新版本 v{displayVersion()} 🎉</div>
+                    <p class="mt-1 text-xs text-green-600">
+                      自动更新安装通道尚未开放，需要全新安装包请前往官网下载。
+                    </p>
+                    <button
+                      class="mt-3 inline-flex items-center gap-1 rounded-md bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-primary-700"
+                      onClick={openDownloadPage}
+                    >
+                      📦 前往官网下载
+                    </button>
                   </div>
                 </Show>
 

@@ -1,6 +1,6 @@
 import { Show, For, Switch, Match, createSignal } from "solid-js";
 import { api } from "~/wails/api";
-import { tagChipStyle } from "~/stores/tags";
+import { tagChipStyle, tagLabel, topLevelTags } from "~/stores/tags";
 import {
   showPreview,
   previewFile,
@@ -240,7 +240,7 @@ export default function FilePreviewModal() {
                           class="inline-flex items-center gap-1 px-2 py-1 text-white rounded text-xs"
                           style={tagChipStyle(tag)}
                         >
-                          {tag}
+                          {tagLabel(tag)}
                           <button class="hover:opacity-80" onClick={() => removeTag(index())}>
                             ✕
                           </button>
@@ -248,6 +248,36 @@ export default function FilePreviewModal() {
                       )}
                     </For>
                   </div>
+                  {/* 快速添加：按父/子分组显示可用标签 */}
+                  <Show when={topLevelTags().length > 0}>
+                    <div class="mt-2 flex flex-wrap gap-1.5 items-center">
+                      <span class="text-[11px] text-surface-400">常用：</span>
+                      <For each={topLevelTags()}>
+                        {(t) => (
+                          <>
+                            <button
+                              class="text-[11px] px-2 py-0.5 rounded-full text-white hover:opacity-85 transition-opacity"
+                              style={tagChipStyle(t.name)}
+                              onClick={() => addTag(t.name)}
+                            >
+                              {t.name}
+                            </button>
+                            <For each={t.children}>
+                              {(c) => (
+                                <button
+                                  class="text-[11px] px-2 py-0.5 rounded-full text-white hover:opacity-85 transition-opacity opacity-90"
+                                  style={tagChipStyle(c)}
+                                  onClick={() => addTag(c)}
+                                >
+                                  {t.name}/{c}
+                                </button>
+                              )}
+                            </For>
+                          </>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
                 </div>
 
                 <div>

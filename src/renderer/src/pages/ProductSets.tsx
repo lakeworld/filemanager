@@ -1,7 +1,7 @@
 import { Show, For, createSignal, createEffect, onMount } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
-import { tagChipStyle } from "~/stores/tags";
+import { tagChipStyle, tagLabel } from "~/stores/tags";
 import {
   currentWorkspace,
   productSets,
@@ -298,7 +298,7 @@ export default function ProductSets() {
                             class="text-[10px] px-2 py-0.5 rounded-full text-white"
                             style={tagChipStyle(tag)}
                           >
-                            {tag}
+                            {tagLabel(tag)}
                           </span>
                         )}
                       </For>

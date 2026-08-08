@@ -126,6 +126,12 @@ export interface TagInfo {
   name: string;
   color: string;
   count: number;
+  /** 父标签名（子标签）或 null（顶层标签） */
+  parent: string | null;
+  /** 子标签名列表（仅顶层标签有） */
+  children: string[];
+  /** 固定色预设标签（颜色不可改） */
+  builtin: boolean;
 }
 
 export interface LicenseInfo {

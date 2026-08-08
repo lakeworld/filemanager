@@ -50,6 +50,8 @@ interface QiheboxApi {
   csvTemplate: () => Promise<unknown>
   tags: {
     list: () => Promise<unknown>
+    create: (name: string, color: string, parentName?: string | null) => Promise<unknown>
+    setParent: (name: string, parentName: string | null) => Promise<unknown>
     setColor: (name: string, color: string) => Promise<unknown>
     rename: (oldName: string, newName: string) => Promise<unknown>
     delete: (name: string) => Promise<unknown>

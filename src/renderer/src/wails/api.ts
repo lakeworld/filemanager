@@ -85,6 +85,10 @@ export const api = {
   csvTemplate: () => qb.csvTemplate() as Promise<ApiResult<string>>,
   tags: {
     list: () => qb.tags.list() as Promise<ApiResult<TagInfo[]>>,
+    create: (name: string, color: string, parentName?: string | null) =>
+      qb.tags.create(name, color, parentName ?? null) as Promise<ApiResult<boolean>>,
+    setParent: (name: string, parentName: string | null) =>
+      qb.tags.setParent(name, parentName) as Promise<ApiResult<boolean>>,
     setColor: (name: string, color: string) =>
       qb.tags.setColor(name, color) as Promise<ApiResult<boolean>>,
     rename: (oldName: string, newName: string) =>

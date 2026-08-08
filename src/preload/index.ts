@@ -60,6 +60,10 @@ const api = {
   csvTemplate: () => invoke('qihebox:csvTemplate'),
   tags: {
     list: () => invoke('qihebox:tags:list'),
+    create: (name: string, color: string, parentName?: string | null) =>
+      invoke('qihebox:tags:create', name, color, parentName ?? null),
+    setParent: (name: string, parentName: string | null) =>
+      invoke('qihebox:tags:setParent', name, parentName),
     setColor: (name: string, color: string) => invoke('qihebox:tags:setColor', name, color),
     rename: (oldName: string, newName: string) => invoke('qihebox:tags:rename', oldName, newName),
     delete: (name: string) => invoke('qihebox:tags:delete', name),

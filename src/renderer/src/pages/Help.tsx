@@ -1,5 +1,5 @@
 import { createSignal, onMount } from "solid-js";
-import helpMarkdown from "../../../HELP.md?raw";
+import helpMarkdown from "../../../../HELP.md?raw";
 
 function simpleMarkdownToHtml(md: string): string {
   const lines = md.split("\n");

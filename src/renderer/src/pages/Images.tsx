@@ -56,6 +56,21 @@ export default function Images() {
     return () => window.removeEventListener("click", onClick);
   });
 
+  // —— 分批渲染：大列表只渲染可见区，滚动加载更多（性能优化）——
+  const [renderCount, setRenderCount] = createSignal(60);
+  let sentinelRef: HTMLDivElement | undefined;
+  onMount(() => {
+    const el = sentinelRef;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) {
+        setRenderCount((c) => c + 60);
+      }
+    });
+    io.observe(el);
+    onCleanup(() => io.disconnect());
+  });
+
   createEffect(() => {
     if (currentWorkspace()) {
       loadWorkspaceConfig();
@@ -262,7 +277,7 @@ export default function Images() {
           </button>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-          <For each={filteredItems()}>
+          <For each={filteredItems().slice(0, renderCount())}>
             {(img) => (
               <div
                 class={`card p-2 cursor-pointer select-none hover:shadow-card-hover transition-all ${selectedPaths().includes(img.path) ? "border-primary-500 bg-primary-50" : ""}`}
@@ -291,6 +306,13 @@ export default function Images() {
             )}
           </For>
         </div>
+        {/* 分批渲染哨兵：滚动到此处加载更多 */}
+        <div ref={sentinelRef} class="h-1" />
+        <Show when={filteredItems().length > renderCount()}>
+          <div class="text-center text-xs text-surface-400 py-2">
+            已显示 {Math.min(renderCount(), filteredItems().length)} / {filteredItems().length}，滚动加载更多
+          </div>
+        </Show>
       </Show>
 
       {/* Context Menu（统一组件） */}
