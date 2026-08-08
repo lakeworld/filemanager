@@ -5,13 +5,14 @@
  * - 注册 IPC 与 qihebox:// 文件协议
  * - 系统托盘 + 关闭隐藏到托盘 + 崩溃自愈骨架
  */
-import { app, BrowserWindow, Tray, Menu, nativeImage, protocol } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage } from 'electron'
 import path from 'node:path'
 import { BoxService } from './core'
 import { WorkspaceService } from './core/workspace'
 import { SharpThumbnailService } from './thumbnail'
 import { registerIpc } from './ipc'
 import { registerQiheboxProtocol } from './protocol'
+import { AccountService } from './account'
 import { log, initLogger } from './log'
 import {
   createMainWindow,
@@ -117,6 +118,41 @@ app.on('before-quit', () => {
   setQuitting(true)
 })
 
+// —— 账号服务（v2.2.0：可选登录 + AI + 心跳）——
+// token 优先 safeStorage 加密；Linux 无 keyring 时降级明文（本地单用户，JWT 过期即失效）。
+function encryptToken(plain: string): string {
+  try {
+    if (safeStorage.isEncryptionAvailable()) {
+      return 'enc:' + safeStorage.encryptString(plain).toString('base64')
+    }
+  } catch {
+    // fallthrough 到明文降级
+  }
+  return 'raw:' + plain
+}
+
+function decryptToken(encoded: string): string {
+  try {
+    if (encoded.startsWith('enc:')) {
+      return safeStorage.decryptString(Buffer.from(encoded.slice(4), 'base64'))
+    }
+    if (encoded.startsWith('raw:')) {
+      return encoded.slice(4)
+    }
+  } catch {
+    return ''
+  }
+  return ''
+}
+
+const account = new AccountService({
+  accountFile: path.join(app.getPath('userData'), 'account.json'),
+  encrypt: encryptToken,
+  decrypt: decryptToken,
+  version: () => app.getVersion(),
+  log: (level, msg) => void log(level, msg),
+})
+
 app.whenReady().then(() => {
   initLogger()
   // 单一 workspace 实例贯穿全部服务
@@ -127,7 +163,7 @@ app.whenReady().then(() => {
   })
   const box = new BoxService(thumbs, workspace)
 
-  registerIpc(box)
+  registerIpc(box, account)
   registerQiheboxProtocol(box, () => thumbs.currentThumbsRoot())
 
   // 启动恢复/创建默认工作区（有最近工作区则恢复，无则自动创建）

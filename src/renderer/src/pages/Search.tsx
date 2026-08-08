@@ -1,11 +1,13 @@
 import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { useSearchParams, useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
-import { currentWorkspace, workspaceConfig, loadWorkspaceConfig } from "~/stores/workspace";
+import { currentWorkspace, workspaceConfig, loadWorkspaceConfig, productSets, loadProductSets } from "~/stores/workspace";
+import { requireLogin } from "~/stores/account";
+import { loadTagDefs, tagList } from "~/stores/tags";
 import { openPreview } from "~/stores/preview";
 import FileThumbnail from "~/components/FileThumbnail";
 import ContextMenu from "~/components/ContextMenu";
-import type { SearchResult, FileEntry, ProductSetInfo } from "~/types";
+import type { SearchResult, FileEntry, ProductSetInfo, AiSearchResult } from "~/types";
 
 export default function Search() {
   const navigate = useNavigate();
@@ -19,6 +21,8 @@ export default function Search() {
     y: number;
     file: FileEntry | null;
   }>({ show: false, x: 0, y: 0, file: null });
+  const [aiSearching, setAiSearching] = createSignal(false);
+  const [aiTranslation, setAiTranslation] = createSignal("");
 
   const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
 
@@ -59,6 +63,66 @@ export default function Search() {
     const q = query();
     if (q && typeof q === "string") {
       doSearch(q);
+    }
+  };
+
+  // —— v2.2.0：AI 语义搜索（自然语言 → 关键词组合 + 过滤）——
+  const handleAiSearch = async () => {
+    if (!requireLogin()) return;
+    const q = query().trim();
+    if (!q) return;
+    setAiSearching(true);
+    setAiTranslation("");
+    try {
+      await Promise.all([loadProductSets(), loadTagDefs()]);
+      const r = await api.ai.call("search", {
+        query: q,
+        index: {
+          product_sets: productSets().map((p) => p.name),
+          tags: tagList().map((t) => t.name),
+          types: ["image", "pdf", "cert"],
+        },
+      });
+      if (!r.success || !r.data) {
+        window.alert(r.error || "AI 搜索失败，请稍后重试");
+        return;
+      }
+      const sr = r.data as AiSearchResult;
+      const keywords = (sr.keywords ?? []).filter((k) => k.trim());
+      if (keywords.length === 0) {
+        window.alert("AI 未能理解查询，请换一种说法");
+        return;
+      }
+      // 逐关键词本地搜索并合并去重
+      const mergedFiles = new Map<string, FileEntry>();
+      const mergedSets = new Map<string, ProductSetInfo>();
+      for (const kw of keywords) {
+        const res = await api.search(kw);
+        if (res.success && res.data) {
+          for (const f of res.data.files) mergedFiles.set(f.path, f);
+          for (const s of res.data.product_sets) mergedSets.set(s.name, s);
+        }
+      }
+      // 应用 filters
+      let files = [...mergedFiles.values()];
+      if (sr.filters?.type) {
+        files = files.filter((f) => f.file_type === sr.filters.type);
+      }
+      if (sr.filters?.product_set) {
+        files = files.filter((f) => f.path.includes(sr.filters!.product_set!));
+      }
+      setResults({ files, product_sets: [...mergedSets.values()] });
+      const cond = [
+        keywords.join("、"),
+        sr.filters?.type ? `类型=${sr.filters.type}` : "",
+        sr.filters?.recent_days ? `近${sr.filters.recent_days}天` : "",
+        sr.filters?.product_set ? `产品集=${sr.filters.product_set}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      setAiTranslation(`AI 翻译：「${q}」→ ${cond}`);
+    } finally {
+      setAiSearching(false);
     }
   };
 
@@ -117,10 +181,29 @@ export default function Search() {
           <input
             type="text"
             class="w-full pl-10 pr-4 py-3 bg-surface-0 border border-surface-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all shadow-sm"
-            placeholder="输入关键词搜索..."
+            placeholder="输入关键词搜索，或用 AI 自然语言查找..."
             value={query()}
             onInput={(e) => setQuery(e.currentTarget.value)}
           />
+        </div>
+        <div class="flex items-center gap-2 mt-2">
+          <button
+            type="submit"
+            class="btn-primary px-4 py-1.5 text-sm"
+          >
+            搜索
+          </button>
+          <button
+            type="button"
+            class="px-4 py-1.5 text-sm rounded-lg bg-primary-50 text-primary-700 border border-primary-200 hover:bg-primary-100 transition-colors"
+            onClick={() => void handleAiSearch()}
+            disabled={aiSearching()}
+          >
+            {aiSearching() ? "AI 理解中..." : "🤖 AI 搜索"}
+          </button>
+          <Show when={aiTranslation()}>
+            <span class="text-xs text-primary-600 truncate">{aiTranslation()}</span>
+          </Show>
         </div>
       </form>
 

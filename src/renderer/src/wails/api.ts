@@ -18,6 +18,8 @@ import type {
   UpdateInfo,
   TagInfo,
   ApiResult,
+  AccountStatus,
+  AiAction,
 } from "~/types";
 
 /**
@@ -27,6 +29,16 @@ import type {
 const qb = window.qihebox;
 
 export const api = {
+  account: {
+    status: () => qb.account.status() as Promise<ApiResult<AccountStatus>>,
+    login: (email: string, password: string) =>
+      qb.account.login(email, password) as Promise<ApiResult<{ ok: boolean; error?: string; remaining?: number | null }>>,
+    logout: () => qb.account.logout() as Promise<ApiResult<boolean>>,
+  },
+  ai: {
+    call: (action: AiAction, payload: unknown) =>
+      qb.ai.call(action, payload) as Promise<ApiResult<unknown>>,
+  },
   workspace: {
     list: () => qb.workspace.list() as Promise<ApiResult<WorkspaceInfo[]>>,
     current: () => qb.workspace.current() as Promise<ApiResult<WorkspaceInfo | null>>,
