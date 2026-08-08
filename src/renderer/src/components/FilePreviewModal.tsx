@@ -1,6 +1,7 @@
 import { Show, For, Switch, Match, createSignal } from "solid-js";
 import { api } from "~/wails/api";
 import { tagChipStyle, tagLabel, topLevelTags } from "~/stores/tags";
+import PdfPreview from "~/components/PdfPreview";
 import {
   showPreview,
   previewFile,
@@ -128,11 +129,10 @@ export default function FilePreviewModal() {
                       />
                     </Match>
                     <Match when={isPdf()}>
-                      <iframe
-                        src={previewUrl()}
-                        class="h-full w-full"
-                        style={{ border: "none" }}
-                        title={previewFile()?.name}
+                      {/* v2.1.0：PDFium 不渲染 iframe 自定义协议，改 pdfjs 渲染进程渲染 */}
+                      <PdfPreview
+                        url={previewUrl()}
+                        onError={(m) => setPreviewError(m)}
                       />
                     </Match>
                   </Switch>

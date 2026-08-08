@@ -4,6 +4,7 @@ import { api } from "~/wails/api";
 import { workspaceConfig, loadWorkspaceConfig, currentWorkspace, fileBrowserRefreshTrigger } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
 import FileThumbnail from "~/components/FileThumbnail";
+import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
 import { handleDragOut } from "~/utils/dragout";
 import type { FileEntry } from "~/types";
@@ -75,7 +76,7 @@ export default function FileBrowser() {
   const loadFiles = async () => {
     const result = await api.files.list({
       product_set: decodedProductSet(),
-      file_type: params.type,
+      file_type: params.type ?? "image",
       sub_folder: decodedSubFolder(),
     });
     if (result.success && result.data) {
@@ -222,8 +223,8 @@ export default function FileBrowser() {
   };
 
   return (
-    <div class="p-6 max-w-7xl mx-auto">
-      <div class="flex items-center gap-2 mb-2 text-sm text-surface-500">
+    <div class="p-6 max-w-7xl mx-auto flex flex-col h-full">
+      <div class="flex items-center gap-2 mb-2 text-sm text-surface-500 shrink-0">
         <button class="hover:text-primary-600" onClick={() => navigate("/product-sets")}>产品集</button>
         <span>/</span>
         <button class="hover:text-primary-600" onClick={() => navigate(`/product-sets/${params.productSet}`)}>{productSetDisplayName()}</button>
@@ -298,7 +299,7 @@ export default function FileBrowser() {
       </Show>
 
       <div
-        class="border-2 border-dashed rounded-2xl p-8 transition-colors border-surface-200 bg-surface-0"
+        class="border-2 border-dashed rounded-2xl p-8 transition-colors border-surface-200 bg-surface-0 flex-1 min-h-0 flex flex-col"
       >
         <Show when={files().length > 0} fallback={
           <div class="text-center py-12">
@@ -307,7 +308,7 @@ export default function FileBrowser() {
             <p class="text-sm text-surface-400">支持图片、PDF 等文件</p>
           </div>
         }>
-          <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center justify-between mb-3 shrink-0">
             <span class="text-sm text-surface-500">{files().length} 个文件</span>
             <button
               class="text-sm text-primary-600 hover:text-primary-700"
@@ -316,9 +317,13 @@ export default function FileBrowser() {
               全选
             </button>
           </div>
-          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            <For each={files()}>
-              {(file) => (
+          <div class="flex-1 min-h-0">
+            <VirtualGrid
+              items={files()}
+              itemHeight={224}
+              columns={{ base: 2, md: 3, lg: 4, xl: 5 }}
+              gap={16}
+              renderItem={(file) => (
                 <div
                   class={`card p-3 cursor-pointer hover:shadow-card-hover transition-all select-none ${selectedFilePaths().includes(file.path) ? "border-primary-500 bg-primary-50" : ""}`}
                   draggable={true}
@@ -332,7 +337,7 @@ export default function FileBrowser() {
                   }}
                   onClick={() => handleOpenPreview(file)}
                 >
-                  <div class="relative aspect-square rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden mb-3">
+                  <div class="relative h-36 rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden mb-3">
                     <input
                       type="checkbox"
                       class="absolute top-2 left-2 w-4 h-4 accent-primary-600 cursor-pointer"
@@ -349,7 +354,7 @@ export default function FileBrowser() {
                   </div>
                 </div>
               )}
-            </For>
+            />
           </div>
         </Show>
       </div>

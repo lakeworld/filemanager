@@ -33,6 +33,7 @@ interface QiheboxApi {
     deleteSubfolder: (req: unknown) => Promise<unknown>
     dataUrl: (filePath: string) => Promise<unknown>
     ensureThumbnail: (filePath: string) => Promise<unknown>
+    thumbnailUrl: (filePath: string) => Promise<unknown>
     copyPaths: (paths: string[]) => Promise<unknown>
     startDrag: (paths: string[]) => Promise<unknown>
     workspaceUrl: (filePath: string) => Promise<unknown>

@@ -1,7 +1,7 @@
 {
   "name": "qihe-box",
   "productName": "启禾文件管理",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "description": "启禾文件管理（BOX 项目）—— Electron 重构版：电商产品图包与证书管理",
   "homepage": "https://www.qihebook.cloud/box/",
   "desktopName": "qihe-box",
@@ -22,7 +22,9 @@
     "build:win": "electron-vite build && electron-builder --win"
   },
   "dependencies": {
+    "@tanstack/solid-virtual": "^3.13.36",
     "exceljs": "^4.4.0",
+    "pdfjs-dist": "^5.6.205",
     "sharp": "^0.35.3"
   },
   "devDependencies": {
