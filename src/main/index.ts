@@ -41,6 +41,16 @@ protocol.registerSchemesAsPrivileged([
 
 // 主进程堆上限（防止长时间运行内存膨胀）
 
+// —— 进程瘦身（v2.1.1）——
+// 实测记录：
+// 1. --single-process 极限合并：Deepin 上启动即崩（SIGTRAP，Chromium CHECK 失败），已放弃。
+// 2. --no-zygote：去 3 个 zygote 孵化器（~118MB）；必须作为【启动参数】传入（appendSwitch 运行时
+//    设置时机太晚不生效），故参数在 electron-builder.yml linux.executableArgs 中固化。
+// 3. --disable-gpu：Deepin 本就软件渲染，GPU 进程 207MB → 90MB 空壳，无崩溃（区别于旧版
+//    disableHardwareAcceleration 崩溃的环境）。
+// 注：zygote 与 OS 级 sandbox 绑定，关闭需配 --no-sandbox；本机现状已有 --no-zygote-sandbox，
+// 本地单用户工具 + webPreferences.sandbox:false，风险可控。
+
 // —— 单实例锁（替代原 Go CreateMutex）——
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
