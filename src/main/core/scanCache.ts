@@ -16,6 +16,8 @@ interface CacheEntry {
 export class CountCache {
   private cache = new Map<string, CacheEntry>()
   private inflight = new Map<string, Promise<number>>()
+  /** v2.2.1：缓存条目上限（LRU 淘汰最久未用），防长期运行无界增长 */
+  private readonly MAX_ENTRIES = 2048
 
   /** 目录树签名：收集本目录及所有后代目录 mtime，排序后哈希 */
   private async dirTreeSig(dir: string): Promise<string> {
@@ -61,9 +63,19 @@ export class CountCache {
       return 0
     }
     const hit = this.cache.get(dir)
-    if (hit && hit.sig === sig) return hit.count
+    if (hit && hit.sig === sig) {
+      // LRU 触摸：移到末尾
+      this.cache.delete(dir)
+      this.cache.set(dir, hit)
+      return hit.count
+    }
 
     const count = await this.countFilesRaw(dir)
+    // LRU 淘汰：Map 按插入序迭代，超限删除最旧的
+    if (this.cache.size >= this.MAX_ENTRIES) {
+      const oldest = this.cache.keys().next().value
+      if (oldest !== undefined) this.cache.delete(oldest)
+    }
     this.cache.set(dir, { sig, count })
     return count
   }

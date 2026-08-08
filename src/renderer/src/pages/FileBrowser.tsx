@@ -4,6 +4,7 @@ import { api } from "~/wails/api";
 import { workspaceConfig, loadWorkspaceConfig, currentWorkspace, fileBrowserRefreshTrigger } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
 import { requireLogin } from "~/stores/account";
+import { FEATURE_AI } from "~/features";
 import { loadTagDefs, tagList } from "~/stores/tags";
 import FileThumbnail from "~/components/FileThumbnail";
 import VirtualGrid from "~/components/VirtualGrid";
@@ -546,13 +547,13 @@ export default function FileBrowser() {
             {
               label: "AI 命名",
               icon: "🤖",
-              show: contextMenu().paths.length >= 1,
+              show: FEATURE_AI && contextMenu().paths.length >= 1,
               action: () => void handleAiRename(),
             },
             {
               label: "AI 打标",
               icon: "🏷️",
-              show: contextMenu().paths.length >= 1,
+              show: FEATURE_AI && contextMenu().paths.length >= 1,
               action: () => void handleAiTag(),
             },
             {

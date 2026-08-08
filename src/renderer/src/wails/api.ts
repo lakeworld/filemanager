@@ -45,6 +45,8 @@ export const api = {
     create: (path: string) => qb.workspace.create(path) as Promise<ApiResult<WorkspaceInfo>>,
     open: (path: string) => qb.workspace.open(path) as Promise<ApiResult<WorkspaceInfo>>,
     switch: (path: string) => qb.workspace.switch(path) as Promise<ApiResult<WorkspaceInfo>>,
+    renameSubfolder: (type: "image" | "cert", oldName: string, newName: string) =>
+      qb.workspace.renameSubfolder(type, oldName, newName) as Promise<ApiResult<WorkspaceConfig>>,
   },
   config: {
     get: () => qb.config.get() as Promise<ApiResult<WorkspaceConfig>>,
@@ -82,6 +84,9 @@ export const api = {
     workspaceUrl: (path: string) => qb.files.workspaceUrl(path) as Promise<ApiResult<string>>,
     openWithDefaultApp: (path: string) =>
       qb.files.openWithDefaultApp(path) as Promise<ApiResult<boolean>>,
+  },
+  preview: {
+    open: (filePath: string) => qb.preview.open(filePath) as Promise<ApiResult<boolean>>,
   },
   metadata: {
     get: (productSet: string, fileName: string) =>

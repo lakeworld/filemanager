@@ -226,6 +226,48 @@ export class WorkspaceService {
     return config
   }
 
+  /**
+   * 子文件夹重命名（v2.2.1）：同步迁移所有已有产品集下的同名目录，并更新工作区配置。
+   * - 目录迁移：{产品集}/{images|certs}/{oldName} → {newName}（目标存在跳过、源不存在跳过，幂等）
+   * - metadata 按「产品集/文件名」存储（不含子文件夹），无需迁移
+   * - 返回更新后的完整配置（Settings 页直接用于刷新）
+   */
+  async renameSubfolder(type: 'image' | 'cert', oldName: string, newName: string): Promise<WorkspaceConfig> {
+    this.requireWorkspace()
+    oldName = oldName.trim()
+    newName = newName.trim()
+    if (!oldName || !newName) throw new Error('名称不能为空')
+    if (oldName === newName) return this.loadConfig()
+    const cfg = await this.loadConfig()
+    const list = type === 'image' ? cfg.image_subfolders : cfg.cert_subfolders
+    if (!list.includes(oldName)) throw new Error(`子文件夹「${oldName}」不存在`)
+    if (list.includes(newName)) throw new Error(`子文件夹「${newName}」已存在`)
+
+    // 同步迁移所有产品集下的同名目录
+    const setsDir = path.join(this.currentWS, PRODUCT_SETS_DIR)
+    const typeDir = type === 'image' ? IMAGES_DIR : CERTS_DIR
+    const entries = await fsp.readdir(setsDir, { withFileTypes: true }).catch(() => [] as fs.Dirent[])
+    for (const e of entries) {
+      if (!e.isDirectory()) continue
+      const oldPath = path.join(setsDir, e.name, typeDir, oldName)
+      const newPath = path.join(setsDir, e.name, typeDir, newName)
+      try {
+        await fsp.stat(oldPath)
+        const exists = await fsp.stat(newPath).then(() => true).catch(() => false)
+        if (exists) continue
+        await fsp.rename(oldPath, newPath)
+      } catch {
+        // 源目录不存在（该产品集未建此子目录）→ 跳过
+      }
+    }
+
+    // 更新配置（list 是 cfg 的引用，改后写回）
+    const idx = list.indexOf(oldName)
+    list[idx] = newName
+    await this.saveConfig(this.currentWS, cfg)
+    return cfg
+  }
+
   // —— 产品集 API（对照 ProductSetList / Create / Delete / Stats / Rename / UpdateInfo）——
 
   async productSetList(): Promise<ProductSetInfo[]> {

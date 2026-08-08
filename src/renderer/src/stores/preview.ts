@@ -37,26 +37,11 @@ const loadMetadata = async (file: FileEntry, productSet: string) => {
 };
 
 export const openPreview = async (file: FileEntry, context?: PreviewContext) => {
-  const ctx = context || {};
-  setPreviewFile(file);
-  setPreviewContext(ctx);
-  setPreviewUrl("");
-  setPreviewError("");
-  setMetadata({ ...defaultMetadata });
-  setTagInput("");
-
-  if (ctx.productSet) {
-    loadMetadata(file, ctx.productSet);
+  // v2.2.1：预览改在独立窗口（独立渲染进程，关闭即释放内存），主窗口不再内嵌大图/PDF
+  const result = await api.preview.open(file.path);
+  if (!result.success) {
+    setPreviewError(result.error || "无法打开预览窗口");
   }
-
-  const urlResult = await api.files.workspaceUrl(file.path);
-  if (urlResult.success && urlResult.data) {
-    setPreviewUrl(urlResult.data);
-  } else {
-    setPreviewError(urlResult.error || "无法加载预览");
-  }
-
-  setShowPreview(true);
 };
 
 export const closePreview = () => {

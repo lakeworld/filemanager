@@ -15,6 +15,8 @@ const Certs = lazy(() => import("./pages/Certs"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Help = lazy(() => import("./pages/Help"));
+// v2.2.1：独立预览窗口渲染页（不套主窗口布局）
+const Preview = lazy(() => import("./pages/Preview"));
 
 function RootApp(props: RouteSectionProps) {
   return <App {...props} />;
@@ -23,6 +25,8 @@ function RootApp(props: RouteSectionProps) {
 render(
   () => (
     <Router root={RootApp}>
+      {/* 独立预览窗口：不经过 App 布局（无 Sidebar/Header） */}
+      <Route path="/preview" component={Preview} />
       <Route path="/" component={Dashboard} />
       <Route path="/product-sets" component={ProductSets} />
       <Route path="/product-sets/:name" component={ProductSets} />

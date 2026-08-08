@@ -17,6 +17,22 @@ import type { ThumbnailProvider } from './core/files'
 const THUMB_SIZE = 256
 const JPEG_QUALITY = 85
 
+// v2.2.1：sharp/libvips 进程内缓存收紧（一次性设置）。
+// 默认 50MB/20 句柄/100 操作对「磁盘缓存 + mtime 命中」的应用是白占内存与句柄。
+let sharpCacheTuned = false
+async function loadSharp(): Promise<typeof import('sharp')['default']> {
+  const { default: sharp } = await import('sharp')
+  if (!sharpCacheTuned) {
+    sharpCacheTuned = true
+    try {
+      sharp.cache({ memory: 16, files: 4, items: 32 })
+    } catch {
+      // 缓存设置失败不影响功能
+    }
+  }
+  return sharp
+}
+
 export interface ThumbnailServiceOptions {
   /** 缩略图缓存根（主进程传 app.getPath('userData')/thumbs）。不传则回退旧位置（工作区 .thumbnails） */
   userDataThumbsDir?: string
@@ -123,8 +139,8 @@ export class SharpThumbnailService implements ThumbnailProvider {
     return this.enqueue(async () => {
       try {
         const outPath = newThumb || legacyThumb
-        // 延迟加载 sharp（首次生成缩略图时才加载原生库）
-        const { default: sharp } = await import('sharp')
+        // 延迟加载 sharp（首次生成缩略图时才加载原生库）+ 收紧 libvips 缓存
+        const sharp = await loadSharp()
         await fsp.mkdir(path.dirname(outPath), { recursive: true })
         await sharp(filePath, { limitInputPixels: false })
           .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'inside', withoutEnlargement: true })
