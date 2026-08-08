@@ -1,25 +1,25 @@
-import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { Show, createSignal, onMount, onCleanup } from "solid-js";
+// 官方 PDFViewer 组件（pdfjs-dist/web）：连续滚动、渲染队列、文本层、缩放、搜索
+// 注意：必须动态 import（组件顶层依赖全局 pdfjsLib，需先注入核心库）
+import "pdfjs-dist/web/pdf_viewer.css";
 // pdfjs worker 作为静态资源打包（vite ?url）：dev 与打包后 file:// 环境均可加载
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 /**
- * PDF 预览（v2.2.1 深度优化，按 PDF 调研报告 A 方案）
- * 供独立预览窗口（#/preview）使用：
- * - 流式加载：getDocument({ url }) 走 Range 请求（qihebox:// 协议已支持 206），
- *   不再全量把整个 PDF 读进内存；协议不支持 Range 时 pdfjs 自动回退全量
- * - 页缓存 LRU（6 页）：翻页/缩放命中复用 canvas，避免整页重画
- * - 降采样：渲染分辨率限制在适配容器所需，大扫描件不全分辨率铺满
- * - 渲染队列：只渲染最新目标页，快速翻页取消中间任务（吞 RenderingCancelledException）
- * - worker 模块级单例 + 组件销毁时 doc.destroy()/loadingTask.destroy()
+ * PDF 预览（v2.2.1 终版）：基于 pdfjs-dist 官方 PDFViewer 组件
+ * - 连续滚动 + 渲染队列（视口内渲染、空闲预渲染，翻页/滚动流畅）
+ * - 文本层（文字可选中复制）+ 缩放（适配页面/宽度/自定义）+ 页码跳转
+ * - 全文搜索（PDFFindController）
+ * - 流式加载（Range）+ worker 单例 + 组件销毁清理
  */
 interface PdfPreviewProps {
   url: string;
   onError?: (msg: string) => void;
-  /** PDF 加载完成后提供文本提取函数（供 AI 证书抽取；只取文本不上传图片） */
+  /** 加载完成后提供文本提取函数（供 AI 证书抽取；只取文本不上传图片） */
   onTextExtract?: (extract: () => Promise<string>) => void;
 }
 
-// worker blob URL 模块级单例（只建一次，避免每次打开重建/泄漏）
+// worker blob URL 模块级单例（只建一次）
 let workerUrlPromise: Promise<string> | null = null;
 function getWorkerUrl(): Promise<string> {
   if (!workerUrlPromise) {
@@ -32,115 +32,33 @@ function getWorkerUrl(): Promise<string> {
   return workerUrlPromise;
 }
 
-const PAGE_CACHE_MAX = 6;
-
 export default function PdfPreview(props: PdfPreviewProps) {
-  let canvasRef: HTMLCanvasElement | undefined;
   let containerRef: HTMLDivElement | undefined;
-  const [pageNum, setPageNum] = createSignal(1);
+  let viewerRef: HTMLDivElement | undefined;
+  const [pageNum, setPageNum] = createSignal(0);
   const [numPages, setNumPages] = createSignal(0);
-  const [scale, setScale] = createSignal(1);
+  const [zoom, setZoom] = createSignal(100);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal("");
+  const [searchOpen, setSearchOpen] = createSignal(false);
+  const [searchText, setSearchText] = createSignal("");
+  const [matchInfo, setMatchInfo] = createSignal("");
 
-  // pdfjs 类型体系复杂，组件内用宽松类型
-  let doc: any = null;
+  let viewer: PDFViewer | null = null;
+  let linkService: PDFLinkService | null = null;
+  let findController: PDFFindController | null = null;
+  let eventBus: EventBus | null = null;
+  let pdfDoc: any = null;
   let loadingTask: { destroy: () => Promise<void> } | null = null;
-  let renderTask: { promise: Promise<unknown>; cancel: () => void } | null = null;
-  let renderSeq = 0;
-  // 页缓存：pageNum → { canvas, scale }
-  const pageCache = new Map<number, { canvas: HTMLCanvasElement; scale: number }>();
 
-  const renderPage = async (num: number, s: number): Promise<void> => {
-    if (!doc || !canvasRef) return;
-    const seq = ++renderSeq;
-
-    // 命中页缓存：直接复用 canvas
-    const cached = pageCache.get(num);
-    if (cached && cached.scale === s) {
-      drawCached(cached.canvas);
-      return;
-    }
-    if (cached && cached.scale !== s) {
-      // 缩放变化：先 drawImage 放大旧图占位，再异步重渲（渐进体验）
-      drawCached(cached.canvas);
-    }
-
-    const pending = renderTask;
-    if (pending) {
-      try {
-        pending.cancel();
-      } catch {
-        // 忽略取消异常
-      }
-      renderTask = null;
-    }
-    const page = await doc.getPage(num);
-    if (seq !== renderSeq || !canvasRef) {
-      page.cleanup?.();
-      return;
-    }
-    const viewport = page.getViewport({ scale: s });
-    const canvas = document.createElement("canvas");
-    // 降采样：限制渲染分辨率不超过适配容器需要
-    const maxW = containerRef?.clientWidth ? containerRef.clientWidth - 24 : 0;
-    const maxH = containerRef?.clientHeight ? containerRef.clientHeight - 24 : 0;
-    let renderScale = s;
-    if (maxW > 0 && maxH > 0) {
-      const fitW = maxW / viewport.width;
-      const fitH = maxH / viewport.height;
-      const fit = Math.min(fitW, fitH, 1);
-      // 基础视图（scale<=1）降采样到适配；放大视图保留用户缩放比例
-      renderScale = s <= 1.05 ? Math.max(0.5, s * fit * 0.98) : s;
-    }
-    const rv = page.getViewport({ scale: renderScale });
-    canvas.width = Math.max(1, Math.floor(rv.width));
-    canvas.height = Math.max(1, Math.floor(rv.height));
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const task = page.render({ canvasContext: ctx, viewport: rv });
-    renderTask = task;
-    try {
-      await task.promise;
-    } catch (e: unknown) {
-      // 渲染取消是正常流程（快速翻页），不算错误
-      if ((e as { name?: string })?.name !== "RenderingCancelledException") {
-        throw e;
-      }
-      return;
-    } finally {
-      if (renderTask === task) renderTask = null;
-      page.cleanup?.();
-    }
-    if (seq !== renderSeq || !canvasRef) return;
-    // 写回主 canvas
-    canvasRef.width = canvas.width;
-    canvasRef.height = canvas.height;
-    const ctx2 = canvasRef.getContext("2d");
-    ctx2?.drawImage(canvas, 0, 0);
-    // 缓存（LRU）
-    if (pageCache.size >= PAGE_CACHE_MAX) {
-      const first = pageCache.keys().next().value;
-      if (first !== undefined) pageCache.delete(first);
-    }
-    pageCache.set(num, { canvas, scale: s });
-  };
-
-  const drawCached = (c: HTMLCanvasElement): void => {
-    if (!canvasRef) return;
-    canvasRef.width = c.width;
-    canvasRef.height = c.height;
-    canvasRef.getContext("2d")?.drawImage(c, 0, 0);
-  };
-
-  // v2.2.0：惰性提取 PDF 文本（前 5 页，2 万字符上限），供 AI 证书抽取使用
+  // 惰性文本提取（前 5 页，2 万字符上限），供 AI 证书抽取
   const extractText = async (): Promise<string> => {
-    if (!doc) return "";
+    if (!pdfDoc) return "";
     try {
       const parts: string[] = [];
-      const maxPages = Math.min(doc.numPages, 5);
+      const maxPages = Math.min(pdfDoc.numPages, 5);
       for (let i = 1; i <= maxPages; i++) {
-        const page = await doc.getPage(i);
+        const page = await pdfDoc.getPage(i);
         const tc = await page.getTextContent();
         const str = (tc.items as { str?: string }[])
           .map((it) => (typeof it.str === "string" ? it.str : ""))
@@ -158,15 +76,43 @@ export default function PdfPreview(props: PdfPreviewProps) {
     try {
       setLoading(true);
       const pdfjs = await import("pdfjs-dist");
-      // worker 单例（blob URL 只建一次）
+      // 官方 PDFViewer 组件通过全局 pdfjsLib 访问核心库（AbortException 等）——必须先注入再加载组件
+      ;(globalThis as { pdfjsLib?: unknown }).pdfjsLib = pdfjs;
+      const { EventBus, PDFViewer, PDFLinkService, PDFFindController } = await import("pdfjs-dist/web/pdf_viewer");
       pdfjs.GlobalWorkerOptions.workerSrc = await getWorkerUrl();
-      // 流式加载：走 Range 请求（协议层支持 206），不全量读内存
-      const loading = pdfjs.getDocument({ url: props.url, rangeChunkSize: 65536 });
-      loadingTask = loading;
-      doc = await loading.promise;
-      setNumPages(doc.numPages);
+
+      eventBus = new EventBus();
+      linkService = new PDFLinkService({ eventBus });
+      findController = new PDFFindController({ linkService, eventBus });
+      viewer = new PDFViewer({
+        container: containerRef!,
+        viewer: viewerRef!,
+        eventBus,
+        linkService,
+        findController,
+        textLayerMode: 1,
+      });
+      linkService.setViewer(viewer);
+
+      // 页码 / 缩放同步
+      eventBus.on("pagechanging", (e: { pageNumber: number }) => setPageNum(e.pageNumber));
+      eventBus.on("scalechanging", (e: { scale: number }) => setZoom(Math.round(e.scale * 100)));
+      // 搜索匹配数
+      eventBus.on("updatefindmatchescount", (e: { matchesCount: { current: number; total: number } | null }) => {
+        const m = e.matchesCount;
+        setMatchInfo(m && m.total > 0 ? `${m.current}/${m.total}` : "");
+      });
+
+      // 流式加载（Range）
+      loadingTask = pdfjs.getDocument({ url: props.url, rangeChunkSize: 65536 });
+      pdfDoc = await loadingTask.promise;
+      setNumPages(pdfDoc.numPages);
+      viewer.setDocument(pdfDoc);
+      linkService.setDocument(pdfDoc, null);
+      // 默认适配页面宽度
+      viewer.currentScaleValue = "page-fit";
+      setZoom(Math.round(viewer.currentScale * 100));
       props.onTextExtract?.(extractText);
-      await renderPage(1, scale());
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
@@ -176,66 +122,112 @@ export default function PdfPreview(props: PdfPreviewProps) {
     }
   });
 
-  createEffect(() => {
-    const n = pageNum();
-    const s = scale();
-    if (doc && n >= 1 && n <= numPages()) {
-      void renderPage(n, s).catch(() => {});
-    }
-  });
-
   onCleanup(() => {
-    renderSeq++;
     try {
-      renderTask?.cancel();
-    } catch {
-      // 忽略
-    }
-    renderTask = null;
-    pageCache.clear();
-    try {
-      void doc?.destroy?.();
-    } catch {
-      // 忽略
-    }
+      void pdfDoc?.destroy?.();
+    } catch { /* 忽略 */ }
     try {
       void loadingTask?.destroy?.();
-    } catch {
-      // 忽略
-    }
-    doc = null;
+    } catch { /* 忽略 */ }
+    pdfDoc = null;
+    viewer = null;
+    linkService = null;
+    findController = null;
+    eventBus = null;
   });
 
-  const prev = () => setPageNum((n) => Math.max(1, n - 1));
-  const next = () => setPageNum((n) => Math.min(numPages(), n + 1));
-  const zoomIn = () => setScale((s) => Math.min(4, Math.round((s + 0.25) * 100) / 100));
-  const zoomOut = () => setScale((s) => Math.max(0.5, Math.round((s - 0.25) * 100) / 100));
+  // —— 工具条操作 ——
+  const goPrev = () => {
+    if (viewer && pageNum() > 1) viewer.currentPageNumber = pageNum() - 1;
+  };
+  const goNext = () => {
+    if (viewer && pageNum() < numPages()) viewer.currentPageNumber = pageNum() + 1;
+  };
+  const zoomIn = () => {
+    if (viewer) viewer.currentScale = Math.min(4, viewer.currentScale * 1.2);
+  };
+  const zoomOut = () => {
+    if (viewer) viewer.currentScale = Math.max(0.4, viewer.currentScale / 1.2);
+  };
+  const fitPage = () => {
+    if (viewer) viewer.currentScaleValue = "page-fit";
+  };
+  const doSearch = (query: string, findPrevious = false) => {
+    if (!eventBus) return;
+    eventBus.dispatch("find", {
+      type: "",
+      query,
+      phraseSearch: true,
+      caseSensitive: false,
+      entireWord: false,
+      highlightAll: true,
+      findPrevious,
+    });
+  };
+  const searchNext = () => searchText() && doSearch(searchText(), false);
+  const searchPrev = () => searchText() && doSearch(searchText(), true);
 
   return (
-    <div class="w-full h-full flex flex-col">
-      <Show when={error()} fallback={
-        <Show when={loading()} fallback={
-          <div ref={containerRef} class="flex-1 min-h-0 flex items-center justify-center overflow-auto bg-surface-50 rounded-lg">
-            <canvas ref={canvasRef} class="max-w-full max-h-full shadow-sm" />
+    <div class="flex flex-col w-full h-full min-h-0">
+      {/* 工具条 */}
+      <div class="flex items-center gap-2 px-3 py-1.5 bg-white border-b border-surface-200 shrink-0 flex-wrap">
+        <button class="btn-secondary px-2 py-1 text-xs" onClick={goPrev} disabled={!numPages() || pageNum() <= 1}>
+          ← 上一页
+        </button>
+        <span class="text-xs text-surface-600 whitespace-nowrap">
+          {pageNum()} / {numPages()}
+        </span>
+        <button class="btn-secondary px-2 py-1 text-xs" onClick={goNext} disabled={!numPages() || pageNum() >= numPages()}>
+          下一页 →
+        </button>
+        <span class="w-px h-4 bg-surface-200 mx-1" />
+        <button class="btn-secondary px-2 py-1 text-xs" onClick={zoomOut} title="缩小">−</button>
+        <button class="btn-secondary px-2 py-1 text-xs" onClick={fitPage} title="适配页面">{zoom()}%</button>
+        <button class="btn-secondary px-2 py-1 text-xs" onClick={zoomIn} title="放大">+</button>
+        <span class="w-px h-4 bg-surface-200 mx-1" />
+        <button
+          class={`btn-secondary px-2 py-1 text-xs ${searchOpen() ? "bg-primary-50 text-primary-700" : ""}`}
+          onClick={() => setSearchOpen((v) => !v)}
+        >
+          🔍 搜索
+        </button>
+        <Show when={searchOpen()}>
+          <div class="flex items-center gap-1">
+            <input
+              type="text"
+              class="w-36 px-2 py-1 border border-surface-200 rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary-400"
+              placeholder="输入查找内容..."
+              value={searchText()}
+              onInput={(e) => {
+                setSearchText(e.currentTarget.value);
+                if (e.currentTarget.value) doSearch(e.currentTarget.value);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && searchNext()}
+            />
+            <button class="btn-secondary px-2 py-1 text-xs" onClick={searchPrev} title="上一处">↑</button>
+            <button class="btn-secondary px-2 py-1 text-xs" onClick={searchNext} title="下一处">↓</button>
+            <Show when={matchInfo()}>
+              <span class="text-xs text-primary-600 whitespace-nowrap">{matchInfo()}</span>
+            </Show>
           </div>
-        }>
-          <div class="flex-1 flex items-center justify-center text-surface-400">PDF 加载中…</div>
         </Show>
-      }>
-        <div class="flex-1 flex flex-col items-center justify-center gap-2 text-sm text-red-600">
-          <span>PDF 预览失败：{error()}</span>
-          <span class="text-surface-400 text-xs">可尝试用系统程序打开</span>
+      </div>
+
+      {/* 查看区：容器恒渲染（ref 在 onMount 前绑定），loading/error 用覆盖层 */}
+      <div class="relative flex-1 min-h-0">
+        <div ref={containerRef} class="absolute inset-0 overflow-auto bg-surface-100">
+          <div ref={viewerRef} class="pdfViewer" />
         </div>
-      </Show>
-      <Show when={!error() && numPages() > 0}>
-        <div class="flex items-center justify-center gap-3 mt-3 text-xs text-surface-600 shrink-0">
-          <button class="btn-secondary px-2 py-1" onClick={zoomOut} title="缩小">−</button>
-          <button class="btn-secondary px-2 py-1" onClick={prev} disabled={pageNum() <= 1}>上一页</button>
-          <span>{pageNum()} / {numPages()}</span>
-          <button class="btn-secondary px-2 py-1" onClick={next} disabled={pageNum() >= numPages()}>下一页</button>
-          <button class="btn-secondary px-2 py-1" onClick={zoomIn} title="放大">+</button>
-        </div>
-      </Show>
+        <Show when={loading()}>
+          <div class="absolute inset-0 flex items-center justify-center bg-surface-100 text-surface-400">PDF 加载中…</div>
+        </Show>
+        <Show when={error() && !loading()}>
+          <div class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface-100 text-sm text-red-600">
+            <span>PDF 预览失败：{error()}</span>
+            <span class="text-surface-400 text-xs">可尝试用系统程序打开</span>
+          </div>
+        </Show>
+      </div>
     </div>
   );
 }
