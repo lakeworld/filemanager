@@ -70,11 +70,21 @@ const api = {
     show: () => invoke('qihebox:window:show'),
     minimize: () => invoke('qihebox:window:minimize'),
     toggleMaximize: () => invoke('qihebox:window:toggleMaximize'),
-    isMaximised: () => invoke('qihebox:window:isMaximised'),
+    isMaximised: async () => {
+      const r = (await invoke('qihebox:window:isMaximised')) as { success: boolean; data: boolean }
+      return r?.data ?? false
+    },
     quit: () => invoke('qihebox:window:quit'),
-    getSize: () => invoke('qihebox:window:getSize'),
+    // 与 Wails runtime.WindowGetSize 一致：直接返回 {w,h}（App.tsx FramelessResizer 依赖）
+    getSize: async () => {
+      const r = (await invoke('qihebox:window:getSize')) as { success: boolean; data: { w: number; h: number } }
+      return r?.data ?? { w: 1280, h: 900 }
+    },
     setSize: (w: number, h: number) => invoke('qihebox:window:setSize', w, h),
-    getPosition: () => invoke('qihebox:window:getPosition'),
+    getPosition: async () => {
+      const r = (await invoke('qihebox:window:getPosition')) as { success: boolean; data: { x: number; y: number } }
+      return r?.data ?? { x: 0, y: 0 }
+    },
     setPosition: (x: number, y: number) => invoke('qihebox:window:setPosition', x, y),
   },
   app: {
