@@ -113,7 +113,12 @@ app.whenReady().then(() => {
 
   registerIpc(box)
   registerQiheboxProtocol(box)
-  console.log('[main] qihebox protocol handled:', protocol.isProtocolHandled('qihebox'))
+
+  // 启动恢复/创建默认工作区（有最近工作区则恢复，无则自动创建）
+  workspace.restoreOrCreateDefault().catch((err) => {
+    void log('warn', `默认工作区恢复失败: ${String(err)}`)
+  })
+
   const win = createMainWindow()
   setupTray()
   setupCrashRecovery(win)
