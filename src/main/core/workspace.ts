@@ -200,6 +200,21 @@ export class WorkspaceService {
     return this.open(pathArg)
   }
 
+  /**
+   * 启动时恢复或创建默认工作区（对照原 Go restoreLastWorkspace + 默认工作区需求）：
+   * - 有最近工作区 → 自动打开最近一个
+   * - 无 → 自动创建默认工作区（用户主目录/启禾文件管理）并打开
+   */
+  async restoreOrCreateDefault(): Promise<WorkspaceInfo> {
+    const recents = await this.loadRecentWorkspaces()
+    if (recents.length > 0) {
+      await this.setCurrentWorkspace(recents[0])
+      return this.workspaceInfo(recents[0])
+    }
+    const def = path.join(os.homedir(), '启禾文件管理')
+    return this.create(def)
+  }
+
   async getConfig(): Promise<WorkspaceConfig> {
     this.requireWorkspace()
     return this.loadConfig()
