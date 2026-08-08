@@ -1,9 +1,8 @@
 /**
  * 缩略图服务（对照原 Go files.go ensureThumbnail / thumbnailPath；sharp 替代 nfnt/resize）
  * 保持 `.thumbnails/<sha256前2位>/<hash><ext>.thumb.jpg` 路径结构，旧缩略图兼容。
- * 生成放 worker 线程（阶段 6 优化为队列，当前先同步实现保证正确性）。
+ * 性能：sharp 延迟加载（动态 import），主进程启动不加载 40MB 原生库。
  */
-import sharp from 'sharp'
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 import { thumbnailPath, classifyFileType } from './core/paths'
@@ -57,6 +56,8 @@ export class SharpThumbnailService implements ThumbnailProvider {
     }
     return this.enqueue(async () => {
       try {
+        // 延迟加载 sharp（首次生成缩略图时才加载原生库）
+        const { default: sharp } = await import('sharp')
         await fsp.mkdir(path.dirname(thumb), { recursive: true })
         await sharp(filePath, { limitInputPixels: false })
           .resize(256, 256, { fit: 'inside', withoutEnlargement: true })
