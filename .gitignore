@@ -37,3 +37,6 @@ desktop.ini
 # 官网静态站点构建产物
 web-tools/dist/
 软件发布包/
+
+# 内部审计文档（v2.4.2 起不进公开仓库，保留本地）
+docs/RELEASE-AUDIT.md
