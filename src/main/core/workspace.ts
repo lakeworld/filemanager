@@ -21,7 +21,8 @@ import {
   writeJsonAtomic,
   readJsonFile,
 } from './paths'
-import { globalCountCache, globalFileListCache } from './scanCache'
+import { globalCountCache } from './scanCache'
+import { globalWorkspaceIndex } from './indexCache'
 import type { WorkspaceInfo, ProductSetInfo, ProductSetStats, ProductSetCreateRequest, ProductSetUpdateRequest } from '../../shared/types'
 
 export type { WorkspaceInfo, ProductSetInfo, ProductSetStats, ProductSetCreateRequest, ProductSetUpdateRequest } from '../../shared/types'
@@ -45,6 +46,7 @@ export async function countFiles(dir: string): Promise<number> {
 export class WorkspaceService {
   private currentWS = ''
   private homeDir: string
+  private onWorkspaceChangedCb?: () => void
 
   constructor(homeDir?: string) {
     // 测试时注入临时目录，避免污染真实用户 recents
@@ -60,6 +62,11 @@ export class WorkspaceService {
     return recentPath(this.homeDir)
   }
 
+  /** 注册工作区切换回调（index.ts 用于切换时重建文件监听；纯回调，不依赖 electron） */
+  onWorkspaceChanged(cb: () => void): void {
+    this.onWorkspaceChangedCb = cb
+  }
+
   async setCurrentWorkspace(workspace: string): Promise<void> {
     if (!workspace) {
       this.currentWS = ''
@@ -70,8 +77,9 @@ export class WorkspaceService {
     ensureWorkspaceDirs(workspace)
     this.currentWS = workspace
     globalCountCache.clear() // 切换工作区后清理扫描缓存
-    globalFileListCache.clear() // v2.4.x：切换工作区后清理文件列表缓存
+    globalWorkspaceIndex.clear() // v2.4.x：切换工作区后清理文件索引快照
     await this.addRecentWorkspace(workspace)
+    this.onWorkspaceChangedCb?.() // v2.4.x：通知 index.ts 重建新工作区的文件监听
   }
 
   // —— 最近工作区（对照 addRecentWorkspace / loadRecentWorkspaces）——
