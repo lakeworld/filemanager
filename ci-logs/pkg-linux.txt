@@ -1,0 +1,60 @@
+
+> qihe-box@2.3.1 build:linux
+> electron-vite build && electron-builder --linux
+
+[36mvite v7.3.6 [32mbuilding ssr environment for production...[36m[39m
+transforming...
+[32m✓[39m 23 modules transformed.
+rendering chunks...
+[2mout/main/[22m[36mindex.js  [39m[1m[2m105.03 kB[22m[1m[22m
+[32m✓ built in 336ms[39m
+[36mvite v7.3.6 [32mbuilding ssr environment for production...[36m[39m
+transforming...
+[32m✓[39m 1 modules transformed.
+rendering chunks...
+[2mout/preload/[22m[36mindex.mjs  [39m[1m[2m6.28 kB[22m[1m[22m
+[32m✓ built in 18ms[39m
+[36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
+transforming...
+[32m✓[39m 70 modules transformed.
+rendering chunks...
+[2m../../out/renderer/[22m[32mindex.html                                      [39m[1m[2m    0.52 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[32mcursor-editorTextHighlight-kG3uUOwL.svg  [39m[1m[2m    5.40 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[32mpdf.worker.min-FHbmGBN0.mjs              [39m[1m[2m1,244.25 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[35mindex-V-bWMvXb.css                       [39m[1m[2m  361.68 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mFileThumbnail-B9ojXE55.js                [39m[1m[2m    2.86 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mHelp-59Xcm1Xi.js                         [39m[1m[2m    2.95 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mDashboard-BNqSVJgt.js                    [39m[1m[2m    7.71 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mTrash-CsQVqBhM.js                        [39m[1m[2m    7.81 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mfileContextMenu-CwbwM7U8.js              [39m[1m[2m    9.45 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mHELP-Bdd_eeTX.js                         [39m[1m[2m    9.62 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mSearch-B3-JhMCP.js                       [39m[1m[2m   13.75 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mImages-DtAvknNG.js                       [39m[1m[2m   15.06 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mCerts-CdA9iq62.js                        [39m[1m[2m   15.24 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mProductSets-CTmQPrAZ.js                  [39m[1m[2m   23.87 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mSettings-BYvabtJ0.js                     [39m[1m[2m   28.71 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mFileBrowser-CBhrkp07.js                  [39m[1m[2m   31.53 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mProfile-CRSqWGeb.js                      [39m[1m[2m   31.61 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mVirtualGrid-C84G_LkE.js                  [39m[1m[2m   63.12 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mindex-BYymayc9.js                        [39m[1m[2m  175.90 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mpdf_viewer-BgIA6C5b.js                   [39m[1m[2m  303.18 kB[22m[1m[22m
+[2m../../out/renderer/[22m[2massets/[22m[36mpdf-CuB2cEVY.js                          [39m[1m[33m  799.41 kB[39m[22m
+[32m✓ built in 3.50s[39m
+  • electron-builder  version=26.15.3 os=6.17.0-1020-azure
+  • Implicit publishing triggered by CI detection. This behavior will be disabled in electron-builder v27. Please use --publish explicitly.
+  • loaded configuration  file=/home/runner/work/filemanager/filemanager/electron-builder.yml
+  • skipped dependencies rebuild  reason=npmRebuild is set to false
+  • packaging       platform=linux arch=x64 electron=43.3.0 appOutDir=release/linux-unpacked
+  • downloaded      label=electron progress=100%
+
+  • downloaded electron zip extracted successfully  output=/home/runner/work/filemanager/filemanager/release/linux-unpacked
+  • searching for node modules  pm=npm searchDir=/home/runner/work/filemanager/filemanager
+  • duplicate dependency references  dependencies=["@emnapi/runtime@1.11.3","once@1.4.0","readable-stream@3.6.2","readable-stream@3.6.2","once@1.4.0","readable-stream@3.6.2","glob@7.2.3","lazystream@1.0.1","readable-stream@3.6.2","readable-stream@3.6.2","readable-stream@3.6.2","readable-stream@3.6.2","glob@7.2.3"]
+  • building        target=AppImage arch=x64 file=release/启禾文件管理-2.3.1.AppImage
+  • downloaded      label=appimage-12.0.1.7z progress=100%
+  • downloaded      label=7zip-linux-x64.tar.gz progress=100%
+  • building embedded block map  file=release/启禾文件管理-2.3.1.AppImage
+  • building        target=deb arch=x64 file=release/qihe-box_2.3.1_amd64.deb
+  • adding autoupdate files for: deb  resourceDir=release/linux-unpacked/resources
+  • downloaded      label=fpm-1.17.0-ruby-3.4.3-linux-amd64.7z progress=100%
+  ⨯ GitHub Personal Access Token is not set, neither programmatically, nor using env "GH_TOKEN"
