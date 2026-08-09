@@ -22,7 +22,7 @@
 
 | 档位 | 价格 | 定位 |
 |------|------|------|
-| 开源免费版 | ¥0 | 本地文件管理、产品集（限 50 个）、索引、虚拟滚动、基础 PDF/图片预览、AI 试用 50 次 |
+| 开源免费版 | ¥0 | 本地文件管理、产品集不限量、索引、虚拟滚动、基础 PDF/图片预览、AI 试用 50 次 |
 | 个人版 | ¥29/年 | 免费版全部 + 证书到期邮件提醒 + 云端索引备份 + 高级搜索/批量操作 + 产品集不限量 |
 | 团队版 | ¥158/年 | 个人版全部 + 不限席位 + 协作锁 + 云端策略锁 + 状态仪表盘（本期仅预留） |
 | AI 插件 | 按量付费 | 证书 OCR、自动标签、语义搜图（所有版本通用，登录即用，含免费试用额度） |
@@ -33,7 +33,7 @@
 |------|:---:|:---:|:---:|
 | 本地文件管理 / 索引 / 虚拟滚动 / 拖拽 | ✅ | ✅ | ✅ |
 | PDF / 图片预览与基础编辑 | ✅ | ✅ | ✅ |
-| 产品集 | ≤50 | 不限 | 不限 |
+| 产品集 | 不限 | 不限 | 不限 |
 | AI 试用额度 | 50 次（登录） | 50 次（登录） | 50 次（登录） |
 | 证书到期本地弹窗（30 天） | ✅ | ✅ | ✅ |
 | 证书到期邮件提醒（30/7/1 天） | ❌ | ✅ | ✅ |
@@ -78,7 +78,7 @@ box 客户端 (本仓库)                         服务端 (qihe-erp)
 | 插件 id | 名称 | tier | 内容 |
 |---------|------|------|------|
 | `ai` | AI 智能整理 | 全版本通用 | rename/tag/cert/search 四种 AI 动作（代码已实现，`FEATURE_AI` 门控） |
-| `personal` | 个人版权益包 | personal | 证书邮件提醒 + 云端索引备份 + 高级搜索/批量操作 + 产品集不限量 |
+| `personal` | 个人版权益包 | personal | 证书邮件提醒 + 云端索引备份 + 高级搜索/批量操作 |
 | `team` | 团队版权益包 | team | 协作锁/策略锁/状态仪表盘（本期仅占位，功能后置） |
 
 ### 4.3 Manifest 格式（草案）
@@ -92,7 +92,7 @@ box 客户端 (本仓库)                         服务端 (qihe-erp)
   "min_box_version": "2.4.0",
   "download_url": "https://api.example.invalid/box/plugins/personal/download",
   "checksum": "sha256:...",
-  "features": ["cert-reminder", "index-backup", "advanced-search", "batch-ops", "unlimited-product-sets"],
+  "features": ["cert-reminder", "index-backup", "advanced-search", "batch-ops"],
   "icon": "data:image/svg+xml;base64,...",
   "published_at": "2026-08-01T00:00:00Z"
 }
@@ -176,11 +176,11 @@ export interface AccountStatus {
 
 ## 6. 各档功能设计（客户端）
 
-### 6.1 产品集限额（免费版 50）
+### 6.1 产品集（不设限，开源畅用）
 
-- `src/main/core/workspace.ts` `productSetCreate()`（当前 301 行起）：创建前统计 `product_sets.json` 数量，≥50 且 tier 非 personal/team → 抛 `PRODUCT_SET_LIMIT`
-- `productSetList()` 返回 `{ sets, limit, tier }`，前端 `ProductSets.tsx` 超限时显示升级引导卡片（跳官网定价页）
-- 删除走回收站（v2.3.1），回收站内的产品集**计入**限额（防绕过）
+- 产品集在免费版**不限量**（与开源免费定位一致：本地能力全部畅用，订阅只卖云端增值）
+- 无需数量校验；`workspace.productSetCreate()` 保持现状
+- 设计说明：商业化裁剪本地功能（如限额、禁用）与「开源免费」定位冲突，且容易被绕过（回收站、直接改目录）。订阅体系只在**云端服务**（提醒、备份）和**体验增强**（高级搜索/批量）上做区分
 
 ### 6.2 高级搜索 / 批量操作（personal 门控，UI 层）
 
@@ -296,7 +296,7 @@ export interface AccountStatus {
 |---|---|---|
 | P1 插件框架 | PluginService + IPC/preload + stores/plugins.ts + features.ts 运行时化（8 处改造） | vitest + e2e |
 | P2 订阅状态 | account.ts 扩展 + `/api/box/me` + 三通道刷新 | 单测 |
-| P3 客户端功能 | 产品集限额、search filters、批量操作、backup.ts、cert 上报、Profile 订阅/插件 UI | vitest + e2e |
+| P3 客户端功能 | search filters、批量操作、backup.ts、cert 上报、Profile 订阅/插件 UI | vitest + e2e |
 | P4 服务端 | 3 集合 + 5 API + boxremind 协程 + 订阅校验 | go test |
 | P5 管理端 | 订阅列表 / 人工开通（待收款决策后再定） | 手动 |
 | P6 发布决策 | bump 版本 → 打包三件套 → 官网同步 → 坚果云 | 用户确认后才执行 |
