@@ -10,6 +10,9 @@ const DEDUP_WINDOW_MS = 2000
 const MAX_RECORDS = 200
 
 export function openFileWithDefaultApp(filePath: string): Promise<void> {
+  // e2e 模式（Playwright）：不真正 spawn 外部应用（CI 无桌面默认应用），
+  // 避免子进程/句柄残留导致 app.close() 挂起；IPC 通路仍正常返回 success
+  if (process.env.QIHEBOX_E2E === '1') return Promise.resolve()
   // 短时间去重：命中则直接 resolve（不记录本次，保持原记录生效）
   const now = Date.now()
   const last = lastOpened.get(filePath)
