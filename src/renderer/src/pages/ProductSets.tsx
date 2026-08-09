@@ -1,7 +1,8 @@
 import { Show, For, createSignal, createEffect } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
-import { tagChipStyle, tagLabel, tagList, tagColor } from "~/stores/tags";
+import { tagList } from "~/stores/tags";
+import TagChip from "~/components/TagChip";
 import ContextMenu from "~/components/ContextMenu";
 import TagInput from "~/components/TagInput";
 import EmptyState from "~/components/EmptyState";
@@ -279,17 +280,14 @@ export default function ProductSets() {
                   <h3 class="text-lg font-semibold mt-3 text-surface-900">{ps.name}</h3>
                   <p class="text-sm text-surface-400 mt-1">{ps.created_at}</p>
                   <Show when={ps.tags && ps.tags.length > 0}>
-                    <div class="flex flex-wrap gap-1 mt-3">
+                    <div class="flex flex-wrap gap-1.5 mt-3">
                       <For each={ps.tags}>
                         {(tag) => (
-                          <span
-                            class={`text-xs px-2.5 py-1 rounded-full ${definedTagNames().has(tag) ? "" : "ring-2 ring-amber-400"}`}
-                            style={tagChipStyle(tag)}
+                          <TagChip
+                            name={tag}
+                            warn={!definedTagNames().has(tag)}
                             title={definedTagNames().has(tag) ? undefined : "未在设置中定义，可在设置中转为正式标签"}
-                          >
-                            <span class="inline-block w-1.5 h-1.5 rounded-full mr-1" style={{ "background-color": tagColor(tag) }} />
-                            {tagLabel(tag)}
-                          </span>
+                          />
                         )}
                       </For>
                     </div>

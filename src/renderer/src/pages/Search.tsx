@@ -23,6 +23,11 @@ export default function Search() {
   const [loading, setLoading] = createSignal(false);
   const contextMenu = useContextMenu<FileEntry>();
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
+  // v2.4.1：搜索结果文件项单击选择 / 双击打开
+  const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
+  let clickTimer: number | undefined;
+  const toggleSelection = (path: string) =>
+    setSelectedPaths((prev) => (prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]));
   const [aiSearching, setAiSearching] = createSignal(false);
   const [aiTranslation, setAiTranslation] = createSignal("");
 
@@ -237,8 +242,17 @@ export default function Search() {
             <For each={results().files}>
               {(file: FileEntry) => (
                 <div
-                  class="card p-3 cursor-pointer hover:shadow-card-hover transition-all"
-                  onClick={() => openFilePreview(file)}
+                  class={`card p-3 cursor-pointer hover:shadow-card-hover transition-all select-none ${
+                    selectedPaths().includes(file.path) ? "border-primary-500 bg-primary-50" : ""
+                  }`}
+                  onClick={() => {
+                    window.clearTimeout(clickTimer);
+                    clickTimer = window.setTimeout(() => toggleSelection(file.path), 250);
+                  }}
+                  onDblClick={() => {
+                    window.clearTimeout(clickTimer);
+                    openFilePreview(file);
+                  }}
                   onContextMenu={(e) => contextMenu.open(e, file)}
                 >
                   <div class="aspect-square rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden mb-2">
@@ -265,7 +279,7 @@ export default function Search() {
             onClose={contextMenu.close}
             items={buildFileContextMenuItems({
               file: f(),
-              paths: [f().path],
+              paths: selectedPaths().includes(f().path) ? selectedPaths() : [f().path],
               onPreview: openFilePreview,
               onEditInfo: (file) =>
                 openPreview(file, {

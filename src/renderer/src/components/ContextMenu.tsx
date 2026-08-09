@@ -45,6 +45,7 @@ export default function ContextMenu(props: {
         class="fixed z-50 bg-white shadow-lg rounded-lg border border-surface-200 py-1 min-w-[180px]"
         style={{ left: `${props.x}px`, top: `${props.y}px` }}
         onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
         onContextMenu={(e) => e.preventDefault()}
       >
         <For each={props.items}>

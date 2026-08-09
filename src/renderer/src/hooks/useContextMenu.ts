@@ -27,11 +27,19 @@ export function useContextMenu<T>() {
 
   const close = () => setShow(false);
 
-  // 点击外部关闭（菜单自身点击由 ContextMenu 内部 stopPropagation 阻止冒泡到此处）
+  // 关闭触发：任意 mousedown（左/右键）、任意位置右键（contextmenu）、滚动（capture，覆盖滚动容器）。
+  // 菜单自身点击由 ContextMenu 内部 stopPropagation 阻止冒泡到此，不会误关。
   onMount(() => {
-    const onClick = () => close();
-    window.addEventListener("click", onClick);
-    onCleanup(() => window.removeEventListener("click", onClick));
+    const onAny = () => close();
+    const onScroll = () => close();
+    window.addEventListener("mousedown", onAny);
+    window.addEventListener("contextmenu", onAny);
+    window.addEventListener("scroll", onScroll, true);
+    onCleanup(() => {
+      window.removeEventListener("mousedown", onAny);
+      window.removeEventListener("contextmenu", onAny);
+      window.removeEventListener("scroll", onScroll, true);
+    });
   });
 
   return { show, x, y, payload, open, close };
