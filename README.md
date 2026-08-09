@@ -94,8 +94,18 @@ npm run build:win    # 打包 Windows（NSIS，需在 Windows/CI 构建）
 
 | 平台 | 产物 | 目标体积 |
 |---|---|---|
-| Linux | `release/启禾文件管理-2.1.1.AppImage` / `.deb` | ≤ 140MB |
-| Windows | `release/启禾文件管理-2.1.1-win-x64.zip`（便携） | ≤ 195MB |
+| Linux | `release/启禾文件管理-2.4.2.AppImage` / `.deb` | ≤ 140MB |
+| Windows | `release/启禾文件管理-2.4.2-win-x64.zip`（便携） / `Setup 2.4.2.exe`（NSIS） | ≤ 195MB |
+
+## Windows 安装提示（SmartScreen）
+
+Windows 安装/运行时提示「未知发布者」或蓝色警告是**正常现象**：当前安装包未做代码签名（签名需商业证书），Windows 对从网上下载的未签名程序都会提示。处理方式：
+
+1. 点击「更多信息」
+2. 选择「仍要运行」
+3. 仅从官网 / GitHub Releases 下载安装包（保障来源可信）
+
+> 本项目免费开源、无商业签名证书。项目正在评估免费代码签名方案（如开源项目免费证书 / Azure Trusted Signing），落地后此提示将消失；目前对安全提示敏感的用户可改用 Linux 版（AppImage / deb，无此步骤）。
 
 ## 数据兼容性
 
