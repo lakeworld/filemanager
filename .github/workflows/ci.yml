@@ -10,9 +10,6 @@ on:
   pull_request:
     branches: [master]
 
-permissions:
-  contents: write
-
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -72,35 +69,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2
 
-      # 诊断：区分「Electron 启动失败（缺库/GLib）」与「测试用例失败」
-      - name: Diagnose electron launch
-        run: |
-          npx electron --version 2>&1 | tee /tmp/e2e-diagnose.log
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" timeout 20 npx electron . --no-sandbox --disable-gpu 2>&1 | head -40 | tee -a /tmp/e2e-diagnose.log || true
-          echo "== diagnose done ==" | tee -a /tmp/e2e-diagnose.log
-
       - name: Run Playwright tests (xvfb)
-        run: |
-          set -o pipefail
-          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test 2>&1 | tee /tmp/e2e.log
-
-      - name: Upload failure logs to repo
-        if: failure()
-        shell: bash
-        run: |
-          git config user.name "ci-bot"
-          git config user.email "ci-bot@qihe.local"
-          mkdir -p ci-logs
-          # 注意：.gitignore 忽略 *.log，用 .txt 后缀 + add -f 强制跟踪
-          [ -f /tmp/e2e-diagnose.log ] && cp /tmp/e2e-diagnose.log ci-logs/e2e-diagnose.txt || true
-          [ -f /tmp/e2e.log ] && cp /tmp/e2e.log ci-logs/e2e.txt || true
-          git add -f ci-logs/ 2>/dev/null || true
-          if ! git diff --cached --quiet; then
-            git commit -m "ci: capture e2e failure logs [skip ci]"
-            git fetch origin feat/subscription 2>/dev/null || true
-            git rebase origin/feat/subscription 2>/dev/null || true
-            git push origin HEAD:feat/subscription 2>&1 | tail -3 || true
-          fi
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test
 
       - name: Upload playwright report
         uses: actions/upload-artifact@v4
@@ -130,33 +100,12 @@ jobs:
       - name: Build & package Linux (AppImage + deb)
         if: runner.os == 'Linux'
         shell: bash
-        run: |
-          set -o pipefail
-          npm run build:linux 2>&1 | tee /tmp/pkg-linux.log
+        run: npm run build:linux
 
       - name: Build & package Windows (NSIS)
         if: runner.os == 'Windows'
         shell: bash
-        run: |
-          set -o pipefail
-          npm run build:win 2>&1 | tee /tmp/pkg-win.log
-
-      - name: Upload failure logs to repo
-        if: failure()
-        shell: bash
-        run: |
-          git config user.name "ci-bot"
-          git config user.email "ci-bot@qihe.local"
-          mkdir -p ci-logs
-          [ -f /tmp/pkg-linux.log ] && cp /tmp/pkg-linux.log ci-logs/pkg-linux.txt || true
-          [ -f /tmp/pkg-win.log ] && cp /tmp/pkg-win.log ci-logs/pkg-win.txt || true
-          git add -f ci-logs/ 2>/dev/null || true
-          if ! git diff --cached --quiet; then
-            git commit -m "ci: capture package failure logs [skip ci]"
-            git fetch origin feat/subscription 2>/dev/null || true
-            git rebase origin/feat/subscription 2>/dev/null || true
-            git push origin HEAD:feat/subscription 2>&1 | tail -3 || true
-          fi
+        run: npm run build:win
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
