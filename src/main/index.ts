@@ -7,8 +7,11 @@
  */
 import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage, Notification } from 'electron'
 import path from 'node:path'
+import fs from 'node:fs'
+import { createHash } from 'node:crypto'
 import { BoxService } from './core'
 import { WorkspaceService } from './core/workspace'
+import { globalWorkspaceIndex } from './core/indexCache'
 import { SharpThumbnailService } from './thumbnail'
 import { registerIpc } from './ipc'
 import { registerQiheboxProtocol } from './protocol'
@@ -239,6 +242,97 @@ async function runStartupTasks(box: BoxService): Promise<void> {
   void box.trash.cleanupExpired().catch((err) => void log('warn', `回收站过期清理失败: ${String(err)}`))
 }
 
+// —— v2.4.x：工作区文件索引（Everything 式精简索引，事件驱动失效）——
+
+let workspaceWatcher: fs.FSWatcher | null = null
+/** 索引初始化代数：切换工作区时递增，过期异步结果作废（防竞态污染索引） */
+let wsIndexGen = 0
+
+/** 索引落盘根：userData/index/<workspaceHash>（哈希同缩略图：sha256(ws).slice(0,8)） */
+function indexRootFor(ws: string): string {
+  const hash = createHash('sha256').update(path.resolve(ws)).digest('hex').slice(0, 8)
+  return path.join(app.getPath('userData'), 'index', hash)
+}
+
+/** 关闭当前工作区文件监听（切换 / 降级时调用） */
+function closeWorkspaceWatcher(): void {
+  if (workspaceWatcher) {
+    try {
+      workspaceWatcher.close()
+    } catch {
+      // 忽略
+    }
+    workspaceWatcher = null
+  }
+}
+
+/**
+ * 工作区文件监听（事件驱动失效）：
+ * fs.watch(ws, { recursive: true }) → 文件/目录变化时 invalidate 对应目录，查询时重建快照，
+ * 覆盖签名粒度盲区（同目录 mtime 下的文件内容覆盖等）。
+ * recursive 创建即抛（Linux 不支持 / inotify 超限）或运行期报错（ENOSPC 等）→
+ * 关闭监听降级为仅签名模式（每次查询 stat 比对签名兜底，功能正确性不受影响）。
+ */
+function startWorkspaceWatcher(box: BoxService, ws: string): void {
+  closeWorkspaceWatcher()
+  try {
+    const watcher = fs.watch(ws, { recursive: true }, (_evt, filename) => {
+      try {
+        if (!filename) return
+        // 工作区切换后旧监听仍可能触发事件 → 只处理当前工作区路径
+        const cur = box.workspace.currentWorkspacePath()
+        if (!cur || path.resolve(cur) !== path.resolve(ws)) return
+        globalWorkspaceIndex.invalidate(path.dirname(path.join(ws, filename)))
+      } catch {
+        // 事件回调容错（文件名含非法编码等）
+      }
+    })
+    watcher.on('error', (err) => {
+      // 已被切换替换的新监听 → 交给新监听处理
+      if (workspaceWatcher !== watcher) return
+      void log('warn', `文件监听不可用，降级为仅签名模式: ${String(err)}`)
+      try {
+        watcher.close()
+      } catch {
+        // 忽略
+      }
+      workspaceWatcher = null
+    })
+    workspaceWatcher = watcher
+  } catch (err) {
+    void log('warn', `文件监听不可用，降级为仅签名模式: ${String(err)}`)
+    workspaceWatcher = null
+  }
+}
+
+/**
+ * 初始化/重建工作区索引（启动恢复后与工作区切换时调用，异步不阻塞启动与 UI）：
+ * 1. 文件监听事件驱动失效（先于加载，避免初始化期间的变更丢失）
+ * 2. 落盘索引命中 → 后台逐目录 stat 校验签名，变化目录用 listRaw 重建（不落盘，运行中由监听/签名维护）
+ * 3. 未命中 → build 全量快照 + save 落盘（二次启动免全量扫描）
+ * 竞态防护：每次调用递增代数，异步返回后仍为当前代才写全局索引；切换竞态造成的残留
+ * 由查询时的签名比对自愈（mtime 不一致即重建）。
+ */
+async function setupWorkspaceIndex(box: BoxService): Promise<void> {
+  const gen = ++wsIndexGen
+  const ws = box.workspace.currentWorkspacePath()
+  if (!ws) return
+  startWorkspaceWatcher(box, ws)
+  const idxRoot = indexRootFor(ws)
+  const loaded = await globalWorkspaceIndex.load(idxRoot)
+  if (gen !== wsIndexGen) return // 加载期间已切换工作区 → 结果作废
+  if (loaded) {
+    const changed = await globalWorkspaceIndex.validate((d) => box.files.listRaw(d))
+    if (gen !== wsIndexGen) return
+    void log('info', `文件索引已加载（${changed} 个目录已重建）`)
+  } else {
+    const built = await globalWorkspaceIndex.build(ws, (d) => box.files.listRaw(d))
+    if (gen !== wsIndexGen) return // 构建期间已切换 → 丢弃过期快照
+    await globalWorkspaceIndex.save(idxRoot)
+    void log('info', `文件索引已构建：${built} 个目录`)
+  }
+}
+
 app.whenReady().then(() => {
   initLogger()
   // 单一 workspace 实例贯穿全部服务
@@ -253,17 +347,23 @@ app.whenReady().then(() => {
   registerQiheboxProtocol(box, () => thumbs.currentThumbsRoot())
 
   // 启动恢复/创建默认工作区（有最近工作区则恢复，无则自动创建）；
-  // 恢复完成后跑后台任务（更新检查 / 证书到期通知 / 回收站过期清理，均静默）
+  // 恢复成功后初始化工作区索引（load/build + 文件监听，异步不阻塞）；随后跑后台任务（均静默）
   workspace
     .restoreOrCreateDefault()
     .then(() => {
-      // v2.4.x：初始化预热——启动后异步建立文件列表索引（不阻塞启动与 UI，失败仅 log）
-      void box.files.warmup().catch((err) => void log('warn', `文件列表预热失败: ${String(err)}`))
+      // v2.4.x：初始化工作区索引——加载/校验或全量构建 + 落盘 + 文件监听（失败仅 log，签名校验兜底）
+      return setupWorkspaceIndex(box).catch((err) => void log('warn', `文件索引初始化失败: ${String(err)}`))
     })
     .catch((err) => {
       void log('warn', `默认工作区恢复失败: ${String(err)}`)
     })
-    .then(() => runStartupTasks(box))
+    .then(() => {
+      // v2.4.x：注册工作区切换钩子（含恢复失败路径）——setCurrentWorkspace 后重建索引与文件监听
+      workspace.onWorkspaceChanged(() => {
+        void setupWorkspaceIndex(box).catch((err) => void log('warn', `文件索引重建失败: ${String(err)}`))
+      })
+      return runStartupTasks(box)
+    })
 
   // v2.3.0：统一窗口初始化钩子——休眠销毁后的重建（ensureMainWindow）自动带上崩溃自愈与托盘行为
   setWindowCreateHandler((win) => {

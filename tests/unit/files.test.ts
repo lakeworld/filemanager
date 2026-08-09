@@ -519,7 +519,7 @@ describe('批量重命名目标名生成（v2.3.3 P2：前端批处理，参照 
   })
 })
 
-describe('文件列表缓存（v2.4.x：fileList 命中 / 写操作失效 / 预热）', () => {
+describe('文件索引（v2.4.x：fileList 命中 / 写操作失效 / 预热）', () => {
   it('fileList 二次调用命中缓存：目标目录只 readdir 一次', async () => {
     const home = await tmp()
     const ws = await tmp()
@@ -578,6 +578,33 @@ describe('文件列表缓存（v2.4.x：fileList 命中 / 写操作失效 / 预�
     const list = await box.files.fileList(req)
     expect(list).toHaveLength(1)
     expect(list[0].name).toMatch(/fresh\.jpg$/)
+  })
+
+  it('fileList 二次查询命中索引：listRaw 只执行一次（零 readdir/stat）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '索引系列' })
+
+    const src = path.join(ws, '..', 'idx.jpg')
+    await fsp.writeFile(src, PNG_1PX)
+    await box.files.importFiles({
+      source_paths: [src],
+      target_product_set: '索引系列',
+      target_folder: '主图',
+      target_type: 'image',
+      sub_folder: '主图',
+    })
+
+    const spy = vi.spyOn(box.files, 'listRaw')
+    const first = await box.files.fileList({ product_set: '索引系列', file_type: 'image', sub_folder: '主图' })
+    expect(first).toHaveLength(1)
+    const second = await box.files.fileList({ product_set: '索引系列', file_type: 'image', sub_folder: '主图' })
+    expect(second).toHaveLength(1)
+    // 首次查询重建（导入已失效索引），二次查询命中索引 → listRaw 仅一次
+    expect(spy.mock.calls.length).toBe(1)
+    spy.mockRestore()
   })
 
   it('warmup 预填充缓存：预热后 fileList 命中，不再 readdir', async () => {
