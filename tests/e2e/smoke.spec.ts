@@ -33,8 +33,14 @@ test.describe('qihe-box e2e', () => {
     // 极端情况 close 内部卡住时 race 兜底，不让 afterAll 拖到 90s。
     if (app) {
       try {
-        process.kill(app.process().pid!, 'SIGKILL')
-      } catch { /* 已退出 */ }
+        // 杀整个进程组（主进程 + Chromium 子进程）：仅杀主进程会残留 renderer/gpu，
+        // Playwright worker teardown 会等待残留进程退出而超时 90s
+        process.kill(-app.process().pid!, 'SIGKILL')
+      } catch {
+        try {
+          process.kill(app.process().pid!, 'SIGKILL')
+        } catch { /* 已退出 */ }
+      }
       await Promise.race([app.close(), new Promise((r) => setTimeout(r, 5000))]).catch(() => {})
     }
   })
