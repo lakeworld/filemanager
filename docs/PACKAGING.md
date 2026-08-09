@@ -157,6 +157,10 @@ npx electron-builder --win zip -c.win.signAndEditExecutable=false
    - `web/public/version.json` → 新版本 + 坚果云下载链接 + 更新说明（应用内「检查更新」读取）
    - `web/src/views/site/FileManagerView.vue` 版本号
 4. 推送触发 CI 全绿后即可对外
+5. **文档提交规范**（v2.4.2 起）：
+   - **进公开仓库**：README / CHANGELOG / `docs/RELEASE-<ver>.md` / `docs/PACKAGING.md` / `docs/OPS.md` 等用户与协作文档
+   - **内部文档不进公开仓库**：审计报告、安全分析、内部规划类（如 `docs/RELEASE-AUDIT.md`）——本地保留并加入 `.gitignore`，防止误提交
+   - 发布前检查：`git status` 确认无内部文档混入；内部文档已入库的用 `git rm --cached <file>` 移出（保留本地文件）并加入 `.gitignore`
 
 ---
 
