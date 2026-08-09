@@ -8,14 +8,9 @@ import { PRODUCT_SETS_DIR, IMAGES_DIR, CERTS_DIR } from './paths'
 import { WorkspaceService, countFiles, formatTime } from './workspace'
 import { MetadataService } from './metadata'
 import { FilesService, FileEntry } from './files'
+import type { DashboardStats } from '../../shared/types'
 
-export interface DashboardStats {
-  total_product_sets: number
-  total_images: number
-  total_certs: number
-  expiring_certs: number
-  recent_files: FileEntry[]
-}
+export type { DashboardStats } from '../../shared/types'
 
 export class DashboardService {
   constructor(

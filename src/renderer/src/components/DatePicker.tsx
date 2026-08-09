@@ -5,7 +5,8 @@ import { Portal } from "solid-js/web";
  * 日期选择器（v2.3.x UI 统一批，复刻 ERP DateField + CalendarPicker 交互）。
  * props.value 为 YYYY-MM-DD 或空串；选择日期 → onChange('YYYY-MM-DD')，清空 → onChange('')。
  * 面板经 Portal 渲染到 body + position:fixed（宿主弹窗 overflow-auto 不会裁剪），
- * 坐标取自触发元素 getBoundingClientRect()，bottom-left 对齐；滚动/窗口变化/外部点击/ESC 关闭。
+ * 坐标取自触发元素 getBoundingClientRect()，bottom-left 对齐；越界时自动翻转
+ * （右缘越界右对齐、下缘越界在触发元素上方展开）；滚动/窗口变化/外部点击/ESC 关闭。
  */
 export default function DatePicker(props: {
   value: string;
@@ -36,12 +37,30 @@ export default function DatePicker(props: {
     return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day ? d : null;
   }
 
+  // 面板尺寸常量：w-64 面板宽 256px；高度按头部 + 星期 + 6 行网格 + 底部按钮估算
+  const PANEL_W = 256;
+  const PANEL_H = 336;
+
   const openPanel = () => {
     // 打开时视图锚定当前值（无值则今天）
     const anchor = parseValue(props.value) ?? new Date();
     setView({ year: anchor.getFullYear(), month: anchor.getMonth() });
     const rect = triggerEl?.getBoundingClientRect();
-    setPos({ left: rect ? rect.left : 0, top: rect ? rect.bottom + 6 : 0 });
+    if (!rect) {
+      setPos({ left: 0, top: 0 });
+      setIsOpen(true);
+      return;
+    }
+    // 边缘翻转：右缘越界 → 面板右对齐触发元素右缘；下缘越界 → 在触发元素上方展开
+    let left = rect.left;
+    let top = rect.bottom + 6;
+    if (left + PANEL_W > window.innerWidth) {
+      left = Math.max(6, rect.right - PANEL_W);
+    }
+    if (top + PANEL_H > window.innerHeight) {
+      top = Math.max(6, rect.top - 6 - PANEL_H);
+    }
+    setPos({ left, top });
     setIsOpen(true);
   };
 

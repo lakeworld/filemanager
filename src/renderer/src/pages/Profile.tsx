@@ -54,9 +54,20 @@ export default function Profile() {
       setDownloadProgress(payload?.percent ?? 0);
     });
 
+    // v2.4.0：后台定时/启动时发现新版 → 主进程推送 update:available 事件，
+    // 直接切入可更新态并点亮菜单徽标（手动检查中/下载中/已就绪不受打扰）
+    const unsubscribeAvailable = window.qihebox.events.on("update:available", (payload: any) => {
+      if (!payload?.version) return;
+      setLatestVersion(payload as UpdateInfo);
+      setUpdatePhase((prev) => (prev === "downloading" || prev === "ready" ? prev : "available"));
+    });
+
     onCleanup(() => {
       if (typeof unsubscribe === "function") {
         unsubscribe();
+      }
+      if (typeof unsubscribeAvailable === "function") {
+        unsubscribeAvailable();
       }
     });
   });
@@ -182,6 +193,10 @@ export default function Profile() {
                           }}
                         >
                           {item.label}
+                          {/* v2.4.0：有可用更新时点亮红点徽标 */}
+                          <Show when={item.key === "update" && updatePhase() === "available"}>
+                            <span class="ml-1 align-middle text-xs leading-none text-red-500">●</span>
+                          </Show>
                         </div>
                         <div class="truncate text-xs text-surface-400">{item.desc}</div>
                       </div>

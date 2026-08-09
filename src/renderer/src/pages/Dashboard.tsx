@@ -1,6 +1,7 @@
 import { Show, For, createResource, createSignal, createEffect } from "solid-js";
 import { A } from "@solidjs/router";
 import { api } from "~/wails/api";
+import EmptyState from "~/components/EmptyState";
 import type { ApiResult, DashboardStats, FileEntry } from "~/types";
 
 function formatBytes(bytes: number): string {
@@ -60,7 +61,7 @@ export default function Dashboard() {
             <h2 class="text-lg font-semibold">最近文件</h2>
             <A href="/images" class="text-sm text-primary-600 hover:text-primary-700">查看全部</A>
           </div>
-          <Show when={stats()?.data?.recent_files.length} fallback={<div class="text-surface-400 text-sm py-8 text-center">暂无文件</div>}>
+          <Show when={stats()?.data?.recent_files.length} fallback={<EmptyState title="暂无文件" />}>
             <div class="space-y-2">
               <For each={stats()?.data?.recent_files ?? []}>
                 {(file) => (
@@ -85,7 +86,7 @@ export default function Dashboard() {
             <h2 class="text-lg font-semibold">到期提醒</h2>
             <span class="text-sm text-surface-400">30 天内到期</span>
           </div>
-          <Show when={expiringCerts().length > 0} fallback={<div class="text-surface-400 text-sm py-8 text-center">暂无到期证书</div>}>
+          <Show when={expiringCerts().length > 0} fallback={<EmptyState title="暂无到期证书" />}>
             <div class="space-y-2 max-h-80 overflow-y-auto">
               <For each={expiringCerts()}>
                 {([productSet, fileName, expiry]) => (

@@ -214,4 +214,56 @@ describe('回收站（v2.3.1）', () => {
     const left = await fsp.readdir(trashRoot).catch(() => [])
     expect(left).toHaveLength(0)
   })
+
+  it('cleanupExpired：超期条目被清理（含元数据），近期条目保留', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+
+    // 导入两个文件并删除 → 两条回收站条目（先删 im1 后删 im2）
+    const src1 = path.join(ws, '..', 'exp1.jpg')
+    await fsp.writeFile(src1, PNG_1PX)
+    const im1 = await box.files.importFiles({
+      source_paths: [src1],
+      target_product_set: '系列A',
+      target_folder: '主图',
+      target_type: 'image',
+      sub_folder: '主图',
+    })
+    await box.metadata.update({ product_set: '系列A', file_name: im1[0].name, tags: ['超期'] })
+    await box.files.fileDelete([im1[0].path])
+    const src2 = path.join(ws, '..', 'exp2.jpg')
+    await fsp.writeFile(src2, PNG_1PX)
+    const im2 = await box.files.importFiles({
+      source_paths: [src2],
+      target_product_set: '系列A',
+      target_folder: '主图',
+      target_type: 'image',
+      sub_folder: '主图',
+    })
+    await box.files.fileDelete([im2[0].path])
+
+    const entries = await box.trash.list()
+    expect(entries).toHaveLength(2)
+    // entries[0] 是最新删除的（im2）；把它的 deletedAt 改到 40 天前 → 超期
+    const metaPath = path.join(ws, '.qihefilemanager', 'trash', entries[0].id, 'meta.json')
+    const m = JSON.parse(await fsp.readFile(metaPath, 'utf-8'))
+    m.deletedAt = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
+    await fsp.writeFile(metaPath, JSON.stringify(m, null, 2))
+
+    const removed = await box.trash.cleanupExpired(30)
+    expect(removed).toBe(1)
+
+    // 剩余 1 条是近期的
+    const left = await box.trash.list()
+    expect(left).toHaveLength(1)
+    expect(new Date(left[0].deletedAt).getTime()).toBeGreaterThan(Date.now() - 24 * 60 * 60 * 1000)
+
+    // 被清理条目的元数据同步删除，近期条目元数据保留
+    const store = await box.metadata.loadMetadataStore()
+    expect(Object.keys(store.files)).not.toContain(`系列A/${im2[0].name}`)
+    expect(Object.keys(store.files)).toContain(`系列A/${im1[0].name}`)
+  })
 })

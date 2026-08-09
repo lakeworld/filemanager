@@ -9,6 +9,7 @@ import path from 'node:path'
 import fsp from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { BoxService } from './core'
+import { log } from './log'
 
 export function workspaceFileUrl(filePath: string): string {
   const encoded = Buffer.from(filePath, 'utf-8').toString('base64url')
@@ -32,7 +33,7 @@ export function registerQiheboxProtocol(
         return new Response('method not allowed', { status: 405 })
       }
       if (url.hostname !== 'file' && url.hostname !== 'thumb') {
-        console.error('[protocol] bad host:', url.hostname, request.url)
+        void log('error', `[protocol] bad host: ${url.hostname} ${request.url}`)
         return new Response('bad request', { status: 400 })
       }
       const encoded = decodeURIComponent(url.pathname.slice(1))
@@ -40,7 +41,7 @@ export function registerQiheboxProtocol(
       try {
         filePath = Buffer.from(encoded, 'base64url').toString('utf-8')
       } catch {
-        console.error('[protocol] bad base64:', encoded)
+        void log('error', `[protocol] bad base64: ${encoded}`)
         return new Response('invalid file parameter', { status: 400 })
       }
       filePath = filePath.trim()
@@ -54,7 +55,7 @@ export function registerQiheboxProtocol(
       if (url.hostname === 'file') {
         const wsResolved = path.resolve(ws)
         if (resolved !== wsResolved && !resolved.startsWith(wsResolved + path.sep)) {
-          console.error('[protocol] outside workspace:', resolved)
+          void log('error', `[protocol] outside workspace: ${resolved}`)
           return new Response('file outside workspace', { status: 403 })
         }
       } else {
@@ -62,7 +63,7 @@ export function registerQiheboxProtocol(
         if (!root) return new Response('no thumb cache root', { status: 503 })
         const rootResolved = path.resolve(root)
         if (resolved !== rootResolved && !resolved.startsWith(rootResolved + path.sep)) {
-          console.error('[protocol] thumb outside cache root:', resolved)
+          void log('error', `[protocol] thumb outside cache root: ${resolved}`)
           return new Response('thumb outside cache root', { status: 403 })
         }
       }
@@ -87,7 +88,7 @@ export function registerQiheboxProtocol(
         headers,
       })
     } catch (err) {
-      console.error('[protocol] handler error:', request.url, err)
+      void log('error', `[protocol] handler error: ${request.url} ${String(err)}`)
       return new Response('internal error', { status: 500 })
     }
   })

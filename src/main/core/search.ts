@@ -7,11 +7,9 @@ import fsp from 'node:fs/promises'
 import { PRODUCT_SETS_DIR, IMAGES_DIR, CERTS_DIR } from './paths'
 import { WorkspaceService, countFiles, formatTime, ProductSetInfo } from './workspace'
 import { FilesService, FileEntry } from './files'
+import type { SearchResult } from '../../shared/types'
 
-export interface SearchResult {
-  files: FileEntry[]
-  product_sets: ProductSetInfo[]
-}
+export type { SearchResult } from '../../shared/types'
 
 export class SearchService {
   constructor(

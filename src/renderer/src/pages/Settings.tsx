@@ -191,7 +191,11 @@ export default function Settings() {
   const handleAddTag = async () => {
     const name = newTagName().trim();
     if (!name) return;
-    await api.tags.create(name, newTagColor(), newTagParent());
+    const r = await api.tags.create(name, newTagColor(), newTagParent());
+    if (!r.success) {
+      alert(r.error || "创建标签失败");
+      return;
+    }
     setNewTagName("");
     setNewTagParent(null);
     await loadTags();
@@ -218,6 +222,8 @@ export default function Settings() {
       setRenameValue("");
       await loadTags();
       refreshTags();
+    } else {
+      alert(r.error || "重命名失败");
     }
   };
 
@@ -233,7 +239,11 @@ export default function Settings() {
   };
 
   const handlePromote = async (name: string) => {
-    await api.tags.setParent(name, null);
+    const r = await api.tags.setParent(name, null);
+    if (!r.success) {
+      alert(r.error || "升级失败");
+      return;
+    }
     await loadTags();
     refreshTags();
   };

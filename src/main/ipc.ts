@@ -27,12 +27,10 @@ import {
   windowSetPosition,
 } from './window'
 
-/** 与前端 types.ts 一致的响应包装 */
-export interface ApiResult<T> {
-  success: boolean
-  data: T | null
-  error: string | null
-}
+/** 与前端 types.ts 一致的响应包装（P2：类型收敛到 src/shared/types.ts） */
+import type { ApiResult } from '../shared/types'
+
+export type { ApiResult } from '../shared/types'
 
 function ok<T>(data: T): ApiResult<T> {
   return { success: true, data, error: null }

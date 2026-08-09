@@ -4,6 +4,8 @@ import { api } from "~/wails/api";
 import { tagChipStyle, tagLabel, tagList, tagColor } from "~/stores/tags";
 import ContextMenu from "~/components/ContextMenu";
 import TagInput from "~/components/TagInput";
+import EmptyState from "~/components/EmptyState";
+import { useContextMenu } from "~/hooks/useContextMenu";
 import {
   currentWorkspace,
   productSets,
@@ -31,14 +33,7 @@ export default function ProductSets() {
   const [psSearch, setPsSearch] = createSignal("");
   const [tagFilter, setTagFilter] = createSignal<string>("");
 
-  const [contextMenu, setContextMenu] = createSignal<{
-    show: boolean;
-    x: number;
-    y: number;
-    ps: ProductSetInfo | null;
-  }>({ show: false, x: 0, y: 0, ps: null });
-
-  const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
+  const contextMenu = useContextMenu<ProductSetInfo>();
 
   const psName = () => {
     const name = params.name || "";
@@ -112,8 +107,11 @@ export default function ProductSets() {
     if (result.success && result.data) {
       const path = await api.dialog.saveFile("保存 CSV 模板", "product_set_template.csv");
       if (path) {
-        await api.files.saveTextFile(path, result.data);
+        const saved = await api.files.saveTextFile(path, result.data);
+        if (!saved.success) window.alert(saved.error || "保存模板失败");
       }
+    } else {
+      window.alert(result.error || "获取 CSV 模板失败");
     }
   };
 
@@ -121,8 +119,8 @@ export default function ProductSets() {
     const path = await api.dialog.saveFile("保存 XLSX 模板", "product_set_template.xlsx");
     if (path) {
       const result = await api.xlsx.exportTemplate(path);
-      if (result.success) {
-        // Optionally show a success toast here.
+      if (!result.success) {
+        window.alert(result.error || "导出模板失败");
       }
     }
   };
@@ -135,6 +133,8 @@ export default function ProductSets() {
       const result = await api.xlsx.import(path);
       if (result.success) {
         loadProductSets();
+      } else {
+        window.alert(result.error || "导入失败");
       }
     }
   };
@@ -164,6 +164,8 @@ export default function ProductSets() {
     if (result.success) {
       navigate("/product-sets");
       loadProductSets();
+    } else {
+      window.alert(result.error || "删除产品集失败");
     }
   };
 
@@ -191,10 +193,14 @@ export default function ProductSets() {
 
   const handleCardDelete = async (ps: ProductSetInfo, e?: MouseEvent) => {
     e?.stopPropagation();
-    closeContextMenu();
+    contextMenu.close();
     if (!window.confirm(`确定删除产品集 "${ps.name}" 吗？将移入回收站，可在回收站恢复。`)) return;
     const result = await api.productSets.delete(ps.name);
-    if (result.success) loadProductSets();
+    if (result.success) {
+      loadProductSets();
+    } else {
+      window.alert(result.error || "删除产品集失败");
+    }
   };
 
   return (
@@ -221,12 +227,9 @@ export default function ProductSets() {
       </div>
 
       <Show when={productSets().length > 0} fallback={
-        <div class="card p-12 text-center">
-          <div class="text-4xl mb-3">📦</div>
-          <h3 class="text-lg font-medium text-surface-700 mb-1">暂无产品集</h3>
-          <p class="text-sm text-surface-400 mb-4">创建您第一个产品集来开始管理</p>
+        <EmptyState icon="📦" title="暂无产品集" desc="创建您第一个产品集来开始管理">
           <button class="btn-primary" onClick={() => setShowCreateModal(true)}>新建产品集</button>
-        </div>
+        </EmptyState>
       }>
         <Show when={!params.name}>
           <div class="flex flex-col md:flex-row gap-3 mb-4">
@@ -254,10 +257,7 @@ export default function ProductSets() {
                 <div
                   class="card p-5 cursor-pointer hover:shadow-card-hover transition-all group relative"
                   onClick={() => navigate(`/product-sets/${encodeURIComponent(ps.name)}`)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setContextMenu({ show: true, x: e.clientX, y: e.clientY, ps });
-                  }}
+                  onContextMenu={(e) => contextMenu.open(e, ps)}
                 >
                   <div class="flex items-start justify-between">
                     <div class="w-12 h-12 rounded-xl bg-primary-50 flex items-center justify-center text-2xl">
@@ -468,31 +468,27 @@ export default function ProductSets() {
       </Show>
 
       {/* Context Menu（统一组件，v2.3.x） */}
-      <Show when={contextMenu().show && contextMenu().ps}>
-        <ContextMenu
-          x={contextMenu().x}
-          y={contextMenu().y}
-          onClose={closeContextMenu}
-          items={[
-            {
-              label: "编辑信息",
-              icon: "✏️",
-              action: () => {
-                const ps = contextMenu().ps;
-                if (ps) openEditInfo(ps);
+      <Show when={contextMenu.payload()}>
+        {(ps) => (
+          <ContextMenu
+            x={contextMenu.x()}
+            y={contextMenu.y()}
+            onClose={contextMenu.close}
+            items={[
+              {
+                label: "编辑信息",
+                icon: "✏️",
+                action: () => openEditInfo(ps()),
               },
-            },
-            {
-              label: "删除",
-              icon: "🗑️",
-              danger: true,
-              action: () => {
-                const ps = contextMenu().ps;
-                if (ps) void handleCardDelete(ps);
+              {
+                label: "删除",
+                icon: "🗑️",
+                danger: true,
+                action: () => void handleCardDelete(ps()),
               },
-            },
-          ]}
-        />
+            ]}
+          />
+        )}
       </Show>
     </div>
   );

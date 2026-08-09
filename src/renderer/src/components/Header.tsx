@@ -1,4 +1,4 @@
-import { Show, createSignal, createEffect, For, onMount } from "solid-js";
+import { Show, createSignal, createEffect, For, onMount, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import {
@@ -23,6 +23,19 @@ export default function Header() {
     } catch {
       // ignore
     }
+  });
+
+  // P0-1：全局快捷键 Ctrl/Cmd+K 聚焦搜索框（输入框/文本域内不劫持）
+  onMount(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "k") return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      e.preventDefault();
+      document.getElementById("global-search-input")?.focus();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
   });
 
   createEffect(() => {
@@ -59,20 +72,21 @@ export default function Header() {
   return (
     <header
       class="h-14 flex items-center gap-4 px-6 bg-surface-0 border-b border-surface-200"
-      style={{ "-webkit-app-region": "drag" } as any}
+      style={{ "-webkit-app-region": "drag" }}
     >
-      <div class="relative flex-1 max-w-md" style={{ "-webkit-app-region": "no-drag" } as any}>
+      <div class="relative flex-1 max-w-md" style={{ "-webkit-app-region": "no-drag" }}>
         <div class="absolute inset-y-0 left-3 flex items-center pointer-events-none">
           <span class="text-surface-400">🔍</span>
         </div>
         <input
+          id="global-search-input"
           type="text"
           placeholder="全局搜索 (Ctrl+K)"
           class="w-full pl-9 pr-4 py-2 bg-surface-100 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
           value={searchQuery()}
           onInput={(e) => setSearchQuery(e.currentTarget.value)}
           onKeyDown={handleSearch}
-          style={{ "-webkit-app-region": "no-drag" } as any}
+          style={{ "-webkit-app-region": "no-drag" }}
         />
       </div>
 
@@ -84,11 +98,11 @@ export default function Header() {
         </span>
       </Show>
 
-      <div class="relative" style={{ "-webkit-app-region": "no-drag" } as any}>
+      <div class="relative" style={{ "-webkit-app-region": "no-drag" }}>
         <button
           class="flex items-center gap-2 px-3 py-2 rounded-lg border border-surface-200 hover:bg-surface-100 transition-colors"
           onClick={() => setShowWorkspaceMenu(!showWorkspaceMenu())}
-          style={{ "-webkit-app-region": "no-drag" } as any}
+          style={{ "-webkit-app-region": "no-drag" }}
         >
           <span>🏢</span>
           <Show when={currentWorkspace()} fallback={<span class="text-sm text-surface-500">选择工作区</span>}>
@@ -98,7 +112,7 @@ export default function Header() {
         </button>
 
         <Show when={showWorkspaceMenu()}>
-          <div class="absolute right-0 top-full mt-1 w-72 bg-surface-0 rounded-xl border border-surface-200 shadow-lg z-50 py-1" style={{ "-webkit-app-region": "no-drag" } as any}>
+          <div class="absolute right-0 top-full mt-1 w-72 bg-surface-0 rounded-xl border border-surface-200 shadow-lg z-50 py-1" style={{ "-webkit-app-region": "no-drag" }}>
             <button class="w-full text-left px-4 py-2.5 text-sm hover:bg-surface-100 transition-colors" onClick={handleNewWorkspace}>
               <span class="mr-2">➕</span> 新建工作区
             </button>

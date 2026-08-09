@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createEffect, onMount } from "solid-js";
+import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { useParams, useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { workspaceConfig, loadWorkspaceConfig, currentWorkspace, fileBrowserRefreshTrigger } from "~/stores/workspace";
@@ -10,9 +10,12 @@ import FileThumbnail from "~/components/FileThumbnail";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
 import MoveDialog from "~/components/MoveDialog";
+import BatchRenameDialog from "~/components/BatchRenameDialog";
+import EmptyState from "~/components/EmptyState";
 import AiSuggestionPanel, { AiPanelItem } from "~/components/AiSuggestionPanel";
 import { handleDragOut } from "~/utils/dragout";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
+import { useContextMenu } from "~/hooks/useContextMenu";
 import type { FileEntry } from "~/types";
 
 function formatBytes(bytes: number): string {
@@ -30,13 +33,11 @@ export default function FileBrowser() {
   const [showNewFolder, setShowNewFolder] = createSignal(false);
   const [newFolderName, setNewFolderName] = createSignal("");
   const [selectedFilePaths, setSelectedFilePaths] = createSignal<string[]>([]);
-  const [contextMenu, setContextMenu] = createSignal<{
-    show: boolean;
-    x: number;
-    y: number;
-    paths: string[];
-  }>({ show: false, x: 0, y: 0, paths: [] });
+  const contextMenu = useContextMenu<string[]>();
   const [showMove, setShowMove] = createSignal(false);
+  // v2.3.3（P2）：批量重命名对话框（多选）
+  const [showBatchRename, setShowBatchRename] = createSignal(false);
+  const [batchRenameFiles, setBatchRenameFiles] = createSignal<FileEntry[]>([]);
   const [actionMessage, setActionMessage] = createSignal("");
   const [aiPanel, setAiPanel] = createSignal<{ mode: "rename" | "tag"; items: AiPanelItem[] } | null>(null);
   const [aiBusy, setAiBusy] = createSignal(false);
@@ -133,6 +134,8 @@ export default function FileBrowser() {
     if (result.success) {
       loadFiles();
       showActionMessage(`已删除 ${paths.length} 个文件（可在回收站恢复）`);
+    } else {
+      window.alert(result.error || "删除失败");
     }
   };
 
@@ -146,6 +149,17 @@ export default function FileBrowser() {
     } else {
       window.alert(result.error || "重命名失败");
     }
+  };
+
+  /** v2.3.3（P2）：批量重命名——从选中路径解析 FileEntry 列表并打开对话框（多选时菜单注入） */
+  const handleBatchRename = () => {
+    const byPath = new Map(files().map((f) => [f.path, f]));
+    const list = selectedFilePaths()
+      .map((p) => byPath.get(p))
+      .filter((f): f is FileEntry => !!f);
+    if (list.length < 2) return;
+    setBatchRenameFiles(list);
+    setShowBatchRename(true);
   };
 
   const handleCopyPaths = async (paths: string[]) => {
@@ -169,8 +183,6 @@ export default function FileBrowser() {
   const handleCopySelected = () => handleCopyPaths(selectedFilePaths());
   const handleShowSelectedInExplorer = () => handleShowPathsInExplorer(selectedFilePaths());
 
-  const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
-
   onMount(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
@@ -183,13 +195,8 @@ export default function FileBrowser() {
         }
       }
     };
-    const onClick = () => closeContextMenu();
     window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("click", onClick);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("click", onClick);
-    };
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
   });
 
   const handleDeleteSubfolder = async () => {
@@ -206,6 +213,8 @@ export default function FileBrowser() {
       const next = folders[0] || (params.type === "image" ? "主图" : "3C");
       navigate(`/files/${params.type}/${params.productSet}/${encodeURIComponent(next)}`);
       loadWorkspaceConfig();
+    } else {
+      window.alert(result.error || "删除子文件夹失败");
     }
   };
 
@@ -222,6 +231,8 @@ export default function FileBrowser() {
       setNewFolderName("");
       loadWorkspaceConfig();
       navigate(`/files/${params.type}/${params.productSet}/${encodeURIComponent(name)}`);
+    } else {
+      window.alert(result.error || "创建子文件夹失败");
     }
   };
 
@@ -236,7 +247,7 @@ export default function FileBrowser() {
   // —— v2.2.0：AI 智能整理（命名 / 打标）——
 
   const aiSelectedNames = () => {
-    const paths = selectedFilePaths().length > 0 ? selectedFilePaths() : (contextMenu().paths ?? []);
+    const paths = selectedFilePaths().length > 0 ? selectedFilePaths() : (contextMenu.payload() ?? []);
     const byPath = new Map(files().map((f) => [f.path, f]));
     const names: string[] = [];
     for (const p of paths) {
@@ -447,11 +458,7 @@ export default function FileBrowser() {
         class="border-2 border-dashed rounded-2xl p-8 transition-colors border-surface-200 bg-surface-0 flex-1 min-h-0 flex flex-col"
       >
         <Show when={files().length > 0} fallback={
-          <div class="text-center py-12">
-            <div class="text-4xl mb-3">📂</div>
-            <h3 class="text-lg font-medium text-surface-700 mb-1">拖放文件到此处</h3>
-            <p class="text-sm text-surface-400">支持图片、PDF 等文件</p>
-          </div>
+          <EmptyState icon="📂" title="拖放文件到此处" desc="支持图片、PDF 等文件" />
         }>
           <div class="flex items-center justify-between mb-3 shrink-0">
             <span class="text-sm text-surface-500">{files().length} 个文件</span>
@@ -474,11 +481,10 @@ export default function FileBrowser() {
                   draggable={true}
                   onDragStart={(e) => handleDragOut(e, file.path, selectedFilePaths())}
                   onContextMenu={(e) => {
-                    e.preventDefault();
                     const paths = selectedFilePaths().includes(file.path)
                       ? selectedFilePaths()
                       : [file.path];
-                    setContextMenu({ show: true, x: e.clientX, y: e.clientY, paths });
+                    contextMenu.open(e, paths);
                   }}
                   onClick={() => handleOpenPreview(file)}
                 >
@@ -526,15 +532,15 @@ export default function FileBrowser() {
       </Show>
 
       {/* Context Menu（统一组件，v2.3.x 由 builder 生成） */}
-      <Show when={contextMenu().show}>
+      <Show when={contextMenu.show()}>
         <ContextMenu
-          x={contextMenu().x}
-          y={contextMenu().y}
-          onClose={closeContextMenu}
+          x={contextMenu.x()}
+          y={contextMenu.y()}
+          onClose={contextMenu.close}
           items={[
             ...buildFileContextMenuItems({
-              file: files().find((f) => f.path === contextMenu().paths[0]),
-              paths: contextMenu().paths,
+              file: files().find((f) => f.path === (contextMenu.payload()?.[0] ?? "")),
+              paths: contextMenu.payload() ?? [],
               onPreview: handleOpenPreview,
               onEditInfo: handleEditMetadata,
               onOpenDefault: (file) => void api.files.openWithDefaultApp(file.path),
@@ -542,19 +548,20 @@ export default function FileBrowser() {
               onShowInExplorer: handleShowPathsInExplorer,
               onMove: () => setShowMove(true),
               onRename: handleRename,
+              onBatchRename: () => void handleBatchRename(),
               onDelete: handleDelete,
             }),
             // AI 命名 / AI 打标（FEATURE_AI 开启后展示）
             {
               label: "AI 命名",
               icon: "🤖",
-              show: FEATURE_AI && contextMenu().paths.length >= 1,
+              show: FEATURE_AI && (contextMenu.payload()?.length ?? 0) >= 1,
               action: () => void handleAiRename(),
             },
             {
               label: "AI 打标",
               icon: "🏷️",
-              show: FEATURE_AI && contextMenu().paths.length >= 1,
+              show: FEATURE_AI && (contextMenu.payload()?.length ?? 0) >= 1,
               action: () => void handleAiTag(),
             },
           ]}
@@ -564,9 +571,21 @@ export default function FileBrowser() {
       {/* 移动到… 目标选择（v2.3.x） */}
       <Show when={showMove()}>
         <MoveDialog
-          paths={contextMenu().paths}
+          paths={contextMenu.payload() ?? []}
           onClose={() => setShowMove(false)}
           onMoved={() => {
+            loadFiles();
+            setSelectedFilePaths([]);
+          }}
+        />
+      </Show>
+
+      {/* 批量重命名（v2.3.3 P2，多选菜单入口） */}
+      <Show when={showBatchRename()}>
+        <BatchRenameDialog
+          files={batchRenameFiles()}
+          onClose={() => setShowBatchRename(false)}
+          onDone={() => {
             loadFiles();
             setSelectedFilePaths([]);
           }}

@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
+import { Show, For, createSignal, createEffect, onCleanup } from "solid-js";
 import { useSearchParams, useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { currentWorkspace, workspaceConfig, loadWorkspaceConfig, productSets, loadProductSets } from "~/stores/workspace";
@@ -9,6 +9,9 @@ import { openPreview } from "~/stores/preview";
 import FileThumbnail from "~/components/FileThumbnail";
 import ContextMenu from "~/components/ContextMenu";
 import MoveDialog from "~/components/MoveDialog";
+import EmptyState from "~/components/EmptyState";
+import Loading from "~/components/Loading";
+import { useContextMenu } from "~/hooks/useContextMenu";
 import type { SearchResult, FileEntry, ProductSetInfo, AiSearchResult } from "~/types";
 import { buildFileContextMenuItems, productSetFromFilePath } from "~/utils/fileContextMenu";
 
@@ -18,23 +21,10 @@ export default function Search() {
   const [query, setQuery] = createSignal<string>((searchParams.q as string) || "");
   const [results, setResults] = createSignal<SearchResult>({ files: [], product_sets: [] });
   const [loading, setLoading] = createSignal(false);
-  const [contextMenu, setContextMenu] = createSignal<{
-    show: boolean;
-    x: number;
-    y: number;
-    file: FileEntry | null;
-  }>({ show: false, x: 0, y: 0, file: null });
+  const contextMenu = useContextMenu<FileEntry>();
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
   const [aiSearching, setAiSearching] = createSignal(false);
   const [aiTranslation, setAiTranslation] = createSignal("");
-
-  const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
-
-  onMount(() => {
-    const onClick = () => closeContextMenu();
-    window.addEventListener("click", onClick);
-    return () => window.removeEventListener("click", onClick);
-  });
 
   createEffect(() => {
     if (currentWorkspace()) {
@@ -152,6 +142,8 @@ export default function Search() {
     const result = await api.files.delete(paths);
     if (result.success) {
       doSearch(query());
+    } else {
+      window.alert(result.error || "删除失败");
     }
   };
 
@@ -214,7 +206,7 @@ export default function Search() {
       </form>
 
       <Show when={loading()}>
-        <div class="text-center py-12 text-surface-400">搜索中...</div>
+        <Loading text="搜索中..." />
       </Show>
 
       <Show when={!loading() && results().product_sets.length > 0}>
@@ -247,10 +239,7 @@ export default function Search() {
                 <div
                   class="card p-3 cursor-pointer hover:shadow-card-hover transition-all"
                   onClick={() => openFilePreview(file)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setContextMenu({ show: true, x: e.clientX, y: e.clientY, file });
-                  }}
+                  onContextMenu={(e) => contextMenu.open(e, file)}
                 >
                   <div class="aspect-square rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden mb-2">
                     <FileThumbnail filePath={file.path} fileType={file.file_type} />
@@ -264,41 +253,35 @@ export default function Search() {
       </Show>
 
       <Show when={!loading() && query() && results().files.length === 0 && results().product_sets.length === 0}>
-        <div class="text-center py-12 text-surface-400">
-          <div class="text-4xl mb-3">🔍</div>
-          <p>未找到与 "{query()}" 相关的结果</p>
-        </div>
+        <EmptyState icon="🔍" title={`未找到与 "${query()}" 相关的结果`} />
       </Show>
 
       {/* Context Menu（统一组件，v2.3.x 由 builder 生成） */}
-      <Show when={contextMenu().show && contextMenu().file}>
-        {(() => {
-          const ctxFile = contextMenu().file;
-          return (
-            <ContextMenu
-              x={contextMenu().x}
-              y={contextMenu().y}
-              onClose={closeContextMenu}
-              items={buildFileContextMenuItems({
-                file: ctxFile ?? undefined,
-                paths: ctxFile ? [ctxFile.path] : [],
-                onPreview: openFilePreview,
-                onEditInfo: (f) =>
-                  openPreview(f, {
-                    productSet: productSetFromFilePath(f.path),
-                    editMetadata: true,
-                    onDelete: () => doSearch(query()),
-                  }),
-                onOpenDefault: (f) => void api.files.openWithDefaultApp(f.path),
-                onCopy: handleCopy,
-                onShowInExplorer: handleShowInExplorer,
-                onMove: (paths) => setMovePaths(paths),
-                onRename: handleRename,
-                onDelete: handleDelete,
-              })}
-            />
-          );
-        })()}
+      <Show when={contextMenu.payload()}>
+        {(f) => (
+          <ContextMenu
+            x={contextMenu.x()}
+            y={contextMenu.y()}
+            onClose={contextMenu.close}
+            items={buildFileContextMenuItems({
+              file: f(),
+              paths: [f().path],
+              onPreview: openFilePreview,
+              onEditInfo: (file) =>
+                openPreview(file, {
+                  productSet: productSetFromFilePath(file.path),
+                  editMetadata: true,
+                  onDelete: () => doSearch(query()),
+                }),
+              onOpenDefault: (file) => void api.files.openWithDefaultApp(file.path),
+              onCopy: handleCopy,
+              onShowInExplorer: handleShowInExplorer,
+              onMove: (paths) => setMovePaths(paths),
+              onRename: handleRename,
+              onDelete: handleDelete,
+            })}
+          />
+        )}
       </Show>
 
       {/* 移动到… 目标选择（v2.3.x；移动后重跑搜索刷新结果） */}

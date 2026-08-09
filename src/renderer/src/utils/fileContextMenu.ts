@@ -5,7 +5,7 @@ import type { FileEntry } from "~/types";
 /**
  * 统一文件右键菜单 builder（v2.3.x UI 统一批）。
  * 固定顺序：预览 / 编辑信息 / 用默认程序打开 / 复制 / 复制路径 /
- * 在文件夹中显示 / 移动到… / 重命名 / 删除。
+ * 在文件夹中显示 / 移动到… / 重命名 / 批量重命名（多选） / 删除。
  * 未提供对应回调的项自动隐藏，各页面按自身能力裁剪。
  */
 
@@ -28,6 +28,8 @@ export interface FileContextMenuOptions<T extends FileEntry> {
   onMove?: (paths: string[]) => void;
   /** 重命名（单文件） */
   onRename?: (file: T) => void;
+  /** 批量重命名（多选；show 由调用方控制：多选且提供回调） */
+  onBatchRename?: (files: T[]) => void;
   /** 删除 */
   onDelete?: (paths: string[]) => void;
 }
@@ -39,7 +41,7 @@ export function buildFileContextMenuItems<T extends FileEntry>(
   const paths = opts.paths ?? (file ? [file.path] : []);
   // 单文件操作：仅单选（且能找到文件）时显示
   const single = paths.length === 1 && !!file;
-  const { onPreview, onEditInfo, onOpenDefault, onCopy, onShowInExplorer, onMove, onRename, onDelete } = opts;
+  const { onPreview, onEditInfo, onOpenDefault, onCopy, onShowInExplorer, onMove, onRename, onBatchRename, onDelete } = opts;
 
   const items: ContextMenuItem[] = [];
 
@@ -122,6 +124,17 @@ export function buildFileContextMenuItems<T extends FileEntry>(
       action: () => {
         if (file) onRename(file);
       },
+    });
+  }
+
+  // 8.5 批量重命名（多选；builder 无法从路径解析 FileEntry，
+  // 由调用方基于自身选中态在回调内解析并打开对话框）
+  if (onBatchRename) {
+    items.push({
+      label: "批量重命名",
+      icon: "🏷️",
+      show: paths.length > 1,
+      action: () => onBatchRename([]),
     });
   }
 

@@ -6,6 +6,9 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
+import type { NamingTemplate, WorkspaceConfig } from '../../shared/types'
+
+export type { NamingTemplate, WorkspaceConfig } from '../../shared/types'
 
 // —— 目录/文件常量（与原 Go 完全一致，保证旧工作区兼容）——
 export const APP_DATA_DIR = '.qihefilemanager'
@@ -19,21 +22,6 @@ export const EXPORTS_DIR = '导出'
 export const RECENT_FILE = '.qihefilemanager_recent.json'
 export const TAGS_FILE = 'tags.json'
 export const THUMBNAIL_DIR = '.thumbnails'
-
-export interface NamingTemplate {
-  product_set_prefix: string
-  product_set_suffix: string
-  sku_separator: string
-  sku_fields: string[]
-  conflict_suffix: string
-}
-
-export interface WorkspaceConfig {
-  name: string
-  naming_template: NamingTemplate
-  image_subfolders: string[]
-  cert_subfolders: string[]
-}
 
 export function defaultNamingTemplate(): NamingTemplate {
   return {

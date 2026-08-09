@@ -6,14 +6,9 @@ import path from 'node:path'
 import fsp from 'node:fs/promises'
 import { metadataPath, writeJsonAtomic, ensureWorkspaceDirs } from './paths'
 import { WorkspaceService } from './workspace'
+import type { FileMetadata, MetadataUpdateRequest } from '../../shared/types'
 
-export interface FileMetadata {
-  cert_type: string
-  expiry_date: string
-  tags: string[]
-  notes: string
-  added_at: string
-}
+export type { FileMetadata, MetadataUpdateRequest } from '../../shared/types'
 
 interface MetadataStore {
   files: Record<string, FileMetadata>
@@ -21,15 +16,6 @@ interface MetadataStore {
 
 function emptyMetadata(): FileMetadata {
   return { cert_type: '', expiry_date: '', tags: [], notes: '', added_at: '' }
-}
-
-export interface MetadataUpdateRequest {
-  product_set: string
-  file_name: string
-  cert_type?: string
-  expiry_date?: string
-  tags?: string[]
-  notes?: string
 }
 
 export function currentTimeString(): string {
