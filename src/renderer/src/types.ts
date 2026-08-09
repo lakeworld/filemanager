@@ -136,6 +136,17 @@ export interface TagInfo {
   defined?: boolean;
 }
 
+/** v2.3.1：回收站条目 */
+export interface TrashEntry {
+  id: string;
+  /** 删除前的原始绝对路径 */
+  originalPath: string;
+  deletedAt: string;
+  kind: "file" | "subfolder" | "productSet";
+  name: string;
+  size: number;
+}
+
 export interface LicenseInfo {
   license: string;
   email: string;

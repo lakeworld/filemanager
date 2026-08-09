@@ -14,6 +14,7 @@ import { SearchService } from './search'
 import { XlsxService } from './xlsx'
 import { PRODUCT_SETS_DIR, isPathInsideWorkspace, classifyFileType } from './paths'
 import { TagService } from './tags'
+import { TrashService } from './trash'
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 
@@ -25,12 +26,14 @@ export class BoxService {
   search: SearchService
   xlsx: XlsxService
   tags: TagService
+  trash: TrashService
   private thumbs: ThumbnailProvider
 
   constructor(thumbs: ThumbnailProvider, workspace?: WorkspaceService) {
     this.workspace = workspace ?? new WorkspaceService()
     this.metadata = new MetadataService(this.workspace)
-    this.files = new FilesService(this.workspace, this.metadata, thumbs)
+    this.trash = new TrashService(this.workspace, this.metadata, thumbs)
+    this.files = new FilesService(this.workspace, this.metadata, thumbs, this.trash)
     this.dashboard = new DashboardService(this.workspace, this.metadata, this.files)
     this.search = new SearchService(this.workspace, this.files)
     this.xlsx = new XlsxService(this.workspace)
@@ -46,15 +49,13 @@ export class BoxService {
     return this.xlsx.importProductSets(filePath)
   }
 
-  /** 删除产品集：缩略图 + 元数据 + 目录（组合编排） */
+  /** 删除产品集（v2.3.1：移入回收站；目录移走即从列表消失，extra 保留供恢复后还原 tags/notes） */
   async deleteProductSet(name: string): Promise<void> {
     const ws = this.workspace.currentWorkspacePath()
     if (!ws) throw new Error('未打开工作区')
     const dir = path.join(ws, PRODUCT_SETS_DIR, name.trim())
     await fsp.stat(dir)
-    await this.thumbs.removeThumbnailsInDir(dir)
-    await this.workspace.productSetDelete(name)
-    await this.metadata.removeFileMetadataForProductSet(name.trim())
+    await this.trash.trashItem(ws, dir, 'productSet')
   }
 
   /** 确保图片/PDF 缩略图存在（缺失自动生成，mtime 命中直接返回），返回缩略图路径 */

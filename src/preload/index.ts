@@ -81,6 +81,12 @@ const api = {
     delete: (name: string) => invoke('qihebox:tags:delete', name),
     adopt: (name: string, color: string) => invoke('qihebox:tags:adopt', name, color),
   },
+  trash: {
+    list: () => invoke('qihebox:trash:list'),
+    restore: (id: string) => invoke('qihebox:trash:restore', id),
+    purge: (id: string) => invoke('qihebox:trash:purge', id),
+    empty: () => invoke('qihebox:trash:empty'),
+  },
   xlsx: {
     exportTemplate: (path: string) => invoke('qihebox:xlsx:exportTemplate', path),
     import: (path: string) => invoke('qihebox:xlsx:import', path),

@@ -44,6 +44,7 @@ export default function Sidebar() {
       items: [
         { icon: "👤", label: "我的", path: "/profile" },
         { icon: "⚙️", label: "设置", path: "/settings" },
+        { icon: "🗑️", label: "回收站", path: "/trash" },
       ],
     },
   ];

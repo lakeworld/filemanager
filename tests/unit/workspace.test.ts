@@ -97,7 +97,7 @@ describe('工作区全链路（对照原 app_test.go）', () => {
     expect(a?.notes).toBe('备注')
   })
 
-  it('删除产品集后元数据清理', async () => {
+  it('删除产品集：目录移入回收站，元数据保留；彻底删除后才清理', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -110,7 +110,16 @@ describe('工作区全链路（对照原 app_test.go）', () => {
     await box.deleteProductSet('待删')
     const dir = path.join(ws, '产品集', '待删')
     await expect(fsp.stat(dir)).rejects.toThrow()
-    const store = await box.metadata.loadMetadataStore()
+    // v2.3.1 回收站：删除时元数据保留（恢复可还原）
+    const entries = await box.trash.list()
+    expect(entries).toHaveLength(1)
+    expect(entries[0].kind).toBe('productSet')
+    let store = await box.metadata.loadMetadataStore()
+    expect(Object.keys(store.files)).toHaveLength(1)
+
+    // 彻底删除后才清理
+    await box.trash.purge(entries[0].id)
+    store = await box.metadata.loadMetadataStore()
     expect(Object.keys(store.files)).toHaveLength(0)
   })
 
