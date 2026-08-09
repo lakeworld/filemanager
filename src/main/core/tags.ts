@@ -3,9 +3,10 @@
  * 数据：<ws>/.qihefilemanager/tags.json
  *   { "标签名": { "color": "#xxx", "parent": "父标签名", "builtin": true } }
  * - parent：子标签关联父标签名（两层结构，parent 本身不可再有 parent）
- * - builtin：固定色预设标签（颜色不可改，名称可重命名、可删除）
+ * - builtin：固定色预设标签（v2.3.2 起一次性迁移清除，字段仅作历史数据兼容保留）
  * 引用：文件级 tags（metadata.json）+ 产品集级 tags（product_sets.json）
- * 迁移：旧版 tags_state.json.colors 并入；缺失 builtin 标签自动补全
+ * 迁移：旧版 tags_state.json.colors 并入；v2.3.2 一次性迁移清除内置固定色标签并写入标记，
+ *       此后不再补全/改动任何标签（删除后不再复活、颜色均可改）
  * 纯 TS：可在 node 环境直接测试。
  */
 import path from 'node:path'
@@ -32,13 +33,21 @@ export interface TagInfo {
 
 export const DEFAULT_TAG_COLOR = '#94a3b8'
 
-/** 固定色预设标签（颜色固定、名称可重命名） */
+/** 内置预设标签（v2.3.2 起仅用于迁移识别，不再用于补全/创建） */
 export const BUILTIN_TAGS: Record<string, string> = {
   重要: '#ef4444',
   待更新: '#f97316',
   已更新: '#22c55e',
   问题: '#eab308',
   归档: '#64748b',
+}
+
+/** 迁移标记键（tags.json 内部键：遍历排除、不对外暴露，create/rename 拒绝同名） */
+export const MIGRATED_BUILTIN_KEY = '_migrated_builtin'
+
+/** 是否为内部保留键（迁移标记，不可作为真实标签操作） */
+function isInternalKey(name: string): boolean {
+  return name === MIGRATED_BUILTIN_KEY
 }
 
 export class TagService {
@@ -66,10 +75,14 @@ export class TagService {
     await writeJsonAtomic(this.tagsPath(ws), defs)
   }
 
-  /** 迁移 + 初始化：旧版 tags_state.colors 并入；补全缺失的 builtin 固定色标签 */
+  /**
+   * 一次性迁移（v2.3.2）：旧版 tags_state.colors 并入；清除内置固定色标签（定义 + 引用）。
+   * 完成后写入 _migrated_builtin 标记，此后不再补全/改动任何标签（删除后不再复活）。
+   * 已存在标记 → 直接返回，不做任何处理。
+   */
   private async migrateAndInit(ws: string): Promise<void> {
     const defs = await this.loadDefs(ws)
-    let changed = false
+    if (defs[MIGRATED_BUILTIN_KEY]) return // 已迁移过，不再做任何补全
 
     // 旧版 tags_state.json.colors → tags.json（仅当 tags.json 尚无任何定义时）
     if (Object.keys(defs).length === 0) {
@@ -79,25 +92,44 @@ export class TagService {
         for (const [name, color] of Object.entries(legacy.colors)) {
           if (name && color && !defs[name]) {
             defs[name] = { color }
-            changed = true
           }
         }
       }
     }
 
-    // 补全 builtin 固定色标签（已存在同名则保留其颜色，只补缺）
-    for (const [name, color] of Object.entries(BUILTIN_TAGS)) {
-      if (!defs[name]) {
-        defs[name] = { color, builtin: true }
-        changed = true
-      } else if (!defs[name].builtin && !defs[name].parent) {
-        // 旧用户自定义的同名顶层标签 → 标记为 builtin（颜色保留用户原色）
-        defs[name].builtin = true
-        changed = true
-      }
+    // 删除内置固定色标签定义（曾经的 builtin：删除后不再复活）
+    for (const name of Object.keys(defs)) {
+      if (defs[name].builtin) delete defs[name]
     }
 
-    if (changed) await this.saveDefs(ws, defs)
+    // 移除引用：文件级 tags（metadata.json）+ 产品集级 tags（product_sets.json）中的内置名称
+    const builtinNames = Object.keys(BUILTIN_TAGS)
+
+    const store = await this.metadata.loadMetadataStore(ws)
+    let fileChanged = false
+    for (const meta of Object.values(store.files)) {
+      const tags = (meta.tags ?? []).filter((t) => !builtinNames.includes(t))
+      if (tags.length !== (meta.tags ?? []).length) {
+        meta.tags = tags
+        fileChanged = true
+      }
+    }
+    if (fileChanged) await this.metadata.saveMetadataStore(store, ws)
+
+    const extra = await this.workspace.loadProductSetsInfo(ws)
+    let psChanged = false
+    for (const ex of Object.values(extra)) {
+      const tags = (ex.tags ?? []).filter((t) => !builtinNames.includes(t))
+      if (tags.length !== (ex.tags ?? []).length) {
+        ex.tags = tags
+        psChanged = true
+      }
+    }
+    if (psChanged) await this.workspace.saveProductSetsInfo(ws, extra)
+
+    // 写入迁移标记（内部键，后续 list()/create 等遍历会跳过该键）
+    defs[MIGRATED_BUILTIN_KEY] = { color: '' }
+    await this.saveDefs(ws, defs)
   }
 
   /** 聚合所有已使用标签（文件 + 产品集）及计数 */
@@ -121,11 +153,12 @@ export class TagService {
     const defs = await this.loadDefs(ws)
     const counts = await this.collectUsedTags(ws)
 
-    // 校验 parent 指向的父标签必须存在且本身无 parent（两层结构）
-    const names = new Set(Object.keys(defs))
+    // 校验 parent 指向的父标签必须存在且本身无 parent（两层结构）；排除内部迁移标记键
+    const names = new Set(Object.keys(defs).filter((n) => !isInternalKey(n)))
     const childrenOf = new Map<string, string[]>()
     const normalized: Record<string, TagDef> = {}
     for (const [name, def] of Object.entries(defs)) {
+      if (isInternalKey(name)) continue // 内部标记键不作为真实标签
       let parent = def.parent
       if (parent) {
         const pDef = defs[parent]
@@ -201,9 +234,10 @@ export class TagService {
     name = name.trim()
     color = color.trim()
     if (!name || !color) throw new Error('参数不完整')
+    if (isInternalKey(name)) throw new Error('标签不存在')
     const defs = await this.loadDefs(ws)
     if (!defs[name]) throw new Error('标签不存在')
-    if (defs[name].builtin) throw new Error('固定色标签颜色不可修改')
+    // v2.3.2：颜色均可改（不再有固定色不可改限制）
     defs[name].color = color
     await this.saveDefs(ws, defs)
   }
@@ -216,9 +250,11 @@ export class TagService {
     color = (color || DEFAULT_TAG_COLOR).trim()
     parentName = parentName?.trim() || null
     if (!name) throw new Error('名称不能为空')
+    if (isInternalKey(name)) throw new Error('该名称为系统保留，不可用作标签')
     const defs = await this.loadDefs(ws)
     if (defs[name]) throw new Error('标签已存在')
     if (parentName) {
+      if (isInternalKey(parentName)) throw new Error('父标签不存在')
       const pDef = defs[parentName]
       if (!pDef) throw new Error('父标签不存在')
       if (pDef.parent) throw new Error('父标签不能是子标签（仅支持两层）')
@@ -237,9 +273,11 @@ export class TagService {
     parentName = parentName?.trim() || null
     if (!name) throw new Error('名称不能为空')
     if (parentName === name) throw new Error('不能以自身为父标签')
+    if (isInternalKey(name)) throw new Error('标签不存在')
     const defs = await this.loadDefs(ws)
     if (!defs[name]) throw new Error('标签不存在')
     if (parentName) {
+      if (isInternalKey(parentName)) throw new Error('父标签不存在')
       const pDef = defs[parentName]
       if (!pDef) throw new Error('父标签不存在')
       if (pDef.parent) throw new Error('父标签不能是子标签（仅支持两层）')
@@ -261,7 +299,9 @@ export class TagService {
     if (oldName === newName) return
 
     const defs = await this.loadDefs(ws)
+    if (isInternalKey(oldName)) throw new Error('标签不存在')
     if (!defs[oldName]) throw new Error('标签不存在')
+    if (isInternalKey(newName)) throw new Error('新名称为系统保留')
     if (defs[newName]) throw new Error('新名称已存在')
 
     const moved = defs[oldName]
@@ -308,6 +348,7 @@ export class TagService {
     if (!name) throw new Error('名称不能为空')
 
     const defs = await this.loadDefs(ws)
+    if (isInternalKey(name)) throw new Error('标签不存在')
     const defined = !!defs[name]
     // v2.3.0：孤儿标签（未定义但被引用）也可删除——仅清理引用，跳过定义
     if (defined) {

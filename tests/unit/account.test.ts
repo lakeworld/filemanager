@@ -83,7 +83,7 @@ describe('AccountService', () => {
     svc = new AccountService({ ...deps, fetchImpl })
     const r = await svc.login('a@b.com', 'bad')
     expect(r.ok).toBe(false)
-    expect(r.error).toContain('官网')
+    expect((r as { error?: string }).error).toContain('官网')
     expect(fs.existsSync(accountFile)).toBe(false)
   })
 
@@ -94,7 +94,7 @@ describe('AccountService', () => {
     svc = new AccountService({ ...deps, fetchImpl })
     const r = await svc.login('a@b.com', 'pw')
     expect(r.ok).toBe(false)
-    expect(r.error).toContain('网络')
+    expect((r as { error?: string }).error).toContain('网络')
   })
 
   it('未登录时 aiCall 提示登录', async () => {
@@ -193,7 +193,7 @@ describe('AccountService', () => {
     await svc.beat()
     expect(seen[1].device_id).toBe(firstId)
     // 登录请求存在
-    const urls = fetchImpl.mock.calls.map((c) => String(c[0]))
+    const urls = (fetchImpl as unknown as { mock: { calls: Array<[string, ...unknown[]]> } }).mock.calls.map((c) => String(c[0]))
     expect(urls.some((u) => u.includes('/collections/users/auth-with-password'))).toBe(true)
   })
 

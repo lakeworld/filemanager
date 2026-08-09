@@ -7,6 +7,7 @@
  * - 平台能力（剪贴板/资源管理器/默认应用打开/对话框）不属于 core，由 main 层 ipc 直接处理
  */
 import { WorkspaceService } from './workspace'
+import type { ProductSetInfo } from './workspace'
 import { MetadataService } from './metadata'
 import { FilesService, ThumbnailProvider } from './files'
 import { DashboardService } from './dashboard'

@@ -1,7 +1,9 @@
-import { Show, For, createSignal, createEffect, onMount } from "solid-js";
+import { Show, For, createSignal, createEffect } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
-import { tagChipStyle, tagLabel, tagList } from "~/stores/tags";
+import { tagChipStyle, tagLabel, tagList, tagColor } from "~/stores/tags";
+import ContextMenu from "~/components/ContextMenu";
+import TagInput from "~/components/TagInput";
 import {
   currentWorkspace,
   productSets,
@@ -11,30 +13,19 @@ import {
 } from "~/stores/workspace";
 import type { ProductSetInfo, ProductSetCreateRequest } from "~/types";
 
-function parseTags(input: string): string[] {
-  return input
-    .split(/[,，]/)
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
-}
-
-function formatTags(tags?: string[]): string {
-  return (tags || []).join(", ");
-}
-
 export default function ProductSets() {
   const navigate = useNavigate();
   const params = useParams();
   const [showCreateModal, setShowCreateModal] = createSignal(false);
   const [newPsName, setNewPsName] = createSignal("");
-  const [newPsTags, setNewPsTags] = createSignal("");
+  const [newPsTags, setNewPsTags] = createSignal<string[]>([]);
   const [newPsNotes, setNewPsNotes] = createSignal("");
 
   const [editingPs, setEditingPs] = createSignal(false);
   const [editingPsName, setEditingPsName] = createSignal("");
 
   const [editingInfoPs, setEditingInfoPs] = createSignal<ProductSetInfo | null>(null);
-  const [editTags, setEditTags] = createSignal("");
+  const [editTags, setEditTags] = createSignal<string[]>([]);
   const [editNotes, setEditNotes] = createSignal("");
 
   const [psSearch, setPsSearch] = createSignal("");
@@ -49,12 +40,6 @@ export default function ProductSets() {
 
   const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
 
-  onMount(() => {
-    const onClick = () => closeContextMenu();
-    window.addEventListener("click", onClick);
-    return () => window.removeEventListener("click", onClick);
-  });
-
   const psName = () => {
     const name = params.name || "";
     try {
@@ -64,9 +49,8 @@ export default function ProductSets() {
     }
   };
 
-  // v2.3.0：已定义标签名集合（自动完成候选 + 孤儿标签警告）
+  // v2.3.0：已定义标签名集合（孤儿标签警告）
   const definedTagNames = () => new Set(tagList().flatMap((t) => [t.name, ...(t.children ?? [])]));
-  const tagOptions = () => tagList().flatMap((t) => [t.name, ...(t.children ?? [])]);
 
   createEffect(() => {
     if (currentWorkspace()) {
@@ -108,14 +92,14 @@ export default function ProductSets() {
     if (!name) return;
     const req: ProductSetCreateRequest = {
       name,
-      tags: parseTags(newPsTags()),
+      tags: newPsTags(),
       notes: newPsNotes().trim(),
     };
     const result = await api.productSets.create(req);
     if (result.success) {
       setShowCreateModal(false);
       setNewPsName("");
-      setNewPsTags("");
+      setNewPsTags([]);
       setNewPsNotes("");
       loadProductSets();
     } else {
@@ -185,7 +169,7 @@ export default function ProductSets() {
 
   const openEditInfo = (ps: ProductSetInfo) => {
     setEditingInfoPs(ps);
-    setEditTags(formatTags(ps.tags));
+    setEditTags(ps.tags ?? []);
     setEditNotes(ps.notes || "");
   };
 
@@ -194,7 +178,7 @@ export default function ProductSets() {
     if (!ps) return;
     const result = await api.productSets.updateInfo({
       name: ps.name,
-      tags: parseTags(editTags()),
+      tags: editTags(),
       notes: editNotes().trim(),
     });
     if (result.success) {
@@ -205,8 +189,8 @@ export default function ProductSets() {
     }
   };
 
-  const handleCardDelete = async (ps: ProductSetInfo, e: MouseEvent) => {
-    e.stopPropagation();
+  const handleCardDelete = async (ps: ProductSetInfo, e?: MouseEvent) => {
+    e?.stopPropagation();
     closeContextMenu();
     if (!window.confirm(`确定删除产品集 "${ps.name}" 吗？将移入回收站，可在回收站恢复。`)) return;
     const result = await api.productSets.delete(ps.name);
@@ -299,10 +283,11 @@ export default function ProductSets() {
                       <For each={ps.tags}>
                         {(tag) => (
                           <span
-                            class={`text-[10px] px-2 py-0.5 rounded-full text-white ${definedTagNames().has(tag) ? "" : "ring-2 ring-amber-400"}`}
+                            class={`text-xs px-2.5 py-1 rounded-full ${definedTagNames().has(tag) ? "" : "ring-2 ring-amber-400"}`}
                             style={tagChipStyle(tag)}
                             title={definedTagNames().has(tag) ? undefined : "未在设置中定义，可在设置中转为正式标签"}
                           >
+                            <span class="inline-block w-1.5 h-1.5 rounded-full mr-1" style={{ "background-color": tagColor(tag) }} />
                             {tagLabel(tag)}
                           </span>
                         )}
@@ -424,14 +409,12 @@ export default function ProductSets() {
               />
             </div>
             <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">标签（用逗号分隔，建议从已定义标签中选择）</label>
-              <input
-                type="text"
-                class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                placeholder="如：客户, 重点"
+              <label class="block text-sm font-medium text-surface-700 mb-1">标签（建议从已定义标签中选择）</label>
+              <TagInput
                 value={newPsTags()}
-                onInput={(e) => setNewPsTags(e.currentTarget.value)}
-                list="ps-tag-autocomplete"
+                onChange={setNewPsTags}
+                options={tagList()}
+                placeholder="如：客户、重点"
               />
             </div>
             <div class="mb-4">
@@ -458,14 +441,12 @@ export default function ProductSets() {
           <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h2 class="text-xl font-bold mb-4">编辑产品集信息</h2>
             <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">标签（用逗号分隔，建议从已定义标签中选择）</label>
-              <input
-                type="text"
-                class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                placeholder="如：客户, 重点"
+              <label class="block text-sm font-medium text-surface-700 mb-1">标签（建议从已定义标签中选择）</label>
+              <TagInput
                 value={editTags()}
-                onInput={(e) => setEditTags(e.currentTarget.value)}
-                list="ps-tag-autocomplete"
+                onChange={setEditTags}
+                options={tagList()}
+                placeholder="如：客户、重点"
               />
             </div>
             <div class="mb-4">
@@ -486,40 +467,33 @@ export default function ProductSets() {
         </div>
       </Show>
 
-      {/* Context Menu */}
+      {/* Context Menu（统一组件，v2.3.x） */}
       <Show when={contextMenu().show && contextMenu().ps}>
-        <div
-          class="fixed z-50 bg-white shadow-lg rounded-lg border border-surface-200 py-1 min-w-[160px]"
-          style={{ left: `${contextMenu().x}px`, top: `${contextMenu().y}px` }}
-        >
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={() => {
-              const ps = contextMenu().ps;
-              if (ps) openEditInfo(ps);
-              closeContextMenu();
-            }}
-          >
-            ✏️ 编辑信息
-          </button>
-          <button
-            class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-            onClick={(e) => {
-              const ps = contextMenu().ps;
-              if (ps) handleCardDelete(ps, e as unknown as MouseEvent);
-            }}
-          >
-            🗑️ 删除
-          </button>
-        </div>
+        <ContextMenu
+          x={contextMenu().x}
+          y={contextMenu().y}
+          onClose={closeContextMenu}
+          items={[
+            {
+              label: "编辑信息",
+              icon: "✏️",
+              action: () => {
+                const ps = contextMenu().ps;
+                if (ps) openEditInfo(ps);
+              },
+            },
+            {
+              label: "删除",
+              icon: "🗑️",
+              danger: true,
+              action: () => {
+                const ps = contextMenu().ps;
+                if (ps) void handleCardDelete(ps);
+              },
+            },
+          ]}
+        />
       </Show>
-
-      {/* 标签自动完成候选（v2.3.0） */}
-      <datalist id="ps-tag-autocomplete">
-        <For each={tagOptions()}>
-          {(t) => <option value={t} />}
-        </For>
-      </datalist>
     </div>
   );
 }

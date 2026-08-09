@@ -35,7 +35,7 @@ export function startMemoryWatchdog(opts: WatchdogOptions): void {
     let total = 0
     try {
       for (const m of app.getAppMetrics()) {
-        if (m.type === 'Tab' || m.type === 'renderer') {
+        if (m.type === 'Tab' || (m.type as string) === 'renderer') {
           total += m.memory?.workingSetSize ?? 0
         }
       }

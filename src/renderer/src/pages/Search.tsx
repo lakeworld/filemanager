@@ -8,7 +8,9 @@ import { loadTagDefs, tagList } from "~/stores/tags";
 import { openPreview } from "~/stores/preview";
 import FileThumbnail from "~/components/FileThumbnail";
 import ContextMenu from "~/components/ContextMenu";
+import MoveDialog from "~/components/MoveDialog";
 import type { SearchResult, FileEntry, ProductSetInfo, AiSearchResult } from "~/types";
+import { buildFileContextMenuItems, productSetFromFilePath } from "~/utils/fileContextMenu";
 
 export default function Search() {
   const navigate = useNavigate();
@@ -22,6 +24,7 @@ export default function Search() {
     y: number;
     file: FileEntry | null;
   }>({ show: false, x: 0, y: 0, file: null });
+  const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
   const [aiSearching, setAiSearching] = createSignal(false);
   const [aiTranslation, setAiTranslation] = createSignal("");
 
@@ -267,71 +270,43 @@ export default function Search() {
         </div>
       </Show>
 
-      {/* Context Menu */}
+      {/* Context Menu（统一组件，v2.3.x 由 builder 生成） */}
       <Show when={contextMenu().show && contextMenu().file}>
-        <ContextMenu
-          x={contextMenu().x}
-          y={contextMenu().y}
-          onClose={closeContextMenu}
-          items={[
-            {
-              label: "预览",
-              icon: "👁️",
-              action: () => {
-                const f = contextMenu().file;
-                if (f) openFilePreview(f);
-              },
-            },
-            {
-              label: "用默认程序打开",
-              icon: "🖥️",
-              action: () => {
-                const f = contextMenu().file;
-                if (f) void api.files.openWithDefaultApp(f.path);
-              },
-            },
-            {
-              label: "复制",
-              icon: "📋",
-              action: () => {
-                const f = contextMenu().file;
-                if (f) handleCopy([f.path]);
-              },
-            },
-            {
-              label: "复制路径",
-              icon: "🔗",
-              action: () => {
-                const f = contextMenu().file;
-                if (f) void api.files.copyPaths([f.path]);
-              },
-            },
-            {
-              label: "在文件夹中显示",
-              icon: "📂",
-              action: () => {
-                const f = contextMenu().file;
-                if (f) handleShowInExplorer([f.path]);
-              },
-            },
-            {
-              label: "重命名",
-              icon: "✏️",
-              action: () => {
-                const f = contextMenu().file;
-                if (f) handleRename(f);
-              },
-            },
-            {
-              label: "删除",
-              icon: "🗑️",
-              danger: true,
-              action: () => {
-                const f = contextMenu().file;
-                if (f) handleDelete([f.path]);
-              },
-            },
-          ]}
+        {(() => {
+          const ctxFile = contextMenu().file;
+          return (
+            <ContextMenu
+              x={contextMenu().x}
+              y={contextMenu().y}
+              onClose={closeContextMenu}
+              items={buildFileContextMenuItems({
+                file: ctxFile ?? undefined,
+                paths: ctxFile ? [ctxFile.path] : [],
+                onPreview: openFilePreview,
+                onEditInfo: (f) =>
+                  openPreview(f, {
+                    productSet: productSetFromFilePath(f.path),
+                    editMetadata: true,
+                    onDelete: () => doSearch(query()),
+                  }),
+                onOpenDefault: (f) => void api.files.openWithDefaultApp(f.path),
+                onCopy: handleCopy,
+                onShowInExplorer: handleShowInExplorer,
+                onMove: (paths) => setMovePaths(paths),
+                onRename: handleRename,
+                onDelete: handleDelete,
+              })}
+            />
+          );
+        })()}
+      </Show>
+
+      {/* 移动到… 目标选择（v2.3.x；移动后重跑搜索刷新结果） */}
+      <Show when={movePaths()}>
+        <MoveDialog
+          paths={movePaths()!}
+          onClose={() => setMovePaths(null)}
+          onMoved={() => doSearch(query())}
         />
       </Show>
     </div>

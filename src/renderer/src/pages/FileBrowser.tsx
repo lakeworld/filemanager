@@ -9,8 +9,10 @@ import { loadTagDefs, tagList } from "~/stores/tags";
 import FileThumbnail from "~/components/FileThumbnail";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
+import MoveDialog from "~/components/MoveDialog";
 import AiSuggestionPanel, { AiPanelItem } from "~/components/AiSuggestionPanel";
 import { handleDragOut } from "~/utils/dragout";
+import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import type { FileEntry } from "~/types";
 
 function formatBytes(bytes: number): string {
@@ -34,6 +36,7 @@ export default function FileBrowser() {
     y: number;
     paths: string[];
   }>({ show: false, x: 0, y: 0, paths: [] });
+  const [showMove, setShowMove] = createSignal(false);
   const [actionMessage, setActionMessage] = createSignal("");
   const [aiPanel, setAiPanel] = createSignal<{ mode: "rename" | "tag"; items: AiPanelItem[] } | null>(null);
   const [aiBusy, setAiBusy] = createSignal(false);
@@ -522,39 +525,26 @@ export default function FileBrowser() {
         </div>
       </Show>
 
-      {/* Context Menu（统一组件） */}
+      {/* Context Menu（统一组件，v2.3.x 由 builder 生成） */}
       <Show when={contextMenu().show}>
         <ContextMenu
           x={contextMenu().x}
           y={contextMenu().y}
           onClose={closeContextMenu}
           items={[
-            {
-              label: "预览",
-              icon: "👁️",
-              action: () => {
-                const file = files().find((f) => f.path === contextMenu().paths[0]);
-                if (file) handleOpenPreview(file);
-              },
-            },
-            {
-              label: "编辑信息",
-              icon: "✏️",
-              show: contextMenu().paths.length === 1,
-              action: () => {
-                const file = files().find((f) => f.path === contextMenu().paths[0]);
-                if (file) handleEditMetadata(file);
-              },
-            },
-            {
-              label: "用默认程序打开",
-              icon: "🖥️",
-              show: contextMenu().paths.length === 1,
-              action: () => {
-                const file = files().find((f) => f.path === contextMenu().paths[0]);
-                if (file) void api.files.openWithDefaultApp(file.path);
-              },
-            },
+            ...buildFileContextMenuItems({
+              file: files().find((f) => f.path === contextMenu().paths[0]),
+              paths: contextMenu().paths,
+              onPreview: handleOpenPreview,
+              onEditInfo: handleEditMetadata,
+              onOpenDefault: (file) => void api.files.openWithDefaultApp(file.path),
+              onCopy: handleCopyPaths,
+              onShowInExplorer: handleShowPathsInExplorer,
+              onMove: () => setShowMove(true),
+              onRename: handleRename,
+              onDelete: handleDelete,
+            }),
+            // AI 命名 / AI 打标（FEATURE_AI 开启后展示）
             {
               label: "AI 命名",
               icon: "🤖",
@@ -567,37 +557,19 @@ export default function FileBrowser() {
               show: FEATURE_AI && contextMenu().paths.length >= 1,
               action: () => void handleAiTag(),
             },
-            {
-              label: "复制",
-              icon: "📋",
-              action: () => handleCopyPaths(contextMenu().paths),
-            },
-            {
-              label: "复制路径",
-              icon: "🔗",
-              action: () => void api.files.copyPaths(contextMenu().paths),
-            },
-            {
-              label: "在文件夹中显示",
-              icon: "📂",
-              action: () => handleShowPathsInExplorer(contextMenu().paths),
-            },
-            {
-              label: "重命名",
-              icon: "✏️",
-              show: contextMenu().paths.length === 1,
-              action: () => {
-                const file = files().find((f) => f.path === contextMenu().paths[0]);
-                if (file) handleRename(file);
-              },
-            },
-            {
-              label: "删除",
-              icon: "🗑️",
-              danger: true,
-              action: () => handleDelete(contextMenu().paths),
-            },
           ]}
+        />
+      </Show>
+
+      {/* 移动到… 目标选择（v2.3.x） */}
+      <Show when={showMove()}>
+        <MoveDialog
+          paths={contextMenu().paths}
+          onClose={() => setShowMove(false)}
+          onMoved={() => {
+            loadFiles();
+            setSelectedFilePaths([]);
+          }}
         />
       </Show>
 

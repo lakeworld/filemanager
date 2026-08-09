@@ -12,7 +12,9 @@ import { openPreview } from "~/stores/preview";
 import FileThumbnail from "~/components/FileThumbnail";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
+import MoveDialog from "~/components/MoveDialog";
 import { handleDragOut } from "~/utils/dragout";
+import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import type { FileEntry, ProductSetInfo } from "~/types";
 
 interface CertItem extends FileEntry {
@@ -43,6 +45,7 @@ export default function Certs() {
     y: number;
     path: string;
   }>({ show: false, x: 0, y: 0, path: "" });
+  const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
 
   const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
 
@@ -304,59 +307,34 @@ export default function Certs() {
         </div>
       </Show>
 
-      {/* Context Menu（统一组件） */}
+      {/* Context Menu（统一组件，v2.3.x 由 builder 生成） */}
       <Show when={contextMenu().show}>
         <ContextMenu
           x={contextMenu().x}
           y={contextMenu().y}
           onClose={closeContextMenu}
-          items={[
-            {
-              label: "预览",
-              icon: "👁️",
-              action: () => {
-                const cert = items().find((c) => c.path === contextMenu().path);
-                if (cert) openPreview(cert, { onDelete: loadAllCerts });
-              },
-            },
-            {
-              label: "用默认程序打开",
-              icon: "🖥️",
-              action: () => {
-                const cert = items().find((c) => c.path === contextMenu().path);
-                if (cert) void api.files.openWithDefaultApp(cert.path);
-              },
-            },
-            {
-              label: "复制",
-              icon: "📋",
-              action: () => handleCopy([contextMenu().path]),
-            },
-            {
-              label: "复制路径",
-              icon: "🔗",
-              action: () => void api.files.copyPaths([contextMenu().path]),
-            },
-            {
-              label: "在文件夹中显示",
-              icon: "📂",
-              action: () => handleShowInExplorer([contextMenu().path]),
-            },
-            {
-              label: "重命名",
-              icon: "✏️",
-              action: () => {
-                const cert = items().find((c) => c.path === contextMenu().path);
-                if (cert) handleRename(cert);
-              },
-            },
-            {
-              label: "删除",
-              icon: "🗑️",
-              danger: true,
-              action: () => handleDelete([contextMenu().path]),
-            },
-          ]}
+          items={buildFileContextMenuItems({
+            file: items().find((c) => c.path === contextMenu().path),
+            paths: [contextMenu().path],
+            onPreview: (cert) => openPreview(cert, { onDelete: loadAllCerts }),
+            onEditInfo: (cert) =>
+              openPreview(cert, { productSet: cert.productSet, editMetadata: true, onDelete: loadAllCerts }),
+            onOpenDefault: (cert) => void api.files.openWithDefaultApp(cert.path),
+            onCopy: handleCopy,
+            onShowInExplorer: handleShowInExplorer,
+            onMove: (paths) => setMovePaths(paths),
+            onRename: handleRename,
+            onDelete: handleDelete,
+          })}
+        />
+      </Show>
+
+      {/* 移动到… 目标选择（v2.3.x） */}
+      <Show when={movePaths()}>
+        <MoveDialog
+          paths={movePaths()!}
+          onClose={() => setMovePaths(null)}
+          onMoved={() => void loadAllCerts()}
         />
       </Show>
     </div>

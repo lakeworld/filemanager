@@ -227,6 +227,8 @@ export default function Settings() {
     if (r.success) {
       await loadTags();
       refreshTags();
+    } else {
+      alert(r.error || "删除失败");
     }
   };
 
@@ -254,6 +256,8 @@ export default function Settings() {
     if (r.success) {
       await loadTags();
       refreshTags();
+    } else {
+      alert(r.error || "删除失败");
     }
   };
 
@@ -304,7 +308,7 @@ export default function Settings() {
                   {(c) => (
                     <button
                       class={`w-5 h-5 rounded-full transition-transform ${newTagColor() === c ? "ring-2 ring-offset-1 ring-surface-700 scale-110" : ""}`}
-                      style={{ backgroundColor: c }}
+                      style={{ "background-color": c }}
                       onClick={() => setNewTagColor(c)}
                     />
                   )}
@@ -327,17 +331,17 @@ export default function Settings() {
                       <div class="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-surface-100 transition-colors">
                         <button
                           class="w-5 h-5 rounded-full shrink-0 cursor-pointer"
-                          style={{ backgroundColor: tag.color }}
-                          title={tag.builtin ? "固定色标签（颜色不可改）" : "点击改颜色"}
-                          onClick={() => !tag.builtin && setEditingColor(editingColor() === tag.name ? null : tag.name)}
+                          style={{ "background-color": tag.color }}
+                          title="点击改颜色"
+                          onClick={() => setEditingColor(editingColor() === tag.name ? null : tag.name)}
                         />
-                        <Show when={editingColor() === tag.name && !tag.builtin}>
+                        <Show when={editingColor() === tag.name}>
                           <div class="flex items-center gap-1">
                             <For each={PALETTE}>
                               {(c) => (
                                 <button
                                   class={`w-4 h-4 rounded-full ${tag.color === c ? "ring-2 ring-offset-1 ring-surface-700" : ""}`}
-                                  style={{ backgroundColor: c }}
+                                  style={{ "background-color": c }}
                                   onClick={() => handleSetColor(tag.name, c)}
                                 />
                               )}
@@ -349,7 +353,6 @@ export default function Settings() {
                           fallback={
                             <span class="text-sm font-medium flex-1">
                               {tag.name}
-                              {tag.builtin && <span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-surface-100 text-surface-400">固定色</span>}
                             </span>
                           }
                         >
@@ -392,17 +395,17 @@ export default function Settings() {
                                 <div class="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-surface-100 transition-colors">
                                   <button
                                     class="w-4 h-4 rounded-full shrink-0 cursor-pointer"
-                                    style={{ backgroundColor: child.color }}
-                                    title={child.builtin ? "固定色标签" : "点击改颜色"}
-                                    onClick={() => !child.builtin && setEditingColor(editingColor() === child.name ? null : child.name)}
+                                    style={{ "background-color": child.color }}
+                                    title="点击改颜色"
+                                    onClick={() => setEditingColor(editingColor() === child.name ? null : child.name)}
                                   />
-                                  <Show when={editingColor() === child.name && !child.builtin}>
+                                  <Show when={editingColor() === child.name}>
                                     <div class="flex items-center gap-1">
                                       <For each={PALETTE}>
                                         {(c) => (
                                           <button
                                             class={`w-4 h-4 rounded-full ${child.color === c ? "ring-2 ring-offset-1 ring-surface-700" : ""}`}
-                                            style={{ backgroundColor: c }}
+                                            style={{ "background-color": c }}
                                             onClick={() => handleSetColor(child.name, c)}
                                           />
                                         )}
@@ -488,7 +491,7 @@ export default function Settings() {
                               {(c) => (
                                 <button
                                   class="w-4 h-4 rounded-full"
-                                  style={{ backgroundColor: c }}
+                                  style={{ "background-color": c }}
                                   onClick={() => handleAdopt(tag.name, c)}
                                 />
                               )}

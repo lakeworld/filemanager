@@ -111,7 +111,7 @@ test.describe('qihe-box e2e', () => {
           sub_folder: '主图',
         })
       })
-    }, imgSrc)
+    }, imgSrc) as { success: boolean }
     expect(importEvent.success).toBe(true)
 
     const listRes = await page.evaluate(async () =>
@@ -206,7 +206,7 @@ test.describe('qihe-box e2e', () => {
           sub_folder: '3C',
         })
       })
-    }, pdfSrc)
+    }, pdfSrc) as { success: boolean }
     expect(importEvent.success).toBe(true)
 
     const listRes = await page.evaluate(async () =>

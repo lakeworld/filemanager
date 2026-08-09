@@ -37,7 +37,7 @@ export default function AiSuggestionPanel(props: {
   };
 
   const selectAll = () => setSelected(new Set(props.items.map((_, i) => i)));
-  const clearAll = () => setSelected(new Set());
+  const clearAll = () => setSelected(new Set<number>());
   const selectedCount = () => selected().size;
 
   const apply = () => {

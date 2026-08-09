@@ -77,7 +77,7 @@ src/
 npm install          # 安装依赖（.npmrc 已配置国内镜像加速）
 
 npm run dev          # 开发模式（热更新 + 应用窗口）
-npm test             # 单元测试（vitest，core 层 24 用例）
+npm test             # 单元测试（vitest，仅 tests/unit；性能基准请用 npm run bench → docs/PERF.md）
 npm run test:e2e     # 端到端测试（Playwright _electron，11 用例）
 npm run bench        # 性能基准 → docs/PERF.md
 npm run build        # 构建三段产物到 out/
