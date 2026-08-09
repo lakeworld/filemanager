@@ -21,9 +21,11 @@ test.describe('XLSX 批量导入', () => {
   })
 
   test.afterAll(async () => {
-    // e2e 模式：先强制退出主进程（绕过「关闭→隐藏托盘」拦截），避免 close() 等待 90s 超时
+    // e2e 模式：直接 kill 主进程（零依赖主进程配合），避免 close() 等待 90s 超时
     if (app) {
-      await app.evaluate(({ app: a }) => a.exit(0)).catch(() => {})
+      try {
+        app.process().kill()
+      } catch { /* 已退出 */ }
       await app.close().catch(() => {})
     }
   })

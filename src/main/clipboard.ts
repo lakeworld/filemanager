@@ -49,6 +49,7 @@ export function copyFilesToClipboard(paths: string[]): Promise<void> {
     const xclip = spawn('xclip', ['-selection', 'clipboard', '-t', 'text/uri-list'], {
       stdio: ['pipe', 'ignore', 'pipe'],
     })
+    xclip.unref() // 防止子进程句柄阻塞主进程退出（app.close 挂起根因）
     let errOut = ''
     xclip.stderr?.on('data', (d) => (errOut += d.toString()))
     xclip.on('error', () => {
