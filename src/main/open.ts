@@ -30,8 +30,10 @@ export function openFileWithDefaultApp(filePath: string): Promise<void> {
       return
     }
     // Linux：用 xdg-open 子进程，避免 shell.openPath 因 GUI 应用不退出而挂起 IPC
-    // v2.4.0：无桌面环境（CI/SSH）下 xdg-open 可能等待默认应用不退出 → 5s 超时 kill 并视为已发起
+    // v2.4.0：无桌面环境（CI/SSH）下 xdg-open 可能等待默认应用不退出 → 5s 超时 kill 并视为已发起；
+    // child.unref() 防止子进程句柄阻塞主进程退出（否则 app.close() 挂起）
     const child = spawn('xdg-open', [filePath], { stdio: 'ignore' })
+    child.unref()
     const timer = setTimeout(() => {
       child.kill()
       resolve()
