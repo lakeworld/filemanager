@@ -20,7 +20,11 @@ test.describe('v2.0.1 新功能', () => {
   })
 
   test.afterAll(async () => {
-    await app?.close()
+    // e2e 模式：先强制退出主进程（绕过「关闭→隐藏托盘」拦截），避免 close() 等待 90s 超时
+    if (app) {
+      await app.evaluate(({ app: a }) => a.exit(0)).catch(() => {})
+      await app.close().catch(() => {})
+    }
   })
 
   test('标签 IPC 全链路：上色 → 列表 → 重命名 → 删除', async () => {
@@ -118,7 +122,11 @@ test.describe('后端打磨（v2.4.0）', () => {
   })
 
   test.afterAll(async () => {
-    await app?.close()
+    // e2e 模式：先强制退出主进程（绕过「关闭→隐藏托盘」拦截），避免 close() 等待 90s 超时
+    if (app) {
+      await app.evaluate(({ app: a }) => a.exit(0)).catch(() => {})
+      await app.close().catch(() => {})
+    }
   })
 
   test('文件移动：move 后目标子文件夹可见、原位置消失', async () => {
