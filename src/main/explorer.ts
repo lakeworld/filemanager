@@ -14,11 +14,24 @@ export function showFilesInExplorer(paths: string[]): Promise<void> {
   return showFilesLinux(paths)
 }
 
+/** 外部命令超时（v2.4.0）：无桌面环境（CI）下文件管理器命令可能挂起，超时视为已发起并放行 */
+const TOOL_TIMEOUT_MS = 5000
+
 function execTool(args: string[], stdinData?: string): Promise<number> {
   return new Promise((resolve, reject) => {
     const child = spawn(args[0], args.slice(1), { stdio: ['pipe', 'ignore', 'pipe'] })
-    child.on('error', reject)
-    child.on('close', (code) => resolve(code ?? -1))
+    const timer = setTimeout(() => {
+      child.kill()
+      resolve(0) // 超时视为命令已发起（GUI 应用常驻不退出属正常）
+    }, TOOL_TIMEOUT_MS)
+    child.on('error', () => {
+      clearTimeout(timer)
+      reject(new Error(`命令不存在: ${args[0]}`))
+    })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      resolve(code ?? -1)
+    })
     if (stdinData) child.stdin?.end(stdinData)
   })
 }

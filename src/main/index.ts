@@ -5,7 +5,7 @@
  * - 注册 IPC 与 qihebox:// 文件协议
  * - 系统托盘 + 关闭隐藏到托盘 + 崩溃自愈骨架
  */
-import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage, Notification } from 'electron'
 import path from 'node:path'
 import { BoxService } from './core'
 import { WorkspaceService } from './core/workspace'
@@ -15,6 +15,9 @@ import { registerQiheboxProtocol } from './protocol'
 import { AccountService } from './account'
 import { startMemoryWatchdog } from './memoryWatchdog'
 import { log, initLogger } from './log'
+import { checkUpdate } from './updater'
+import { computeNotifiable, type NotifyState } from './notify'
+import { readJsonFile, writeJsonAtomic } from './core/paths'
 import {
   createMainWindow,
   getMainWindow,
@@ -173,6 +176,64 @@ const account = new AccountService({
   log: (level, msg) => void log(level, msg),
 })
 
+// —— v2.4.0 后台任务：更新检查 / 证书到期通知 / 回收站过期清理 ——
+
+/** 静默更新检查：发现新版推送给所有窗口（无窗口则忽略，下次启动/次日再查）；失败仅 log */
+async function runUpdateCheck(): Promise<void> {
+  try {
+    const info = await checkUpdate(app.getVersion())
+    if (!info) return
+    void log('info', `发现新版本 v${info.version}（当前 v${app.getVersion()}）`)
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('qihebox:event:update:available', info)
+    }
+  } catch (err) {
+    void log('warn', `更新检查失败: ${String(err)}`)
+  }
+}
+
+/** 系统通知：Electron Notification；Linux 无 libnotify 等环境不可用时 try/catch 静默降级 */
+function sendSystemNotification(title: string, body: string): void {
+  try {
+    new Notification({ title, body }).show()
+  } catch (err) {
+    void log('warn', `系统通知不可用，已跳过: ${title}（${String(err)}）`)
+  }
+}
+
+/** 证书到期通知：30 天内到期证书逐条通知；每日去重（userData/notified.json）；失败仅 log */
+async function runCertNotify(box: BoxService): Promise<void> {
+  let expiring: [string, string, string][]
+  try {
+    expiring = await box.dashboard.checkExpiringCerts()
+  } catch (err) {
+    void log('warn', `证书到期检查失败: ${String(err)}`)
+    return
+  }
+  if (expiring.length === 0) return
+  const notifiedFile = path.join(app.getPath('userData'), 'notified.json')
+  const state = await readJsonFile<NotifyState>(notifiedFile)
+  const { toNotify, nextState } = computeNotifiable(expiring, state)
+  if (toNotify.length === 0) return
+  // 先落盘去重记录再发送，避免发送环节失败导致同日反复打扰
+  await writeJsonAtomic(notifiedFile, nextState).catch((err) =>
+    void log('warn', `通知去重记录写入失败: ${String(err)}`),
+  )
+  for (const [productSet, fileName, expiry] of toNotify) {
+    sendSystemNotification(
+      '证书即将到期',
+      `产品集「${productSet}」中 ${fileName} 将于 ${expiry} 到期，请及时处理`,
+    )
+  }
+}
+
+/** 启动后台任务（静默）：更新检查 → 证书到期通知 → 回收站过期清理（清理仅启动时执行一次） */
+async function runStartupTasks(box: BoxService): Promise<void> {
+  await runUpdateCheck()
+  await runCertNotify(box)
+  void box.trash.cleanupExpired().catch((err) => void log('warn', `回收站过期清理失败: ${String(err)}`))
+}
+
 app.whenReady().then(() => {
   initLogger()
   // 单一 workspace 实例贯穿全部服务
@@ -186,10 +247,14 @@ app.whenReady().then(() => {
   registerIpc(box, account)
   registerQiheboxProtocol(box, () => thumbs.currentThumbsRoot())
 
-  // 启动恢复/创建默认工作区（有最近工作区则恢复，无则自动创建）
-  workspace.restoreOrCreateDefault().catch((err) => {
-    void log('warn', `默认工作区恢复失败: ${String(err)}`)
-  })
+  // 启动恢复/创建默认工作区（有最近工作区则恢复，无则自动创建）；
+  // 恢复完成后跑后台任务（更新检查 / 证书到期通知 / 回收站过期清理，均静默）
+  workspace
+    .restoreOrCreateDefault()
+    .catch((err) => {
+      void log('warn', `默认工作区恢复失败: ${String(err)}`)
+    })
+    .then(() => runStartupTasks(box))
 
   // v2.3.0：统一窗口初始化钩子——休眠销毁后的重建（ensureMainWindow）自动带上崩溃自愈与托盘行为
   setWindowCreateHandler((win) => {
@@ -204,6 +269,12 @@ app.whenReady().then(() => {
   setupTray()
   setupCrashRecovery(win)
   setupCloseToTray(win)
+
+  // v2.4.0：每日定时任务（24h）——更新检查 + 证书到期通知；应用常驻托盘期间持续生效
+  setInterval(() => {
+    void runUpdateCheck()
+    void runCertNotify(box)
+  }, 24 * 3600 * 1000).unref()
 })
 
 app.on('activate', () => {

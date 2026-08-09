@@ -104,3 +104,79 @@ test.describe('v2.0.1 新功能', () => {
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
 })
+
+/** v2.4.0 后端打磨 e2e：文件移动 / 标签删除不复活 / 更新检查 IPC */
+test.describe('后端打磨（v2.4.0）', () => {
+  let app: ElectronApplication
+  let page: Page
+
+  test.beforeAll(async () => {
+    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT })
+    page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
+  })
+
+  test.afterAll(async () => {
+    await app?.close()
+  })
+
+  test('文件移动：move 后目标子文件夹可见、原位置消失', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-move-e2e-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: '移动集' }))
+    // 直接在工作区内写源文件（图包/主图 为默认子文件夹）
+    const srcFile = path.join(wsDir, '产品集', '移动集', '图包', '主图', 'move.jpg')
+    await fsp.writeFile(srcFile, 'x')
+
+    const targetDir = path.join(wsDir, '产品集', '移动集', '图包', '详情页')
+    const mv = await page.evaluate(
+      async ([p, t]: string[]) => (window as any).qihebox.files.move({ paths: [p], targetDir: t }),
+      [srcFile, targetDir],
+    )
+    expect(mv.success).toBe(true)
+    expect(mv.data).toHaveLength(1)
+
+    const listSrc = await page.evaluate(async () =>
+      (window as any).qihebox.files.list({ product_set: '移动集', file_type: 'image', sub_folder: '主图' }),
+    )
+    const listDst = await page.evaluate(async () =>
+      (window as any).qihebox.files.list({ product_set: '移动集', file_type: 'image', sub_folder: '详情页' }),
+    )
+    // 原位置消失、目标子文件夹可见
+    expect(listSrc.data.map((f: { name: string }) => f.name)).not.toContain('move.jpg')
+    expect(listDst.data.map((f: { name: string }) => f.name)).toContain('move.jpg')
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('标签删除不复活：create → delete → 两次 list 均不含', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-tagdel-e2e-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    const name = `e2e-临时标-${Date.now()}`
+
+    const createRes = await page.evaluate(async (n) => (window as any).qihebox.tags.create(n, '#3b82f6'), name)
+    expect(createRes.success).toBe(true)
+
+    const delRes = await page.evaluate(async (n) => (window as any).qihebox.tags.delete(n), name)
+    expect(delRes.success).toBe(true)
+
+    const list1 = await page.evaluate(async () => (window as any).qihebox.tags.list())
+    expect(list1.success).toBe(true)
+    expect(list1.data.some((t: { name: string }) => t.name === name)).toBe(false)
+    // 再查一次仍不含（删除后不复活）
+    const list2 = await page.evaluate(async () => (window as any).qihebox.tags.list())
+    expect(list2.data.some((t: { name: string }) => t.name === name)).toBe(false)
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('更新检查 IPC：updater.check 返回 ApiResult 结构', async () => {
+    // 主进程 fetch stub 较复杂，checkUpdate 行为已由 tests/unit/updater.test.ts 全量覆盖；
+    // 此处仅验证 IPC 通道存在且返回统一 ApiResult 包装（真实网络失败时 success=false）
+    const r = await page.evaluate(async () => (window as any).qihebox.updater.check())
+    expect(r).toBeTruthy()
+    expect(typeof r).toBe('object')
+    expect('success' in r).toBe(true)
+  })
+})

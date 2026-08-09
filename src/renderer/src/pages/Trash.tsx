@@ -2,6 +2,7 @@ import { Show, For, createSignal, createEffect } from "solid-js";
 import { api } from "~/wails/api";
 import { currentWorkspace } from "~/stores/workspace";
 import FileThumbnail from "~/components/FileThumbnail";
+import EmptyState from "~/components/EmptyState";
 import type { TrashEntry } from "~/types";
 
 function formatBytes(bytes: number): string {
@@ -120,11 +121,7 @@ export default function Trash() {
       <Show
         when={entries().length > 0}
         fallback={
-          <div class="card p-16 text-center">
-            <div class="text-5xl mb-4">🕳️</div>
-            <h3 class="text-lg font-medium text-surface-700 mb-1">回收站是空的</h3>
-            <p class="text-sm text-surface-400">删除的文件会先移到这里，可随时恢复</p>
-          </div>
+          <EmptyState icon="🕳️" title="回收站是空的" desc="删除的文件会先移到这里，可随时恢复" />
         }
       >
         <div class="space-y-2">

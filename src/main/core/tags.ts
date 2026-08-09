@@ -13,22 +13,14 @@ import path from 'node:path'
 import { WorkspaceService } from './workspace'
 import { MetadataService } from './metadata'
 import { TAGS_FILE, cmDir, ensureWorkspaceDirs, writeJsonAtomic, readJsonFile } from './paths'
+import type { TagInfo } from '../../shared/types'
+
+export type { TagInfo } from '../../shared/types'
 
 export interface TagDef {
   color: string
   parent?: string
   builtin?: boolean
-}
-
-export interface TagInfo {
-  name: string
-  color: string
-  count: number
-  parent: string | null
-  children: string[]
-  builtin: boolean
-  /** v2.3.0：是否为已定义标签；false = 被引用但 tags.json 无定义的「孤儿标签」 */
-  defined: boolean
 }
 
 export const DEFAULT_TAG_COLOR = '#94a3b8'

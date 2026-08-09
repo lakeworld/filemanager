@@ -104,49 +104,49 @@ function FramelessResizer() {
       {/* Top edge - starts below the title bar to avoid drag conflicts */}
       <div
         class={edgeClass("cursor-n-resize", "top-9 left-4 right-4 h-1")}
-        style={{ "-webkit-app-region": "no-drag" } as any}
+        style={{ "-webkit-app-region": "no-drag" }}
         onMouseDown={(e) => handleMouseDown(e, "n")}
       />
       {/* Bottom edge */}
       <div
         class={edgeClass("cursor-s-resize", "bottom-0 left-4 right-4 h-1")}
-        style={{ "-webkit-app-region": "no-drag" } as any}
+        style={{ "-webkit-app-region": "no-drag" }}
         onMouseDown={(e) => handleMouseDown(e, "s")}
       />
       {/* Left edge */}
       <div
         class={edgeClass("cursor-w-resize", "left-0 top-9 bottom-4 w-1")}
-        style={{ "-webkit-app-region": "no-drag" } as any}
+        style={{ "-webkit-app-region": "no-drag" }}
         onMouseDown={(e) => handleMouseDown(e, "w")}
       />
       {/* Right edge */}
       <div
         class={edgeClass("cursor-e-resize", "right-0 top-9 bottom-4 w-1")}
-        style={{ "-webkit-app-region": "no-drag" } as any}
+        style={{ "-webkit-app-region": "no-drag" }}
         onMouseDown={(e) => handleMouseDown(e, "e")}
       />
       {/* Top-left corner */}
       <div
         class={edgeClass("cursor-nw-resize", "top-9 left-0 w-4 h-4")}
-        style={{ "-webkit-app-region": "no-drag" } as any}
+        style={{ "-webkit-app-region": "no-drag" }}
         onMouseDown={(e) => handleMouseDown(e, "nw")}
       />
       {/* Top-right corner */}
       <div
         class={edgeClass("cursor-ne-resize", "top-9 right-0 w-4 h-4")}
-        style={{ "-webkit-app-region": "no-drag" } as any}
+        style={{ "-webkit-app-region": "no-drag" }}
         onMouseDown={(e) => handleMouseDown(e, "ne")}
       />
       {/* Bottom-left corner */}
       <div
         class={edgeClass("cursor-sw-resize", "bottom-0 left-0 w-4 h-4")}
-        style={{ "-webkit-app-region": "no-drag" } as any}
+        style={{ "-webkit-app-region": "no-drag" }}
         onMouseDown={(e) => handleMouseDown(e, "sw")}
       />
       {/* Bottom-right corner */}
       <div
         class={edgeClass("cursor-se-resize", "bottom-0 right-0 w-4 h-4")}
-        style={{ "-webkit-app-region": "no-drag" } as any}
+        style={{ "-webkit-app-region": "no-drag" }}
         onMouseDown={(e) => handleMouseDown(e, "se")}
       />
     </>

@@ -26,19 +26,11 @@ import {
 import { WorkspaceService } from './workspace'
 import { MetadataService } from './metadata'
 import type { ThumbnailProvider } from './files'
+import type { TrashEntry, TrashKind } from '../../shared/types'
+
+export type { TrashEntry, TrashKind } from '../../shared/types'
 
 export const TRASH_DIR = 'trash'
-
-export type TrashKind = 'file' | 'subfolder' | 'productSet'
-
-export interface TrashEntry {
-  id: string
-  originalPath: string
-  deletedAt: string
-  kind: TrashKind
-  name: string
-  size: number
-}
 
 interface TrashMeta extends TrashEntry {}
 
@@ -193,5 +185,23 @@ export class TrashService {
     for (const e of entries) {
       await this.purge(e.id).catch(() => {})
     }
+  }
+
+  /**
+   * 自动清理过期回收站条目（v2.4.0）：
+   * 策略——保留最近 maxDays 天内的条目（用户可能还会恢复），超期条目逐个彻底删除
+   * （purge 同时清理对应元数据与缩略图缓存，不留残留）。
+   * 并发执行加速；单条失败跳过不阻断整体。返回清理条数。
+   * 调用时机：应用启动时执行一次即可（运行中不重复扫描，避免误删）。
+   */
+  async cleanupExpired(maxDays = 30): Promise<number> {
+    const entries = await this.list()
+    const cutoff = Date.now() - maxDays * 24 * 60 * 60 * 1000
+    const expired = entries.filter((e) => {
+      const t = new Date(e.deletedAt).getTime()
+      return !Number.isNaN(t) && t < cutoff
+    })
+    await Promise.all(expired.map((e) => this.purge(e.id).catch(() => {})))
+    return expired.length
   }
 }

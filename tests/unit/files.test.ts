@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest'
 import { buildTestBox, WorkspaceService } from './helpers'
 import { ImportCancelledError, ThumbnailProvider } from '../../src/main/core/files'
 import { BoxService } from '../../src/main/core'
+import { batchRenameTargets } from '../../src/renderer/src/utils/batchRename'
+import type { FileEntry } from '../../src/main/core/files'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -380,5 +382,139 @@ describe('文件移动（moveFiles）', () => {
     } finally {
       renameSpy.mockRestore()
     }
+  })
+})
+
+describe('导入目录（v2.3.3 P2：递归平铺导入）', () => {
+  it('嵌套目录 + 隐藏文件 + 空目录 → 平铺导入全部非隐藏文件', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '目录导入' })
+
+    // 源目录：两级嵌套 + 隐藏文件 + 隐藏目录 + 空目录
+    const srcDir = await tmp()
+    await fsp.mkdir(path.join(srcDir, 'sub', 'deep'), { recursive: true })
+    await fsp.mkdir(path.join(srcDir, 'empty'), { recursive: true })
+    await fsp.mkdir(path.join(srcDir, '.hidden-dir'), { recursive: true })
+    await fsp.writeFile(path.join(srcDir, 'a.jpg'), PNG_1PX)
+    await fsp.writeFile(path.join(srcDir, '.hidden.png'), PNG_1PX)
+    await fsp.writeFile(path.join(srcDir, 'sub', 'b.png'), PNG_1PX)
+    await fsp.writeFile(path.join(srcDir, 'sub', 'deep', 'c.jpg'), PNG_1PX)
+    await fsp.writeFile(path.join(srcDir, 'sub', '.in-sub.png'), PNG_1PX)
+    await fsp.writeFile(path.join(srcDir, '.hidden-dir', 'x.png'), PNG_1PX)
+
+    const imported = await box.files.importFiles({
+      source_paths: [srcDir],
+      target_product_set: '目录导入',
+      target_folder: '主图',
+      target_type: 'image',
+      sub_folder: '主图',
+    })
+    // 仅 3 个非隐藏文件被导入；隐藏文件 / 隐藏目录内文件 / 空目录全部跳过
+    expect(imported).toHaveLength(3)
+    const names = imported.map((f) => f.name).sort()
+    expect(names).toEqual(['目录导入_主图_a.jpg', '目录导入_主图_b.png', '目录导入_主图_c.jpg'])
+    // 全部平铺到目标子文件夹（不保留子目录结构）
+    const destDir = path.join(ws, '产品集', '目录导入', '图包', '主图')
+    expect((await fsp.readdir(destDir)).sort()).toEqual(
+      ['目录导入_主图_a.jpg', '目录导入_主图_b.png', '目录导入_主图_c.jpg'],
+    )
+  })
+
+  it('目录内仅隐藏文件/空目录 → 没有可导入的文件', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '空目录' })
+
+    const srcDir = await tmp()
+    await fsp.writeFile(path.join(srcDir, '.only-hidden.jpg'), PNG_1PX)
+    await fsp.mkdir(path.join(srcDir, 'empty'), { recursive: true })
+
+    await expect(
+      box.files.importFiles({
+        source_paths: [srcDir],
+        target_product_set: '空目录',
+        target_folder: '主图',
+        target_type: 'image',
+        sub_folder: '主图',
+      }),
+    ).rejects.toThrow('没有可导入的文件')
+  })
+
+  it('文件与目录混排：目录平铺后与文件统一导入，进度按展开后的文件数上报', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '混排' })
+
+    const srcDir = await tmp()
+    await fsp.writeFile(path.join(srcDir, 'd1.png'), PNG_1PX)
+    await fsp.writeFile(path.join(srcDir, 'd2.jpg'), PNG_1PX)
+    const file = path.join(ws, '..', 'single.jpg')
+    await fsp.writeFile(file, PNG_1PX)
+
+    const progress: Array<{ done: number; total: number }> = []
+    const imported = await box.files.importFiles(
+      {
+        source_paths: [srcDir, file],
+        target_product_set: '混排',
+        target_folder: '主图',
+        target_type: 'image',
+        sub_folder: '主图',
+      },
+      { onProgress: (done, total) => progress.push({ done, total }) },
+    )
+    expect(imported).toHaveLength(3)
+    expect(progress).toEqual([
+      { done: 1, total: 3 },
+      { done: 2, total: 3 },
+      { done: 3, total: 3 },
+    ])
+  })
+})
+
+describe('批量重命名目标名生成（v2.3.3 P2：前端批处理，参照 resolveConflictName 加 _1 语义）', () => {
+  /** 构造 FileEntry（name 即磁盘文件名，用于冲突判定） */
+  function fe(name: string): FileEntry {
+    return { name, path: `/ws/${name}`, size: 1, modified: '', file_type: 'image', thumbnail_path: null }
+  }
+
+  it('前缀 + 起始序号：序号补零位数按数量自适应', () => {
+    const files = [fe('a.jpg'), fe('b.png'), fe('c.jpg')]
+    // 3 个文件 → 最大序号 3，补零 1 位
+    expect(batchRenameTargets(files, '夏季', 1)).toEqual(['夏季_1.jpg', '夏季_2.png', '夏季_3.jpg'])
+  })
+
+  it('起始序号跨 10 位：自动升级补零位数', () => {
+    const files = [fe('a.jpg'), fe('b.jpg'), fe('c.jpg'), fe('d.jpg'), fe('e.jpg')]
+    expect(batchRenameTargets(files, 'P', 97)).toEqual([
+      'P_097.jpg',
+      'P_098.jpg',
+      'P_099.jpg',
+      'P_100.jpg',
+      'P_101.jpg',
+    ])
+  })
+
+  it('自身原名命中目标名：不视为冲突', () => {
+    const files = [fe('夏季_1.jpg'), fe('b.jpg')]
+    // f1 目标名即自身原名 → 无需绕行；f2 正常
+    expect(batchRenameTargets(files, '夏季', 1)).toEqual(['夏季_1.jpg', '夏季_2.jpg'])
+  })
+
+  it('目标名与磁盘已有文件冲突 → 追加 _1 递增', () => {
+    const files = [fe('a.jpg'), fe('夏季_1.jpg')]
+    // f1 目标 夏季_1.jpg 与 f2 原名冲突 → 夏季_1_1.jpg；f2 正常
+    expect(batchRenameTargets(files, '夏季', 1)).toEqual(['夏季_1_1.jpg', '夏季_2.jpg'])
+  })
+
+  it('无扩展名文件：目标名不带扩展名', () => {
+    const files = [fe('DSC_0001'), fe('x.png')]
+    expect(batchRenameTargets(files, '图', 1)).toEqual(['图_1', '图_2.png'])
   })
 })

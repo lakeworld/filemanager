@@ -22,39 +22,9 @@ import {
   readJsonFile,
 } from './paths'
 import { globalCountCache } from './scanCache'
+import type { WorkspaceInfo, ProductSetInfo, ProductSetStats, ProductSetCreateRequest, ProductSetUpdateRequest } from '../../shared/types'
 
-export interface WorkspaceInfo {
-  path: string
-  name: string
-  created_at: string
-}
-
-export interface ProductSetInfo {
-  name: string
-  image_count: number
-  cert_count: number
-  created_at: string
-  tags: string[]
-  notes: string
-}
-
-export interface ProductSetStats {
-  image_count: number
-  cert_count: number
-  created_at: string
-}
-
-export interface ProductSetCreateRequest {
-  name: string
-  tags?: string[]
-  notes?: string
-}
-
-export interface ProductSetUpdateRequest {
-  name: string
-  tags?: string[]
-  notes?: string
-}
+export type { WorkspaceInfo, ProductSetInfo, ProductSetStats, ProductSetCreateRequest, ProductSetUpdateRequest } from '../../shared/types'
 
 /** 产品集附加信息（tags/notes），持久化于 .qihefilemanager/product_sets.json */
 export interface ProductSetExtraInfo {

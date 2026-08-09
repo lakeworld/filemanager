@@ -18,8 +18,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "bench": "vitest run tests/bench",
-    "build:linux": "electron-vite build && electron-builder --linux",
-    "build:win": "electron-vite build && electron-builder --win"
+    "build:linux": "electron-vite build && electron-builder --linux --publish never",
+    "build:win": "electron-vite build && electron-builder --win --publish never"
   },
   "dependencies": {
     "@tanstack/solid-virtual": "^3.13.36",

@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createEffect, onMount } from "solid-js";
+import { Show, For, createSignal, createEffect } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import {
@@ -13,8 +13,10 @@ import FileThumbnail from "~/components/FileThumbnail";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
 import MoveDialog from "~/components/MoveDialog";
+import EmptyState from "~/components/EmptyState";
 import { handleDragOut } from "~/utils/dragout";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
+import { useContextMenu } from "~/hooks/useContextMenu";
 import type { FileEntry, ProductSetInfo } from "~/types";
 
 interface CertItem extends FileEntry {
@@ -39,26 +41,13 @@ export default function Certs() {
   const [sortBy, setSortBy] = createSignal<"modified" | "name" | "size">("modified");
   const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
   const [actionMessage, setActionMessage] = createSignal("");
-  const [contextMenu, setContextMenu] = createSignal<{
-    show: boolean;
-    x: number;
-    y: number;
-    path: string;
-  }>({ show: false, x: 0, y: 0, path: "" });
+  const contextMenu = useContextMenu<string>();
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
-
-  const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
 
   const showActionMessage = (msg: string) => {
     setActionMessage(msg);
     setTimeout(() => setActionMessage(""), 2000);
   };
-
-  onMount(() => {
-    const onClick = () => closeContextMenu();
-    window.addEventListener("click", onClick);
-    return () => window.removeEventListener("click", onClick);
-  });
 
   // —— 虚拟滚动由 VirtualGrid 承担：只渲染可见行，滚出即卸载（替代旧 slice+哨兵分批）——
   // 证书卡片为横向布局，固定行高
@@ -164,6 +153,8 @@ export default function Certs() {
     if (result.success) {
       setSelectedPaths([]);
       loadAllCerts();
+    } else {
+      window.alert(result.error || "删除失败");
     }
   };
 
@@ -223,7 +214,7 @@ export default function Certs() {
         <select
           class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
           value={sortBy()}
-          onChange={(e) => setSortBy(e.currentTarget.value as any)}
+          onChange={(e) => setSortBy(e.currentTarget.value as "modified" | "name" | "size")}
         >
           <option value="modified">按修改时间</option>
           <option value="name">按文件名</option>
@@ -257,11 +248,7 @@ export default function Certs() {
       </Show>
 
       <Show when={visibleCount() > 0} fallback={
-        <div class="card p-12 text-center">
-          <div class="text-4xl mb-3">📜</div>
-          <h3 class="text-lg font-medium text-surface-700">暂无证书</h3>
-          <p class="text-sm text-surface-400 mt-1">导入证书到产品集中</p>
-        </div>
+        <EmptyState icon="📜" title="暂无证书" desc="导入证书到产品集中" />
       }>
         <div class="flex items-center justify-between mb-3 shrink-0">
           <span class="text-sm text-surface-500">{visibleCount()} 个文件</span>
@@ -280,10 +267,7 @@ export default function Certs() {
                 class={`card p-4 flex items-center gap-4 cursor-pointer select-none hover:shadow-card-hover transition-all ${selectedPaths().includes(cert.path) ? "border-primary-500 bg-primary-50" : ""}`}
                 draggable={true}
                 onDragStart={(e) => handleDragOut(e, cert.path, selectedPaths())}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setContextMenu({ show: true, x: e.clientX, y: e.clientY, path: cert.path });
-                }}
+                onContextMenu={(e) => contextMenu.open(e, cert.path)}
                 onClick={() => openPreview(cert, { onDelete: loadAllCerts })}
               >
                 <div class="w-12 h-12 rounded-lg bg-orange-50 flex items-center justify-center text-2xl overflow-hidden shrink-0">
@@ -308,14 +292,14 @@ export default function Certs() {
       </Show>
 
       {/* Context Menu（统一组件，v2.3.x 由 builder 生成） */}
-      <Show when={contextMenu().show}>
+      <Show when={contextMenu.show()}>
         <ContextMenu
-          x={contextMenu().x}
-          y={contextMenu().y}
-          onClose={closeContextMenu}
+          x={contextMenu.x()}
+          y={contextMenu.y()}
+          onClose={contextMenu.close}
           items={buildFileContextMenuItems({
-            file: items().find((c) => c.path === contextMenu().path),
-            paths: [contextMenu().path],
+            file: items().find((c) => c.path === contextMenu.payload()),
+            paths: contextMenu.payload() ? [contextMenu.payload()!] : [],
             onPreview: (cert) => openPreview(cert, { onDelete: loadAllCerts }),
             onEditInfo: (cert) =>
               openPreview(cert, { productSet: cert.productSet, editMetadata: true, onDelete: loadAllCerts }),

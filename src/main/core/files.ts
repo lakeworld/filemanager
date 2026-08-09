@@ -21,61 +21,25 @@ import {
 import { WorkspaceService, formatTime } from './workspace'
 import { MetadataService, FileMetadata, currentTimeString } from './metadata'
 import { sanitizeName, composeTargetName, resolveConflictName, ImportContext } from './naming'
+import type {
+  FileEntry,
+  FileListRequest,
+  ImportFileRequest,
+  FileRenameRequest,
+  MoveFilesRequest,
+  SubfolderCreateRequest,
+  DeleteSubfolderRequest,
+} from '../../shared/types'
 
-export interface FileEntry {
-  name: string
-  path: string
-  size: number
-  modified: string
-  file_type: string
-  thumbnail_path: string
-}
-
-export interface FileListRequest {
-  product_set: string
-  file_type: string
-  sub_folder: string
-}
-
-export interface ImportFileRequest {
-  source_paths: string[]
-  target_product_set: string
-  target_folder: string
-  target_type: string
-  sub_folder: string
-}
-
-export interface FileRenameRequest {
-  path: string
-  newName: string
-}
-
-export interface MoveFilesRequest {
-  paths: string[]
-  /**
-   * 目标绝对目录（与结构化目标二选一；保留兼容旧调用方/测试）
-   * @deprecated 前端新场景请用 target_product_set / target_type / sub_folder，由后端拼路径
-   */
-  targetDir?: string
-  /** 结构化目标：产品集名（后端拼路径，产品集名含特殊字符也安全） */
-  target_product_set?: string
-  /** 结构化目标：image → 图包，cert → 证书 */
-  target_type?: string
-  /** 结构化目标：子文件夹 */
-  sub_folder?: string
-}
-
-export interface SubfolderCreateRequest {
-  product_set: string
-  file_type: string
-  name: string
-}
-
-export interface DeleteSubfolderRequest {
-  product_set: string
-  file_type: string
-  name: string
-}
+export type {
+  FileEntry,
+  FileListRequest,
+  ImportFileRequest,
+  FileRenameRequest,
+  MoveFilesRequest,
+  SubfolderCreateRequest,
+  DeleteSubfolderRequest,
+} from '../../shared/types'
 
 /** 缩略图能力抽象（生产用 sharp 实现，测试用假实现） */
 export interface ThumbnailProvider {
@@ -219,15 +183,64 @@ export class FilesService {
     const targetDir = this.targetDir(req)
     await fsp.mkdir(targetDir, { recursive: true })
 
+    // v2.3.3（P2）：源路径支持目录——先递归平铺展开为文件列表，再逐项导入
+    const sourceFiles = await this.expandSourcePaths(req.source_paths)
+    if (sourceFiles.length === 0) throw new Error('没有可导入的文件')
+
     const imported: FileEntry[] = []
-    const total = req.source_paths.length
+    const total = sourceFiles.length
     for (let i = 0; i < total; i++) {
       // v2.3.0：支持取消（渲染层 importCancel 置位后中断抛错，已复制文件保留）
       if (opts?.isCancelled?.()) throw new ImportCancelledError(imported)
-      imported.push(await this.importOneFile(req.source_paths[i], targetDir, req, cfg))
+      imported.push(await this.importOneFile(sourceFiles[i], targetDir, req, cfg))
       opts?.onProgress?.(i + 1, total)
     }
     return imported
+  }
+
+  /** 归一化源路径：trim + 剥 file:// 前缀 + normalize（对照原 Go：先剥 file:// 再剥 file:///） */
+  private normalizeSourcePath(raw: string): string {
+    const p = raw.trim()
+    if (!p) return ''
+    return path.normalize(p.replace(/^file:\/\//, '').replace(/^file:\/\/\//, ''))
+  }
+
+  /**
+   * v2.3.3（P2）：把源路径展开为待导入文件列表。
+   * 目录 → 递归收集其内所有非隐藏文件（跳过隐藏项与空目录，平铺不保留子目录结构）；
+   * 普通文件 → 原样保留。进度回调的 total 以展开后的文件数为准。
+   */
+  private async expandSourcePaths(paths: string[]): Promise<string[]> {
+    const out: string[] = []
+    const walk = async (d: string): Promise<void> => {
+      let entries: import('node:fs').Dirent[]
+      try {
+        entries = await fsp.readdir(d, { withFileTypes: true })
+      } catch {
+        return // 子目录不可读时跳过（与 listDirFilesRecursive 行为一致）
+      }
+      for (const e of entries) {
+        const name = e.name
+        if (name.startsWith('.')) continue // 跳过隐藏文件与隐藏目录
+        const full = path.join(d, name)
+        if (e.isDirectory()) {
+          await walk(full)
+        } else if (e.isFile()) {
+          out.push(full)
+        }
+      }
+    }
+    for (const raw of paths) {
+      const p = this.normalizeSourcePath(raw)
+      if (!p) continue
+      const info = await fsp.stat(p)
+      if (info.isDirectory()) {
+        await walk(p)
+      } else {
+        out.push(p)
+      }
+    }
+    return out
   }
 
   private async importOneFile(
@@ -236,13 +249,11 @@ export class FilesService {
     req: ImportFileRequest,
     cfg: WorkspaceConfig,
   ): Promise<FileEntry> {
-    let p = srcPath.trim()
+    const p = this.normalizeSourcePath(srcPath)
     if (!p) throw new Error('源路径为空')
-    // 兼容 file:// 前缀（对照原 Go：先剥 file://，再剥 file:///）
-    p = p.replace(/^file:\/\//, '').replace(/^file:\/\/\//, '')
-    p = path.normalize(p)
     const srcInfo = await fsp.stat(p)
-    if (srcInfo.isDirectory()) throw new Error(`不支持导入目录: ${p}`)
+    // 目录已在 importFiles 中展开为文件列表，此处仅保留防御（正常流程不会到达）
+    if (srcInfo.isDirectory()) throw new Error(`目录应在导入前展开为文件列表: ${p}`)
 
     const ext = path.extname(p).toLowerCase()
     const base = sanitizeName(path.basename(p, ext))

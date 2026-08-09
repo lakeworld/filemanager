@@ -25,7 +25,6 @@ const [previewUrl, setPreviewUrl] = createSignal("");
 const [previewError, setPreviewError] = createSignal("");
 const [previewContext, setPreviewContext] = createSignal<PreviewContext>({});
 const [metadata, setMetadata] = createSignal<FileMetadata>({ ...defaultMetadata });
-const [tagInput, setTagInput] = createSignal("");
 
 const loadMetadata = async (file: FileEntry, productSet: string) => {
   const result = await api.metadata.get(productSet, file.name);
@@ -45,7 +44,6 @@ export const openPreview = async (file: FileEntry, context?: PreviewContext) => 
   setPreviewUrl("");
   setPreviewError("");
   setMetadata({ ...defaultMetadata });
-  setTagInput("");
 
   if (ctx.productSet) {
     loadMetadata(file, ctx.productSet);
@@ -109,19 +107,6 @@ export const openCurrentWithSystem = async () => {
   }
 };
 
-export const addTag = (tag: string) => {
-  const t = tag.trim();
-  if (!t) return;
-  setMetadata((prev) => ({ ...prev, tags: [...prev.tags, t] }));
-};
-
-export const removeTag = (index: number) => {
-  setMetadata((prev) => ({
-    ...prev,
-    tags: prev.tags.filter((_, i) => i !== index),
-  }));
-};
-
 export {
   previewFile,
   showPreview,
@@ -129,8 +114,6 @@ export {
   previewError,
   previewContext,
   metadata,
-  tagInput,
-  setTagInput,
   setMetadata,
   setPreviewError,
 };
