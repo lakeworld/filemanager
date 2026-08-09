@@ -21,13 +21,14 @@ test.describe('XLSX 批量导入', () => {
   })
 
   test.afterAll(async () => {
-    // e2e 模式：SIGKILL 直接终止主进程（零依赖优雅退出）。
-    // 不调用 app.close()：进程已死，close() 反而会等待 CDP 断开导致 90s 超时；
-    // 残留子进程（xclip 等）已 unref，CI 容器结束自然清理。
+    // e2e 模式：SIGKILL 终止主进程（零依赖优雅退出），随后 close() 加 5s 超时保护——
+    // 进程已死时 close 应快速返回（关闭 Playwright 内部句柄，避免 worker teardown 等待）；
+    // 极端情况 close 内部卡住时 race 兜底，不让 afterAll 拖到 90s。
     if (app) {
       try {
         process.kill(app.process().pid!, 'SIGKILL')
       } catch { /* 已退出 */ }
+      await Promise.race([app.close(), new Promise((r) => setTimeout(r, 5000))]).catch(() => {})
     }
   })
 
