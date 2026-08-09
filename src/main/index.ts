@@ -119,7 +119,9 @@ function setupCrashRecovery(win: BrowserWindow): void {
 }
 
 // 关闭窗口 → 隐藏到托盘（对照原 Go beforeClose）；v2.3.0：隐藏后启动销毁倒计时（第三层休眠）
+// e2e 模式（QIHEBOX_E2E=1，Playwright）：跳过隐藏托盘，让 app.close() 能正常退出（否则 Playwright 等待超时）
 function setupCloseToTray(win: BrowserWindow): void {
+  if (process.env.QIHEBOX_E2E === '1') return
   win.on('close', (e) => {
     if (isQuitting()) return
     e.preventDefault()
@@ -137,9 +139,12 @@ app.on('before-quit', () => {
 // v2.3.0 分层休眠：窗口被休眠销毁（close → 托盘 → 2 分钟无活跃 → destroy）时，
 // 必须监听 window-all-closed 阻止 Electron 默认退出（Windows/Linux 无监听时全窗口关闭即退出）。
 // 空监听即视为自定义处理：主进程 + 托盘图标常驻，等待托盘点击 / 二次启动重建窗口。
-app.on('window-all-closed', () => {
-  void log('info', '[window] 所有窗口已关闭（休眠态），主进程+托盘常驻等待唤醒')
-})
+// e2e 模式不注册：Playwright app.close() 需要全窗口关闭即退出。
+if (process.env.QIHEBOX_E2E !== '1') {
+  app.on('window-all-closed', () => {
+    void log('info', '[window] 所有窗口已关闭（休眠态），主进程+托盘常驻等待唤醒')
+  })
+}
 
 // —— 账号服务（v2.2.0：可选登录 + AI + 心跳）——
 // token 优先 safeStorage 加密；Linux 无 keyring 时降级明文（本地单用户，JWT 过期即失效）。
