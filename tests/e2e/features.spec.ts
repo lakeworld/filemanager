@@ -13,7 +13,7 @@ test.describe('v2.0.1 新功能', () => {
   let page: Page
 
   test.beforeAll(async () => {
-    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT })
+    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT, env: { ...process.env, QIHEBOX_E2E: '1' } })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
@@ -111,7 +111,7 @@ test.describe('后端打磨（v2.4.0）', () => {
   let page: Page
 
   test.beforeAll(async () => {
-    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT })
+    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT, env: { ...process.env, QIHEBOX_E2E: '1' } })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
