@@ -19,8 +19,9 @@ const TOOL_TIMEOUT_MS = 5000
 
 function execTool(args: string[], stdinData?: string): Promise<number> {
   return new Promise((resolve, reject) => {
-    const child = spawn(args[0], args.slice(1), { stdio: ['pipe', 'ignore', 'pipe'] })
-    child.unref() // 防止子进程句柄阻塞主进程退出（app.close 挂起根因）
+    // stdin 用 ignore：避免 pipe 句柄保持事件循环导致主进程无法退出（app.close 挂起根因之一）
+    const child = spawn(args[0], args.slice(1), { stdio: ['ignore', 'ignore', 'pipe'] })
+    child.unref() // 防止子进程句柄阻塞主进程退出
     const timer = setTimeout(() => {
       child.kill()
       resolve(0) // 超时视为命令已发起（GUI 应用常驻不退出属正常）
@@ -33,7 +34,6 @@ function execTool(args: string[], stdinData?: string): Promise<number> {
       clearTimeout(timer)
       resolve(code ?? -1)
     })
-    if (stdinData) child.stdin?.end(stdinData)
   })
 }
 

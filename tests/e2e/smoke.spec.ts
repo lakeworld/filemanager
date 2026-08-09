@@ -28,7 +28,11 @@ test.describe('qihe-box e2e', () => {
   })
 
   test.afterAll(async () => {
-    await app?.close()
+    // e2e 模式：先强制退出主进程（绕过「关闭→隐藏托盘」拦截），避免 close() 等待 90s 超时
+    if (app) {
+      await app.evaluate(({ app: a }) => a.exit(0)).catch(() => {})
+      await app.close().catch(() => {})
+    }
   })
 
   test('窗口加载且 window.qihebox 可用', async () => {

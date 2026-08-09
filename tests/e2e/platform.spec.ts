@@ -26,7 +26,11 @@ test.describe('平台能力（Linux）', () => {
   })
 
   test.afterAll(async () => {
-    await app?.close()
+    // e2e 模式：先强制退出主进程（绕过「关闭→隐藏托盘」拦截），避免 close() 等待 90s 超时
+    if (app) {
+      await app.evaluate(({ app: a }) => a.exit(0)).catch(() => {})
+      await app.close().catch(() => {})
+    }
   })
 
   test('剪贴板：复制文件 → text/uri-list 可读回', async () => {

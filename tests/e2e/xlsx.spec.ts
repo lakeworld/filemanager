@@ -21,7 +21,11 @@ test.describe('XLSX 批量导入', () => {
   })
 
   test.afterAll(async () => {
-    await app?.close()
+    // e2e 模式：先强制退出主进程（绕过「关闭→隐藏托盘」拦截），避免 close() 等待 90s 超时
+    if (app) {
+      await app.evaluate(({ app: a }) => a.exit(0)).catch(() => {})
+      await app.close().catch(() => {})
+    }
   })
 
   test('导出模板 → 填数据 → 导入 → 批量建产品集', async () => {
