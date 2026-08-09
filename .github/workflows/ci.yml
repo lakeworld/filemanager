@@ -66,6 +66,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2
 
+      # 诊断：区分「Electron 启动失败（缺库/GLib）」与「测试用例失败」
+      - name: Diagnose electron launch
+        run: |
+          npx electron --version
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" timeout 20 npx electron . --no-sandbox --disable-gpu 2>&1 | head -40 || true
+          echo "== diagnose done =="
+
       - name: Run Playwright tests (xvfb)
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test
 
