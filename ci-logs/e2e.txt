@@ -1,51 +1,57 @@
 
 Running 19 tests using 1 worker
 
-  ✓   1 tests/e2e/features.spec.ts:30:3 › v2.0.1 新功能 › 标签 IPC 全链路：上色 → 列表 → 重命名 → 删除 (61ms)
-  ✓   2 tests/e2e/features.spec.ts:64:3 › v2.0.1 新功能 › 拖拽拖出：startDrag 越界拒绝（真实拖拽需 dragstart 上下文，手动验证） (18ms)
-  ✓   3 tests/e2e/features.spec.ts:83:3 › v2.0.1 新功能 › 复制路径 IPC (19ms)
-  ✘   4 tests/e2e/features.spec.ts:98:3 › v2.0.1 新功能 › 右键操作可用：默认程序打开 / 复制路径（IPC 校验） (5.0s)
+  ✓   1 tests/e2e/features.spec.ts:30:3 › v2.0.1 新功能 › 标签 IPC 全链路：上色 → 列表 → 重命名 → 删除 (47ms)
+  ✓   2 tests/e2e/features.spec.ts:64:3 › v2.0.1 新功能 › 拖拽拖出：startDrag 越界拒绝（真实拖拽需 dragstart 上下文，手动验证） (11ms)
+  ✓   3 tests/e2e/features.spec.ts:83:3 › v2.0.1 新功能 › 复制路径 IPC (11ms)
+  ✓   4 tests/e2e/features.spec.ts:98:3 › v2.0.1 新功能 › 右键操作可用：默认程序打开 / 复制路径（IPC 校验） (8ms)
+  ✓   5 tests/e2e/features.spec.ts:132:3 › 后端打磨（v2.4.0） › 文件移动：move 后目标子文件夹可见、原位置消失 (57ms)
+  ✓   6 tests/e2e/features.spec.ts:161:3 › 后端打磨（v2.4.0） › 标签删除不复活：create → delete → 两次 list 均不含 (16ms)
+  ✓   7 tests/e2e/features.spec.ts:182:3 › 后端打磨（v2.4.0） › 更新检查 IPC：updater.check 返回 ApiResult 结构 (684ms)
+[clipboard] text/uri-list 内容: "file:///tmp/qihebox-clip-wMzExI/clip.txt\n"
+  ✓   8 tests/e2e/platform.spec.ts:36:3 › 平台能力（Linux） › 剪贴板：复制文件 → text/uri-list 可读回 (21ms)
+  ✓   9 tests/e2e/platform.spec.ts:70:3 › 平台能力（Linux） › 资源管理器：显示选中文件（dde-file-manager --show-item） (5.0s)
+  ✓  10 tests/e2e/platform.spec.ts:86:3 › 平台能力（Linux） › 窗口控制 IPC：getSize/setSize/minimize (15ms)
+  ✓  11 tests/e2e/platform.spec.ts:105:3 › 平台能力（Linux） › 无边框拖拽区样式（-webkit-app-region） (2ms)
+  ✘  12 tests/e2e/platform.spec.ts:115:3 › 平台能力（Linux） › 拖拽 API 暴露：getPathForFile (2ms)
 Worker teardown timeout of 90000ms exceeded.
 
-Failed worker ran 4 tests:
-tests/e2e/features.spec.ts:30:3 › v2.0.1 新功能 › 标签 IPC 全链路：上色 → 列表 → 重命名 → 删除
-tests/e2e/features.spec.ts:64:3 › v2.0.1 新功能 › 拖拽拖出：startDrag 越界拒绝（真实拖拽需 dragstart 上下文，手动验证）
+Failed worker ran 12 tests, last 10 tests were:
 tests/e2e/features.spec.ts:83:3 › v2.0.1 新功能 › 复制路径 IPC
 tests/e2e/features.spec.ts:98:3 › v2.0.1 新功能 › 右键操作可用：默认程序打开 / 复制路径（IPC 校验）
-  ✓   5 tests/e2e/features.spec.ts:132:3 › 后端打磨（v2.4.0） › 文件移动：move 后目标子文件夹可见、原位置消失 (80ms)
-  ✓   6 tests/e2e/features.spec.ts:161:3 › 后端打磨（v2.4.0） › 标签删除不复活：create → delete → 两次 list 均不含 (20ms)
-  ✓   7 tests/e2e/features.spec.ts:182:3 › 后端打磨（v2.4.0） › 更新检查 IPC：updater.check 返回 ApiResult 结构 (795ms)
-[clipboard] text/uri-list 内容: "file:///tmp/qihebox-clip-WhlbyJ/clip.txt\n"
-  ✓   8 tests/e2e/platform.spec.ts:36:3 › 平台能力（Linux） › 剪贴板：复制文件 → text/uri-list 可读回 (31ms)
-  ✓   9 tests/e2e/platform.spec.ts:70:3 › 平台能力（Linux） › 资源管理器：显示选中文件（dde-file-manager --show-item） (5.0s)
-  ✓  10 tests/e2e/platform.spec.ts:86:3 › 平台能力（Linux） › 窗口控制 IPC：getSize/setSize/minimize (18ms)
-  ✓  11 tests/e2e/platform.spec.ts:105:3 › 平台能力（Linux） › 无边框拖拽区样式（-webkit-app-region） (3ms)
-  ✓  12 tests/e2e/platform.spec.ts:115:3 › 平台能力（Linux） › 拖拽 API 暴露：getPathForFile (3ms)
-  ✓  13 tests/e2e/smoke.spec.ts:38:3 › qihe-box e2e › 窗口加载且 window.qihebox 可用 (8ms)
-  ✓  14 tests/e2e/smoke.spec.ts:48:3 › qihe-box e2e › 建工作区 → 建产品集 → 列表可见 (18ms)
-  ✓  15 tests/e2e/smoke.spec.ts:76:3 › qihe-box e2e › Dashboard 统计可读取 (5ms)
-  ✓  16 tests/e2e/smoke.spec.ts:82:3 › qihe-box e2e › 应用版本号 (4ms)
-  ✓  17 tests/e2e/smoke.spec.ts:88:3 › qihe-box e2e › 导入图片 → sharp 缩略图 → qihebox:// 协议加载（阶段2/3） (141ms)
+tests/e2e/features.spec.ts:132:3 › 后端打磨（v2.4.0） › 文件移动：move 后目标子文件夹可见、原位置消失
+tests/e2e/features.spec.ts:161:3 › 后端打磨（v2.4.0） › 标签删除不复活：create → delete → 两次 list 均不含
+tests/e2e/features.spec.ts:182:3 › 后端打磨（v2.4.0） › 更新检查 IPC：updater.check 返回 ApiResult 结构
+tests/e2e/platform.spec.ts:36:3 › 平台能力（Linux） › 剪贴板：复制文件 → text/uri-list 可读回
+tests/e2e/platform.spec.ts:70:3 › 平台能力（Linux） › 资源管理器：显示选中文件（dde-file-manager --show-item）
+tests/e2e/platform.spec.ts:86:3 › 平台能力（Linux） › 窗口控制 IPC：getSize/setSize/minimize
+tests/e2e/platform.spec.ts:105:3 › 平台能力（Linux） › 无边框拖拽区样式（-webkit-app-region）
+tests/e2e/platform.spec.ts:115:3 › 平台能力（Linux） › 拖拽 API 暴露：getPathForFile
+  ✓  13 tests/e2e/smoke.spec.ts:38:3 › qihe-box e2e › 窗口加载且 window.qihebox 可用 (12ms)
+  ✓  14 tests/e2e/smoke.spec.ts:48:3 › qihe-box e2e › 建工作区 → 建产品集 → 列表可见 (20ms)
+  ✓  15 tests/e2e/smoke.spec.ts:76:3 › qihe-box e2e › Dashboard 统计可读取 (8ms)
+  ✓  16 tests/e2e/smoke.spec.ts:82:3 › qihe-box e2e › 应用版本号 (3ms)
+  ✓  17 tests/e2e/smoke.spec.ts:88:3 › qihe-box e2e › 导入图片 → sharp 缩略图 → qihebox:// 协议加载（阶段2/3） (110ms)
   ✓  18 tests/e2e/smoke.spec.ts:170:3 › qihe-box e2e › 导入 PDF → 不生成缩略图（v2.1.0 决策：证书以预览查看），协议不可越界 (22ms)
-  ✓  19 tests/e2e/xlsx.spec.ts:31:3 › XLSX 批量导入 › 导出模板 → 填数据 → 导入 → 批量建产品集 (163ms)
+  ✓  19 tests/e2e/xlsx.spec.ts:31:3 › XLSX 批量导入 › 导出模板 → 填数据 → 导入 → 批量建产品集 (137ms)
 
 
-  1) tests/e2e/features.spec.ts:98:3 › v2.0.1 新功能 › 右键操作可用：默认程序打开 / 复制路径（IPC 校验） ───────────────────
+  1) tests/e2e/platform.spec.ts:115:3 › 平台能力（Linux） › 拖拽 API 暴露：getPathForFile ─────────────────────
 
     "afterAll" hook timeout of 90000ms exceeded.
 
-      20 |   })
-      21 |
-    > 22 |   test.afterAll(async () => {
+      26 |   })
+      27 |
+    > 28 |   test.afterAll(async () => {
          |        ^
-      23 |     // e2e 模式：先强制退出主进程（绕过「关闭→隐藏托盘」拦截），避免 close() 等待 90s 超时
-      24 |     if (app) {
-      25 |       await app.evaluate(({ app: a }) => a.exit(0)).catch(() => {})
-        at /home/runner/work/filemanager/filemanager/tests/e2e/features.spec.ts:22:8
+      29 |     // e2e 模式：先强制退出主进程（绕过「关闭→隐藏托盘」拦截），避免 close() 等待 90s 超时
+      30 |     if (app) {
+      31 |       await app.evaluate(({ app: a }) => a.exit(0)).catch(() => {})
+        at /home/runner/work/filemanager/filemanager/tests/e2e/platform.spec.ts:28:8
 
-    Error Context: test-results/features-v2-0-1-新功能-右键操作可用：默认程序打开-复制路径（IPC-校验）/error-context.md
+    Error Context: test-results/platform-平台能力（Linux）-拖拽-API-暴露：getPathForFile/error-context.md
 
   1 failed
-    tests/e2e/features.spec.ts:98:3 › v2.0.1 新功能 › 右键操作可用：默认程序打开 / 复制路径（IPC 校验） ────────────────────
-  18 passed (3.3m)
+    tests/e2e/platform.spec.ts:115:3 › 平台能力（Linux） › 拖拽 API 暴露：getPathForFile ──────────────────────
+  18 passed (3.2m)
   1 error was not a part of any test, see above for details
