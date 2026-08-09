@@ -46,6 +46,8 @@ src/
 │   ├── clipboard.ts  # Win CF_HDROP / Linux text/uri-list
 │   ├── explorer.ts   # 资源管理器选中（dde-file-manager/nautilus/dolphin/shell）
 │   ├── ipc.ts        # IPC 薄壳（仅透传 + ApiResult 包装）
+│   ├── notify.ts     # 证书到期系统通知（每日去重）
+│   ├── updater.ts    # 应用内更新检查（version.json + 语义化比对）
 │   └── window.ts     # 无边框窗口/托盘/隐藏到托盘
 ├── preload/         # contextBridge 暴露 window.qihebox（白名单 API）
 └── renderer/        # SolidJS 前端（页面零改动，仅绑定层换源）
@@ -56,9 +58,12 @@ src/
 - 工作区自包含：文件、配置、元数据在同一文件夹内；**缩略图缓存存于 userData**（v2.1.0，不再污染工作区/坚果云同步）
 - **默认工作区**：启动自动恢复最近工作区，首次使用自动创建 `~/启禾文件管理`
 - 产品集 → 图包/证书 → 子文件夹 层级管理
-- 拖拽导入文件，自动按命名模板重命名（冲突自动加 `_1` 序号）
+- 拖拽导入文件，自动按命名模板重命名（冲突自动加 `_1` 序号）；**目录拖入**递归平铺导入
+- **文件移动**：跨子文件夹 / 跨产品集移动，元数据与缩略图跟随
+- **批量重命名**：多选文件 → 前缀 + 序号
+- **应用内更新检查**：启动 / 每 24h 静默检查 + 手动检查，发现新版引导前往官网下载
 - XLSX 模板导入/导出（批量建产品集）
-- **标签体系**：父/子标签层级 + 固定色预设（重要/待更新/已更新/问题/归档），文件与产品集统一打标
+- **标签体系**：父/子标签层级，颜色可自由修改，删除后不再复活（不再有固定预设标签），文件与产品集统一打标
 - 证书到期提醒（30 天内）
 - 全局搜索（异步 + 防抖 + 扫描缓存）
 - 一键复制文件到剪贴板（微信/钉钉直接粘贴）、资源管理器选中
@@ -77,9 +82,9 @@ src/
 npm install          # 安装依赖（.npmrc 已配置国内镜像加速）
 
 npm run dev          # 开发模式（热更新 + 应用窗口）
-npm test             # 单元测试（vitest，仅 tests/unit；性能基准请用 npm run bench → docs/PERF.md）
-npm run test:e2e     # 端到端测试（Playwright _electron，11 用例）
-npm run bench        # 性能基准 → docs/PERF.md
+npm test             # 单元测试（vitest，仅 tests/unit，96 用例）
+npm run test:e2e     # 端到端测试（Playwright，19 用例，e2e 模式 QIHEBOX_E2E=1）
+npm run bench        # 性能基准 → docs/PERF.md（不进 CI）
 npm run build        # 构建三段产物到 out/
 npm run build:linux  # 打包 Linux（AppImage + deb）
 npm run build:win    # 打包 Windows（NSIS，需在 Windows/CI 构建）

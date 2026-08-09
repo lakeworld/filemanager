@@ -34,9 +34,9 @@ npm run dev
 ## 四、测试
 
 ```bash
-npm test            # 单元测试（vitest，core 业务层 24 用例）
-npm run test:e2e    # 端到端测试（Playwright _electron，11 用例，含剪贴板/协议/打包链路）
-npm run bench       # 性能基准 → 追加 docs/PERF.md
+npm test            # 单元测试（vitest，core 业务层 96 用例）
+npm run test:e2e    # 端到端测试（Playwright _electron，19 用例，e2e 模式 QIHEBOX_E2E=1；无桌面环境需 xvfb-run）
+npm run bench       # 性能基准 → 追加 docs/PERF.md（不进 CI）
 ```
 
 ## 五、构建与打包
@@ -46,6 +46,8 @@ npm run build        # 构建三段产物到 out/
 npm run build:linux  # Linux：release/启禾文件管理-*.AppImage + *.deb
 npm run build:win    # Windows：release/启禾文件管理 Setup-*.exe（NSIS）
 ```
+
+> 打包命令均带 `--publish never`：只产出安装包，不自动发布 Release。CI package job（GitHub Actions）同样以该参数做双平台打包验证，产物以 artifact 形式下载。
 
 ### 产物清单
 
