@@ -10,6 +10,9 @@ on:
   pull_request:
     branches: [master]
 
+permissions:
+  contents: write
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -78,16 +81,21 @@ jobs:
           set -o pipefail
           xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test 2>&1 | tee /tmp/e2e.log
 
-      - name: Dump failure logs to summary
+      - name: Upload failure logs to repo
         if: failure()
         shell: bash
         run: |
-          {
-            echo "## E2E diagnose (electron launch)"
-            tail -60 /tmp/e2e-diagnose.log 2>/dev/null || echo "(no diagnose log)"
-            echo "## E2E playwright tail"
-            tail -120 /tmp/e2e.log 2>/dev/null || echo "(no playwright log)"
-          } >> "$GITHUB_STEP_SUMMARY"
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@qihe.local"
+          mkdir -p ci-logs
+          # 注意：.gitignore 忽略 *.log，用 .txt 后缀 + add -f 强制跟踪
+          [ -f /tmp/e2e-diagnose.log ] && cp /tmp/e2e-diagnose.log ci-logs/e2e-diagnose.txt || true
+          [ -f /tmp/e2e.log ] && cp /tmp/e2e.log ci-logs/e2e.txt || true
+          git add -f ci-logs/ 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: capture e2e failure logs [skip ci]"
+            git push origin HEAD:feat/subscription 2>&1 | tail -3 || true
+          fi
 
       - name: Upload playwright report
         uses: actions/upload-artifact@v4
@@ -126,15 +134,20 @@ jobs:
           set -o pipefail
           npm run build:win 2>&1 | tee /tmp/pkg-win.log
 
-      - name: Dump failure logs to summary
+      - name: Upload failure logs to repo
         if: failure()
         shell: bash
         run: |
-          {
-            echo "## Package (${{ runner.os }}) log tail"
-            tail -120 /tmp/pkg-linux.log 2>/dev/null || true
-            tail -120 /tmp/pkg-win.log 2>/dev/null || true
-          } >> "$GITHUB_STEP_SUMMARY"
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@qihe.local"
+          mkdir -p ci-logs
+          [ -f /tmp/pkg-linux.log ] && cp /tmp/pkg-linux.log ci-logs/pkg-linux.txt || true
+          [ -f /tmp/pkg-win.log ] && cp /tmp/pkg-win.log ci-logs/pkg-win.txt || true
+          git add -f ci-logs/ 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: capture package failure logs [skip ci]"
+            git push origin HEAD:feat/subscription 2>&1 | tail -3 || true
+          fi
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
