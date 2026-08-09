@@ -1,9 +1,21 @@
 /**
  * 文件操作（对照原 Go files.go）
  * 纯 TS 业务层。缩略图能力通过 ThumbnailProvider 注入，便于测试时替换。
+ *
+ * v2.4.2（上线前批次一）改动一览：
+ * - D5：fileDelete / moveFiles 部分失败聚合（{deleted,moved,failed}），不回滚、失败明细可见
+ * - D6：listRaw / listDirFilesRecursive 单文件 stat 容错（同步中文件被替换不拖垮整个列表）
+ * - D7：安全边界校验升级为 realpath 版（isPathInsideWorkspaceReal，防符号链接逃逸）
+ * - S1：fileList / createSubfolder / deleteSubfolder 名称入参校验（防路径穿越）
+ * - I1：导入逐文件容错收集失败清单，单文件失败不整批中断
+ * - I2：导入互斥锁（withImportLock）+ COPYFILE_EXCL（防并发同名覆盖丢数据）
+ * - I3：导入元数据批量落盘（setFileMetadataBatch，消除逐文件全量重写 metadata.json）
+ * - I4：导入缩略图异步生成（不 await，不阻塞导入吞吐、不长期占满生成队列）
+ * - D3+D4：元数据操作全部改为按文件路径推导 key（含子文件夹、跨平台分隔符统一）
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
+import fs from 'node:fs'
 import {
   WorkspaceConfig,
   IMAGES_DIR,
@@ -11,6 +23,10 @@ import {
   PRODUCT_SETS_DIR,
   thumbnailPath,
   isPathInsideWorkspace,
+  isPathInsideWorkspaceReal,
+  assertSafePathSegment,
+  assertSafeFolderName,
+  assertSafeFileName,
   classifyFileType,
   productSetFromFilePath,
   filterSlice,
@@ -27,33 +43,47 @@ import type {
   FileEntry,
   FileListRequest,
   ImportFileRequest,
+  ImportResult,
   FileRenameRequest,
   MoveFilesRequest,
+  BatchMoveResult,
   SubfolderCreateRequest,
   DeleteSubfolderRequest,
+  DeleteResult,
+  FailedItem,
 } from '../../shared/types'
 
 export type {
   FileEntry,
   FileListRequest,
   ImportFileRequest,
+  ImportResult,
   FileRenameRequest,
   MoveFilesRequest,
+  BatchMoveResult,
   SubfolderCreateRequest,
   DeleteSubfolderRequest,
+  DeleteResult,
 } from '../../shared/types'
 
 /** 缩略图能力抽象（生产用 sharp 实现，测试用假实现） */
 export interface ThumbnailProvider {
-  /** 返回缩略图路径；文件不存在/非图片返回空串 */
-  ensureThumbnail(filePath: string): Promise<string>
+  /** 返回缩略图路径；文件不存在/非图片返回空串。origin：browse=浏览请求（可作废/插队），background=导入/改名等后台任务 */
+  ensureThumbnail(filePath: string, origin?: ThumbOrigin): Promise<string>
   /** 缩略图存在则返回路径，否则空串 */
   thumbnailUrl(filePath: string): Promise<string>
   /** 删除文件对应的缩略图 */
   removeThumbnail(filePath: string): Promise<void>
+  /** 批量删除多个文件的缩略图（v2.4.2 D2：回收站 purge 目录类条目按原路径映射批量清理） */
+  removeThumbnails(files: string[]): Promise<void>
   /** 删除目录下所有文件的缩略图 */
   removeThumbnailsInDir(dir: string): Promise<void>
+  /** v2.4.2（修复 2）：作废所有排队中的浏览缩略图任务（files:list 入口调用；无此能力的实现可省略） */
+  cancelPendingBrowse?(): void
 }
+
+/** 缩略图生成请求来源（v2.4.2：队列据此区分优先级与代际作废） */
+export type ThumbOrigin = 'browse' | 'background'
 
 /** v2.3.0：导入被用户取消（携带已导入部分，供事件上报） */
 export class ImportCancelledError extends Error {
@@ -79,6 +109,17 @@ export class FilesService {
   ) {
     // v2.4.x：索引展开时的缩略图路径由 files.ts 提供（thumbnailPath 纯路径推导，无 IO；thumb 标志已过滤）
     globalWorkspaceIndex.setResolveThumb((filePath) => this.resolveThumbPath(filePath))
+  }
+
+  /** v2.4.2（I2）：导入互斥——串行化并发导入，防同名文件 TOCTOU 覆盖与 metadata 交错写 */
+  private importTail: Promise<unknown> = Promise.resolve()
+  private withImportLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.importTail.then(fn)
+    this.importTail = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
   }
 
   private requireWS(): string {
@@ -109,6 +150,7 @@ export class FilesService {
    * 查询命中后由索引直接内存展开，不再触发任何 IO）。
    * 目录不存在返回 []；存在但不可读抛错（与旧 listDirFilesRaw 一致）。
    * 公开：启动接线（index.ts 索引 load/validate/build）复用。
+   * v2.4.2（D6）：单文件 stat 失败（同步中文件被替换/移除/坏符号链接）跳过，不拖垮整个列表。
    */
   async listRaw(dir: string): Promise<CompactItem[]> {
     let entries: import('node:fs').Dirent[]
@@ -124,8 +166,9 @@ export class FilesService {
       const name = e.name
       if (name.startsWith('.')) continue
       const full = path.join(dir, name)
-      const info = await fsp.stat(full)
-      const thumb = (await this.thumbs.thumbnailUrl(full)) ? 1 : 0
+      const info = await fsp.stat(full).catch(() => null)
+      if (!info) continue
+      const thumb = (await this.thumbs.thumbnailUrl(full).catch(() => '')) ? 1 : 0
       items.push([name, info.size, info.mtimeMs, classifyFileType(name), thumb])
     }
     items.sort((a, b) => b[2] - a[2])
@@ -149,7 +192,9 @@ export class FilesService {
         if (e.isDirectory()) {
           await walk(full)
         } else {
-          const info = await fsp.stat(full)
+          const info = await fsp.stat(full).catch(() => null)
+          if (!info) continue
+          const thumb = await this.thumbs.thumbnailUrl(full).catch(() => '')
           items.push({
             entry: {
               name,
@@ -157,7 +202,7 @@ export class FilesService {
               size: info.size,
               modified: formatTime(info.mtime),
               file_type: classifyFileType(name),
-              thumbnail_path: await this.thumbs.thumbnailUrl(full),
+              thumbnail_path: thumb,
             },
             mod: info.mtimeMs,
           })
@@ -172,10 +217,13 @@ export class FilesService {
   // —— FileList ——
   async fileList(req: FileListRequest): Promise<FileEntry[]> {
     const ws = this.requireWS()
+    // v2.4.2（S1）：拼路径入口做段校验，防穿越
+    const ps = assertSafePathSegment(req.product_set, '产品集')
+    const sub = assertSafePathSegment(req.sub_folder, '子文件夹')
     const dir =
       req.file_type === 'image'
-        ? path.join(ws, PRODUCT_SETS_DIR, req.product_set, IMAGES_DIR, req.sub_folder)
-        : path.join(ws, PRODUCT_SETS_DIR, req.product_set, CERTS_DIR, req.sub_folder)
+        ? path.join(ws, PRODUCT_SETS_DIR, ps, IMAGES_DIR, sub)
+        : path.join(ws, PRODUCT_SETS_DIR, ps, CERTS_DIR, sub)
     return this.listDirFiles(dir)
   }
 
@@ -183,28 +231,53 @@ export class FilesService {
   async importFiles(
     req: ImportFileRequest,
     opts?: { onProgress?: (done: number, total: number) => void; isCancelled?: () => boolean },
-  ): Promise<FileEntry[]> {
+  ): Promise<ImportResult> {
     const ws = this.requireWS()
     if (!req.source_paths || req.source_paths.length === 0) throw new Error('没有选择文件')
     const cfg = await this.loadConfig(ws)
     const targetDir = this.targetDir(req)
-    await fsp.mkdir(targetDir, { recursive: true })
+    // v2.4.2（I2）：互斥锁串行化导入，返回 Promise<ImportResult>
+    return this.withImportLock(async () => {
+      await fsp.mkdir(targetDir, { recursive: true })
 
-    // v2.3.3（P2）：源路径支持目录——先递归平铺展开为文件列表，再逐项导入
-    const sourceFiles = await this.expandSourcePaths(req.source_paths)
-    if (sourceFiles.length === 0) throw new Error('没有可导入的文件')
+      // v2.3.3（P2）：源路径支持目录——先递归平铺展开为文件列表，再逐项导入
+      // v2.4.2（I1）：展开阶段不可读的源（未水合/坏符号链接/不存在）进入失败清单，不中断整批
+      const { files: sourceFiles, failed: expandFailed } = await this.expandSourcePaths(req.source_paths)
+      if (sourceFiles.length === 0 && expandFailed.length === 0) throw new Error('没有可导入的文件')
 
-    const imported: FileEntry[] = []
-    const total = sourceFiles.length
-    for (let i = 0; i < total; i++) {
-      // v2.3.0：支持取消（渲染层 importCancel 置位后中断抛错，已复制文件保留）
-      if (opts?.isCancelled?.()) throw new ImportCancelledError(imported)
-      imported.push(await this.importOneFile(sourceFiles[i], targetDir, req, cfg))
-      // v2.4.x：导入改变目录内容 → 失效该目录的索引快照（每导入一个失效一次，取消中断后列表也保持实时）
-      globalWorkspaceIndex.invalidate(targetDir)
-      opts?.onProgress?.(i + 1, total)
-    }
-    return imported
+      const imported: FileEntry[] = []
+      const failed: FailedItem[] = [...expandFailed]
+      // v2.4.2（I3）：元数据累积，循环结束一次落盘（finally 兜底取消路径）
+      const metaEntries: { filePath: string; meta: FileMetadata }[] = []
+      const total = sourceFiles.length
+      try {
+        for (let i = 0; i < total; i++) {
+          // v2.3.0：支持取消（渲染层 importCancel 置位后中断抛错，已复制文件保留）
+          if (opts?.isCancelled?.()) throw new ImportCancelledError(imported)
+          try {
+            const entry = await this.importOneFile(sourceFiles[i], targetDir, req, cfg, metaEntries)
+            imported.push(entry)
+          } catch (err) {
+            // v2.4.2（I1）：单文件失败收集，不中断整批
+            failed.push({
+              path: sourceFiles[i],
+              error: err instanceof Error ? err.message : String(err),
+            })
+          }
+          // v2.4.x：导入改变目录内容 → 失效该目录的索引快照（每导入一个失效一次，取消中断后列表也保持实时）
+          globalWorkspaceIndex.invalidate(targetDir)
+          opts?.onProgress?.(i + 1, total)
+        }
+      } finally {
+        // 取消/异常路径也把已完成文件的元数据落盘（已复制文件保留，元数据同样保留）
+        if (metaEntries.length > 0) {
+          await this.metadata.setFileMetadataBatch(metaEntries).catch((err) =>
+            console.warn('[import] 元数据批量写入失败:', err),
+          )
+        }
+      }
+      return { imported, failed }
+    })
   }
 
   /** 归一化源路径：trim + 剥 file:// 前缀 + normalize（对照原 Go：先剥 file:// 再剥 file:///） */
@@ -218,9 +291,11 @@ export class FilesService {
    * v2.3.3（P2）：把源路径展开为待导入文件列表。
    * 目录 → 递归收集其内所有非隐藏文件（跳过隐藏项与空目录，平铺不保留子目录结构）；
    * 普通文件 → 原样保留。进度回调的 total 以展开后的文件数为准。
+   * v2.4.2（I1）：不可读/不存在的源进入 failed 清单，不中断整批。
    */
-  private async expandSourcePaths(paths: string[]): Promise<string[]> {
-    const out: string[] = []
+  private async expandSourcePaths(paths: string[]): Promise<{ files: string[]; failed: FailedItem[] }> {
+    const files: string[] = []
+    const failed: FailedItem[] = []
     const walk = async (d: string): Promise<void> => {
       let entries: import('node:fs').Dirent[]
       try {
@@ -235,21 +310,25 @@ export class FilesService {
         if (e.isDirectory()) {
           await walk(full)
         } else if (e.isFile()) {
-          out.push(full)
+          files.push(full)
         }
       }
     }
     for (const raw of paths) {
       const p = this.normalizeSourcePath(raw)
       if (!p) continue
-      const info = await fsp.stat(p)
+      const info = await fsp.stat(p).catch(() => null)
+      if (!info) {
+        failed.push({ path: p, error: '源文件不存在或不可读' })
+        continue
+      }
       if (info.isDirectory()) {
         await walk(p)
       } else {
-        out.push(p)
+        files.push(p)
       }
     }
-    return out
+    return { files, failed }
   }
 
   private async importOneFile(
@@ -257,6 +336,7 @@ export class FilesService {
     targetDir: string,
     req: ImportFileRequest,
     cfg: WorkspaceConfig,
+    metaEntries: { filePath: string; meta: FileMetadata }[],
   ): Promise<FileEntry> {
     const p = this.normalizeSourcePath(srcPath)
     if (!p) throw new Error('源路径为空')
@@ -278,14 +358,25 @@ export class FilesService {
     }
 
     const finalDest = path.join(targetDir, candidate)
-    await fsp.copyFile(p, finalDest)
+    // v2.4.2（I2）：COPYFILE_EXCL 兜底并发同名冲突（互斥锁之外的最后防线），EEXIST 由外层收集为失败项
+    await fsp.copyFile(p, finalDest, fs.constants.COPYFILE_EXCL)
 
-    // 缩略图
-    const thumb = await this.thumbs.ensureThumbnail(finalDest)
+    // v2.4.2（I4）：缩略图不再阻塞导入——已缓存则直接带上路径，未缓存异步触发后台生成
+    let thumb = ''
+    try {
+      thumb = await this.thumbs.thumbnailUrl(finalDest)
+    } catch {
+      thumb = ''
+    }
+    if (!thumb) {
+      void this.thumbs.ensureThumbnail(finalDest, 'background').catch(() => {})
+    }
 
-    // 记录元数据
-    const fileMeta: FileMetadata = { tags: [], notes: '', added_at: currentTimeString(), cert_type: '', expiry_date: '' }
-    await this.metadata.setFileMetadata(req.target_product_set, path.basename(finalDest), fileMeta)
+    // v2.4.2（I3）：元数据累积批量落盘；已存在元数据的同名文件（删除后重导入）在批量写入时保留原内容
+    metaEntries.push({
+      filePath: finalDest,
+      meta: { tags: [], notes: '', added_at: currentTimeString(), cert_type: '', expiry_date: '' },
+    })
 
     const info = await fsp.stat(finalDest)
     return {
@@ -294,27 +385,40 @@ export class FilesService {
       size: info.size,
       modified: formatTime(info.mtime),
       file_type: classifyFileType(finalDest),
-      thumbnail_path: thumb,
+      thumbnail_path: thumb || null,
     }
   }
 
   // —— FileDelete（v2.3.1：改为移入回收站，可恢复；元数据/缩略图保留）——
-  async fileDelete(paths: string[]): Promise<void> {
+  // v2.4.2（D5）：逐文件容错聚合，单个失败不中断整体
+  async fileDelete(paths: string[]): Promise<DeleteResult> {
     const ws = this.requireWS()
     if (!this.trash) throw new Error('回收站服务未初始化')
-    for (const p of paths) {
-      if (!isPathInsideWorkspace(ws, p)) throw new Error('只能删除工作区内的文件')
-      await this.trash.trashItem(ws, p, 'file')
-      // v2.4.x：删除改变目录内容 → 失效所在目录的索引快照
-      globalWorkspaceIndex.invalidate(path.dirname(p))
+    const failed: FailedItem[] = []
+    let deleted = 0
+    for (const raw of paths) {
+      const p = raw.trim()
+      if (!p) continue
+      if (!(await isPathInsideWorkspaceReal(ws, p))) {
+        failed.push({ path: p, error: '只能删除工作区内的文件' })
+        continue
+      }
+      try {
+        await this.trash.trashItem(ws, p, 'file')
+        // v2.4.x：删除改变目录内容 → 失效所在目录的索引快照
+        globalWorkspaceIndex.invalidate(path.dirname(p))
+        deleted++
+      } catch (err) {
+        failed.push({ path: p, error: err instanceof Error ? err.message : String(err) })
+      }
     }
+    return { deleted, failed }
   }
 
   // —— CreateSubfolder / DeleteSubfolder ——
   async createSubfolder(req: SubfolderCreateRequest): Promise<void> {
     const ws = this.requireWS()
-    const name = req.name.trim()
-    if (!name) throw new Error('名称不能为空')
+    const name = assertSafeFolderName(req.name, '子文件夹名称')
     const cfg = await this.loadConfig(ws)
     const dir =
       req.file_type === 'cert'
@@ -336,9 +440,8 @@ export class FilesService {
   async deleteSubfolder(req: DeleteSubfolderRequest): Promise<void> {
     const ws = this.requireWS()
     if (!this.trash) throw new Error('回收站服务未初始化')
-    req.product_set = req.product_set.trim()
-    req.name = req.name.trim()
-    if (!req.product_set || !req.name) throw new Error('产品集和子文件夹名称不能为空')
+    req.product_set = assertSafePathSegment(req.product_set, '产品集')
+    req.name = assertSafePathSegment(req.name, '子文件夹名称')
     const dir =
       req.file_type === 'image'
         ? path.join(ws, PRODUCT_SETS_DIR, req.product_set, IMAGES_DIR, req.name)
@@ -363,11 +466,10 @@ export class FilesService {
   async renameFile(req: FileRenameRequest): Promise<void> {
     const ws = this.requireWS()
     const oldPath = req.path.trim()
-    const newName = req.newName.trim()
-    if (!oldPath || !newName) throw new Error('路径和名称不能为空')
+    const newName = assertSafeFileName(req.newName.trim())
+    if (!oldPath) throw new Error('路径不能为空')
 
-    if (!isPathInsideWorkspace(ws, oldPath)) throw new Error('只能重命名工作区内的文件')
-    if (newName.includes('/') || newName.includes('\\')) throw new Error('文件名不能包含路径分隔符')
+    if (!(await isPathInsideWorkspaceReal(ws, oldPath))) throw new Error('只能重命名工作区内的文件')
 
     const oldName = path.basename(oldPath)
     if (oldName === newName) return
@@ -379,28 +481,30 @@ export class FilesService {
     // v2.4.x：改名改变目录内容 → 失效所在目录的索引快照
     globalWorkspaceIndex.invalidate(path.dirname(oldPath))
 
-    // 迁移元数据（key: 产品集/文件名）
-    const productSet = productSetFromFilePath(ws, oldPath)
-    if (productSet) {
+    // v2.4.2（D3+D4）：元数据迁移改为路径推导 key（含子文件夹，跨平台一致）
+    const oldKey = this.metadata.fileMetadataKey(oldPath)
+    if (oldKey) {
       const store = await this.metadata.loadMetadataStore()
-      const oldKey = this.metadata.fileMetadataKey(productSet, oldName)
       if (store.files[oldKey]) {
-        const newKey = this.metadata.fileMetadataKey(productSet, newName)
-        store.files[newKey] = store.files[oldKey]
-        delete store.files[oldKey]
-        await this.metadata.saveMetadataStore(store)
+        const newKey = this.metadata.fileMetadataKey(newPath)
+        if (newKey) {
+          store.files[newKey] = store.files[oldKey]
+          delete store.files[oldKey]
+          await this.metadata.saveMetadataStore(store)
+        }
       }
     }
 
     // 迁移缩略图
     await this.thumbs.removeThumbnail(oldPath)
     if (classifyFileType(newPath) === 'image') {
-      await this.thumbs.ensureThumbnail(newPath)
+      await this.thumbs.ensureThumbnail(newPath, 'background')
     }
   }
 
   // —— FileMove（v2.3.2：文件移动后端全链路，面向文件，不支持目录）——
-  async moveFiles(req: MoveFilesRequest): Promise<FileEntry[]> {
+  // v2.4.2（D5）：逐文件容错聚合，返回 { moved, failed }
+  async moveFiles(req: MoveFilesRequest): Promise<BatchMoveResult> {
     const ws = this.requireWS()
     if (!req.paths || req.paths.length === 0) throw new Error('没有选择文件')
     // 目标目录解析：结构化目标（产品集/类型/子文件夹）由后端拼路径，避免前端拼接风险
@@ -415,7 +519,7 @@ export class FilesService {
           )
         : (req.targetDir ?? '').trim()
     if (!targetDir) throw new Error('目标目录不能为空')
-    if (!isPathInsideWorkspace(ws, targetDir)) throw new Error('只能移动到工作区内的目录')
+    if (!(await isPathInsideWorkspaceReal(ws, targetDir))) throw new Error('只能移动到工作区内的目录')
 
     // 目标目录：不存在则创建，已存在必须是目录
     const targetStat = await fsp.stat(targetDir).then((s) => s).catch(() => null)
@@ -427,43 +531,48 @@ export class FilesService {
 
     const cfg = await this.loadConfig(ws)
     const moved: FileEntry[] = []
+    const failed: FailedItem[] = []
     for (const raw of req.paths) {
       const p = raw.trim()
       if (!p) continue
-      if (!isPathInsideWorkspace(ws, p)) throw new Error('只能移动工作区内的文件')
-      // 同目录且同名（文件本身就在目标位置）→ 跳过
-      if (path.resolve(path.join(targetDir, path.basename(p))) === path.resolve(p)) continue
-
-      const srcInfo = await fsp.stat(p)
-      if (srcInfo.isDirectory()) throw new Error(`不支持移动目录: ${p}`)
-
-      // 目标文件名：同名冲突按命名模板加 _1 序号
-      const candidate = path.basename(p)
-      let destName = candidate
-      if (await fsp.stat(path.join(targetDir, destName)).then(() => true).catch(() => false)) {
-        destName = await resolveConflictName(targetDir, destName, cfg.naming_template.conflict_suffix, path.extname(destName))
+      if (!(await isPathInsideWorkspaceReal(ws, p))) {
+        failed.push({ path: p, error: '只能移动工作区内的文件' })
+        continue
       }
-      const finalDest = path.join(targetDir, destName)
-
-      // 执行移动：同盘 rename；EXDEV 跨设备回退 copyFile + rm（源删除）
       try {
-        await fsp.rename(p, finalDest)
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
-          await fsp.copyFile(p, finalDest)
-          await fsp.rm(p, { force: true })
-        } else {
-          throw err
-        }
-      }
+        // 同目录且同名（文件本身就在目标位置）→ 跳过
+        if (path.resolve(path.join(targetDir, path.basename(p))) === path.resolve(p)) continue
 
-      // 元数据迁移（key: 产品集/文件名）：key 变化时迁移，新 key 已有内容则保留
-      const oldSet = productSetFromFilePath(ws, p)
-      const newSet = productSetFromFilePath(ws, finalDest)
-      if (oldSet && newSet) {
-        const oldKey = this.metadata.fileMetadataKey(oldSet, path.basename(p))
-        const newKey = this.metadata.fileMetadataKey(newSet, path.basename(finalDest))
-        if (oldKey !== newKey) {
+        const srcInfo = await fsp.stat(p)
+        if (srcInfo.isDirectory()) {
+          failed.push({ path: p, error: '不支持移动目录' })
+          continue
+        }
+
+        // 目标文件名：同名冲突按命名模板加 _1 序号
+        const candidate = path.basename(p)
+        let destName = candidate
+        if (await fsp.stat(path.join(targetDir, destName)).then(() => true).catch(() => false)) {
+          destName = await resolveConflictName(targetDir, destName, cfg.naming_template.conflict_suffix, path.extname(destName))
+        }
+        const finalDest = path.join(targetDir, destName)
+
+        // 执行移动：同盘 rename；EXDEV 跨设备回退 copyFile + rm（源删除）
+        try {
+          await fsp.rename(p, finalDest)
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
+            await fsp.copyFile(p, finalDest, fs.constants.COPYFILE_EXCL)
+            await fsp.rm(p, { force: true })
+          } else {
+            throw err
+          }
+        }
+
+        // v2.4.2（D3+D4）：元数据迁移按路径推导 key（含子文件夹），新 key 已有内容则保留
+        const oldKey = this.metadata.fileMetadataKey(p)
+        const newKey = this.metadata.fileMetadataKey(finalDest)
+        if (oldKey && newKey && oldKey !== newKey) {
           const store = await this.metadata.loadMetadataStore()
           if (store.files[oldKey] && !store.files[newKey]) {
             store.files[newKey] = store.files[oldKey]
@@ -471,29 +580,31 @@ export class FilesService {
             await this.metadata.saveMetadataStore(store)
           }
         }
-      }
 
-      // 缩略图：清理旧路径，图片新路径重生
-      await this.thumbs.removeThumbnail(p)
-      let thumb = ''
-      if (classifyFileType(finalDest) === 'image') {
-        thumb = await this.thumbs.ensureThumbnail(finalDest)
-      }
+        // 缩略图：清理旧路径，图片新路径重生
+        await this.thumbs.removeThumbnail(p)
+        let thumb = ''
+        if (classifyFileType(finalDest) === 'image') {
+          thumb = await this.thumbs.ensureThumbnail(finalDest, 'background')
+        }
 
-      const info = await fsp.stat(finalDest)
-      moved.push({
-        name: path.basename(finalDest),
-        path: finalDest,
-        size: info.size,
-        modified: formatTime(info.mtime),
-        file_type: classifyFileType(finalDest),
-        thumbnail_path: thumb,
-      })
-      // v2.4.x：移动改变源/目标目录内容 → 两者索引快照都失效
-      globalWorkspaceIndex.invalidate(path.dirname(p))
-      globalWorkspaceIndex.invalidate(targetDir)
+        const info = await fsp.stat(finalDest)
+        moved.push({
+          name: path.basename(finalDest),
+          path: finalDest,
+          size: info.size,
+          modified: formatTime(info.mtime),
+          file_type: classifyFileType(finalDest),
+          thumbnail_path: thumb,
+        })
+        // v2.4.x：移动改变源/目标目录内容 → 两者索引快照都失效
+        globalWorkspaceIndex.invalidate(path.dirname(p))
+        globalWorkspaceIndex.invalidate(targetDir)
+      } catch (err) {
+        failed.push({ path: p, error: err instanceof Error ? err.message : String(err) })
+      }
     }
-    return moved
+    return { moved, failed }
   }
 
   // —— 初始化预热（v2.4.x：启动后异步建立工作区文件索引）——
@@ -514,7 +625,7 @@ export class FilesService {
     const ws = this.requireWS()
     const p = filePath.trim()
     if (!p) throw new Error('路径不能为空')
-    if (!isPathInsideWorkspace(ws, p)) throw new Error('只能访问工作区内的文件')
+    if (!(await isPathInsideWorkspaceReal(ws, p))) throw new Error('只能访问工作区内的文件')
     await fsp.stat(p)
     return p
   }
@@ -548,10 +659,6 @@ export class FilesService {
 
   async removeMetadataForProductSet(productSet: string): Promise<void> {
     await this.metadata.removeFileMetadataForProductSet(productSet)
-  }
-
-  async removeSubfolderMetadata(productSet: string, fileName: string): Promise<void> {
-    await this.metadata.removeFileMetadata(productSet, fileName)
   }
 
   /** 读取原始 JSON 文件内容（config 等；供协议层/SaveTextFile 场景） */

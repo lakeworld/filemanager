@@ -14,6 +14,20 @@ const PNG_1PX = Buffer.from(
   'base64',
 )
 
+/** 导入一张 PNG 到 系列A/图包/主图，返回 FileEntry */
+async function importOne(box: ReturnType<typeof buildTestBox>, ws: string, name: string) {
+  const src = path.join(ws, '..', name)
+  await fsp.writeFile(src, PNG_1PX)
+  const result = await box.files.importFiles({
+    source_paths: [src],
+    target_product_set: '系列A',
+    target_folder: '主图',
+    target_type: 'image',
+    sub_folder: '主图',
+  })
+  return result.imported[0]
+}
+
 describe('回收站（v2.3.1）', () => {
   it('删除文件 → 进回收站：原文件消失、条目可见、元数据保留', async () => {
     const home = await tmp()
@@ -22,29 +36,20 @@ describe('回收站（v2.3.1）', () => {
     await box.workspace.create(ws)
     await box.workspace.productSetCreate({ name: '系列A' })
 
-    const src = path.join(ws, '..', 'a.jpg')
-    await fsp.writeFile(src, PNG_1PX)
-    const imported = await box.files.importFiles({
-      source_paths: [src],
-      target_product_set: '系列A',
-      target_folder: '主图',
-      target_type: 'image',
-      sub_folder: '主图',
-    })
-    const filePath = imported[0].path
-    await box.metadata.update({ product_set: '系列A', file_name: imported[0].name, tags: ['重点'], notes: 'n' })
+    const file = await importOne(box, ws, 'a.jpg')
+    await box.metadata.update({ file_path: file.path, tags: ['重点'], notes: 'n' })
 
-    await box.files.fileDelete([filePath])
+    await box.files.fileDelete([file.path])
 
     // 原文件已移走
-    await expect(fsp.stat(filePath)).rejects.toThrow()
+    await expect(fsp.stat(file.path)).rejects.toThrow()
     // 回收站有 1 条
     const entries = await box.trash.list()
     expect(entries).toHaveLength(1)
     expect(entries[0].kind).toBe('file')
-    expect(entries[0].originalPath).toBe(filePath)
+    expect(entries[0].originalPath).toBe(file.path)
     // 元数据保留（恢复后可还原）
-    const meta = await box.metadata.get('系列A', imported[0].name)
+    const meta = await box.metadata.get(file.path)
     expect(meta.tags).toEqual(['重点'])
     expect(meta.notes).toBe('n')
   })
@@ -56,28 +61,20 @@ describe('回收站（v2.3.1）', () => {
     await box.workspace.create(ws)
     await box.workspace.productSetCreate({ name: '系列A' })
 
-    const src = path.join(ws, '..', 'b.jpg')
-    await fsp.writeFile(src, PNG_1PX)
-    const imported = await box.files.importFiles({
-      source_paths: [src],
-      target_product_set: '系列A',
-      target_folder: '主图',
-      target_type: 'image',
-      sub_folder: '主图',
-    })
-    await box.metadata.update({ product_set: '系列A', file_name: imported[0].name, tags: ['重点'] })
+    const file = await importOne(box, ws, 'b.jpg')
+    await box.metadata.update({ file_path: file.path, tags: ['重点'] })
 
-    await box.files.fileDelete([imported[0].path])
+    await box.files.fileDelete([file.path])
     const entries = await box.trash.list()
 
     await box.trash.restore(entries[0].id)
 
     // 文件回原位
-    await expect(fsp.stat(imported[0].path)).resolves.toBeTruthy()
+    await expect(fsp.stat(file.path)).resolves.toBeTruthy()
     // 回收站清空
     expect(await box.trash.list()).toHaveLength(0)
     // 元数据完好
-    const meta = await box.metadata.get('系列A', imported[0].name)
+    const meta = await box.metadata.get(file.path)
     expect(meta.tags).toEqual(['重点'])
   })
 
@@ -88,25 +85,17 @@ describe('回收站（v2.3.1）', () => {
     await box.workspace.create(ws)
     await box.workspace.productSetCreate({ name: '系列A' })
 
-    const src = path.join(ws, '..', 'c.jpg')
-    await fsp.writeFile(src, PNG_1PX)
-    const imported = await box.files.importFiles({
-      source_paths: [src],
-      target_product_set: '系列A',
-      target_folder: '主图',
-      target_type: 'image',
-      sub_folder: '主图',
-    })
-    await box.files.fileDelete([imported[0].path])
+    const file = await importOne(box, ws, 'c.jpg')
+    await box.files.fileDelete([file.path])
     // 原位置放一个同名文件 → 恢复时冲突
-    await fsp.writeFile(imported[0].path, PNG_1PX)
+    await fsp.writeFile(file.path, PNG_1PX)
 
     const entries = await box.trash.list()
     await box.trash.restore(entries[0].id)
 
-    const dir = path.dirname(imported[0].path)
+    const dir = path.dirname(file.path)
     const files = await fsp.readdir(dir)
-    expect(files).toContain(imported[0].name)
+    expect(files).toContain(file.name)
     expect(files.some((f) => f.includes('-恢复1'))).toBe(true)
   })
 
@@ -117,17 +106,9 @@ describe('回收站（v2.3.1）', () => {
     await box.workspace.create(ws)
     await box.workspace.productSetCreate({ name: '系列A' })
 
-    const src = path.join(ws, '..', 'd.jpg')
-    await fsp.writeFile(src, PNG_1PX)
-    const imported = await box.files.importFiles({
-      source_paths: [src],
-      target_product_set: '系列A',
-      target_folder: '主图',
-      target_type: 'image',
-      sub_folder: '主图',
-    })
-    await box.metadata.update({ product_set: '系列A', file_name: imported[0].name, tags: ['重点'] })
-    await box.files.fileDelete([imported[0].path])
+    const file = await importOne(box, ws, 'd.jpg')
+    await box.metadata.update({ file_path: file.path, tags: ['重点'] })
+    await box.files.fileDelete([file.path])
 
     const entries = await box.trash.list()
     await box.trash.purge(entries[0].id)
@@ -135,7 +116,7 @@ describe('回收站（v2.3.1）', () => {
     expect(await box.trash.list()).toHaveLength(0)
     // 元数据已清理（get 对不存在 key 返回空对象，直接查 store）
     const store = await box.metadata.loadMetadataStore()
-    expect(Object.keys(store.files)).not.toContain(`系列A/${imported[0].name}`)
+    expect(Object.keys(store.files)).not.toContain(`系列A/图包/主图/${file.name}`)
   })
 
   it('删除/恢复子文件夹：config 移除后恢复加回', async () => {
@@ -196,16 +177,8 @@ describe('回收站（v2.3.1）', () => {
     await box.workspace.create(ws)
     await box.workspace.productSetCreate({ name: '系列A' })
 
-    const src = path.join(ws, '..', 'e.jpg')
-    await fsp.writeFile(src, PNG_1PX)
-    const imported = await box.files.importFiles({
-      source_paths: [src],
-      target_product_set: '系列A',
-      target_folder: '主图',
-      target_type: 'image',
-      sub_folder: '主图',
-    })
-    await box.files.fileDelete([imported[0].path])
+    const file = await importOne(box, ws, 'e.jpg')
+    await box.files.fileDelete([file.path])
     await box.trash.empty()
 
     expect(await box.trash.list()).toHaveLength(0)
@@ -223,27 +196,11 @@ describe('回收站（v2.3.1）', () => {
     await box.workspace.productSetCreate({ name: '系列A' })
 
     // 导入两个文件并删除 → 两条回收站条目（先删 im1 后删 im2）
-    const src1 = path.join(ws, '..', 'exp1.jpg')
-    await fsp.writeFile(src1, PNG_1PX)
-    const im1 = await box.files.importFiles({
-      source_paths: [src1],
-      target_product_set: '系列A',
-      target_folder: '主图',
-      target_type: 'image',
-      sub_folder: '主图',
-    })
-    await box.metadata.update({ product_set: '系列A', file_name: im1[0].name, tags: ['超期'] })
-    await box.files.fileDelete([im1[0].path])
-    const src2 = path.join(ws, '..', 'exp2.jpg')
-    await fsp.writeFile(src2, PNG_1PX)
-    const im2 = await box.files.importFiles({
-      source_paths: [src2],
-      target_product_set: '系列A',
-      target_folder: '主图',
-      target_type: 'image',
-      sub_folder: '主图',
-    })
-    await box.files.fileDelete([im2[0].path])
+    const im1 = await importOne(box, ws, 'exp1.jpg')
+    await box.metadata.update({ file_path: im1.path, tags: ['超期'] })
+    await box.files.fileDelete([im1.path])
+    const im2 = await importOne(box, ws, 'exp2.jpg')
+    await box.files.fileDelete([im2.path])
 
     const entries = await box.trash.list()
     expect(entries).toHaveLength(2)
@@ -263,7 +220,7 @@ describe('回收站（v2.3.1）', () => {
 
     // 被清理条目的元数据同步删除，近期条目元数据保留
     const store = await box.metadata.loadMetadataStore()
-    expect(Object.keys(store.files)).not.toContain(`系列A/${im2[0].name}`)
-    expect(Object.keys(store.files)).toContain(`系列A/${im1[0].name}`)
+    expect(Object.keys(store.files)).not.toContain(`系列A/图包/主图/${im2.name}`)
+    expect(Object.keys(store.files)).toContain(`系列A/图包/主图/${im1.name}`)
   })
 })

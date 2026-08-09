@@ -42,8 +42,6 @@ export default function Images() {
   const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
   const [actionMessage, setActionMessage] = createSignal("");
   const contextMenu = useContextMenu<string>();
-  // v2.4.1：单击选择 / 双击打开（单击延迟 250ms，双击清除）
-  let clickTimer: number | undefined;
 
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
 
@@ -270,15 +268,13 @@ export default function Images() {
                 class={`card p-2 cursor-pointer select-none hover:shadow-card-hover transition-all ${selectedPaths().includes(img.path) ? "border-primary-500 bg-primary-50" : ""}`}
                 draggable={true}
                 onDragStart={(e) => handleDragOut(e, img.path, selectedPaths())}
-                onContextMenu={(e) => contextMenu.open(e, img.path)}
-                onClick={() => {
-                  window.clearTimeout(clickTimer);
-                  clickTimer = window.setTimeout(() => toggleSelection(img.path), 250);
+                onContextMenu={(e) => {
+                  // v2.4.2：右键——目标未选中时先单选它，菜单作用于该文件
+                  if (!selectedPaths().includes(img.path)) setSelectedPaths([img.path]);
+                  contextMenu.open(e, img.path);
                 }}
-                onDblClick={() => {
-                  window.clearTimeout(clickTimer);
-                  openPreview(img, { onDelete: loadAllImages });
-                }}
+                onClick={() => toggleSelection(img.path)}
+                onDblClick={() => openPreview(img, { onDelete: loadAllImages })}
               >
                 <div class="relative h-40 rounded-lg bg-surface-100 overflow-hidden">
                   <input

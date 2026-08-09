@@ -16,7 +16,6 @@ import { SharpThumbnailService } from './thumbnail'
 import { registerIpc } from './ipc'
 import { registerQiheboxProtocol } from './protocol'
 import { AccountService } from './account'
-import { startMemoryWatchdog } from './memoryWatchdog'
 import { log, initLogger } from './log'
 import { checkUpdate } from './updater'
 import { computeNotifiable, type NotifyState } from './notify'
@@ -72,7 +71,10 @@ if (!gotLock) {
 Menu.setApplicationMenu(null)
 
 let tray: Tray | null = null
-let rendererCrashes = 0
+/** v2.4.2（R1）：崩溃计数改为时间窗——10 分钟内 ≥3 次才退出；`clean-exit`（休眠销毁窗口）不计 */
+const CRASH_WINDOW_MS = 10 * 60 * 1000
+const CRASH_MAX = 3
+const crashTimes: number[] = []
 
 function setupTray(): void {
   const iconPath = path.join(app.getAppPath(), 'build/trayicon.png')
@@ -96,11 +98,16 @@ function setupTray(): void {
 }
 
 function setupCrashRecovery(win: BrowserWindow): void {
-  // 渲染进程崩溃 → 自动 reload（最多 3 次，避免死循环）
+  // 渲染进程崩溃 → 自动 reload（v2.4.2：10 分钟时间窗内 >3 次才退出，杜绝「崩溃→加载成功清零→再崩溃」无限循环）
   win.webContents.on('render-process-gone', (_e, details) => {
+    // 休眠销毁窗口产生的 clean-exit 不是崩溃，不计数
+    if (details.reason === 'clean-exit') return
     void log('error', `renderer gone: ${details.reason}`)
-    rendererCrashes++
-    if (rendererCrashes > 3) {
+    const now = Date.now()
+    while (crashTimes.length > 0 && now - crashTimes[0] > CRASH_WINDOW_MS) crashTimes.shift()
+    crashTimes.push(now)
+    if (crashTimes.length > CRASH_MAX) {
+      void log('error', `渲染进程 ${CRASH_WINDOW_MS / 60000} 分钟内崩溃 ${CRASH_MAX} 次，应用退出`)
       setQuitting(true)
       app.quit()
       return
@@ -108,10 +115,6 @@ function setupCrashRecovery(win: BrowserWindow): void {
     setTimeout(() => {
       if (!win.isDestroyed()) win.reload()
     }, 500)
-  })
-  // v2.2.1：did-finish-load 重置崩溃计数 —— 崩溃自愈成功后不再累计，避免数月内偶发崩溃提前退出
-  win.webContents.on('did-finish-load', () => {
-    rendererCrashes = 0
   })
   // GPU 进程崩溃 → 记录（后续自动切 --disable-gpu）
   app.on('child-process-gone', (_e, details) => {
@@ -200,12 +203,21 @@ async function runUpdateCheck(): Promise<void> {
   }
 }
 
-/** 系统通知：Electron Notification；Linux 无 libnotify 等环境不可用时 try/catch 静默降级 */
-function sendSystemNotification(title: string, body: string): void {
+/** v2.4.2（C3）：系统通知——返回是否真实发出；点击通知唤起主窗口；不可用时降级给应用内事件，不假成功 */
+function sendSystemNotification(title: string, body: string): boolean {
+  if (!Notification.isSupported()) {
+    void log('warn', `系统通知不受支持，已降级为应用内提醒: ${title}`)
+    return false
+  }
   try {
-    new Notification({ title, body }).show()
+    const n = new Notification({ title, body })
+    // v2.4.2（批次二）：点击通知 → 唤起主窗口（休眠销毁后自动重建）
+    n.on('click', () => windowShow())
+    n.show()
+    return true
   } catch (err) {
-    void log('warn', `系统通知不可用，已跳过: ${title}（${String(err)}）`)
+    void log('warn', `系统通知不可用，已降级为应用内提醒: ${title}（${String(err)}）`)
+    return false
   }
 }
 
@@ -223,15 +235,31 @@ async function runCertNotify(box: BoxService): Promise<void> {
   const state = await readJsonFile<NotifyState>(notifiedFile)
   const { toNotify, nextState } = computeNotifiable(expiring, state)
   if (toNotify.length === 0) return
-  // 先落盘去重记录再发送，避免发送环节失败导致同日反复打扰
-  await writeJsonAtomic(notifiedFile, nextState).catch((err) =>
-    void log('warn', `通知去重记录写入失败: ${String(err)}`),
-  )
-  for (const [productSet, fileName, expiry] of toNotify) {
-    sendSystemNotification(
-      '证书即将到期',
-      `产品集「${productSet}」中 ${fileName} 将于 ${expiry} 到期，请及时处理`,
+  // v2.4.2（批次二）：聚合为一条摘要通知（toNotify 按到期日升序，取最早一条），不再逐条轰炸
+  const [firstPs, firstFile, firstExpiry] = toNotify[0]
+  const summary = `${toNotify.length} 张证书即将到期`
+  const body =
+    toNotify.length === 1
+      ? `产品集「${firstPs}」中 ${firstFile} 将于 ${firstExpiry} 到期，请及时处理`
+      : `最早 ${firstPs}/${firstFile} 于 ${firstExpiry} 到期，另有 ${toNotify.length - 1} 张将在 30 天内到期`
+  const sent = sendSystemNotification('证书到期提醒', body)
+  // v2.4.2（C3）：只有系统通知真实发出才落盘去重——通知不可用（无守护进程/权限被拒）时
+  // 不误记「已提醒」，改为应用内事件兜底（下次启动/次日仍会再提醒）
+  if (sent) {
+    await writeJsonAtomic(notifiedFile, nextState).catch((err) =>
+      void log('warn', `通知去重记录写入失败: ${String(err)}`),
     )
+  } else {
+    void log('warn', `有 ${toNotify.length} 张证书待提醒，但系统通知不可用，已转应用内提醒`)
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        try {
+          win.webContents.send('qihebox:event:cert:expiring', toNotify)
+        } catch {
+          // 窗口销毁竞态兜底
+        }
+      }
+    }
   }
 }
 

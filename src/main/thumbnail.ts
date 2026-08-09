@@ -6,16 +6,31 @@
  * - 新增 PDF 首屏缩略图（pdfjs-dist + @napi-rs/canvas）：证书页 PDF 有真实预览图
  * - 旧工作区 .thumbnails 缓存自动回退/迁移：新位置 miss 时查旧位置，命中则复制（不删除旧文件）
  * 性能：sharp / pdfjs / canvas 均延迟加载（动态 import），启动不加载原生库。
+ *
+ * v2.4.2（修复 2）队列改造（ThumbQueue 为独立可测类）：
+ * - 任务分来源：browse（浏览请求，插队队首）/ background（导入/改名/移动/拖拽图标）
+ * - 代际作废：cancelPendingBrowse()（files:list 入口调用）作废所有排队中的 browse 任务 →
+ *   切文件夹后旧积压立即清空，新文件夹请求优先拿到生成槽位
+ * - 单任务 15s 超时（防 sharp 挂死/同步目录读阻塞占满 4 槽位 = 全局真死锁）
+ * - 队列上限 200：background 超限快速失败；browse 不受限（切文件夹时会被代际作废清空）
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { thumbnailPath, classifyFileType } from './core/paths'
 import { WorkspaceService } from './core/workspace'
-import type { ThumbnailProvider } from './core/files'
+import type { ThumbnailProvider, ThumbOrigin } from './core/files'
 
 const THUMB_SIZE = 256
 const JPEG_QUALITY = 85
+
+// v2.4.x 生成端内存上界：
+// - fastShrinkOnLoad（sharp 0.33 起默认 true）：JPEG/WebP 按输出尺寸分载解码，超大原图不再全量进内存
+// - limitInputPixels 兜底上限：实测该值按原始尺寸校验，因此取 250MP（≈15800×15800）——
+//   容纳所有真实图片（电商图远小于此），仅拒绝会 OOM 的病态输入（千兆像素拼接全景等）
+// v2.4.2（P0-1）：旧 `shrinkOnLoad` 选项名在 sharp 0.33 已移除（改名 fastShrinkOnLoad 且默认 true），
+// 显式传旧名是 TS 类型错误且无效果，已删除。
+const MAX_INPUT_PIXELS = 250_000_000
 
 // v2.2.1：sharp/libvips 进程内缓存收紧（一次性设置）。
 // 默认 50MB/20 句柄/100 操作对「磁盘缓存 + mtime 命中」的应用是白占内存与句柄。
@@ -38,11 +53,137 @@ export interface ThumbnailServiceOptions {
   userDataThumbsDir?: string
 }
 
-export class SharpThumbnailService implements ThumbnailProvider {
-  /** 限并发队列：批量导入时最多 2 个生成任务并行，避免资源争抢 */
-  private queue: Array<() => Promise<void>> = []
+/** v2.4.2（修复 2）：单任务超时与队列上限 */
+const TASK_TIMEOUT_MS = 15_000
+const QUEUE_MAX = 200
+
+interface QueueEntry<T> {
+  origin: ThumbOrigin
+  /** 作废时以「取消值」收尾（调用方按 falsy 处理为失败） */
+  settle: () => void
+  run: () => Promise<void>
+}
+
+/**
+ * v2.4.2（修复 2）：限并发任务队列（纯逻辑，可 node 直测）。
+ * - browse 任务插队队首；background 排队尾
+ * - cancelPendingBrowse()：作废全部排队中的 browse 任务（settle 取消值），运行中任务不打断
+ * - 单任务超时（taskTimeoutMs）：任务永不 settle 时释放槽位，杜绝全局死锁
+ * - 队列上限（queueMax）：background 超限立即 settle 取消值
+ */
+export class ThumbQueue<T> {
+  private queue: QueueEntry<T>[] = []
   private running = 0
-  private readonly MAX_CONCURRENCY = 2
+  private cancelledValue: T
+
+  constructor(
+    private readonly maxConcurrency: number,
+    private readonly taskTimeoutMs: number,
+    private readonly queueMax: number,
+  ) {
+    this.cancelledValue = '' as unknown as T
+  }
+
+  /** 排队中任务数（测试断言用） */
+  get pendingCount(): number {
+    return this.queue.length
+  }
+
+  /** 运行中任务数（测试断言用） */
+  get runningCount(): number {
+    return this.running
+  }
+
+  /** 作废所有排队中的 browse 任务，返回作废数量 */
+  cancelPendingBrowse(): number {
+    let cancelled = 0
+    const keep: QueueEntry<T>[] = []
+    for (const e of this.queue) {
+      if (e.origin === 'browse') {
+        e.settle()
+        cancelled++
+      } else {
+        keep.push(e)
+      }
+    }
+    this.queue = keep
+    return cancelled
+  }
+
+  enqueue(task: () => Promise<T>, origin: ThumbOrigin): Promise<T> {
+    return new Promise<T>((resolve) => {
+      let cancelled = false
+      const entry: QueueEntry<T> = {
+        origin,
+        settle: () => {
+          cancelled = true
+          resolve(this.cancelledValue)
+        },
+        run: async () => {
+          this.running++
+          try {
+            if (cancelled) {
+              resolve(this.cancelledValue)
+              return
+            }
+            resolve(await this.runWithTimeout(task))
+          } catch {
+            // 生成失败/超时统一按取消值收尾（前端显示占位，重进会重试）
+            resolve(this.cancelledValue)
+          } finally {
+            this.running--
+            this.pump()
+          }
+        },
+      }
+      // 队列上限：background 超限快速失败（browse 由代际作废清空，不受限）
+      if (this.queue.length >= this.queueMax && origin === 'background') {
+        resolve(this.cancelledValue)
+        return
+      }
+      // 优先级：browse 插队队首（新文件夹优先），background 排队尾
+      if (origin === 'browse') {
+        this.queue.unshift(entry)
+      } else {
+        this.queue.push(entry)
+      }
+      this.pump()
+    })
+  }
+
+  private runWithTimeout(task: () => Promise<T>): Promise<T> {
+    return new Promise<T>((res, rej) => {
+      const timer = setTimeout(() => {
+        void logWarn(`[thumbnail] 生成超时（${this.taskTimeoutMs}ms），按失败处理`)
+        rej(new Error('缩略图生成超时'))
+      }, this.taskTimeoutMs)
+      timer.unref?.()
+      task().then(
+        (v) => {
+          clearTimeout(timer)
+          res(v)
+        },
+        (e) => {
+          clearTimeout(timer)
+          rej(e)
+        },
+      )
+    })
+  }
+
+  private pump(): void {
+    while (this.running < this.maxConcurrency && this.queue.length > 0) {
+      const next = this.queue.shift()
+      if (next) void next.run()
+    }
+  }
+}
+
+export class SharpThumbnailService implements ThumbnailProvider {
+  /** v2.4.2（修复 2）：限并发生成队列（browse 优先 + 代际作废 + 超时 + 上限） */
+  private readonly genQueue = new ThumbQueue<string>(4, TASK_TIMEOUT_MS, QUEUE_MAX)
+  /** v2.4.x 在途生成去重：同一路径并发请求共享一次生成（列表+预览同文件只生成一次） */
+  private pending = new Map<string, Promise<string>>()
 
   constructor(
     private workspace: WorkspaceService,
@@ -74,29 +215,9 @@ export class SharpThumbnailService implements ThumbnailProvider {
     return thumbnailPath(ws, filePath)
   }
 
-  private enqueue<T>(task: () => Promise<T>): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const run = async (): Promise<void> => {
-        this.running++
-        try {
-          resolve(await task())
-        } catch (e) {
-          reject(e)
-        } finally {
-          this.running--
-          this.pump()
-        }
-      }
-      this.queue.push(run)
-      this.pump()
-    })
-  }
-
-  private pump(): void {
-    while (this.running < this.MAX_CONCURRENCY && this.queue.length > 0) {
-      const next = this.queue.shift()
-      if (next) void next()
-    }
+  /** v2.4.2（修复 2）：作废所有排队中的浏览任务（切文件夹入口调用） */
+  cancelPendingBrowse(): void {
+    this.genQueue.cancelPendingBrowse()
   }
 
   /** 缩略图比源图新（mtime 命中）则复用，否则需重新生成 */
@@ -110,7 +231,7 @@ export class SharpThumbnailService implements ThumbnailProvider {
     }
   }
 
-  async ensureThumbnail(filePath: string): Promise<string> {
+  async ensureThumbnail(filePath: string, origin: ThumbOrigin = 'background'): Promise<string> {
     // v2.1.0 决策：只给图片生成缩略图。PDF 缩略图曾用隐藏窗口 PDFium 渲染（成本高、
     // 失败回退占位等于白做），且真实证书渲染有原生崩溃史——证书以预览（pdfjs）查看为准
     const type = classifyFileType(filePath)
@@ -135,23 +256,33 @@ export class SharpThumbnailService implements ThumbnailProvider {
       }
       return legacyThumb
     }
-    // 3. 生成
-    return this.enqueue(async () => {
-      try {
-        const outPath = newThumb || legacyThumb
-        // 延迟加载 sharp（首次生成缩略图时才加载原生库）+ 收紧 libvips 缓存
-        const sharp = await loadSharp()
-        await fsp.mkdir(path.dirname(outPath), { recursive: true })
-        await sharp(filePath, { limitInputPixels: false })
-          .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'inside', withoutEnlargement: true })
-          .jpeg({ quality: JPEG_QUALITY })
-          .toFile(outPath)
-        return outPath
-      } catch (err) {
-        console.error('[thumbnail] 生成失败:', filePath, err)
-        return ''
-      }
-    })
+    // 3. 生成（v2.4.x 在途去重：同一路径并发请求共享一次生成）
+    const inFlight = this.pending.get(filePath)
+    if (inFlight) return inFlight
+    const task = this.genQueue.enqueue(
+      async () => {
+        try {
+          const outPath = newThumb || legacyThumb
+          // 延迟加载 sharp（首次生成缩略图时才加载原生库）+ 收紧 libvips 缓存
+          const sharp = await loadSharp()
+          await fsp.mkdir(path.dirname(outPath), { recursive: true })
+          // v2.4.x：fastShrinkOnLoad 分载解码（默认开启）+ limitInputPixels 上限兜底
+          await sharp(filePath, { limitInputPixels: MAX_INPUT_PIXELS })
+            .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: JPEG_QUALITY })
+            .toFile(outPath)
+          return outPath
+        } catch (err) {
+          console.error('[thumbnail] 生成失败:', filePath, err)
+          return ''
+        } finally {
+          this.pending.delete(filePath)
+        }
+      },
+      origin,
+    )
+    this.pending.set(filePath, task)
+    return task
   }
 
   async thumbnailUrl(filePath: string): Promise<string> {
@@ -169,6 +300,11 @@ export class SharpThumbnailService implements ThumbnailProvider {
     if (!ws) return
     const paths = [this.newThumbPath(ws, filePath), this.legacyThumbPath(ws, filePath)].filter(Boolean)
     await Promise.all(paths.map((p) => fsp.rm(p, { force: true }).catch(() => {})))
+  }
+
+  /** v2.4.2（D2）：批量删除多个文件的缩略图（回收站 purge 目录类条目用） */
+  async removeThumbnails(files: string[]): Promise<void> {
+    await Promise.all(files.map((f) => this.removeThumbnail(f)))
   }
 
   async removeThumbnailsInDir(dir: string): Promise<void> {
@@ -193,4 +329,9 @@ export class SharpThumbnailService implements ThumbnailProvider {
     }
     await walk(dir)
   }
+}
+
+/** 超时告警日志（避免引入 electron 依赖，core 保持纯 TS 可测） */
+function logWarn(msg: string): void {
+  console.warn(`[main] ${msg}`)
 }

@@ -22,6 +22,8 @@ import type {
   ApiResult,
   AccountStatus,
   AiAction,
+  DeleteResult,
+  BatchMoveResult,
 } from "~/types";
 
 /**
@@ -70,9 +72,9 @@ export const api = {
     list: (req: FileListRequest) => qb.files.list(req as any) as Promise<ApiResult<FileEntry[]>>,
     import: (req: ImportFileRequest) => qb.files.import(req as any) as Promise<ApiResult<FileEntry[]>>,
     importCancel: (token: string) => qb.files.importCancel(token) as Promise<ApiResult<boolean>>,
-    delete: (paths: string[]) => qb.files.delete(paths) as Promise<ApiResult<boolean>>,
+    delete: (paths: string[]) => qb.files.delete(paths) as Promise<ApiResult<DeleteResult>>,
     rename: (req: FileRenameRequest) => qb.files.rename(req as any) as Promise<ApiResult<boolean>>,
-    move: (req: MoveFilesRequest) => qb.files.move(req as any) as Promise<ApiResult<FileEntry[]>>,
+    move: (req: MoveFilesRequest) => qb.files.move(req as any) as Promise<ApiResult<BatchMoveResult>>,
     copyFilesToClipboard: (paths: string[]) =>
       qb.files.copyFilesToClipboard(paths) as Promise<ApiResult<boolean>>,
     copyPaths: (paths: string[]) => qb.files.copyPaths(paths) as Promise<ApiResult<boolean>>,
@@ -90,8 +92,8 @@ export const api = {
       qb.files.openWithDefaultApp(path) as Promise<ApiResult<boolean>>,
   },
   metadata: {
-    get: (productSet: string, fileName: string) =>
-      qb.metadata.get(productSet, fileName) as Promise<ApiResult<FileMetadata>>,
+    get: (filePath: string) =>
+      qb.metadata.get(filePath) as Promise<ApiResult<FileMetadata>>,
     update: (req: MetadataUpdateRequest) =>
       qb.metadata.update(req as any) as Promise<ApiResult<boolean>>,
   },

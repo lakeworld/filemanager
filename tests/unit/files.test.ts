@@ -30,23 +30,24 @@ describe('文件导入与命名（对照原 files.go / app_test.go 链路）', (
     const src = path.join(ws, '..', 'src-banner.jpg')
     await fsp.writeFile(src, PNG_1PX)
 
-    const imported = await box.files.importFiles({
+    const result = await box.files.importFiles({
       source_paths: [src],
       target_product_set: '夏季T恤系列',
       target_folder: '主图',
       target_type: 'image',
       sub_folder: '主图',
     })
-    expect(imported).toHaveLength(1)
-    expect(imported[0].name).toBe('夏季T恤系列_主图_src-banner.jpg')
-    expect(imported[0].file_type).toBe('image')
+    expect(result.imported).toHaveLength(1)
+    expect(result.failed).toHaveLength(0)
+    expect(result.imported[0].name).toBe('夏季T恤系列_主图_src-banner.jpg')
+    expect(result.imported[0].file_type).toBe('image')
 
     // 文件真实落盘
-    const dest = path.join(ws, '产品集', '夏季T恤系列', '图包', '主图', imported[0].name)
+    const dest = path.join(ws, '产品集', '夏季T恤系列', '图包', '主图', result.imported[0].name)
     await expect(fsp.stat(dest)).resolves.toBeTruthy()
 
-    // 元数据记录了 added_at
-    const meta = await box.metadata.get('夏季T恤系列', imported[0].name)
+    // 元数据记录了 added_at（按路径推导 key）
+    const meta = await box.metadata.get(result.imported[0].path)
     expect(meta.added_at).toBeTruthy()
 
     // FileList 可见
@@ -77,14 +78,62 @@ describe('文件导入与命名（对照原 files.go / app_test.go 链路）', (
       target_type: 'image',
       sub_folder: '主图',
     }
-    const first = await box.files.importFiles(req)
-    const second = await box.files.importFiles(req)
+    const first = (await box.files.importFiles(req)).imported
+    const second = (await box.files.importFiles(req)).imported
     const names = [...first, ...second].map((f) => f.name)
     // 首次：img.png、img2.png；二次：img_1.png、img2_1.png
     expect(names[0]).toMatch(/系列A_主图_img\.png$/)
     expect(names[1]).toMatch(/系列A_主图_img2\.png$/)
     expect(names[2]).toMatch(/系列A_主图_img_1\.png$/)
     expect(names[3]).toMatch(/系列A_主图_img2_1\.png$/)
+  })
+
+  it('v2.4.2（I1）：单文件失败不中断整批——坏源跳过，其余导入成功', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '容错系列' })
+
+    const good = path.join(ws, '..', 'good.jpg')
+    const missing = path.join(ws, '..', 'does-not-exist.jpg')
+    await fsp.writeFile(good, PNG_1PX)
+
+    const result = await box.files.importFiles({
+      source_paths: [good, missing],
+      target_product_set: '容错系列',
+      target_folder: '主图',
+      target_type: 'image',
+      sub_folder: '主图',
+    })
+    expect(result.imported).toHaveLength(1)
+    expect(result.failed).toHaveLength(1)
+    expect(result.failed[0].path).toBe(missing)
+  })
+
+  it('v2.4.2（D1）：无扩展名文件冲突加 _1 不丢原名（LICENSE → LICENSE_1）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '无扩展名' })
+
+    const src = path.join(ws, '..', 'LICENSE')
+    await fsp.writeFile(src, 'MIT')
+    // 目标已存在同文件 → 冲突
+    const destDir = path.join(ws, '产品集', '无扩展名', '图包', '主图')
+    await fsp.mkdir(destDir, { recursive: true })
+    await fsp.writeFile(path.join(destDir, '无扩展名_主图_LICENSE'), 'MIT-OLD')
+
+    const result = await box.files.importFiles({
+      source_paths: [src],
+      target_product_set: '无扩展名',
+      target_folder: '主图',
+      target_type: 'image',
+      sub_folder: '主图',
+    })
+    // 旧实现 slice(0,-0) 会把文件名清空成 `_1`，这里必须保留原名
+    expect(result.imported[0].name).toBe('无扩展名_主图_LICENSE_1')
   })
 
   it('file:// 前缀路径兼容', async () => {
@@ -97,13 +146,13 @@ describe('文件导入与命名（对照原 files.go / app_test.go 链路）', (
     const src = path.join(ws, '..', 'x.pdf')
     await fsp.writeFile(src, '%PDF-1.4 test')
 
-    const imported = await box.files.importFiles({
+    const imported = (await box.files.importFiles({
       source_paths: [`file://${src}`],
       target_product_set: '兼容',
       target_folder: '3C',
       target_type: 'cert',
       sub_folder: '3C',
-    })
+    })).imported
     expect(imported[0].file_type).toBe('pdf')
   })
 
@@ -177,11 +226,14 @@ describe('文件导入与命名（对照原 files.go / app_test.go 链路）', (
     const destDir = path.join(ws, '产品集', '取消', '图包', '主图')
     const files = await fsp.readdir(destDir)
     expect(files).toHaveLength(2)
+    // 已导入文件的元数据也已落盘（批量写兜底 finally）
+    const store = await box.metadata.loadMetadataStore()
+    expect(Object.keys(store.files).length).toBe(2)
   })
 })
 
 describe('文件删除 / 重命名 / 越界防护', () => {
-  it('越界删除被拒绝', async () => {
+  it('v2.4.2（D5）：越界删除聚合为失败明细，不抛错不误删', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -189,7 +241,10 @@ describe('文件删除 / 重命名 / 越界防护', () => {
 
     const outside = path.join(os.tmpdir(), `qihebox-outside-${Date.now()}.jpg`)
     await fsp.writeFile(outside, 'x')
-    await expect(box.files.fileDelete([outside])).rejects.toThrow('只能删除工作区内的文件')
+    const r = await box.files.fileDelete([outside])
+    expect(r.deleted).toBe(0)
+    expect(r.failed).toHaveLength(1)
+    expect(r.failed[0].error).toContain('只能删除工作区内的文件')
   })
 
   it('重命名迁移元数据', async () => {
@@ -201,23 +256,25 @@ describe('文件删除 / 重命名 / 越界防护', () => {
 
     const src = path.join(ws, '..', 'old.jpg')
     await fsp.writeFile(src, PNG_1PX)
-    const imported = await box.files.importFiles({
+    const imported = (await box.files.importFiles({
       source_paths: [src],
       target_product_set: 'R系列',
       target_folder: '主图',
       target_type: 'image',
       sub_folder: '主图',
-    })
-    await box.metadata.update({ product_set: 'R系列', file_name: imported[0].name, cert_type: '3C', notes: 'n' })
+    })).imported
+    await box.metadata.update({ file_path: imported[0].path, cert_type: '3C', notes: 'n' })
 
     await box.files.renameFile({ path: imported[0].path, newName: 'newname.jpg' })
 
-    // 元数据迁移到新名
-    const meta = await box.metadata.get('R系列', 'newname.jpg')
+    // 元数据迁移到新路径 key
+    const newPath = path.join(path.dirname(imported[0].path), 'newname.jpg')
+    const meta = await box.metadata.get(newPath)
     expect(meta.cert_type).toBe('3C')
     // 旧 key 删除
     const store = await box.metadata.loadMetadataStore()
-    expect(Object.keys(store.files)).toContain(path.join('R系列', 'newname.jpg'))
+    expect(Object.keys(store.files)).toContain('R系列/图包/主图/newname.jpg')
+    expect(Object.keys(store.files)).not.toContain('R系列/图包/主图/old.jpg')
   })
 })
 
@@ -234,6 +291,9 @@ class SpyThumbs implements ThumbnailProvider {
   }
   async removeThumbnail(filePath: string): Promise<void> {
     this.removed.push(filePath)
+  }
+  async removeThumbnails(files: string[]): Promise<void> {
+    this.removed.push(...files)
   }
   async removeThumbnailsInDir(): Promise<void> {}
 }
@@ -253,16 +313,16 @@ describe('文件移动（moveFiles）', () => {
     productSet: string,
     subFolder: string,
     srcName: string,
-  ): Promise<{ entry: Awaited<ReturnType<BoxService['files']['importFiles']>>[number]; src: string }> {
+  ): Promise<{ entry: FileEntry; src: string }> {
     const src = path.join(ws, '..', srcName)
     await fsp.writeFile(src, PNG_1PX)
-    const imported = await box.files.importFiles({
+    const imported = (await box.files.importFiles({
       source_paths: [src],
       target_product_set: productSet,
       target_folder: subFolder,
       target_type: 'image',
       sub_folder: subFolder,
-    })
+    })).imported
     return { entry: imported[0], src }
   }
 
@@ -274,25 +334,26 @@ describe('文件移动（moveFiles）', () => {
     await box.workspace.productSetCreate({ name: 'M系列' })
 
     const { entry } = await importInto(box, ws, 'M系列', '主图', 'mv.jpg')
-    await box.metadata.update({ product_set: 'M系列', file_name: entry.name, tags: ['爆款'], notes: 'n' })
+    await box.metadata.update({ file_path: entry.path, tags: ['爆款'], notes: 'n' })
 
     const targetDir = path.join(ws, '产品集', 'M系列', '图包', '详情页')
     const moved = await box.files.moveFiles({ paths: [entry.path], targetDir })
 
-    expect(moved).toHaveLength(1)
-    expect(moved[0].path).toBe(path.join(targetDir, entry.name))
-    expect(moved[0].file_type).toBe('image')
+    expect(moved.moved).toHaveLength(1)
+    expect(moved.failed).toHaveLength(0)
+    expect(moved.moved[0].path).toBe(path.join(targetDir, entry.name))
+    expect(moved.moved[0].file_type).toBe('image')
     // 旧位置不存在、新位置存在
     await expect(fsp.stat(entry.path)).rejects.toThrow()
-    await expect(fsp.stat(moved[0].path)).resolves.toBeTruthy()
-    // 元数据保持（同产品集 key 不变）
-    const meta = await box.metadata.get('M系列', moved[0].name)
+    await expect(fsp.stat(moved.moved[0].path)).resolves.toBeTruthy()
+    // 元数据保持（同产品集 key 不变，按新路径读取）
+    const meta = await box.metadata.get(moved.moved[0].path)
     expect(meta.tags).toEqual(['爆款'])
     expect(meta.notes).toBe('n')
     // 缩略图：旧路径清理 + 图片新路径重生
     expect(thumbs.removed).toContain(entry.path)
-    expect(thumbs.ensured).toContain(moved[0].path)
-    expect(moved[0].thumbnail_path).toBeTruthy()
+    expect(thumbs.ensured).toContain(moved.moved[0].path)
+    expect(moved.moved[0].thumbnail_path).toBeTruthy()
   })
 
   it('跨产品集移动：元数据 key 迁移到新产品集名下', async () => {
@@ -304,18 +365,18 @@ describe('文件移动（moveFiles）', () => {
     await box.workspace.productSetCreate({ name: '系列乙' })
 
     const { entry } = await importInto(box, ws, '系列甲', '主图', 'cross.jpg')
-    await box.metadata.update({ product_set: '系列甲', file_name: entry.name, tags: ['T'], notes: 'cross' })
+    await box.metadata.update({ file_path: entry.path, tags: ['T'], notes: 'cross' })
 
     const targetDir = path.join(ws, '产品集', '系列乙', '图包', '主图')
-    await box.files.moveFiles({ paths: [entry.path], targetDir })
+    const moved = await box.files.moveFiles({ paths: [entry.path], targetDir })
 
     // 新 key 有元数据，旧 key 已删除
-    const meta = await box.metadata.get('系列乙', entry.name)
+    const meta = await box.metadata.get(moved.moved[0].path)
     expect(meta.tags).toEqual(['T'])
     expect(meta.notes).toBe('cross')
     const store = await box.metadata.loadMetadataStore()
-    expect(store.files[path.join('系列乙', entry.name)]).toBeTruthy()
-    expect(store.files[path.join('系列甲', entry.name)]).toBeUndefined()
+    expect(store.files[`系列乙/图包/主图/${entry.name}`]).toBeTruthy()
+    expect(store.files[`系列甲/图包/主图/${entry.name}`]).toBeUndefined()
   })
 
   it('目标目录同名冲突：自动加 _1 序号', async () => {
@@ -331,13 +392,13 @@ describe('文件移动（moveFiles）', () => {
     await fsp.writeFile(path.join(targetDir, entry.name), PNG_1PX)
 
     const moved = await box.files.moveFiles({ paths: [entry.path], targetDir })
-    expect(moved).toHaveLength(1)
+    expect(moved.moved).toHaveLength(1)
     const base = path.basename(entry.name, path.extname(entry.name))
-    expect(moved[0].name).toBe(`${base}_1${path.extname(entry.name)}`)
+    expect(moved.moved[0].name).toBe(`${base}_1${path.extname(entry.name)}`)
     // 源已移走，目标目录两个文件
     await expect(fsp.stat(entry.path)).rejects.toThrow()
     const files = await fsp.readdir(targetDir)
-    expect(files).toContain(moved[0].name)
+    expect(files).toContain(moved.moved[0].name)
   })
 
   it('目标目录在工作区外：拒绝（源文件越界同样拒绝）', async () => {
@@ -352,12 +413,16 @@ describe('文件移动（moveFiles）', () => {
     await expect(box.files.moveFiles({ paths: [entry.path], targetDir: outside })).rejects.toThrow(
       '只能移动到工作区内的目录',
     )
-    // 目标在工作区内但源越界 → 拒绝且不产生任何文件
+    // 目标在工作区内但源越界 → 聚合为失败明细，不产生任何文件
     const outsideSrc = path.join(os.tmpdir(), `qihebox-move-outside-${Date.now()}.jpg`)
     await fsp.writeFile(outsideSrc, PNG_1PX)
-    await expect(
-      box.files.moveFiles({ paths: [outsideSrc], targetDir: path.join(ws, '产品集', '外移系列', '图包', '详情页') }),
-    ).rejects.toThrow('只能移动工作区内的文件')
+    const r = await box.files.moveFiles({
+      paths: [outsideSrc],
+      targetDir: path.join(ws, '产品集', '外移系列', '图包', '详情页'),
+    })
+    expect(r.moved).toHaveLength(0)
+    expect(r.failed).toHaveLength(1)
+    expect(r.failed[0].error).toContain('只能移动工作区内的文件')
   })
 
   it('跨设备回退：rename 抛 EXDEV 时走 copyFile + rm', async () => {
@@ -375,10 +440,10 @@ describe('文件移动（moveFiles）', () => {
       .mockRejectedValueOnce(Object.assign(new Error('cross-device link'), { code: 'EXDEV' }))
     try {
       const moved = await box.files.moveFiles({ paths: [entry.path], targetDir })
-      expect(moved).toHaveLength(1)
+      expect(moved.moved).toHaveLength(1)
       // 源被删除、目标存在
       await expect(fsp.stat(entry.path)).rejects.toThrow()
-      await expect(fsp.stat(moved[0].path)).resolves.toBeTruthy()
+      await expect(fsp.stat(moved.moved[0].path)).resolves.toBeTruthy()
     } finally {
       renameSpy.mockRestore()
     }
@@ -405,13 +470,13 @@ describe('导入目录（v2.3.3 P2：递归平铺导入）', () => {
     await fsp.writeFile(path.join(srcDir, 'sub', '.in-sub.png'), PNG_1PX)
     await fsp.writeFile(path.join(srcDir, '.hidden-dir', 'x.png'), PNG_1PX)
 
-    const imported = await box.files.importFiles({
+    const imported = (await box.files.importFiles({
       source_paths: [srcDir],
       target_product_set: '目录导入',
       target_folder: '主图',
       target_type: 'image',
       sub_folder: '主图',
-    })
+    })).imported
     // 仅 3 个非隐藏文件被导入；隐藏文件 / 隐藏目录内文件 / 空目录全部跳过
     expect(imported).toHaveLength(3)
     const names = imported.map((f) => f.name).sort()
@@ -459,7 +524,7 @@ describe('导入目录（v2.3.3 P2：递归平铺导入）', () => {
     await fsp.writeFile(file, PNG_1PX)
 
     const progress: Array<{ done: number; total: number }> = []
-    const imported = await box.files.importFiles(
+    const imported = (await box.files.importFiles(
       {
         source_paths: [srcDir, file],
         target_product_set: '混排',
@@ -468,7 +533,7 @@ describe('导入目录（v2.3.3 P2：递归平铺导入）', () => {
         sub_folder: '主图',
       },
       { onProgress: (done, total) => progress.push({ done, total }) },
-    )
+    )).imported
     expect(imported).toHaveLength(3)
     expect(progress).toEqual([
       { done: 1, total: 3 },

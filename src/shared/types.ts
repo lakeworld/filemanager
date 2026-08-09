@@ -127,12 +127,35 @@ export interface DeleteSubfolderRequest {
 }
 
 export interface MetadataUpdateRequest {
-  product_set: string
-  file_name: string
+  /** v2.4.2：改为绝对文件路径（主进程按路径推导 产品集/图包|证书/子文件夹，元数据 key 含子文件夹、跨平台分隔符统一） */
+  file_path: string
   cert_type?: string
   expiry_date?: string
   tags?: string[]
   notes?: string
+}
+
+// —— v2.4.2：批量操作的聚合结果（部分失败不回滚，明细可见）——
+
+export interface FailedItem {
+  /** 失败的文件绝对路径或导入源路径 */
+  path: string
+  error: string
+}
+
+export interface ImportResult {
+  imported: FileEntry[]
+  failed: FailedItem[]
+}
+
+export interface BatchMoveResult {
+  moved: FileEntry[]
+  failed: FailedItem[]
+}
+
+export interface DeleteResult {
+  deleted: number
+  failed: FailedItem[]
 }
 
 // —— 仪表盘 / 搜索 ——

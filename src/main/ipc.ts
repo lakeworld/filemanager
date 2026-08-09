@@ -1,6 +1,13 @@
 /**
  * IPC 注册层：薄壳，只做参数透传与 ApiResult 包装（无业务逻辑）。
  * 业务全部在 core/（BoxService），保证可测性。
+ *
+ * v2.4.2（上线前批次一）改动：
+ * - files:list 入口调用 box.beginBrowse()：作废旧文件夹积压的浏览缩略图任务（修复 2）
+ * - 导入事件全部经 sendTo 守卫（R2：窗口被休眠销毁后不再抛 "Object has been destroyed" 中断导入）
+ * - 导入完成事件上报 failed 明细（I1）；saveTextFile 加工作区/对话框白名单校验（S2）
+ * - 路径类 handler 统一升级 isPathInsideWorkspaceReal（D7）
+ * - metadata get/update 改为按文件路径（D3+D4）；startDrag 缩略图 150ms 快速命中（R6）
  */
 import { ipcMain, dialog, app, BrowserWindow, clipboard as electronClipboard, nativeImage } from 'electron'
 import path from 'node:path'
@@ -10,7 +17,7 @@ import { copyFilesToClipboard } from './clipboard'
 import { showFilesInExplorer } from './explorer'
 import { workspaceFileUrl, thumbnailFileUrl } from './protocol'
 import { checkUpdate, downloadUpdate, applyUpdate, UpdateInfo } from './updater'
-import { isPathInsideWorkspace, classifyFileType } from './core/paths'
+import { isPathInsideWorkspaceReal, classifyFileType } from './core/paths'
 import { FilesService, ImportCancelledError } from './core/files'
 import { openFileWithDefaultApp } from './open'
 import {
@@ -48,6 +55,20 @@ async function handle<T>(fn: () => Promise<T> | T): Promise<ApiResult<T>> {
   }
 }
 
+/**
+ * v2.4.2（R2）：向窗口发送事件的安全通道——窗口已被休眠销毁（close → 托盘 → 2 分钟 → destroy）
+ * 时 webContents.send 会抛 "Object has been destroyed"，旧实现会让异常同步传播进导入循环、
+ * 静默中断导入。此处统一守卫 + try/catch。
+ */
+function sendTo(win: BrowserWindow | null, channel: string, payload: unknown): void {
+  if (!win || win.isDestroyed()) return
+  try {
+    win.webContents.send(channel, payload)
+  } catch {
+    // 发送瞬间被销毁的竞态兜底
+  }
+}
+
 /** CSV 模板（对照原 csv.go） */
 function csvTemplate(): string {
   return '产品集\n示例产品集\n'
@@ -55,6 +76,20 @@ function csvTemplate(): string {
 
 /** v2.3.0：导入取消标记集合（渲染层 importCancel(token) 置位，importFiles 循环检测） */
 const importCancelled = new Set<string>()
+
+/**
+ * v2.4.2（S2）：saveTextFile 白名单——记录最近一次系统保存对话框选出的路径，
+ * 该路径（或工作区内路径）之外的写入一律拒绝。上限 20 条防无界。
+ */
+const recentSavePaths = new Set<string>()
+function rememberSavePath(p: string): void {
+  if (!p) return
+  recentSavePaths.add(p)
+  if (recentSavePaths.size > 20) {
+    const first = recentSavePaths.values().next().value
+    if (first !== undefined) recentSavePaths.delete(first)
+  }
+}
 
 export function registerIpc(box: BoxService, account: AccountService): void {
   // —— 账号（v2.2.0：可选登录复用 ERP 账号，解锁 AI；心跳统计活跃）——
@@ -90,38 +125,47 @@ export function registerIpc(box: BoxService, account: AccountService): void {
   ipcMain.handle('qihebox:productSets:updateInfo', (_e, req) => handle(() => box.workspace.updateProductSetInfo(req)))
 
   // —— 文件 ——
-  ipcMain.handle('qihebox:files:list', (_e, req) => handle(() => box.files.fileList(req)))
+  ipcMain.handle('qihebox:files:list', (_e, req) =>
+    handle(async () => {
+      // v2.4.2（修复 2）：切文件夹 → 作废旧文件夹积压的浏览缩略图任务，新文件夹优先拿槽位
+      box.beginBrowse()
+      return box.files.fileList(req)
+    }),
+  )
   ipcMain.handle('qihebox:files:import', async (e, req) => {
     // 与原 Go goroutine 模式一致：立即返回，完成后发 import:complete 事件
     const win = BrowserWindow.fromWebContents(e.sender)
     const token: string | undefined = req?.cancelToken
     box.files
       .importFiles(req, {
-        onProgress: (done, total) => {
-          win?.webContents.send('qihebox:event:import:progress', { done, total })
-        },
+        onProgress: (done, total) => sendTo(win, 'qihebox:event:import:progress', { done, total }),
         isCancelled: () => !!token && importCancelled.has(token),
       })
-      .then((imported) => {
-        win?.webContents.send('qihebox:event:import:complete', {
+      .then((result) => {
+        // v2.4.2（I1）：完成事件携带失败明细；单文件失败不再整批中断
+        sendTo(win, 'qihebox:event:import:complete', {
           success: true,
-          count: imported.length,
+          count: result.imported.length,
+          failed: result.failed,
           cancelled: false,
           error: null,
         })
       })
       .catch((err: unknown) => {
         if (err instanceof ImportCancelledError) {
-          win?.webContents.send('qihebox:event:import:complete', {
+          sendTo(win, 'qihebox:event:import:complete', {
             success: false,
             count: err.imported.length,
+            failed: [],
             cancelled: true,
             error: null,
           })
         } else {
-          win?.webContents.send('qihebox:event:import:complete', {
+          // 整批性失败（源展开错误等）：count=0 是真实值，不再误导
+          sendTo(win, 'qihebox:event:import:complete', {
             success: false,
             count: 0,
+            failed: [],
             cancelled: false,
             error: err instanceof Error ? err.message : String(err),
           })
@@ -143,29 +187,38 @@ export function registerIpc(box: BoxService, account: AccountService): void {
   ipcMain.handle('qihebox:files:rename', (_e, req) => handle(() => box.files.renameFile(req)))
   ipcMain.handle('qihebox:files:move', (_e, req) => handle(() => box.files.moveFiles(req)))
   ipcMain.handle('qihebox:files:copyFilesToClipboard', (_e, paths: string[]) =>
-    handle(() => {
+    handle(async () => {
       const ws = box.workspace.currentWorkspacePath()
       if (!ws) throw new Error('未打开工作区')
       if (!paths || paths.length === 0) throw new Error('没有选择文件')
       for (const p of paths) {
-        if (!isPathInsideWorkspace(ws, p)) throw new Error('只能复制工作区内的文件')
+        if (!(await isPathInsideWorkspaceReal(ws, p))) throw new Error('只能复制工作区内的文件')
       }
       return copyFilesToClipboard(paths)
     }),
   )
   ipcMain.handle('qihebox:files:showFilesInExplorer', (_e, paths: string[]) =>
-    handle(() => {
+    handle(async () => {
       const ws = box.workspace.currentWorkspacePath()
       if (!ws) throw new Error('未打开工作区')
       if (!paths || paths.length === 0) throw new Error('没有选择文件')
       for (const p of paths) {
-        if (!isPathInsideWorkspace(ws, p)) throw new Error('只能显示工作区内的文件')
+        if (!(await isPathInsideWorkspaceReal(ws, p))) throw new Error('只能显示工作区内的文件')
       }
       return showFilesInExplorer(paths)
     }),
   )
   ipcMain.handle('qihebox:files:saveTextFile', (_e, filePath: string, content: string) =>
-    handle(() => FilesService.writeFileUtf8(filePath, content)),
+    handle(async () => {
+      const ws = box.workspace.currentWorkspacePath()
+      if (!ws) throw new Error('未打开工作区')
+      const p = String(filePath ?? '').trim()
+      if (!p) throw new Error('保存路径不能为空')
+      // v2.4.2（S2）：只允许「工作区内」或「最近一次系统保存对话框选出的路径」（模板导出场景）
+      const insideWs = await isPathInsideWorkspaceReal(ws, p)
+      if (!insideWs && !recentSavePaths.has(p)) throw new Error('保存路径不在工作区内')
+      return FilesService.writeFileUtf8(p, content)
+    }),
   )
   ipcMain.handle('qihebox:files:createSubfolder', (_e, req) => handle(() => box.files.createSubfolder(req)))
   ipcMain.handle('qihebox:files:deleteSubfolder', (_e, req) => handle(() => box.files.deleteSubfolder(req)))
@@ -179,10 +232,10 @@ export function registerIpc(box: BoxService, account: AccountService): void {
     handle(async () => {
       const ws = box.workspace.currentWorkspacePath()
       if (!ws) throw new Error('未打开工作区')
-      if (!isPathInsideWorkspace(ws, filePath)) throw new Error('只能访问工作区内的文件')
+      if (!(await isPathInsideWorkspaceReal(ws, filePath))) throw new Error('只能访问工作区内的文件')
       const t = classifyFileType(filePath)
       if (t !== 'image' && t !== 'pdf') return ''
-      const thumb = await box.ensureThumbnailFor(filePath)
+      const thumb = await box.ensureThumbnailFor(filePath, 'browse')
       return thumb ? thumbnailFileUrl(thumb) : ''
     }),
   )
@@ -198,21 +251,24 @@ export function registerIpc(box: BoxService, account: AccountService): void {
       if (!ws) throw new Error('未打开工作区')
       if (!paths || paths.length === 0) throw new Error('没有选择文件')
       for (const p of paths) {
-        if (!isPathInsideWorkspace(ws, p)) throw new Error('只能拖出工作区内的文件')
+        if (!(await isPathInsideWorkspaceReal(ws, p))) throw new Error('只能拖出工作区内的文件')
       }
       const win = BrowserWindow.fromWebContents(e.sender)
       if (!win) throw new Error('窗口不存在')
       // v2.3.0 ghost 图：首文件缩略图磁盘缓存（image/pdf 才有）作为拖拽图标，跟手看到真实图
+      // v2.4.2（R6）：只做快速缓存命中判断（150ms 内拿不到直接用 logo 发起拖拽），
+      // 不等生成队列/慢文件系统——拖拽即时响应，不因缩略图生成积压而「没反应」
       let icon = nativeImage.createFromPath(path.join(app.getAppPath(), 'build/logo.png'))
-      try {
-        const thumb = await box.ensureThumbnailFor(paths[0])
-        if (thumb) {
-          const t = nativeImage.createFromPath(thumb)
-          if (!t.isEmpty()) icon = t
-        }
-      } catch {
-        // 缩略图获取失败兜底 logo
-      }
+      const thumbReady = box
+        .ensureThumbnailFor(paths[0], 'background')
+        .then((thumb) => {
+          if (thumb) {
+            const t = nativeImage.createFromPath(thumb)
+            if (!t.isEmpty()) icon = t
+          }
+        })
+        .catch(() => {})
+      await Promise.race([thumbReady, new Promise((r) => setTimeout(r, 150))])
       // 原生文件拖出（file 必填且指向首文件；files 支持多文件，多文件由系统显示叠影）
       win.webContents.startDrag({ file: paths[0], files: paths, icon })
     }),
@@ -221,17 +277,18 @@ export function registerIpc(box: BoxService, account: AccountService): void {
     handle(() => box.files.resolveWorkspaceFile(filePath).then(() => workspaceFileUrl(filePath))),
   )
   ipcMain.handle('qihebox:files:openWithDefaultApp', (_e, filePath: string) =>
-    handle(() => {
+    handle(async () => {
       const ws = box.workspace.currentWorkspacePath()
       if (!ws) throw new Error('未打开工作区')
-      if (!isPathInsideWorkspace(ws, filePath)) throw new Error('只能打开工作区内的文件')
+      if (!(await isPathInsideWorkspaceReal(ws, filePath))) throw new Error('只能打开工作区内的文件')
       return openFileWithDefaultApp(filePath)
     }),
   )
 
   // —— 元数据 ——
-  ipcMain.handle('qihebox:metadata:get', (_e, productSet: string, fileName: string) =>
-    handle(() => box.metadata.get(productSet, fileName)),
+  // v2.4.2（D3+D4）：按文件绝对路径读写（key 含子文件夹、跨平台分隔符统一）
+  ipcMain.handle('qihebox:metadata:get', (_e, filePath: string) =>
+    handle(() => box.metadata.get(String(filePath ?? ''))),
   )
   ipcMain.handle('qihebox:metadata:update', (_e, req) => handle(() => box.metadata.update(req)))
 
@@ -305,6 +362,8 @@ export function registerIpc(box: BoxService, account: AccountService): void {
       }
       const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
       if (r.canceled || !r.filePath) return ''
+      // v2.4.2（S2）：记录用户显式选出的保存路径（saveTextFile 白名单）
+      rememberSavePath(r.filePath)
       return r.filePath
     }),
   )

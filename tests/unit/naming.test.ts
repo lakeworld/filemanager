@@ -59,4 +59,12 @@ describe('resolveConflictName', () => {
     const name = await resolveConflictName(dir, 'a.jpg', '_{n}', '.jpg')
     expect(name).toBe('a.jpg')
   })
+
+  it('v2.4.2（D1）：无扩展名文件冲突 → 原名保留 + 序号后缀（LICENSE → LICENSE_1）', async () => {
+    const dir = await fsp.mkdtemp('/tmp/qihebox-naming-')
+    await fsp.writeFile(path.join(dir, 'LICENSE'), 'x')
+    const name = await resolveConflictName(dir, 'LICENSE', '_{n}', '')
+    // 旧实现 slice(0,-0) 会清空整个文件名得到 `_1`，这里必须保留 LICENSE 前缀
+    expect(name).toBe('LICENSE_1')
+  })
 })

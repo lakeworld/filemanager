@@ -32,6 +32,12 @@ export default defineConfig({
         '~': path.resolve(__dirname, 'src/renderer/src'),
       },
     },
+    // v2.4.2（P1-P3）：pdfjs-dist 排除预打包——vite optimizeDeps 会给 worker 注入
+    // `import "/@vite/client"`，从 blob: URL 建模块 worker 时无法解析该裸路径 →
+    // "Setting up fake worker failed"，PDF 在 dev 下打不开。排除后 worker 保持原始源码。
+    optimizeDeps: {
+      exclude: ['pdfjs-dist'],
+    },
     plugins: [solidPlugin()],
     css: {
       postcss: {

@@ -13,6 +13,7 @@ export class FakeThumbs implements ThumbnailProvider {
     return ''
   }
   async removeThumbnail(): Promise<void> {}
+  async removeThumbnails(): Promise<void> {}
   async removeThumbnailsInDir(): Promise<void> {}
 }
 

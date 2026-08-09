@@ -32,6 +32,9 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
+// v2.4.2：loadAllCerts 代数守卫——切工作区后丢弃过期请求的返回，防止旧结果覆盖新数据
+let certLoadSeq = 0;
+
 export default function Certs() {
   const navigate = useNavigate();
   const [items, setItems] = createSignal<CertItem[]>([]);
@@ -42,8 +45,8 @@ export default function Certs() {
   const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
   const [actionMessage, setActionMessage] = createSignal("");
   const contextMenu = useContextMenu<string>();
-  // v2.4.1：单击选择 / 双击打开（单击延迟 250ms，双击清除）
-  let clickTimer: number | undefined;
+  // v2.4.2：证书到期日缓存（path → expiry_date），用于卡片徽标
+  const [expiries, setExpiries] = createSignal<Record<string, string>>({});
 
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
 
@@ -67,8 +70,10 @@ export default function Certs() {
 
   const loadAllCerts = async () => {
     if (!currentWorkspace()) return;
+    const seq = ++certLoadSeq;
     const result = await api.productSets.list();
     if (!result.success || !result.data) return;
+    if (seq !== certLoadSeq) return;
 
     const all: CertItem[] = [];
     for (const ps of result.data) {
@@ -78,6 +83,7 @@ export default function Certs() {
           file_type: "cert",
           sub_folder: sub,
         });
+        if (seq !== certLoadSeq) return;
         if (fileResult.success && fileResult.data) {
           for (const f of fileResult.data) {
             all.push({ ...f, productSet: ps.name, subFolder: sub });
@@ -87,6 +93,17 @@ export default function Certs() {
     }
     setItems(all);
     setSelectedPaths([]);
+
+    // v2.4.2：批量拉取每张证书的到期日（成功且 expiry_date 非空才记录）
+    const map: Record<string, string> = {};
+    await Promise.all(
+      all.map(async (c) => {
+        const r = await api.metadata.get(c.path);
+        if (r.success && r.data?.expiry_date) map[c.path] = r.data.expiry_date;
+      }),
+    );
+    if (seq !== certLoadSeq) return;
+    setExpiries(map);
   };
 
   createEffect(() => {
@@ -123,6 +140,16 @@ export default function Certs() {
     setSelectedPaths((prev) =>
       prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]
     );
+  };
+
+  // v2.4.2：到期徽标——距到期日 ≤30 天或已过期标红
+  const expiryInfo = (path: string) => {
+    const d = expiries()[path];
+    if (!d) return null;
+    const t = new Date(d + "T00:00:00").getTime();
+    if (Number.isNaN(t)) return null;
+    const days = Math.ceil((t - Date.now()) / 86400000);
+    return { label: days <= 0 ? `${d}（已过期）` : `${d}（剩 ${days} 天）`, urgent: days <= 30 };
   };
 
   const selectAllVisible = () => {
@@ -270,8 +297,13 @@ export default function Certs() {
                 class={`card p-4 flex items-center gap-4 cursor-pointer select-none hover:shadow-card-hover transition-all ${selectedPaths().includes(cert.path) ? "border-primary-500 bg-primary-50" : ""}`}
                 draggable={true}
                 onDragStart={(e) => handleDragOut(e, cert.path, selectedPaths())}
-                onContextMenu={(e) => contextMenu.open(e, cert.path)}
-                onClick={() => openPreview(cert, { onDelete: loadAllCerts })}
+                onContextMenu={(e) => {
+                  // v2.4.2：右键——目标未选中时先单选它，菜单作用于该文件
+                  if (!selectedPaths().includes(cert.path)) setSelectedPaths([cert.path]);
+                  contextMenu.open(e, cert.path);
+                }}
+                onClick={() => toggleSelection(cert.path)}
+                onDblClick={() => openPreview(cert, { onDelete: loadAllCerts })}
               >
                 <div class="w-12 h-12 rounded-lg bg-orange-50 flex items-center justify-center text-2xl overflow-hidden shrink-0">
                   <FileThumbnail filePath={cert.path} fileType={cert.file_type} class="w-full h-full object-cover" />
@@ -280,6 +312,13 @@ export default function Certs() {
                   <div class="font-medium truncate">{cert.name}</div>
                   <div class="text-xs text-surface-400 mt-1">{cert.productSet} / {cert.subFolder}</div>
                   <div class="text-xs text-surface-400">{formatBytes(cert.size)} · {cert.modified}</div>
+                  <Show when={expiryInfo(cert.path)}>
+                    {(info) => (
+                      <div class={`text-xs mt-1 ${info().urgent ? "text-red-600 font-medium" : "text-amber-600"}`}>
+                        ⚠️ {info().label}
+                      </div>
+                    )}
+                  </Show>
                 </div>
                 <input
                   type="checkbox"

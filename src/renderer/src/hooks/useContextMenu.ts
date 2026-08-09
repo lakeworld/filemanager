@@ -15,9 +15,11 @@ export function useContextMenu<T>() {
   const [y, setY] = createSignal(0);
   const [payload, setPayload] = createSignal<T | null>(null);
 
-  /** 打开菜单（内部 preventDefault，阻止浏览器默认右键菜单） */
+  /** 打开菜单（阻止浏览器默认右键菜单；stopPropagation 阻止冒泡到 window 的关闭监听器——
+   *  v2.4.2：旧实现事件继续冒泡 → 菜单刚 open 就被 window contextmenu 监听器立即 close，右键等于不可用） */
   const open = (e: MouseEvent, p: T) => {
     e.preventDefault();
+    e.stopPropagation();
     setShow(true);
     setX(e.clientX);
     setY(e.clientY);

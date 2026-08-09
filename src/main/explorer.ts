@@ -101,8 +101,10 @@ async function showFilesWindows(paths: string[]): Promise<void> {
     groups.get(dir)!.push(p)
   }
   // PowerShell 调 SHOpenFolderAndSelectItems 批量选中（Add-Type C#）
+  // v2.4.2（S3）：文件名改单引号字符串并转义 `'`（旧实现 JSON.stringify 产出双引号字符串，
+  // 会被 PowerShell 做 $()/反引号插值 → 文件名含 $ 时命令注入）
   for (const [dir, files] of groups) {
-    const fileList = files.map((f) => JSON.stringify(path.basename(f))).join(',')
+    const fileList = files.map((f) => `'${path.basename(f).replace(/'/g, "''")}'`).join(',')
     const script = `
 Add-Type -TypeDefinition @"
 using System;

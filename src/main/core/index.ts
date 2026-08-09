@@ -13,7 +13,7 @@ import { FilesService, ThumbnailProvider } from './files'
 import { DashboardService } from './dashboard'
 import { SearchService } from './search'
 import { XlsxService } from './xlsx'
-import { PRODUCT_SETS_DIR, isPathInsideWorkspace, classifyFileType } from './paths'
+import { PRODUCT_SETS_DIR, isPathInsideWorkspaceReal, classifyFileType } from './paths'
 import { TagService } from './tags'
 import { TrashService } from './trash'
 import path from 'node:path'
@@ -60,12 +60,20 @@ export class BoxService {
   }
 
   /** 确保图片/PDF 缩略图存在（缺失自动生成，mtime 命中直接返回），返回缩略图路径 */
-  async ensureThumbnailFor(filePath: string): Promise<string> {
+  async ensureThumbnailFor(filePath: string, origin: 'browse' | 'background' = 'browse'): Promise<string> {
     const ws = this.workspace.currentWorkspacePath()
     if (!ws) throw new Error('未打开工作区')
-    if (!isPathInsideWorkspace(ws, filePath)) throw new Error('只能访问工作区内的文件')
+    if (!(await isPathInsideWorkspaceReal(ws, filePath))) throw new Error('只能访问工作区内的文件')
     const t = classifyFileType(filePath)
     if (t !== 'image' && t !== 'pdf') return ''
-    return this.thumbs.ensureThumbnail(filePath)
+    return this.thumbs.ensureThumbnail(filePath, origin)
+  }
+
+  /**
+   * v2.4.2（修复 2）：切文件夹入口调用——作废所有排队中的浏览缩略图任务，
+   * 旧文件夹积压立即清空，新文件夹请求优先拿到生成槽位（根治切文件夹后图片长时间不渲染）。
+   */
+  beginBrowse(): void {
+    this.thumbs.cancelPendingBrowse?.()
   }
 }

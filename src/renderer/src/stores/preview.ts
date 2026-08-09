@@ -26,8 +26,11 @@ const [previewError, setPreviewError] = createSignal("");
 const [previewContext, setPreviewContext] = createSignal<PreviewContext>({});
 const [metadata, setMetadata] = createSignal<FileMetadata>({ ...defaultMetadata });
 
-const loadMetadata = async (file: FileEntry, productSet: string) => {
-  const result = await api.metadata.get(productSet, file.name);
+const loadMetadata = async (file: FileEntry) => {
+  // v2.4.2：主进程按文件绝对路径推导元数据 key（含子文件夹），不再传 productSet/fileName
+  const result = await api.metadata.get(file.path);
+  // v2.4.2（批次二）：序号守卫——连开多个文件时，慢返回的旧文件元数据不得覆盖当前预览状态
+  if (previewFile()?.path !== file.path) return;
   if (result.success && result.data) {
     setMetadata(result.data);
   } else {
@@ -46,10 +49,12 @@ export const openPreview = async (file: FileEntry, context?: PreviewContext) => 
   setMetadata({ ...defaultMetadata });
 
   if (ctx.productSet) {
-    loadMetadata(file, ctx.productSet);
+    loadMetadata(file);
   }
 
   const urlResult = await api.files.workspaceUrl(file.path);
+  // v2.4.2（批次二）：等待期间用户已打开其他文件 → 丢弃过期结果，不覆盖
+  if (previewFile()?.path !== file.path) return;
   if (urlResult.success && urlResult.data) {
     setPreviewUrl(urlResult.data);
   } else {
@@ -68,9 +73,9 @@ export const saveCurrentMetadata = async () => {
   const productSet = previewContext().productSet;
   if (!file || !productSet) return false;
 
+  // v2.4.2：元数据 key 由主进程按 file_path 推导（含子文件夹），无需再传 product_set/file_name
   const result = await api.metadata.update({
-    product_set: productSet,
-    file_name: file.name,
+    file_path: file.path,
     cert_type: metadata().cert_type,
     expiry_date: metadata().expiry_date,
     tags: metadata().tags,
@@ -78,7 +83,7 @@ export const saveCurrentMetadata = async () => {
   });
 
   if (result.success) {
-    loadMetadata(file, productSet);
+    loadMetadata(file);
     return true;
   }
   return false;

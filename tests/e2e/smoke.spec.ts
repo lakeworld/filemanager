@@ -243,4 +243,98 @@ test.describe('qihe-box e2e', () => {
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
+
+  test('切换子文件夹：缩略图真实加载，无占位残留（UI 冒烟）', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-e2e-switch-'))
+    const sharp = (await import('sharp')).default
+    const makeImg = async (name: string, color: { r: number; g: number; b: number }) => {
+      const p = path.join(wsDir, '..', `${name}-${Date.now()}.png`)
+      await sharp({ create: { width: 320, height: 240, channels: 3, background: color } })
+        .png()
+        .toFile(p)
+      return p
+    }
+    const imgMain = await makeImg('main', { r: 30, g: 144, b: 255 })
+    const imgDetail = await makeImg('detail', { r: 255, g: 99, b: 71 })
+
+    const createRes = await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    expect(createRes.success).toBe(true)
+    await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: '丝滑系列' }))
+
+    const importTo = async (src: string, subFolder: string) => {
+      const ev = await page.evaluate(
+        async ({ src, subFolder }) => {
+          const qb = (window as any).qihebox
+          return new Promise((resolve) => {
+            const unsub = qb.events.on('import:complete', (data: any) => {
+              unsub()
+              resolve(data)
+            })
+            void qb.files.import({
+              source_paths: [src],
+              target_product_set: '丝滑系列',
+              target_type: 'image',
+              sub_folder: subFolder,
+            })
+          })
+        },
+        { src, subFolder },
+      ) as { success: boolean }
+      expect(ev.success).toBe(true)
+    }
+    await importTo(imgMain, '主图')
+    await importTo(imgDetail, '详情页')
+
+    // 驱动路由进入文件浏览页（history 模式：pushState + popstate）
+    const goRoute = (sub: string) =>
+      page.evaluate(async (sub) => {
+        const route = `/files/image/${encodeURIComponent('丝滑系列')}/${encodeURIComponent(sub)}`
+        window.history.pushState({}, '', route)
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      }, sub)
+
+    // 目标文件夹经 files:list 得到的图片数——网格内缩略图数量必须与之对应。
+    // 旧实现切文件夹时 count 冻结/行死切片会残留旧文件夹的 img，数量偏多即被这里抓住。
+    const thumbCountIn = async (sub: string): Promise<number> => {
+      const r = await page.evaluate(
+        async (sub) =>
+          (window as any).qihebox.files.list({ product_set: '丝滑系列', file_type: 'image', sub_folder: sub }),
+        sub,
+      )
+      expect(r.success).toBe(true)
+      return (r.data as { file_type: string }[]).filter((f) => f.file_type === 'image').length
+    }
+
+    // 断言可见缩略图真实解码完成（非占位）+ 数量吻合 + 不含上一文件夹残留的 src。
+    // excluded：切文件夹前捕获的旧文件夹 src 集合——旧实现残留的旧文件夹 img 也能 complete
+    // （"img 存在且 complete"是假绿），因此必须以 src 集合无交集来判真绿。
+    const assertThumbsLoaded = (label: string, opts: { excluded: string[]; expected: number }) =>
+      page.waitForFunction(
+        ({ excluded, expected }) => {
+          const imgs = Array.from(document.querySelectorAll<HTMLImageElement>('img[src^="qihebox://thumb/"]'))
+          return (
+            imgs.length === expected &&
+            imgs.every((i) => i.complete && i.naturalWidth > 0) &&
+            !imgs.some((i) => excluded.includes(i.getAttribute('src') ?? ''))
+          )
+        },
+        opts,
+        { timeout: 15000 },
+      )
+
+    // 1. 主图文件夹：缩略图真实加载
+    await goRoute('主图')
+    await assertThumbsLoaded('主图', { excluded: [], expected: await thumbCountIn('主图') })
+    // 捕获主图文件夹当前渲染的缩略图 src——切到「详情页」后这些 src 必须全部消失
+    const mainSrcs = await page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLImageElement>('img[src^="qihebox://thumb/"]')).map((i) => i.getAttribute('src') ?? ''),
+    )
+    expect(mainSrcs.length).toBeGreaterThan(0)
+
+    // 2. 点击「详情页」tab 切换文件夹 → 新文件夹缩略图真实加载，且不残留主图 img（修复 1 的回归断言）
+    await page.getByRole('button', { name: '详情页', exact: true }).click()
+    await assertThumbsLoaded('详情页', { excluded: mainSrcs, expected: await thumbCountIn('详情页') })
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
 })

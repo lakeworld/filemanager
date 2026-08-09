@@ -62,26 +62,51 @@ describe('仪表盘（DashboardService）', () => {
     expect(stats.recent_files).toHaveLength(3)
   })
 
-  it('checkExpiringCerts：30 天窗口边界（29 天内命中、31 天外不命中、无期限跳过）', async () => {
+  it('checkExpiringCerts：30 天窗口边界 + 宽松日期解析 + 已删除文件不再提醒', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
     await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    await box.workspace.productSetCreate({ name: '系列B' })
 
-    // 无需真实文件：checkExpiringCerts 只遍历 metadata store
-    const in29 = dateInDays(29)
-    const out31 = dateInDays(31)
-    await box.metadata.update({ product_set: '系列A', file_name: '29天.jpg', expiry_date: in29 })
-    await box.metadata.update({ product_set: '系列A', file_name: '31天.jpg', expiry_date: out31 })
-    await box.metadata.update({ product_set: '系列A', file_name: '无期限.jpg', expiry_date: '' })
-    await box.metadata.update({ product_set: '系列B', file_name: '格式坏.jpg', expiry_date: '2026-13-99' })
+    const certDir = (ps: string, sub: string): string => path.join(ws, '产品集', ps, '证书', sub)
+    await fsp.mkdir(certDir('系列A', '3C'), { recursive: true })
+    await fsp.mkdir(certDir('系列B', '3C'), { recursive: true })
+    const put = async (dir: string, name: string): Promise<string> => {
+      const p = path.join(dir, name)
+      await fsp.writeFile(p, 'x')
+      return p
+    }
+
+    const fOk = await put(certDir('系列A', '3C'), 'ok.jpg')
+    const fSlash = await put(certDir('系列A', '3C'), '斜杠日期.jpg')
+    const fDeleted = await put(certDir('系列A', '3C'), '已删除.jpg')
+    const f31 = await put(certDir('系列A', '3C'), '31天.jpg')
+    const fNone = await put(certDir('系列A', '3C'), '无期限.jpg')
+    const fBad = await put(certDir('系列B', '3C'), '格式坏.jpg')
+
+    // 10 天后到期（标准格式）→ 命中
+    await box.metadata.update({ file_path: fOk, expiry_date: dateInDays(10) })
+    // YYYY/M/D 斜杠格式 → 写入归一化后命中（C1 宽松解析）
+    const d10 = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)
+    const slash = `${d10.getFullYear()}/${d10.getMonth() + 1}/${d10.getDate()}`
+    await box.metadata.update({ file_path: fSlash, expiry_date: slash })
+    // 删除进回收站 → 不再提醒（C2）
+    await box.metadata.update({ file_path: fDeleted, expiry_date: dateInDays(5) })
+    await box.files.fileDelete([fDeleted])
+    // 31 天外、无期限、非法日期 → 全部跳过
+    await box.metadata.update({ file_path: f31, expiry_date: dateInDays(31) })
+    await box.metadata.update({ file_path: fNone, expiry_date: '' })
+    await box.metadata.update({ file_path: fBad, expiry_date: '2026-13-99' })
 
     const expiring = await box.dashboard.checkExpiringCerts()
     const names = expiring.map(([, fn]) => fn)
-    expect(names).toContain('29天.jpg')
+    expect(names).toContain('ok.jpg')
+    expect(names).toContain('斜杠日期.jpg')
+    expect(names).not.toContain('已删除.jpg') // 文件已移入回收站 → 不提醒
     expect(names).not.toContain('31天.jpg')
     expect(names).not.toContain('无期限.jpg')
-    // 解析失败的日期（2026-13-99 → NaN）跳过
     expect(names).not.toContain('格式坏.jpg')
   })
 })

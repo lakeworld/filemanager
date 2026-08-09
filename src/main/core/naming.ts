@@ -55,7 +55,8 @@ export async function resolveConflictName(
   let name = candidate
   for (let i = 1; ; i++) {
     const part = suffix.replaceAll('{n}', String(i))
-    name = name.slice(0, -ext.length) + part + ext
+    // v2.4.2（D1）：无扩展名文件（ext === ''）时 slice(0, -0) 会清空整个文件名，必须原样保留
+    name = (ext ? name.slice(0, -ext.length) : name) + part + ext
     if (!(await exists(path.join(targetDir, name)))) return name
   }
 }

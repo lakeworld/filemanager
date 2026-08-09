@@ -17,7 +17,7 @@ import {
   cmDir,
   writeJsonAtomic,
   readJsonFile,
-  isPathInsideWorkspace,
+  isPathInsideWorkspaceReal,
   productSetFromFilePath,
   PRODUCT_SETS_DIR,
   IMAGES_DIR,
@@ -62,7 +62,7 @@ export class TrashService {
 
   /** 移动文件 / 子文件夹 / 产品集目录到回收站（不清理元数据与缩略图，恢复可原样还原） */
   async trashItem(ws: string, srcPath: string, kind: TrashKind): Promise<void> {
-    if (!isPathInsideWorkspace(ws, srcPath)) throw new Error('只能删除工作区内的内容')
+    if (!(await isPathInsideWorkspaceReal(ws, srcPath))) throw new Error('只能删除工作区内的内容')
     const id = this.newEntryId()
     const dir = this.entryDir(ws, id)
     const dataDir = path.join(dir, 'data')
@@ -168,20 +168,38 @@ export class TrashService {
     const dataDir = path.join(dir, 'data')
 
     if (meta.kind === 'file') {
-      const ps = productSetFromFilePath(ws, meta.originalPath)
-      if (ps) await this.metadata.removeFileMetadata(ps, path.basename(meta.originalPath))
+      await this.metadata.removeFileMetadata(meta.originalPath).catch(() => {})
       await this.thumbs.removeThumbnail(meta.originalPath).catch(() => {})
-    } else if (meta.kind === 'subfolder') {
-      const ps = productSetFromFilePath(ws, meta.originalPath)
-      if (ps) {
-        const files = await fsp.readdir(dataDir).catch(() => [] as string[])
-        for (const f of files) await this.metadata.removeFileMetadata(ps, f)
-      }
-      await this.thumbs.removeThumbnailsInDir(meta.originalPath).catch(() => {})
     } else {
-      const name = path.basename(meta.originalPath)
-      await this.metadata.removeFileMetadataForProductSet(name)
-      await this.thumbs.removeThumbnailsInDir(meta.originalPath).catch(() => {})
+      // v2.4.2（D2）：目录类条目——dataDir 已移入回收站，meta.originalPath 已不存在，
+      // 旧实现 removeThumbnailsInDir(originalPath) 是空操作（缓存只涨不消 + 同路径新文件可能显示旧图）。
+      // 改为遍历回收站 dataDir，按相对 originalPath 的位置映射回原路径，批量清理元数据与缩略图。
+      const originalFiles: string[] = []
+      const collect = async (d: string, rel: string): Promise<void> => {
+        let entries: import('node:fs').Dirent[]
+        try {
+          entries = await fsp.readdir(d, { withFileTypes: true })
+        } catch {
+          return
+        }
+        for (const e of entries) {
+          const full = path.join(d, e.name)
+          if (e.isDirectory()) {
+            await collect(full, path.join(rel, e.name))
+          } else {
+            originalFiles.push(path.join(rel, e.name))
+          }
+        }
+      }
+      await collect(dataDir, meta.originalPath)
+      if (meta.kind === 'subfolder') {
+        for (const f of originalFiles) await this.metadata.removeFileMetadata(f).catch(() => {})
+      } else {
+        // productSet：整个产品集元数据按前缀清理
+        const name = path.basename(meta.originalPath)
+        await this.metadata.removeFileMetadataForProductSet(name).catch(() => {})
+      }
+      await this.thumbs.removeThumbnails(originalFiles).catch(() => {})
     }
 
     await fsp.rm(dir, { recursive: true, force: true })

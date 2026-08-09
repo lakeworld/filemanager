@@ -19,6 +19,8 @@ export type {
   DeleteSubfolderRequest,
   FileRenameRequest,
   MoveFilesRequest,
+  BatchMoveResult,
+  DeleteResult,
   TagInfo,
   TrashEntry,
 } from "../../shared/types";
