@@ -33,8 +33,10 @@ interface QiheboxApi {
   files: {
     list: (req: unknown) => Promise<unknown>
     import: (req: unknown) => Promise<unknown>
+    importCancel: (token: string) => Promise<unknown>
     delete: (paths: string[]) => Promise<unknown>
     rename: (req: unknown) => Promise<unknown>
+    move: (req: unknown) => Promise<unknown>
     copyFilesToClipboard: (paths: string[]) => Promise<unknown>
     showFilesInExplorer: (paths: string[]) => Promise<unknown>
     saveTextFile: (filePath: string, content: string) => Promise<unknown>
@@ -65,6 +67,13 @@ interface QiheboxApi {
     setColor: (name: string, color: string) => Promise<unknown>
     rename: (oldName: string, newName: string) => Promise<unknown>
     delete: (name: string) => Promise<unknown>
+    adopt: (name: string, color: string) => Promise<unknown>
+  }
+  trash: {
+    list: () => Promise<unknown>
+    restore: (id: string) => Promise<unknown>
+    purge: (id: string) => Promise<unknown>
+    empty: () => Promise<unknown>
   }
   xlsx: {
     exportTemplate: (path: string) => Promise<unknown>

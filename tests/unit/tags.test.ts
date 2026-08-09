@@ -8,18 +8,101 @@ function tmp(): Promise<string> {
   return fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-tags-'))
 }
 
-describe('标签体系（v2.0.2）', () => {
-  it('固定色预设初始化：新工作区自动补全 5 个 builtin 标签', async () => {
+/** 内置固定色标签名（与 core/tags.ts BUILTIN_TAGS 保持一致） */
+const BUILTIN_NAMES = ['重要', '待更新', '已更新', '问题', '归档']
+
+describe('标签体系（v2.0.2 / v2.3.2 迁移）', () => {
+  it('首次 list() 一次性迁移：清除内置固定色标签定义与引用，写入迁移标记', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
     await box.workspace.create(ws)
+    // 构造含 builtin 定义的 tags.json + 引用内置名的 metadata / product_sets
+    await box.workspace.productSetCreate({ name: '系列A', tags: ['重要', '自定义'], notes: '' })
+    await box.metadata.update({ product_set: '系列A', file_name: 'a.jpg', tags: ['重要', '待更新', '野生标'] })
+    await fsp.writeFile(
+      path.join(ws, '.qihefilemanager', 'tags.json'),
+      JSON.stringify({
+        重要: { color: '#ef4444', builtin: true },
+        待更新: { color: '#f97316', builtin: true },
+        已更新: { color: '#22c55e', builtin: true },
+        问题: { color: '#eab308', builtin: true },
+        归档: { color: '#64748b', builtin: true },
+        自定义: { color: '#123456' },
+      }),
+    )
 
     const tags = await box.tags.list()
-    const builtins = tags.filter((t) => t.builtin)
-    expect(builtins.map((t) => t.name).sort()).toEqual(['待更新', '已更新', '归档', '问题', '重要'].sort())
-    // builtin 颜色不可改
-    await expect(box.tags.setColor('重要', '#000000')).rejects.toThrow('颜色不可修改')
+    // 内置 5 色不再出现（定义已删、引用已清）
+    for (const n of BUILTIN_NAMES) {
+      expect(tags.find((t) => t.name === n)).toBeFalsy()
+    }
+    // 非内置自定义标签保留
+    expect(tags.find((t) => t.name === '自定义')?.defined).toBe(true)
+    // 引用清理：文件与产品集的 tags 不再含内置名
+    const meta = await box.metadata.get('系列A', 'a.jpg')
+    expect(meta.tags).toEqual(['野生标'])
+    const list = await box.workspace.productSetList()
+    expect(list[0].tags).toEqual(['自定义'])
+    // 迁移标记写入且不暴露为真实标签
+    const defs = JSON.parse(await fsp.readFile(path.join(ws, '.qihefilemanager', 'tags.json'), 'utf-8'))
+    expect(defs._migrated_builtin).toEqual({ color: '' })
+    expect(tags.find((t) => t.name === '_migrated_builtin')).toBeFalsy()
+  })
+
+  it('第二次 list() 不再补全任何标签（新建标签不会被覆盖/补回）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.tags.list() // 首次触发迁移（写入标记）
+
+    await box.tags.create('用户标签', '#123456')
+    const tags = await box.tags.list() // 第二次：不应再补全内置标签
+    expect(tags.find((t) => t.name === '用户标签')?.defined).toBe(true)
+    for (const n of BUILTIN_NAMES) {
+      expect(tags.find((t) => t.name === n)).toBeFalsy()
+    }
+  })
+
+  it('迁移标记键：不暴露为真实标签，create 拒绝同名', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.tags.list()
+    const tags = await box.tags.list()
+    expect(tags.find((t) => t.name === '_migrated_builtin')).toBeFalsy()
+    await expect(box.tags.create('_migrated_builtin', '#000000')).rejects.toThrow('系统保留')
+  })
+
+  it('删除标签后不再复活（含用户自建的同名内置色标签）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.tags.list() // 迁移完成，无内置标签
+    await box.tags.create('重要', '#ef4444') // 用户可自由重建同名标签
+    await box.metadata.update({ product_set: '系列A', file_name: 'a.jpg', tags: ['重要'] })
+
+    await box.tags.delete('重要')
+    const tags = await box.tags.list()
+    expect(tags.find((t) => t.name === '重要')).toBeFalsy()
+    // 再次 list 仍不出现（不复活）
+    const again = await box.tags.list()
+    expect(again.find((t) => t.name === '重要')).toBeFalsy()
+  })
+
+  it('颜色均可改（不再有固定色不可改限制）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.tags.list()
+    await box.tags.create('重要', '#ef4444')
+    await box.tags.setColor('重要', '#000000')
+    const tags = await box.tags.list()
+    expect(tags.find((t) => t.name === '重要')?.color).toBe('#000000')
   })
 
   it('create + setColor + list 聚合（文件 + 产品集计数）', async () => {
@@ -137,8 +220,8 @@ describe('标签体系（v2.0.2）', () => {
     expect(orphan?.parent).toBeNull()
     const orphan2 = tags.find((t) => t.name === '另一个野生')
     expect(orphan2?.defined).toBe(false)
-    // 已定义标签不受影响
-    expect(tags.find((t) => t.name === '重要')?.defined).toBe(true)
+    // 内置标签不再自动出现（v2.3.2 起无内置补全）
+    expect(tags.find((t) => t.name === '重要')).toBeFalsy()
   })
 
   it('adopt 孤儿标签：补定义，引用不动，颜色生效', async () => {

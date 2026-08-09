@@ -30,9 +30,17 @@ export function tagLabel(name: string): string {
   return meta?.parent ? `${meta.parent}/${name}` : name;
 }
 
-/** 标签 chip 样式（inline background + 白字） */
-export function tagChipStyle(name: string): { backgroundColor: string } {
-  return { backgroundColor: tagColor(name) };
+/** 标签 chip 样式（inline background + 按背景亮度自适应的文字色） */
+export function tagChipStyle(name: string): { "background-color": string; color: string } {
+  const bg = tagColor(name);
+  const hex = bg.replace(/^#/, "");
+  // 非 #rrggbb 形态（如短色值）按亮度 0 处理 → 白字
+  const n = hex.length === 6 ? parseInt(hex, 16) : 0;
+  const r = (n >> 16) & 0xff;
+  const g = (n >> 8) & 0xff;
+  const b = n & 0xff;
+  const brightness = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return { "background-color": bg, color: brightness > 0.6 ? "#1e293b" : "#ffffff" };
 }
 
 /** 顶层标签（打标选择器分组用） */

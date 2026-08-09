@@ -1,9 +1,12 @@
-import { Show, For, Switch, Match, createSignal } from "solid-js";
+import { Show, Switch, Match, createSignal } from "solid-js";
 import { api } from "~/wails/api";
-import { tagChipStyle, tagLabel, topLevelTags, tagList } from "~/stores/tags";
+import { tagList } from "~/stores/tags";
 import { requireLogin } from "~/stores/account";
 import { FEATURE_AI } from "~/features";
 import PdfPreview from "~/components/PdfPreview";
+import ContextMenu from "~/components/ContextMenu";
+import TagInput from "~/components/TagInput";
+import DatePicker from "~/components/DatePicker";
 import type { AiCertInfo } from "~/types";
 import {
   showPreview,
@@ -13,15 +16,11 @@ import {
   setPreviewError,
   previewContext,
   metadata,
-  tagInput,
-  setTagInput,
   setMetadata,
   closePreview,
   saveCurrentMetadata,
   deleteCurrentFile,
   openCurrentWithSystem,
-  addTag,
-  removeTag,
 } from "~/stores/preview";
 
 function formatBytes(bytes: number): string {
@@ -45,10 +44,6 @@ export default function FilePreviewModal() {
   });
 
   const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
-
-  // v2.3.0：已定义标签名集合（自动完成候选 + 孤儿标签警告）
-  const definedTagNames = () => new Set(tagList().flatMap((t) => [t.name, ...(t.children ?? [])]));
-  const tagOptions = () => tagList().flatMap((t) => [t.name, ...(t.children ?? [])]);
 
   // —— v2.2.0：AI 证书信息抽取 ——
   const [extractText, setExtractText] = createSignal<(() => Promise<string>) | null>(null);
@@ -201,44 +196,38 @@ export default function FilePreviewModal() {
                   </Switch>
                 </Show>
 
-                {/* Context menu inside preview */}
+                {/* Context menu inside preview（统一组件，v2.3.x） */}
                 <Show when={contextMenu().show}>
-                  <div
-                    class="fixed z-50 bg-white shadow-lg rounded-lg border border-surface-200 py-1 min-w-[160px]"
-                    style={{
-                      left: `${contextMenu().x}px`,
-                      top: `${contextMenu().y}px`,
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-                      onClick={() => {
-                        handleCopyFile();
-                        closeContextMenu();
-                      }}
-                    >
-                      📋 复制文件到剪贴板
-                    </button>
-                    <button
-                      class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-                      onClick={() => {
-                        openCurrentWithSystem();
-                        closeContextMenu();
-                      }}
-                    >
-                      🗂 用系统程序打开
-                    </button>
-                    <button
-                      class="w-full px-4 py-2 text-left text-sm hover:bg-surface-100"
-                      onClick={() => {
-                        closePreview();
-                        closeContextMenu();
-                      }}
-                    >
-                      ❌ 关闭
-                    </button>
-                  </div>
+                  <ContextMenu
+                    x={contextMenu().x}
+                    y={contextMenu().y}
+                    onClose={closeContextMenu}
+                    items={[
+                      {
+                        label: "复制文件到剪贴板",
+                        icon: "📋",
+                        action: () => void handleCopyFile(),
+                      },
+                      {
+                        label: "用系统程序打开",
+                        icon: "🗂",
+                        action: () => void openCurrentWithSystem(),
+                      },
+                      {
+                        label: "复制路径",
+                        icon: "🔗",
+                        action: () => {
+                          const file = previewFile();
+                          if (file) void api.files.copyPaths([file.path]);
+                        },
+                      },
+                      {
+                        label: "关闭",
+                        icon: "❌",
+                        action: () => closePreview(),
+                      },
+                    ]}
+                  />
                 </Show>
               </div>
               <div class="grid grid-cols-3 gap-4 mt-4 text-sm">
@@ -273,81 +262,20 @@ export default function FilePreviewModal() {
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-surface-700 mb-1">到期日</label>
-                  <input
-                    type="date"
-                    class="w-full px-3 py-2 border border-surface-200 rounded-lg text-sm"
+                  <DatePicker
                     value={metadata().expiry_date}
-                    onInput={(e) => setMetadata((prev) => ({ ...prev, expiry_date: e.currentTarget.value }))}
+                    onChange={(d) => setMetadata((prev) => ({ ...prev, expiry_date: d }))}
                   />
                 </div>
 
                 <div>
                   <label class="block text-sm font-medium text-surface-700 mb-1">标签</label>
-                  <div class="flex gap-2 mb-2">
-                    <input
-                      type="text"
-                      class="flex-1 px-3 py-2 border border-surface-200 rounded-lg text-sm"
-                      value={tagInput()}
-                      onInput={(e) => setTagInput(e.currentTarget.value)}
-                      onKeyDown={(e) => e.key === "Enter" && addTag(tagInput())}
-                      placeholder="输入标签按回车"
-                      list="tag-autocomplete"
-                    />
-                    <datalist id="tag-autocomplete">
-                      <For each={tagOptions()}>
-                        {(t) => <option value={t} />}
-                      </For>
-                    </datalist>
-                    <button class="btn-secondary px-3 text-sm" onClick={() => addTag(tagInput())}>
-                      添加
-                    </button>
-                  </div>
-                  <div class="flex flex-wrap gap-1">
-                    <For each={metadata().tags}>
-                      {(tag, index) => (
-                        <span
-                          class={`inline-flex items-center gap-1 px-2 py-1 text-white rounded text-xs ${definedTagNames().has(tag) ? "" : "ring-2 ring-amber-400"}`}
-                          style={tagChipStyle(tag)}
-                          title={definedTagNames().has(tag) ? undefined : "未在设置中定义，可在设置中转为正式标签"}
-                        >
-                          {tagLabel(tag)}
-                          <button class="hover:opacity-80" onClick={() => removeTag(index())}>
-                            ✕
-                          </button>
-                        </span>
-                      )}
-                    </For>
-                  </div>
-                  {/* 快速添加：按父/子分组显示可用标签 */}
-                  <Show when={topLevelTags().length > 0}>
-                    <div class="mt-2 flex flex-wrap gap-1.5 items-center">
-                      <span class="text-[11px] text-surface-400">常用：</span>
-                      <For each={topLevelTags()}>
-                        {(t) => (
-                          <>
-                            <button
-                              class="text-[11px] px-2 py-0.5 rounded-full text-white hover:opacity-85 transition-opacity"
-                              style={tagChipStyle(t.name)}
-                              onClick={() => addTag(t.name)}
-                            >
-                              {t.name}
-                            </button>
-                            <For each={t.children}>
-                              {(c) => (
-                                <button
-                                  class="text-[11px] px-2 py-0.5 rounded-full text-white hover:opacity-85 transition-opacity opacity-90"
-                                  style={tagChipStyle(c)}
-                                  onClick={() => addTag(c)}
-                                >
-                                  {t.name}/{c}
-                                </button>
-                              )}
-                            </For>
-                          </>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
+                  <TagInput
+                    value={metadata().tags}
+                    onChange={(t) => setMetadata((prev) => ({ ...prev, tags: t }))}
+                    options={tagList()}
+                    placeholder="输入标签按回车"
+                  />
                 </div>
 
                 <div>

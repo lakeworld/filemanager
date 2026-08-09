@@ -142,7 +142,7 @@ export class AccountService {
     const deviceId = existing?.deviceId ?? randomUUID()
     const remaining = existing?.remaining ?? null
     this.sessionExpired = false
-    this.save({ token, userId, email: body.record.email ?? email, deviceId, remaining })
+    this.save({ token, userId, email: body.record?.email ?? email, deviceId, remaining })
     log(this.deps, 'info', `登录成功 user=${userId}`)
     // 登录即启动心跳（统计活跃），并立即上报一次
     this.startHeartbeat()

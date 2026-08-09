@@ -1,6 +1,7 @@
 import { Show, createSignal, onMount, onCleanup } from "solid-js";
 // 官方 PDFViewer 组件（pdfjs-dist/web）：连续滚动、渲染队列、文本层、缩放、搜索
 // 注意：必须动态 import（组件顶层依赖全局 pdfjsLib，需先注入核心库）
+import type { PDFViewer, PDFLinkService, PDFFindController, EventBus } from "pdfjs-dist/web/pdf_viewer";
 import "pdfjs-dist/web/pdf_viewer.css";
 // pdfjs worker 作为静态资源打包（vite ?url）：dev 与打包后 file:// 环境均可加载
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -49,7 +50,7 @@ export default function PdfPreview(props: PdfPreviewProps) {
   let findController: PDFFindController | null = null;
   let eventBus: EventBus | null = null;
   let pdfDoc: any = null;
-  let loadingTask: { destroy: () => Promise<void> } | null = null;
+  let loadingTask: { promise: Promise<unknown>; destroy: () => Promise<void> } | null = null;
 
   // 惰性文本提取（前 5 页，2 万字符上限），供 AI 证书抽取
   const extractText = async (): Promise<string> => {

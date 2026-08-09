@@ -12,8 +12,10 @@ import { openPreview } from "~/stores/preview";
 import FileThumbnail from "~/components/FileThumbnail";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
+import MoveDialog from "~/components/MoveDialog";
 import type { FileEntry, ProductSetInfo } from "~/types";
 import { handleDragOut } from "~/utils/dragout";
+import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 
 interface ImageItem extends FileEntry {
   productSet: string;
@@ -43,6 +45,7 @@ export default function Images() {
     y: number;
     path: string;
   }>({ show: false, x: 0, y: 0, path: "" });
+  const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
 
   const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
 
@@ -302,59 +305,34 @@ export default function Images() {
         </div>
       </Show>
 
-      {/* Context Menu（统一组件） */}
+      {/* Context Menu（统一组件，v2.3.x 由 builder 生成） */}
       <Show when={contextMenu().show}>
         <ContextMenu
           x={contextMenu().x}
           y={contextMenu().y}
           onClose={closeContextMenu}
-          items={[
-            {
-              label: "预览",
-              icon: "👁️",
-              action: () => {
-                const img = items().find((i) => i.path === contextMenu().path);
-                if (img) openPreview(img, { onDelete: loadAllImages });
-              },
-            },
-            {
-              label: "用默认程序打开",
-              icon: "🖥️",
-              action: () => {
-                const img = items().find((i) => i.path === contextMenu().path);
-                if (img) void api.files.openWithDefaultApp(img.path);
-              },
-            },
-            {
-              label: "复制",
-              icon: "📋",
-              action: () => handleCopy([contextMenu().path]),
-            },
-            {
-              label: "复制路径",
-              icon: "🔗",
-              action: () => void api.files.copyPaths([contextMenu().path]),
-            },
-            {
-              label: "在文件夹中显示",
-              icon: "📂",
-              action: () => handleShowInExplorer([contextMenu().path]),
-            },
-            {
-              label: "重命名",
-              icon: "✏️",
-              action: () => {
-                const img = items().find((i) => i.path === contextMenu().path);
-                if (img) handleRename(img);
-              },
-            },
-            {
-              label: "删除",
-              icon: "🗑️",
-              danger: true,
-              action: () => handleDelete([contextMenu().path]),
-            },
-          ]}
+          items={buildFileContextMenuItems({
+            file: items().find((i) => i.path === contextMenu().path),
+            paths: [contextMenu().path],
+            onPreview: (img) => openPreview(img, { onDelete: loadAllImages }),
+            onEditInfo: (img) =>
+              openPreview(img, { productSet: img.productSet, editMetadata: true, onDelete: loadAllImages }),
+            onOpenDefault: (img) => void api.files.openWithDefaultApp(img.path),
+            onCopy: handleCopy,
+            onShowInExplorer: handleShowInExplorer,
+            onMove: (paths) => setMovePaths(paths),
+            onRename: handleRename,
+            onDelete: handleDelete,
+          })}
+        />
+      </Show>
+
+      {/* 移动到… 目标选择（v2.3.x） */}
+      <Show when={movePaths()}>
+        <MoveDialog
+          paths={movePaths()!}
+          onClose={() => setMovePaths(null)}
+          onMoved={() => void loadAllImages()}
         />
       </Show>
     </div>

@@ -1,0 +1,109 @@
+# CI 工作流（质量门禁）
+# - 全分支门禁：push 到任意分支都会触发，PR 合并到 master 也会触发
+# - bench（性能基准）不进 CI：运行 npm run bench 会改写 docs/PERF.md 数据，避免污染基准文档
+# - 本工作流只做质量门禁（类型检查 / 单元测试 / e2e / 打包验证），不自动发布 Release
+name: CI
+
+# push 全分支 + pull_request 到 master
+on:
+  push:
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# 覆盖 .npmrc 的国内镜像，保证 GitHub runner 安装依赖稳定
+env:
+  npm_config_registry: https://registry.npmjs.org
+  npm_config_electron_mirror: https://github.com/electron/electron/releases/download/
+  npm_config_electron_builder_binaries_mirror: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+
+jobs:
+  test:
+    name: Typecheck & Unit Test & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck renderer
+        run: npx tsc --noEmit
+
+      - name: Typecheck main / preload / tests
+        run: npx tsc --noEmit -p tsconfig.node.json
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build (electron-vite)
+        run: npm run build
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install system libraries (headless)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2
+
+      - name: Run Playwright tests (xvfb)
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test
+
+      - name: Upload playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+
+  package:
+    name: Package (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build & package Linux (AppImage + deb)
+        if: runner.os == 'Linux'
+        run: npm run build:linux
+
+      - name: Build & package Windows (NSIS)
+        if: runner.os == 'Windows'
+        run: npm run build:win
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: qihe-box-${{ runner.os }}
+          path: release/

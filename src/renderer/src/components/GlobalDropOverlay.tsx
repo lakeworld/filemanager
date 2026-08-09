@@ -1,6 +1,7 @@
 import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
+import { isInternalDragActive, clearInternalDrag, getInternalDragPaths } from "~/utils/dragout";
 import { currentWorkspace, productSets, loadProductSets, workspaceConfig, setFileBrowserRefreshTrigger } from "~/stores/workspace";
 import type { ApiResult, FileEntry } from "~/types";
 
@@ -187,12 +188,16 @@ export default function GlobalDropOverlay() {
 
     const onDragEnter = (e: DragEvent) => {
       if (!isFileDrag(e)) return;
+      // 应用内 startDrag 拖出后回落窗口：不显示导入遮罩
+      if (isInternalDragActive()) return;
       e.preventDefault();
       showOverlay();
     };
 
     const onDragOver = (e: DragEvent) => {
       if (!isFileDrag(e)) return;
+      // 应用内 startDrag 拖出后回落窗口：不显示导入遮罩
+      if (isInternalDragActive()) return;
       e.preventDefault();
       showOverlay();
     };
@@ -217,6 +222,22 @@ export default function GlobalDropOverlay() {
       const files = Array.from(e.dataTransfer?.files ?? []);
       if (files.length === 0) return;
       const dropPaths = files.map((f) => window.qihebox.getPathForFile(f));
+
+      // 应用内 startDrag 拖出后拖回窗口：drop 路径集合与拖出路径完全一致 → 视为取消拖出，
+      // 不触发导入、不弹遮罩（先各自排序后逐项比较）
+      if (isInternalDragActive()) {
+        const internal = getInternalDragPaths();
+        const sameSet =
+          internal.length === dropPaths.length &&
+          [...internal].sort().join("\n") === [...dropPaths].sort().join("\n");
+        if (sameSet) {
+          clearInternalDrag();
+          return;
+        }
+      }
+
+      // 外部文件 drop 流程：顺手清残留内部标记
+      clearInternalDrag();
 
       // 必须异步触发，避免在事件循环中直接调用导致卡顿
       setTimeout(() => {

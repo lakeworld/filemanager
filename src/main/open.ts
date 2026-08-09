@@ -1,7 +1,23 @@
-/** 用系统默认应用打开文件（对照原 Go files.go OpenFileWithDefaultApp） */
+/** 用系统默认应用打开文件（对照原 Go files.go OpenFileWithDefaultApp）
+ *  v2.3.2：同路径 2s 内重复打开直接跳过，避免渲染层快速重复调用弹出多个窗口 */
 import { spawn } from 'node:child_process'
 
+/** 最近打开记录（filePath → 时间戳），用于短时间去重 */
+const lastOpened = new Map<string, number>()
+/** 去重窗口：2s 内同路径重复打开视为一次 */
+const DEDUP_WINDOW_MS = 2000
+/** 记录条数上限，超过即清空，防止长期运行内存增长 */
+const MAX_RECORDS = 200
+
 export function openFileWithDefaultApp(filePath: string): Promise<void> {
+  // 短时间去重：命中则直接 resolve（不记录本次，保持原记录生效）
+  const now = Date.now()
+  const last = lastOpened.get(filePath)
+  if (last !== undefined && now - last < DEDUP_WINDOW_MS) return Promise.resolve()
+  // 真正执行前记录本次打开时间
+  lastOpened.set(filePath, now)
+  if (lastOpened.size > MAX_RECORDS) lastOpened.clear()
+
   return new Promise((resolve, reject) => {
     if (process.platform === 'win32') {
       // Windows：shell.openPath 正常 resolve（不挂起）

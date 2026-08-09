@@ -14,7 +14,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "test": "vitest run",
+    "test": "vitest run tests/unit",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "bench": "vitest run tests/bench",

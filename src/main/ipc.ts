@@ -143,6 +143,7 @@ export function registerIpc(box: BoxService, account: AccountService): void {
   })
   ipcMain.handle('qihebox:files:delete', (_e, paths: string[]) => handle(() => box.files.fileDelete(paths)))
   ipcMain.handle('qihebox:files:rename', (_e, req) => handle(() => box.files.renameFile(req)))
+  ipcMain.handle('qihebox:files:move', (_e, req) => handle(() => box.files.moveFiles(req)))
   ipcMain.handle('qihebox:files:copyFilesToClipboard', (_e, paths: string[]) =>
     handle(() => {
       const ws = box.workspace.currentWorkspacePath()
@@ -214,8 +215,8 @@ export function registerIpc(box: BoxService, account: AccountService): void {
       } catch {
         // 缩略图获取失败兜底 logo
       }
-      // 原生文件拖出（files 支持多文件，覆盖 file 字段；多文件由系统显示叠影）
-      win.webContents.startDrag({ files: paths, icon })
+      // 原生文件拖出（file 必填且指向首文件；files 支持多文件，多文件由系统显示叠影）
+      win.webContents.startDrag({ file: paths[0], files: paths, icon })
     }),
   )
   ipcMain.handle('qihebox:files:workspaceUrl', (_e, filePath: string) =>
@@ -274,31 +275,37 @@ export function registerIpc(box: BoxService, account: AccountService): void {
   // —— 对话框 ——
   ipcMain.handle('qihebox:dialog:openDirectory', (_e, title: string) =>
     handle(async () => {
-      const r = await dialog.showOpenDialog(getMainWindow() ?? undefined, {
+      const win = getMainWindow()
+      const opts: Electron.OpenDialogOptions = {
         title: title || '选择文件夹',
         properties: ['openDirectory', 'createDirectory'],
-      })
+      }
+      const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
       if (r.canceled || r.filePaths.length === 0) return ''
       return r.filePaths[0]
     }),
   )
   ipcMain.handle('qihebox:dialog:openFile', (_e, title: string, filters: unknown[]) =>
     handle(async () => {
-      const r = await dialog.showOpenDialog(getMainWindow() ?? undefined, {
+      const win = getMainWindow()
+      const opts: Electron.OpenDialogOptions = {
         title: title || '选择文件',
         filters: filters as Electron.FileFilter[],
         properties: ['openFile'],
-      })
+      }
+      const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
       if (r.canceled || r.filePaths.length === 0) return ''
       return r.filePaths[0]
     }),
   )
   ipcMain.handle('qihebox:dialog:saveFile', (_e, title: string, defaultFilename: string) =>
     handle(async () => {
-      const r = await dialog.showSaveDialog(getMainWindow() ?? undefined, {
+      const win = getMainWindow()
+      const opts: Electron.SaveDialogOptions = {
         title: title || '保存文件',
         defaultPath: defaultFilename || undefined,
-      })
+      }
+      const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
       if (r.canceled || !r.filePath) return ''
       return r.filePath
     }),

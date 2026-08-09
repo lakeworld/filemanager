@@ -45,6 +45,7 @@ const api = {
     importCancel: (token: string) => invoke('qihebox:files:importCancel', token),
     delete: (paths: string[]) => invoke('qihebox:files:delete', paths),
     rename: (req: unknown) => invoke('qihebox:files:rename', req),
+    move: (req: unknown) => invoke('qihebox:files:move', req),
     copyFilesToClipboard: (paths: string[]) => invoke('qihebox:files:copyFilesToClipboard', paths),
     showFilesInExplorer: (paths: string[]) => invoke('qihebox:files:showFilesInExplorer', paths),
     saveTextFile: (filePath: string, content: string) =>

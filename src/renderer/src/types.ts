@@ -88,6 +88,8 @@ export interface ImportFileRequest {
   target_folder: string;
   target_type: string;
   sub_folder: string;
+  /** v2.3.0：批量导入取消标记（GlobalDropOverlay 生成，主进程轮询检测） */
+  cancelToken?: string;
 }
 
 export interface FileListRequest {
@@ -120,6 +122,19 @@ export interface DeleteSubfolderRequest {
 export interface FileRenameRequest {
   path: string;
   newName: string;
+}
+
+/** v2.3.x：文件移动请求（与主进程 MoveFilesRequest 对应） */
+export interface MoveFilesRequest {
+  paths: string[];
+  /** 目标绝对目录（与结构化目标二选一，保留兼容） */
+  targetDir?: string;
+  /** 结构化目标：产品集名（由后端拼路径，产品集名含特殊字符也安全） */
+  target_product_set?: string;
+  /** 结构化目标：image → 图包，cert → 证书 */
+  target_type?: "image" | "cert";
+  /** 结构化目标：子文件夹 */
+  sub_folder?: string;
 }
 
 export interface TagInfo {

@@ -50,6 +50,21 @@ export interface FileRenameRequest {
   newName: string
 }
 
+export interface MoveFilesRequest {
+  paths: string[]
+  /**
+   * 目标绝对目录（与结构化目标二选一；保留兼容旧调用方/测试）
+   * @deprecated 前端新场景请用 target_product_set / target_type / sub_folder，由后端拼路径
+   */
+  targetDir?: string
+  /** 结构化目标：产品集名（后端拼路径，产品集名含特殊字符也安全） */
+  target_product_set?: string
+  /** 结构化目标：image → 图包，cert → 证书 */
+  target_type?: string
+  /** 结构化目标：子文件夹 */
+  sub_folder?: string
+}
+
 export interface SubfolderCreateRequest {
   product_set: string
   file_type: string
@@ -352,6 +367,100 @@ export class FilesService {
     if (classifyFileType(newPath) === 'image') {
       await this.thumbs.ensureThumbnail(newPath)
     }
+  }
+
+  // —— FileMove（v2.3.2：文件移动后端全链路，面向文件，不支持目录）——
+  async moveFiles(req: MoveFilesRequest): Promise<FileEntry[]> {
+    const ws = this.requireWS()
+    if (!req.paths || req.paths.length === 0) throw new Error('没有选择文件')
+    // 目标目录解析：结构化目标（产品集/类型/子文件夹）由后端拼路径，避免前端拼接风险
+    const targetDir =
+      req.target_product_set && req.target_type && req.sub_folder
+        ? path.join(
+            ws,
+            PRODUCT_SETS_DIR,
+            req.target_product_set,
+            req.target_type === 'image' ? IMAGES_DIR : CERTS_DIR,
+            req.sub_folder,
+          )
+        : (req.targetDir ?? '').trim()
+    if (!targetDir) throw new Error('目标目录不能为空')
+    if (!isPathInsideWorkspace(ws, targetDir)) throw new Error('只能移动到工作区内的目录')
+
+    // 目标目录：不存在则创建，已存在必须是目录
+    const targetStat = await fsp.stat(targetDir).then((s) => s).catch(() => null)
+    if (targetStat === null) {
+      await fsp.mkdir(targetDir, { recursive: true })
+    } else if (!targetStat.isDirectory()) {
+      throw new Error('目标不是目录')
+    }
+
+    const cfg = await this.loadConfig(ws)
+    const moved: FileEntry[] = []
+    for (const raw of req.paths) {
+      const p = raw.trim()
+      if (!p) continue
+      if (!isPathInsideWorkspace(ws, p)) throw new Error('只能移动工作区内的文件')
+      // 同目录且同名（文件本身就在目标位置）→ 跳过
+      if (path.resolve(path.join(targetDir, path.basename(p))) === path.resolve(p)) continue
+
+      const srcInfo = await fsp.stat(p)
+      if (srcInfo.isDirectory()) throw new Error(`不支持移动目录: ${p}`)
+
+      // 目标文件名：同名冲突按命名模板加 _1 序号
+      const candidate = path.basename(p)
+      let destName = candidate
+      if (await fsp.stat(path.join(targetDir, destName)).then(() => true).catch(() => false)) {
+        destName = await resolveConflictName(targetDir, destName, cfg.naming_template.conflict_suffix, path.extname(destName))
+      }
+      const finalDest = path.join(targetDir, destName)
+
+      // 执行移动：同盘 rename；EXDEV 跨设备回退 copyFile + rm（源删除）
+      try {
+        await fsp.rename(p, finalDest)
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
+          await fsp.copyFile(p, finalDest)
+          await fsp.rm(p, { force: true })
+        } else {
+          throw err
+        }
+      }
+
+      // 元数据迁移（key: 产品集/文件名）：key 变化时迁移，新 key 已有内容则保留
+      const oldSet = productSetFromFilePath(ws, p)
+      const newSet = productSetFromFilePath(ws, finalDest)
+      if (oldSet && newSet) {
+        const oldKey = this.metadata.fileMetadataKey(oldSet, path.basename(p))
+        const newKey = this.metadata.fileMetadataKey(newSet, path.basename(finalDest))
+        if (oldKey !== newKey) {
+          const store = await this.metadata.loadMetadataStore()
+          if (store.files[oldKey] && !store.files[newKey]) {
+            store.files[newKey] = store.files[oldKey]
+            delete store.files[oldKey]
+            await this.metadata.saveMetadataStore(store)
+          }
+        }
+      }
+
+      // 缩略图：清理旧路径，图片新路径重生
+      await this.thumbs.removeThumbnail(p)
+      let thumb = ''
+      if (classifyFileType(finalDest) === 'image') {
+        thumb = await this.thumbs.ensureThumbnail(finalDest)
+      }
+
+      const info = await fsp.stat(finalDest)
+      moved.push({
+        name: path.basename(finalDest),
+        path: finalDest,
+        size: info.size,
+        modified: formatTime(info.mtime),
+        file_type: classifyFileType(finalDest),
+        thumbnail_path: thumb,
+      })
+    }
+    return moved
   }
 
   // —— 预览/打开辅助 ——

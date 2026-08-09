@@ -15,8 +15,10 @@ import type {
   SubfolderCreateRequest,
   DeleteSubfolderRequest,
   FileRenameRequest,
+  MoveFilesRequest,
   UpdateInfo,
   TagInfo,
+  TrashEntry,
   ApiResult,
   AccountStatus,
   AiAction,
@@ -67,8 +69,10 @@ export const api = {
   files: {
     list: (req: FileListRequest) => qb.files.list(req as any) as Promise<ApiResult<FileEntry[]>>,
     import: (req: ImportFileRequest) => qb.files.import(req as any) as Promise<ApiResult<FileEntry[]>>,
+    importCancel: (token: string) => qb.files.importCancel(token) as Promise<ApiResult<boolean>>,
     delete: (paths: string[]) => qb.files.delete(paths) as Promise<ApiResult<boolean>>,
     rename: (req: FileRenameRequest) => qb.files.rename(req as any) as Promise<ApiResult<boolean>>,
+    move: (req: MoveFilesRequest) => qb.files.move(req as any) as Promise<ApiResult<FileEntry[]>>,
     copyFilesToClipboard: (paths: string[]) =>
       qb.files.copyFilesToClipboard(paths) as Promise<ApiResult<boolean>>,
     copyPaths: (paths: string[]) => qb.files.copyPaths(paths) as Promise<ApiResult<boolean>>,
@@ -108,6 +112,13 @@ export const api = {
     rename: (oldName: string, newName: string) =>
       qb.tags.rename(oldName, newName) as Promise<ApiResult<boolean>>,
     delete: (name: string) => qb.tags.delete(name) as Promise<ApiResult<boolean>>,
+    adopt: (name: string, color: string) => qb.tags.adopt(name, color) as Promise<ApiResult<boolean>>,
+  },
+  trash: {
+    list: () => qb.trash.list() as Promise<ApiResult<TrashEntry[]>>,
+    restore: (id: string) => qb.trash.restore(id) as Promise<ApiResult<void>>,
+    purge: (id: string) => qb.trash.purge(id) as Promise<ApiResult<void>>,
+    empty: () => qb.trash.empty() as Promise<ApiResult<void>>,
   },
   xlsx: {
     exportTemplate: (path: string) => qb.xlsx.exportTemplate(path) as Promise<ApiResult<boolean>>,
