@@ -129,12 +129,14 @@ jobs:
 
       - name: Build & package Linux (AppImage + deb)
         if: runner.os == 'Linux'
+        shell: bash
         run: |
           set -o pipefail
           npm run build:linux 2>&1 | tee /tmp/pkg-linux.log
 
       - name: Build & package Windows (NSIS)
         if: runner.os == 'Windows'
+        shell: bash
         run: |
           set -o pipefail
           npm run build:win 2>&1 | tee /tmp/pkg-win.log
