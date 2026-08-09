@@ -256,6 +256,10 @@ app.whenReady().then(() => {
   // 恢复完成后跑后台任务（更新检查 / 证书到期通知 / 回收站过期清理，均静默）
   workspace
     .restoreOrCreateDefault()
+    .then(() => {
+      // v2.4.x：初始化预热——启动后异步建立文件列表索引（不阻塞启动与 UI，失败仅 log）
+      void box.files.warmup().catch((err) => void log('warn', `文件列表预热失败: ${String(err)}`))
+    })
     .catch((err) => {
       void log('warn', `默认工作区恢复失败: ${String(err)}`)
     })

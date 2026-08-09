@@ -21,7 +21,7 @@ import {
   writeJsonAtomic,
   readJsonFile,
 } from './paths'
-import { globalCountCache } from './scanCache'
+import { globalCountCache, globalFileListCache } from './scanCache'
 import type { WorkspaceInfo, ProductSetInfo, ProductSetStats, ProductSetCreateRequest, ProductSetUpdateRequest } from '../../shared/types'
 
 export type { WorkspaceInfo, ProductSetInfo, ProductSetStats, ProductSetCreateRequest, ProductSetUpdateRequest } from '../../shared/types'
@@ -70,6 +70,7 @@ export class WorkspaceService {
     ensureWorkspaceDirs(workspace)
     this.currentWS = workspace
     globalCountCache.clear() // 切换工作区后清理扫描缓存
+    globalFileListCache.clear() // v2.4.x：切换工作区后清理文件列表缓存
     await this.addRecentWorkspace(workspace)
   }
 

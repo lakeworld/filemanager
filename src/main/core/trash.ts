@@ -25,6 +25,7 @@ import {
 } from './paths'
 import { WorkspaceService } from './workspace'
 import { MetadataService } from './metadata'
+import { globalFileListCache } from './scanCache'
 import type { ThumbnailProvider } from './files'
 import type { TrashEntry, TrashKind } from '../../shared/types'
 
@@ -83,6 +84,9 @@ export class TrashService {
       size: stat.size,
     }
     await writeJsonAtomic(path.join(dir, 'meta.json'), meta)
+    // v2.4.x：目录内容变化（移入回收站）→ 失效源路径与其父目录的文件列表缓存
+    globalFileListCache.invalidate(path.dirname(srcPath))
+    globalFileListCache.invalidate(srcPath)
   }
 
   /** 回收站条目列表（新→旧） */
@@ -133,6 +137,10 @@ export class TrashService {
     }
     await fsp.rm(dir, { recursive: true, force: true }).catch(() => {})
 
+    // v2.4.x：恢复移回 → 失效目标路径与其父目录的文件列表缓存
+    globalFileListCache.invalidate(path.dirname(target))
+    globalFileListCache.invalidate(target)
+
     // 子文件夹恢复：名字加回 config（产品集列表为目录扫描，无需额外注册）
     if (meta.kind === 'subfolder') {
       const rel = path.relative(path.join(ws, PRODUCT_SETS_DIR), meta.originalPath)
@@ -177,6 +185,9 @@ export class TrashService {
     }
 
     await fsp.rm(dir, { recursive: true, force: true })
+    // v2.4.x：彻底删除 → 失效原路径与其父目录的文件列表缓存
+    globalFileListCache.invalidate(path.dirname(meta.originalPath))
+    globalFileListCache.invalidate(meta.originalPath)
   }
 
   /** 清空回收站（全部彻底删除） */

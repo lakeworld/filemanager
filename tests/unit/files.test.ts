@@ -518,3 +518,100 @@ describe('批量重命名目标名生成（v2.3.3 P2：前端批处理，参照 
     expect(batchRenameTargets(files, '图', 1)).toEqual(['图_1', '图_2.png'])
   })
 })
+
+describe('文件列表缓存（v2.4.x：fileList 命中 / 写操作失效 / 预热）', () => {
+  it('fileList 二次调用命中缓存：目标目录只 readdir 一次', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '缓存系列' })
+
+    const src = path.join(ws, '..', 'cached.jpg')
+    await fsp.writeFile(src, PNG_1PX)
+    await box.files.importFiles({
+      source_paths: [src],
+      target_product_set: '缓存系列',
+      target_folder: '主图',
+      target_type: 'image',
+      sub_folder: '主图',
+    })
+
+    const dir = path.join(ws, '产品集', '缓存系列', '图包', '主图')
+    const readdirSpy = vi.spyOn(fsp, 'readdir')
+    let dirReads = 0
+    try {
+      const first = await box.files.fileList({ product_set: '缓存系列', file_type: 'image', sub_folder: '主图' })
+      expect(first).toHaveLength(1)
+      const second = await box.files.fileList({ product_set: '缓存系列', file_type: 'image', sub_folder: '主图' })
+      expect(second).toHaveLength(1)
+      dirReads = readdirSpy.mock.calls.filter((c) => path.resolve(String(c[0])) === path.resolve(dir)).length
+    } finally {
+      readdirSpy.mockRestore()
+    }
+    // 第二次 fileList 命中缓存，目标目录未被重复 readdir
+    expect(dirReads).toBe(1)
+  })
+
+  it('导入后缓存失效：先 fileList 缓存空列表，导入后 fileList 可见新文件', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '失效系列' })
+
+    // 预填充空目录缓存
+    const req = { product_set: '失效系列', file_type: 'image', sub_folder: '主图' }
+    expect(await box.files.fileList(req)).toEqual([])
+
+    const src = path.join(ws, '..', 'fresh.jpg')
+    await fsp.writeFile(src, PNG_1PX)
+    await box.files.importFiles({
+      source_paths: [src],
+      target_product_set: '失效系列',
+      target_folder: '主图',
+      target_type: 'image',
+      sub_folder: '主图',
+    })
+
+    // 导入已失效缓存 → 重建后可见新文件（若未失效会命中旧空缓存）
+    const list = await box.files.fileList(req)
+    expect(list).toHaveLength(1)
+    expect(list[0].name).toMatch(/fresh\.jpg$/)
+  })
+
+  it('warmup 预填充缓存：预热后 fileList 命中，不再 readdir', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '预热系列' })
+
+    const src = path.join(ws, '..', 'pre.jpg')
+    await fsp.writeFile(src, PNG_1PX)
+    await box.files.importFiles({
+      source_paths: [src],
+      target_product_set: '预热系列',
+      target_folder: '主图',
+      target_type: 'image',
+      sub_folder: '主图',
+    })
+
+    // 预热全部子文件夹（默认 config：图包 4 个 + 证书 3 个）
+    const warmed = await box.files.warmup()
+    expect(warmed).toBe(7)
+
+    const dir = path.join(ws, '产品集', '预热系列', '图包', '主图')
+    const readdirSpy = vi.spyOn(fsp, 'readdir')
+    let dirReads = 0
+    try {
+      const list = await box.files.fileList({ product_set: '预热系列', file_type: 'image', sub_folder: '主图' })
+      expect(list).toHaveLength(1)
+      dirReads = readdirSpy.mock.calls.filter((c) => path.resolve(String(c[0])) === path.resolve(dir)).length
+    } finally {
+      readdirSpy.mockRestore()
+    }
+    // 预热已填充缓存 → 本次 fileList 未 readdir
+    expect(dirReads).toBe(0)
+  })
+})

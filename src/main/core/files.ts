@@ -21,6 +21,8 @@ import {
 import { WorkspaceService, formatTime } from './workspace'
 import { MetadataService, FileMetadata, currentTimeString } from './metadata'
 import { sanitizeName, composeTargetName, resolveConflictName, ImportContext } from './naming'
+import { globalFileListCache } from './scanCache'
+import type { FileListCache } from './scanCache'
 import type {
   FileEntry,
   FileListRequest,
@@ -40,6 +42,9 @@ export type {
   SubfolderCreateRequest,
   DeleteSubfolderRequest,
 } from '../../shared/types'
+
+/** 文件列表缓存实例（v2.4.x：目录 mtime 签名缓存，避免切换文件夹重复全量扫描；条目类型 FileEntry） */
+const fileListCache = globalFileListCache as FileListCache<FileEntry>
 
 /** 缩略图能力抽象（生产用 sharp 实现，测试用假实现） */
 export interface ThumbnailProvider {
@@ -94,7 +99,13 @@ export class FilesService {
     return path.join(ws, PRODUCT_SETS_DIR, req.target_product_set, CERTS_DIR, req.sub_folder)
   }
 
-  private async listDirFiles(dir: string): Promise<FileEntry[]> {
+  /** 列出目录内非隐藏文件（带文件列表缓存：命中直接返回，避免重复全量扫描） */
+  private listDirFiles(dir: string): Promise<FileEntry[]> {
+    return fileListCache.get(dir, () => this.listDirFilesRaw(dir))
+  }
+
+  /** 目录扫描原逻辑（readdir + 逐文件 stat + 缩略图查询），供缓存构建与预热复用 */
+  private async listDirFilesRaw(dir: string): Promise<FileEntry[]> {
     let entries: import('node:fs').Dirent[]
     try {
       entries = await fsp.readdir(dir, { withFileTypes: true })
@@ -193,6 +204,8 @@ export class FilesService {
       // v2.3.0：支持取消（渲染层 importCancel 置位后中断抛错，已复制文件保留）
       if (opts?.isCancelled?.()) throw new ImportCancelledError(imported)
       imported.push(await this.importOneFile(sourceFiles[i], targetDir, req, cfg))
+      // v2.4.x：导入改变目录内容 → 失效文件列表缓存（每导入一个失效一次，取消中断后列表也保持实时）
+      globalFileListCache.invalidate(targetDir)
       opts?.onProgress?.(i + 1, total)
     }
     return imported
@@ -296,6 +309,8 @@ export class FilesService {
     for (const p of paths) {
       if (!isPathInsideWorkspace(ws, p)) throw new Error('只能删除工作区内的文件')
       await this.trash.trashItem(ws, p, 'file')
+      // v2.4.x：删除改变目录内容 → 失效所在目录的文件列表缓存
+      globalFileListCache.invalidate(path.dirname(p))
     }
   }
 
@@ -311,6 +326,9 @@ export class FilesService {
         : path.join(ws, PRODUCT_SETS_DIR, req.product_set, IMAGES_DIR, name)
     if (await fsp.stat(dir).then(() => true).catch(() => false)) throw new Error('子文件夹已存在')
     await fsp.mkdir(dir, { recursive: true })
+    // v2.4.x：新建子文件夹 → 失效父目录（图包/证书）与新子目录的文件列表缓存
+    globalFileListCache.invalidate(path.dirname(dir))
+    globalFileListCache.invalidate(dir)
     if (req.file_type === 'cert') {
       cfg.cert_subfolders.push(name)
     } else {
@@ -332,6 +350,9 @@ export class FilesService {
     if (!(await fsp.stat(dir).then(() => true).catch(() => false))) throw new Error('子文件夹不存在')
     // v2.3.1：移入回收站（不再直接 rm；恢复时自动把子文件夹名加回 config）
     await this.trash.trashItem(ws, dir, 'subfolder')
+    // v2.4.x：删除子文件夹 → 失效父目录与被删子目录的文件列表缓存
+    globalFileListCache.invalidate(path.dirname(dir))
+    globalFileListCache.invalidate(dir)
     // 从 config 移除
     const cfg = await this.loadConfig(ws)
     if (req.file_type === 'image') {
@@ -359,6 +380,8 @@ export class FilesService {
     if (await fsp.stat(newPath).then(() => true).catch(() => false)) throw new Error('目标文件已存在')
     await fsp.stat(oldPath)
     await fsp.rename(oldPath, newPath)
+    // v2.4.x：改名改变目录内容 → 失效所在目录的文件列表缓存
+    globalFileListCache.invalidate(path.dirname(oldPath))
 
     // 迁移元数据（key: 产品集/文件名）
     const productSet = productSetFromFilePath(ws, oldPath)
@@ -470,8 +493,45 @@ export class FilesService {
         file_type: classifyFileType(finalDest),
         thumbnail_path: thumb,
       })
+      // v2.4.x：移动改变源/目标目录内容 → 两者文件列表缓存都失效
+      globalFileListCache.invalidate(path.dirname(p))
+      globalFileListCache.invalidate(targetDir)
     }
     return moved
+  }
+
+  // —— 初始化预热（v2.4.x：启动后异步建立文件列表索引）——
+
+  /**
+   * 预热文件列表缓存：遍历各产品集 图包/证书 目录下的所有子文件夹，
+   * 逐个预填充（构建走 listDirFilesRaw，结果进缓存）——切换文件夹时命中缓存，不再全量扫描。
+   * 不可读/不存在的目录静默跳过。返回预热的目录数。
+   */
+  async warmup(): Promise<number> {
+    const ws = this.requireWS()
+    const setsDir = path.join(ws, PRODUCT_SETS_DIR)
+    const subDirs: string[] = []
+    let sets: import('node:fs').Dirent[]
+    try {
+      sets = await fsp.readdir(setsDir, { withFileTypes: true })
+    } catch {
+      return 0 // 产品集目录不存在/不可读 → 无目录可预热
+    }
+    for (const s of sets) {
+      if (!s.isDirectory()) continue
+      for (const typeDir of [IMAGES_DIR, CERTS_DIR]) {
+        const typePath = path.join(setsDir, s.name, typeDir)
+        const subs = await fsp.readdir(typePath, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[])
+        for (const sub of subs) {
+          if (sub.isDirectory()) subDirs.push(path.join(typePath, sub.name))
+        }
+      }
+    }
+    // 逐个预填充（get 内部构建走 listDirFilesRaw）；失败目录静默跳过
+    for (const d of subDirs) {
+      await fileListCache.get(d, () => this.listDirFilesRaw(d)).catch(() => [])
+    }
+    return subDirs.length
   }
 
   // —— 预览/打开辅助 ——
