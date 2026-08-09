@@ -10,6 +10,9 @@ on:
   pull_request:
     branches: [master]
 
+permissions:
+  contents: write
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -69,12 +72,28 @@ jobs:
       # 诊断：区分「Electron 启动失败（缺库/GLib）」与「测试用例失败」
       - name: Diagnose electron launch
         run: |
-          npx electron --version
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" timeout 20 npx electron . --no-sandbox --disable-gpu 2>&1 | head -40 || true
-          echo "== diagnose done =="
+          npx electron --version 2>&1 | tee /tmp/e2e-diagnose.log
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" timeout 20 npx electron . --no-sandbox --disable-gpu 2>&1 | head -40 | tee -a /tmp/e2e-diagnose.log || true
+          echo "== diagnose done ==" | tee -a /tmp/e2e-diagnose.log
 
       - name: Run Playwright tests (xvfb)
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test
+        run: |
+          set -o pipefail
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test 2>&1 | tee /tmp/e2e.log
+
+      - name: Upload failure logs to repo
+        if: failure()
+        run: |
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@qihe.local"
+          mkdir -p ci-logs
+          [ -f /tmp/e2e-diagnose.log ] && cp /tmp/e2e-diagnose.log ci-logs/e2e-diagnose.log || true
+          [ -f /tmp/e2e.log ] && cp /tmp/e2e.log ci-logs/e2e.log || true
+          git add ci-logs/ 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: capture e2e failure logs [skip ci]"
+            git push origin HEAD:feat/subscription 2>&1 | tail -3 || true
+          fi
 
       - name: Upload playwright report
         uses: actions/upload-artifact@v4
@@ -103,11 +122,29 @@ jobs:
 
       - name: Build & package Linux (AppImage + deb)
         if: runner.os == 'Linux'
-        run: npm run build:linux
+        run: |
+          set -o pipefail
+          npm run build:linux 2>&1 | tee /tmp/pkg-linux.log
 
       - name: Build & package Windows (NSIS)
         if: runner.os == 'Windows'
-        run: npm run build:win
+        run: |
+          set -o pipefail
+          npm run build:win 2>&1 | tee /tmp/pkg-win.log
+
+      - name: Upload failure logs to repo
+        if: failure()
+        run: |
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@qihe.local"
+          mkdir -p ci-logs
+          [ -f /tmp/pkg-linux.log ] && cp /tmp/pkg-linux.log ci-logs/pkg-linux.log || true
+          [ -f /tmp/pkg-win.log ] && cp /tmp/pkg-win.log ci-logs/pkg-win.log || true
+          git add ci-logs/ 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: capture package failure logs [skip ci]"
+            git push origin HEAD:feat/subscription 2>&1 | tail -3 || true
+          fi
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
