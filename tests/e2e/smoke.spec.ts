@@ -19,6 +19,7 @@ test.describe('qihe-box e2e', () => {
     app = await electron.launch({
       args: ['.', '--no-sandbox'],
       cwd: ROOT,
+      env: { ...process.env, QIHEBOX_E2E: '1' },
     })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
