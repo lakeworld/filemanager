@@ -17,10 +17,11 @@ export function showFilesInExplorer(paths: string[]): Promise<void> {
 /** 外部命令超时（v2.4.0）：无桌面环境（CI）下文件管理器命令可能挂起，超时视为已发起并放行 */
 const TOOL_TIMEOUT_MS = 5000
 
-function execTool(args: string[], stdinData?: string): Promise<number> {
+function execTool(args: string[], _stdinData?: string): Promise<number> {
   return new Promise((resolve, reject) => {
-    // stdin 用 ignore：避免 pipe 句柄保持事件循环导致主进程无法退出（app.close 挂起根因之一）
-    const child = spawn(args[0], args.slice(1), { stdio: ['ignore', 'ignore', 'pipe'] })
+    // stdio 全 ignore：任何 pipe 句柄（即使 child.unref()）都会保持事件循环，
+    // 导致主进程退出挂起（app.close/evaluate 超时根因）
+    const child = spawn(args[0], args.slice(1), { stdio: 'ignore' })
     child.unref() // 防止子进程句柄阻塞主进程退出
     const timer = setTimeout(() => {
       child.kill()
