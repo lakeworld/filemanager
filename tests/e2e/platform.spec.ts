@@ -26,12 +26,13 @@ test.describe('平台能力（Linux）', () => {
   })
 
   test.afterAll(async () => {
-    // e2e 模式：直接 kill 主进程（零依赖主进程配合），避免 close() 等待 90s 超时
+    // e2e 模式：SIGKILL 直接终止主进程（零依赖优雅退出）。
+    // 不调用 app.close()：进程已死，close() 反而会等待 CDP 断开导致 90s 超时；
+    // 残留子进程（xclip 等）已 unref，CI 容器结束自然清理。
     if (app) {
       try {
-        app.process().kill()
+        process.kill(app.process().pid!, 'SIGKILL')
       } catch { /* 已退出 */ }
-      await app.close().catch(() => {})
     }
   })
 
