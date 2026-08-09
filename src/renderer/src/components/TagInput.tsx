@@ -1,6 +1,6 @@
 import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
-import { tagColor, tagLabel } from "~/stores/tags";
+import { tagColor } from "~/stores/tags";
 import TagChip from "~/components/TagChip";
 import type { TagInfo } from "~/types";
 
@@ -29,15 +29,28 @@ export default function TagInput(props: {
   // 已定义标签名（含子标签）：孤儿标签（未定义）chip 高亮提醒
   const definedNames = () => new Set(props.options.flatMap((t) => [t.name, ...(t.children ?? [])]));
 
-  // 下拉候选：名称包含匹配 + 排除已选；输入为空时展示全部未选
+  // 下拉候选：名称包含匹配 + 排除已选；输入为空时展示全部未选。
+  // 展开子标签（props.options 为顶层列表）：子标签显示 父/子 并缩进
   const candidates = () => {
     const term = input().trim().toLowerCase();
     const selected = new Set(props.value);
+    const match = (name: string) => !term || name.toLowerCase().includes(term);
     const result: TagInfo[] = [];
     for (const t of props.options) {
-      if (selected.has(t.name)) continue;
-      if (term && !t.name.toLowerCase().includes(term)) continue;
-      result.push(t);
+      if (!selected.has(t.name) && match(t.name)) result.push(t);
+      for (const c of t.children ?? []) {
+        if (selected.has(c)) continue;
+        if (!match(c) && !match(t.name)) continue;
+        result.push({
+          name: c,
+          color: tagColor(c),
+          parent: t.name,
+          children: [],
+          builtin: !!t.builtin,
+          defined: true,
+          count: 0,
+        });
+      }
     }
     return result;
   };
@@ -141,11 +154,14 @@ export default function TagInput(props: {
             <For each={candidates()}>
               {(t) => (
                 <button
-                  class="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-100 flex items-center gap-2"
+                  class={`w-full px-3 py-1.5 text-left text-sm hover:bg-surface-100 flex items-center gap-2 ${t.parent ? "pl-7" : ""}`}
                   onClick={() => addTag(t.name)}
                 >
                   <span class="w-2.5 h-2.5 rounded-full shrink-0" style={{ "background-color": tagColor(t.name) }} />
-                  <span class="truncate">{tagLabel(t.name)}</span>
+                  <span class="truncate">
+                    {t.parent ? <span class="text-surface-400">{t.parent}/</span> : null}
+                    {t.name}
+                  </span>
                 </button>
               )}
             </For>
