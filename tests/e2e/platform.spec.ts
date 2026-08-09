@@ -26,9 +26,11 @@ test.describe('平台能力（Linux）', () => {
   })
 
   test.afterAll(async () => {
-    // e2e 模式：先强制退出主进程（绕过「关闭→隐藏托盘」拦截），避免 close() 等待 90s 超时
+    // e2e 模式：直接 kill 主进程（零依赖主进程配合），避免 close() 等待 90s 超时
     if (app) {
-      await app.evaluate(({ app: a }) => a.exit(0)).catch(() => {})
+      try {
+        app.process().kill()
+      } catch { /* 已退出 */ }
       await app.close().catch(() => {})
     }
   })
@@ -113,7 +115,10 @@ test.describe('平台能力（Linux）', () => {
   })
 
   test('拖拽 API 暴露：getPathForFile', async () => {
-    const fn = await page.evaluate(() => typeof (window as any).qihebox.getPathForFile)
-    expect(fn).toBe('function')
+    const info = await page.evaluate(() => {
+      const qb = (window as any).qihebox
+      return { hasQb: !!qb, keys: qb ? Object.keys(qb) : [], type: typeof qb?.getPathForFile }
+    })
+    expect(info.type, `诊断: ${JSON.stringify(info)}`).toBe('function')
   })
 })
