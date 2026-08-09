@@ -1,15 +1,13 @@
 Downloading Electron binary...
-[2952:0809/050037.832598:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/runner/work/filemanager/filemanager/node_modules/electron/dist/chrome-sandbox is owned by root and has mode 4755.
+[2746:0809/051158.176160:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/runner/work/filemanager/filemanager/node_modules/electron/dist/chrome-sandbox is owned by root and has mode 4755.
 /home/runner/work/filemanager/filemanager/node_modules/electron/dist/electron exited with signal SIGTRAP
-[3005:0809/050045.472498:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
-[3005:0809/050045.524698:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
-[3005:0809/050045.546255:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
-[3005:0809/050045.546336:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
-[3005:0809/050045.695449:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
-[3005:0809/050058.792680:ERROR:content/common/zygote/zygote_communication_linux.cc:291] Failed to send GetTerminationStatus message to zygote
-[3005:0809/050058.793963:ERROR:content/browser/gpu/gpu_process_host.cc:1083] GPU process launch failed: error_code=1002
-[3005:0809/050058.794591:ERROR:content/browser/gpu/gpu_process_host.cc:1083] GPU process launch failed: error_code=1002
-[3005:0809/050058.795021:ERROR:content/browser/gpu/gpu_process_host.cc:1083] GPU process launch failed: error_code=1002
-[3005:0809/050058.795042:FATAL:content/browser/gpu/gpu_data_manager_impl_private.cc:416] GPU process isn't usable. Goodbye.
+[2801:0809/051203.608962:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[2801:0809/051203.647383:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[2801:0809/051203.663691:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[2801:0809/051203.663898:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[2801:0809/051203.676349:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[2801:0809/051219.123381:ERROR:content/browser/network_service_instance_impl.cc:721] Network service crashed or was terminated, restarting service.
+[2801:0809/051219.129812:ERROR:content/common/zygote/zygote_communication_linux.cc:291] Failed to send GetTerminationStatus message to zygote
+[2801:0809/051219.130435:FATAL:electron/shell/browser/electron_browser_main_parts.cc:527] Failed to shutdown.
 /home/runner/work/filemanager/filemanager/node_modules/electron/dist/electron exited with signal SIGTRAP
 == diagnose done ==
