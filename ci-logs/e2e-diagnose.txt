@@ -1,13 +1,10 @@
 Downloading Electron binary...
-[2746:0809/051158.176160:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/runner/work/filemanager/filemanager/node_modules/electron/dist/chrome-sandbox is owned by root and has mode 4755.
+[2993:0809/052213.573992:FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary was found, but is not configured correctly. Rather than run without sandboxing I'm aborting now. You need to make sure that /home/runner/work/filemanager/filemanager/node_modules/electron/dist/chrome-sandbox is owned by root and has mode 4755.
 /home/runner/work/filemanager/filemanager/node_modules/electron/dist/electron exited with signal SIGTRAP
-[2801:0809/051203.608962:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
-[2801:0809/051203.647383:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
-[2801:0809/051203.663691:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
-[2801:0809/051203.663898:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
-[2801:0809/051203.676349:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
-[2801:0809/051219.123381:ERROR:content/browser/network_service_instance_impl.cc:721] Network service crashed or was terminated, restarting service.
-[2801:0809/051219.129812:ERROR:content/common/zygote/zygote_communication_linux.cc:291] Failed to send GetTerminationStatus message to zygote
-[2801:0809/051219.130435:FATAL:electron/shell/browser/electron_browser_main_parts.cc:527] Failed to shutdown.
-/home/runner/work/filemanager/filemanager/node_modules/electron/dist/electron exited with signal SIGTRAP
+[3047:0809/052218.757818:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[3047:0809/052218.816905:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[3047:0809/052218.842817:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[3047:0809/052218.842897:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[3047:0809/052218.965166:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+/home/runner/work/filemanager/filemanager/node_modules/electron/dist/electron exited with signal SIGTERM
 == diagnose done ==
