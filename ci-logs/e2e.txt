@@ -1,10 +1,10 @@
 
 Running 19 tests using 1 worker
 
-  ✓   1 tests/e2e/features.spec.ts:26:3 › v2.0.1 新功能 › 标签 IPC 全链路：上色 → 列表 → 重命名 → 删除 (51ms)
-  ✓   2 tests/e2e/features.spec.ts:60:3 › v2.0.1 新功能 › 拖拽拖出：startDrag 越界拒绝（真实拖拽需 dragstart 上下文，手动验证） (11ms)
-  ✓   3 tests/e2e/features.spec.ts:79:3 › v2.0.1 新功能 › 复制路径 IPC (11ms)
-  ✘   4 tests/e2e/features.spec.ts:94:3 › v2.0.1 新功能 › 右键操作可用：默认程序打开 / 复制路径（IPC 校验） (5.2s)
+  ✓   1 tests/e2e/features.spec.ts:26:3 › v2.0.1 新功能 › 标签 IPC 全链路：上色 → 列表 → 重命名 → 删除 (62ms)
+  ✓   2 tests/e2e/features.spec.ts:60:3 › v2.0.1 新功能 › 拖拽拖出：startDrag 越界拒绝（真实拖拽需 dragstart 上下文，手动验证） (15ms)
+  ✓   3 tests/e2e/features.spec.ts:79:3 › v2.0.1 新功能 › 复制路径 IPC (16ms)
+  ✘   4 tests/e2e/features.spec.ts:94:3 › v2.0.1 新功能 › 右键操作可用：默认程序打开 / 复制路径（IPC 校验） (5.0s)
 Worker teardown timeout of 90000ms exceeded.
 
 Failed worker ran 4 tests:
@@ -12,15 +12,15 @@ tests/e2e/features.spec.ts:26:3 › v2.0.1 新功能 › 标签 IPC 全链路：
 tests/e2e/features.spec.ts:60:3 › v2.0.1 新功能 › 拖拽拖出：startDrag 越界拒绝（真实拖拽需 dragstart 上下文，手动验证）
 tests/e2e/features.spec.ts:79:3 › v2.0.1 新功能 › 复制路径 IPC
 tests/e2e/features.spec.ts:94:3 › v2.0.1 新功能 › 右键操作可用：默认程序打开 / 复制路径（IPC 校验）
-  ✓   5 tests/e2e/features.spec.ts:124:3 › 后端打磨（v2.4.0） › 文件移动：move 后目标子文件夹可见、原位置消失 (63ms)
-  ✓   6 tests/e2e/features.spec.ts:153:3 › 后端打磨（v2.4.0） › 标签删除不复活：create → delete → 两次 list 均不含 (20ms)
-  ✓   7 tests/e2e/features.spec.ts:174:3 › 后端打磨（v2.4.0） › 更新检查 IPC：updater.check 返回 ApiResult 结构 (710ms)
-[clipboard] text/uri-list 内容: "file:///tmp/qihebox-clip-nPuEms/clip.txt\n"
-  ✓   8 tests/e2e/platform.spec.ts:32:3 › 平台能力（Linux） › 剪贴板：复制文件 → text/uri-list 可读回 (24ms)
+  ✓   5 tests/e2e/features.spec.ts:124:3 › 后端打磨（v2.4.0） › 文件移动：move 后目标子文件夹可见、原位置消失 (95ms)
+  ✓   6 tests/e2e/features.spec.ts:153:3 › 后端打磨（v2.4.0） › 标签删除不复活：create → delete → 两次 list 均不含 (31ms)
+  ✓   7 tests/e2e/features.spec.ts:174:3 › 后端打磨（v2.4.0） › 更新检查 IPC：updater.check 返回 ApiResult 结构 (785ms)
+[clipboard] text/uri-list 内容: "file:///tmp/qihebox-clip-rAO9oE/clip.txt\n"
+  ✓   8 tests/e2e/platform.spec.ts:32:3 › 平台能力（Linux） › 剪贴板：复制文件 → text/uri-list 可读回 (27ms)
   ✓   9 tests/e2e/platform.spec.ts:66:3 › 平台能力（Linux） › 资源管理器：显示选中文件（dde-file-manager --show-item） (5.0s)
-  ✓  10 tests/e2e/platform.spec.ts:82:3 › 平台能力（Linux） › 窗口控制 IPC：getSize/setSize/minimize (14ms)
-  ✓  11 tests/e2e/platform.spec.ts:101:3 › 平台能力（Linux） › 无边框拖拽区样式（-webkit-app-region） (2ms)
-  ✘  12 tests/e2e/platform.spec.ts:111:3 › 平台能力（Linux） › 拖拽 API 暴露：getPathForFile (3ms)
+  ✓  10 tests/e2e/platform.spec.ts:82:3 › 平台能力（Linux） › 窗口控制 IPC：getSize/setSize/minimize (21ms)
+  ✓  11 tests/e2e/platform.spec.ts:101:3 › 平台能力（Linux） › 无边框拖拽区样式（-webkit-app-region） (4ms)
+  ✘  12 tests/e2e/platform.spec.ts:111:3 › 平台能力（Linux） › 拖拽 API 暴露：getPathForFile (4ms)
 Worker teardown timeout of 90000ms exceeded.
 
 Failed worker ran 8 tests:
@@ -32,13 +32,13 @@ tests/e2e/platform.spec.ts:66:3 › 平台能力（Linux） › 资源管理器�
 tests/e2e/platform.spec.ts:82:3 › 平台能力（Linux） › 窗口控制 IPC：getSize/setSize/minimize
 tests/e2e/platform.spec.ts:101:3 › 平台能力（Linux） › 无边框拖拽区样式（-webkit-app-region）
 tests/e2e/platform.spec.ts:111:3 › 平台能力（Linux） › 拖拽 API 暴露：getPathForFile
-  ✓  13 tests/e2e/smoke.spec.ts:33:3 › qihe-box e2e › 窗口加载且 window.qihebox 可用 (13ms)
-  ✓  14 tests/e2e/smoke.spec.ts:43:3 › qihe-box e2e › 建工作区 → 建产品集 → 列表可见 (16ms)
-  ✓  15 tests/e2e/smoke.spec.ts:71:3 › qihe-box e2e › Dashboard 统计可读取 (5ms)
-  ✓  16 tests/e2e/smoke.spec.ts:77:3 › qihe-box e2e › 应用版本号 (7ms)
-  ✓  17 tests/e2e/smoke.spec.ts:83:3 › qihe-box e2e › 导入图片 → sharp 缩略图 → qihebox:// 协议加载（阶段2/3） (120ms)
-  ✓  18 tests/e2e/smoke.spec.ts:165:3 › qihe-box e2e › 导入 PDF → 不生成缩略图（v2.1.0 决策：证书以预览查看），协议不可越界 (18ms)
-  ✓  19 tests/e2e/xlsx.spec.ts:27:3 › XLSX 批量导入 › 导出模板 → 填数据 → 导入 → 批量建产品集 (126ms)
+  ✓  13 tests/e2e/smoke.spec.ts:34:3 › qihe-box e2e › 窗口加载且 window.qihebox 可用 (21ms)
+  ✓  14 tests/e2e/smoke.spec.ts:44:3 › qihe-box e2e › 建工作区 → 建产品集 → 列表可见 (26ms)
+  ✓  15 tests/e2e/smoke.spec.ts:72:3 › qihe-box e2e › Dashboard 统计可读取 (9ms)
+  ✓  16 tests/e2e/smoke.spec.ts:78:3 › qihe-box e2e › 应用版本号 (4ms)
+  ✓  17 tests/e2e/smoke.spec.ts:84:3 › qihe-box e2e › 导入图片 → sharp 缩略图 → qihebox:// 协议加载（阶段2/3） (148ms)
+  ✓  18 tests/e2e/smoke.spec.ts:166:3 › qihe-box e2e › 导入 PDF → 不生成缩略图（v2.1.0 决策：证书以预览查看），协议不可越界 (26ms)
+  ✓  19 tests/e2e/xlsx.spec.ts:27:3 › XLSX 批量导入 › 导出模板 → 填数据 → 导入 → 批量建产品集 (170ms)
 
 
   1) tests/e2e/features.spec.ts:94:3 › v2.0.1 新功能 › 右键操作可用：默认程序打开 / 复制路径（IPC 校验） ───────────────────
