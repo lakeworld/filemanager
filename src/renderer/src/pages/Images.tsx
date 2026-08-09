@@ -42,6 +42,9 @@ export default function Images() {
   const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
   const [actionMessage, setActionMessage] = createSignal("");
   const contextMenu = useContextMenu<string>();
+  // v2.4.1：单击选择 / 双击打开（单击延迟 250ms，双击清除）
+  let clickTimer: number | undefined;
+
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
 
   const showActionMessage = (msg: string) => {
@@ -268,7 +271,14 @@ export default function Images() {
                 draggable={true}
                 onDragStart={(e) => handleDragOut(e, img.path, selectedPaths())}
                 onContextMenu={(e) => contextMenu.open(e, img.path)}
-                onClick={() => openPreview(img, { onDelete: loadAllImages })}
+                onClick={() => {
+                  window.clearTimeout(clickTimer);
+                  clickTimer = window.setTimeout(() => toggleSelection(img.path), 250);
+                }}
+                onDblClick={() => {
+                  window.clearTimeout(clickTimer);
+                  openPreview(img, { onDelete: loadAllImages });
+                }}
               >
                 <div class="relative h-40 rounded-lg bg-surface-100 overflow-hidden">
                   <input

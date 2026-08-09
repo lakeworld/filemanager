@@ -1,6 +1,7 @@
 import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
-import { tagChipStyle, tagColor, tagLabel } from "~/stores/tags";
+import { tagColor, tagLabel } from "~/stores/tags";
+import TagChip from "~/components/TagChip";
 import type { TagInfo } from "~/types";
 
 /**
@@ -95,21 +96,15 @@ export default function TagInput(props: {
   return (
     <div ref={rootEl} class="relative">
       <Show when={props.value.length > 0}>
-        <div class="flex flex-wrap gap-1 mb-2">
+        <div class="flex flex-wrap gap-1.5 mb-2">
           <For each={props.value}>
             {(tag, index) => (
-              <span
-                class={`inline-flex items-center gap-1 px-2 py-1 text-white rounded text-xs ${
-                  definedNames().has(tag) ? "" : "ring-2 ring-amber-400"
-                }`}
-                style={tagChipStyle(tag)}
+              <TagChip
+                name={tag}
+                warn={!definedNames().has(tag)}
                 title={definedNames().has(tag) ? undefined : "未在设置中定义，可在设置中转为正式标签"}
-              >
-                {tagLabel(tag)}
-                <button class="hover:opacity-80" onClick={() => removeTag(index())}>
-                  ✕
-                </button>
-              </span>
+                onRemove={() => removeTag(index())}
+              />
             )}
           </For>
         </div>

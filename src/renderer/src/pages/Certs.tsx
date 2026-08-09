@@ -42,6 +42,9 @@ export default function Certs() {
   const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
   const [actionMessage, setActionMessage] = createSignal("");
   const contextMenu = useContextMenu<string>();
+  // v2.4.1：单击选择 / 双击打开（单击延迟 250ms，双击清除）
+  let clickTimer: number | undefined;
+
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
 
   const showActionMessage = (msg: string) => {

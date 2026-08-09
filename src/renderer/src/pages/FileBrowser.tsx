@@ -34,6 +34,8 @@ export default function FileBrowser() {
   const [newFolderName, setNewFolderName] = createSignal("");
   const [selectedFilePaths, setSelectedFilePaths] = createSignal<string[]>([]);
   const contextMenu = useContextMenu<string[]>();
+  // v2.4.1：单击选择 / 双击打开——单击延迟 250ms 判定（双击时清除），避免双击触发两次选择
+  let clickTimer: number | undefined;
   const [showMove, setShowMove] = createSignal(false);
   // v2.3.3（P2）：批量重命名对话框（多选）
   const [showBatchRename, setShowBatchRename] = createSignal(false);
@@ -486,7 +488,14 @@ export default function FileBrowser() {
                       : [file.path];
                     contextMenu.open(e, paths);
                   }}
-                  onClick={() => handleOpenPreview(file)}
+                  onClick={() => {
+                    window.clearTimeout(clickTimer);
+                    clickTimer = window.setTimeout(() => toggleFileSelection(file), 250);
+                  }}
+                  onDblClick={() => {
+                    window.clearTimeout(clickTimer);
+                    handleOpenPreview(file);
+                  }}
                 >
                   <div class="relative h-36 rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden mb-3">
                     <input
