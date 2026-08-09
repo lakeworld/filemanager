@@ -1,5 +1,55 @@
 # 更新日志
 
+## v2.4.0 — 2026-08-09（CI 门禁 + 应用内更新 + 打磨与体验）
+
+> AI 功能（v2.2.0 实现）仍不开放：客户端入口隐藏（`FEATURE_AI=false`），代码保留在独立 `feature/ai` 分支。
+
+### CI 门禁（GitHub Actions）
+
+- 新增 `.github/workflows/ci.yml`：push 全分支 + PR 到 master 触发；bench 不进 CI（避免改写 docs/PERF.md 污染基准）
+- **test**：tsc 双配置类型检查（renderer / main+preload+tests）+ vitest 单测 + electron-vite build
+- **e2e**：Xvfb 无头环境跑 Playwright（19 用例），报告上传 artifact
+- **package**：Linux（AppImage + deb）/ Windows（NSIS）双平台矩阵打包验证，`--publish never` 不自动发布
+
+### 应用内更新检查
+
+- 新增 `updater.ts`：拉取官网 `version.json` + 语义化版本比对，启动时 + 每 24h 静默检查
+- 发现新版本经 IPC 事件通知渲染层（「我的 → 更新」显示「发现新版本 + 前往官网下载」）
+- download/apply 仍未开放：更新统一引导前往官网下载全新安装包
+
+### 标签体系重构
+
+- 移除固定预设标签（重要/待更新/已更新/问题/归档），升级时一次性迁移清空
+- 标签删除不再复活；颜色可自由修改
+- tagChipStyle 亮度自适应：浅底深字 / 深底白字
+
+### 拖拽修复
+
+- 应用内拖出后拖回窗口不再误触发导入（内部拖拽标记 + 路径匹配）
+
+### 右键菜单统一
+
+- 共享 builder 统一 6 处入口（文件浏览器/图包库/证书库/搜索/产品集/预览弹窗），补齐「编辑信息」
+- 新组件：TagInput（输入下拉搜索）、DatePicker（日历选择器，复刻 ERP 交互）、MoveDialog、BatchRenameDialog、EmptyState / Loading
+
+### 文件移动与导入
+
+- **文件移动**：moveFiles 全链路（跨子文件夹 / 跨产品集，元数据与缩略图跟随，同名冲突加序号）
+- **目录导入**：拖入目录递归平铺导入
+- **批量重命名**：多选 → 前缀 + 序号
+
+### 其他打磨
+
+- Ctrl+K 全局搜索、回收站 30 天自动清理
+- 证书到期系统通知（每日去重）
+- 外部 GUI 命令 5s 超时 + unref（修复 CI / 无桌面环境挂起）
+- renderer ↔ core 类型共享（`src/shared/types.ts`），存量类型错误清零
+
+### 测试
+
+- 单测 96 用例（+33）、e2e 19 用例（+5）
+- e2e 通过 `QIHEBOX_E2E=1` 模式运行（主进程跳过「关闭 → 隐藏托盘」，适配 CI 无桌面环境）
+
 ## v2.3.1 — 2026-08-09（回收站）
 
 > AI 功能（v2.2.0 实现）仍不开放：客户端入口隐藏（`FEATURE_AI=false`），代码保留在独立 `feature/ai` 分支。

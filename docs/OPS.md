@@ -23,7 +23,7 @@ chmod +x 启禾文件管理-2.1.0.AppImage
 
 解压 `启禾文件管理-2.1.0-win-x64.zip` 运行 `启禾文件管理.exe`，免安装；升级 = 解压新包替换。
 
-> 正式 NSIS 安装包需在 Windows/CI 构建（Linux 下打 exe 需要 wine，本机未安装）。
+> 正式 NSIS 安装包已由 CI package job（Windows runner）产出，可直接从 Actions artifact 下载；Linux 下打 exe 需要 wine，本机未安装。
 
 ## 二、数据与备份
 
@@ -72,11 +72,13 @@ ps aux | grep qihe-box
 ## 五、发布流程（维护者）
 
 ```bash
-npm test && npx playwright test   # 全量测试
-npm run build:linux               # AppImage + deb → release/
-npx electron-builder --win dir    # win-unpacked → zip 便携包（无 wine 环境）
-# 拷贝到 软件发布包/ 目录
-# 官网同步：version.json（版本+更新说明+下载链接）→ 本地 web 构建 → rsync dist
+# 1. push / PR 触发 GitHub Actions 全量门禁（test：tsc 双配置 + 单测 + build；
+#    e2e：Xvfb Playwright；package：Linux AppImage+deb / Windows NSIS，均 --publish never 不发布）
+# 2. 取安装包：Actions → package job artifacts（qihe-box-Linux / qihe-box-Windows）；
+#    或本机 npm run build:linux（Windows 产物用 CI 的）
+# 3. 冒烟：安装 → 启动 → 打开工作区 → 导入/预览/搜索抽查
+# 4. 拷贝到 软件发布包/ 目录（坚果云同步发布）
+# 5. 官网同步：version.json（版本+更新说明+下载链接）→ 本地 web 构建 → rsync dist
 ```
 
 官网文件站：`box.qihebook.cloud`（nginx 配置见 `deploy/`，限速下载）。
