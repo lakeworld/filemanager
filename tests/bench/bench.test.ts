@@ -86,17 +86,20 @@ describe('性能基准', () => {
     const srcPaths = (await fsp.readdir(srcDir)).map((f) => path.join(srcDir, f))
 
     t = timeMs()
-    const imported = await box.files.importFiles({
+    const imported = (await box.files.importFiles({
       source_paths: srcPaths,
       target_product_set: '系列001',
       target_folder: '主图',
       target_type: 'image',
       sub_folder: '主图',
-    })
+    })).imported
     const importMs = timeMs() - t
     expect(imported).toHaveLength(IMPORT_BATCH)
-    const withThumb = imported.filter((f) => f.thumbnail_path).length
-    lines.push(`- **导入100文件(含缩略图)**: ${importMs.toFixed(0)}ms（${withThumb} 张生成缩略图）`)
+    // v2.4.2（I4）：导入不再同步生成缩略图（异步后台），这里单独计时批量生成一次供参考
+    t = timeMs()
+    await Promise.all(imported.map((f) => box.ensureThumbnailFor(f.path, 'background').catch(() => '')))
+    const thumbMs = timeMs() - t
+    lines.push(`- **导入${IMPORT_BATCH}文件**: ${importMs.toFixed(0)}ms（缩略图批量生成 ${thumbMs.toFixed(0)}ms）`)
 
     // 6. 内存（node 进程）
     const rss = Math.round(process.memoryUsage().rss / 1024 / 1024)

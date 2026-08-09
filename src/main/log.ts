@@ -14,8 +14,28 @@ export function initLogger(): void {
   try {
     logDir = app.getPath('logs')
     void fsp.mkdir(logDir, { recursive: true })
+    // v2.4.2（批次二）：启动时清理 14 天前的日志文件（防常驻运行一年 365 个文件无界增长）
+    void cleanupOldLogs()
   } catch {
     // 日志不可用时静默降级
+  }
+}
+
+/** 删除 N 天前的 main-YYYY-MM-DD.log（保留近期日志便于排查） */
+const LOG_RETAIN_DAYS = 14
+async function cleanupOldLogs(): Promise<void> {
+  try {
+    const cutoff = new Date(Date.now() - LOG_RETAIN_DAYS * 24 * 60 * 60 * 1000)
+    const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`
+    const files = await fsp.readdir(logDir)
+    for (const f of files) {
+      const m = /^main-(\d{4}-\d{2}-\d{2})\.log$/.exec(f)
+      if (m && m[1] < cutoffStr) {
+        await fsp.rm(path.join(logDir, f), { force: true }).catch(() => {})
+      }
+    }
+  } catch {
+    // 清理失败不影响日志功能
   }
 }
 

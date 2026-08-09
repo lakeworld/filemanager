@@ -76,6 +76,22 @@ electron-builder 打 win 包时**自动下载**以下工具到 `~/.cache/electro
 - `winCodeSign`（rcedit/signtool 运行环境）
 - Windows 版 Electron 二进制
 
+### 2.3 ⚠️ sharp 原生二进制的交叉编译陷阱（v2.4.2 起）
+
+`npmRebuild: false` 依赖 sharp 预编译二进制，**sharp 的平台二进制由 npm 按本机平台安装**（`node_modules/@img/sharp-<platform>-<arch>`）。在 Linux 上打 Windows 包时，若缺失 Windows 二进制，打包产物里只有 Linux 的 `.so` → **Windows 端缩略图静默全废**（`ensureThumbnail` 失败只回空串，不易察觉）。
+
+**Linux 本机打 Windows 包前必须补装 Windows 二进制**（版本与 `node_modules/sharp/package.json` 的 `optionalDependencies` 一致）：
+
+```bash
+npm install --no-save --force @img/sharp-win32-x64@<sharp版本>   # 如 0.35.3
+# 验证：ls node_modules/@img/ 应同时出现 sharp-linux-x64 与 sharp-win32-x64
+```
+
+- `--force`：该包的 `os: ["win32"]` 在 Linux 上默认拒绝安装，需强制
+- `--no-save`：不进 package.json（本机专属，避免污染锁文件；CI/Windows 机器无需此步）
+- 打包后在 `release/win-unpacked/resources/app.asar.unpacked/node_modules/@img/` 中应能看到 `sharp-win32-x64`
+- sharp 运行时按 `process.platform` 加载对应包，win + linux 二进制共存于 node_modules 无冲突
+
 ---
 
 ## 三、分平台打包
@@ -170,6 +186,7 @@ npx electron-builder --win zip -c.win.signAndEditExecutable=false
 | NSIS 工具下载失败 | 网络问题，重试或检查 `~/.cache/electron-builder/`；`.npmrc` 已配国内镜像 |
 | Windows 打包在 Linux 报 rcedit 失败 | wine 缺失或版本过旧——确认 `wine --version` 可用 |
 | 打包体积异常 | `npm ls --prod` 应只有 sharp/exceljs；`electronLanguages` 只留 zh-CN/en-US（electron-builder.yml 已配） |
+| Windows 端缩略图全废 | Linux 本机打 win 包漏了 `@img/sharp-win32-x64`（见 2.3）——验证 `release/win-unpacked/resources/app.asar.unpacked/node_modules/@img/` 含 win32 目录 |
 | 中文路径（坚果云）项目 | e2e/bench 有已知兼容问题；打包本身无碍 |
 
 ---

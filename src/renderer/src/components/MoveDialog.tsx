@@ -58,6 +58,12 @@ export default function MoveDialog(props: {
         setErrorMsg(result.error || "移动失败");
         return;
       }
+      // v2.4.2：聚合结果部分失败不回滚——有失败项时展示明细且不关闭对话框（用户可重试/改目标）
+      if (result.data && result.data.failed.length > 0) {
+        setStatus("error");
+        setErrorMsg(`${result.data.moved.length} 个成功，${result.data.failed.length} 个失败：${result.data.failed[0].error}`);
+        return;
+      }
       // P0-4：成功后即时关闭并通知父级刷新（去掉 0.9s 成功态停留）
       setStatus("idle");
       props.onMoved?.();

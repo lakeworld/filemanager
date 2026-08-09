@@ -20,6 +20,7 @@ import {
   filterSlice,
   writeJsonAtomic,
   readJsonFile,
+  assertSafeFolderName,
 } from './paths'
 import { globalCountCache } from './scanCache'
 import { globalWorkspaceIndex } from './indexCache'
@@ -214,7 +215,8 @@ export class WorkspaceService {
   async renameSubfolder(type: 'image' | 'cert', oldName: string, newName: string): Promise<WorkspaceConfig> {
     this.requireWorkspace()
     oldName = oldName.trim()
-    newName = newName.trim()
+    // v2.4.2（S1）：新名称完整校验（拒绝分隔符 / .. / Windows 非法字符等）
+    newName = assertSafeFolderName(newName, '子文件夹名称')
     if (!oldName || !newName) throw new Error('名称不能为空')
     if (oldName === newName) return this.loadConfig()
     const cfg = await this.loadConfig()
@@ -279,7 +281,8 @@ export class WorkspaceService {
 
   async productSetCreate(req: ProductSetCreateRequest): Promise<ProductSetInfo> {
     this.requireWorkspace()
-    const name = req.name.trim()
+    // v2.4.2（S1）：产品集名称完整校验（拒绝分隔符 / .. / Windows 非法字符等）
+    const name = assertSafeFolderName(req.name, '产品集名称')
     if (!name) throw new Error('名称不能为空')
     const dir = productSetRootPath(this.currentWS, name)
     try {
@@ -327,7 +330,8 @@ export class WorkspaceService {
   async renameProductSet(oldName: string, newName: string): Promise<void> {
     this.requireWorkspace()
     oldName = oldName.trim()
-    newName = newName.trim()
+    // v2.4.2（S1）：新名称完整校验
+    newName = assertSafeFolderName(newName, '产品集名称')
     if (!oldName || !newName) throw new Error('名称不能为空')
     const oldDir = productSetRootPath(this.currentWS, oldName)
     const newDir = productSetRootPath(this.currentWS, newName)

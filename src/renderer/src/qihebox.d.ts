@@ -51,7 +51,7 @@ interface QiheboxApi {
     openWithDefaultApp: (filePath: string) => Promise<unknown>
   }
   metadata: {
-    get: (productSet: string, fileName: string) => Promise<unknown>
+    get: (filePath: string) => Promise<unknown>
     update: (req: unknown) => Promise<unknown>
   }
   dashboard: {

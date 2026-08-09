@@ -61,8 +61,8 @@ const api = {
     openWithDefaultApp: (filePath: string) => invoke('qihebox:files:openWithDefaultApp', filePath),
   },
   metadata: {
-    get: (productSet: string, fileName: string) =>
-      invoke('qihebox:metadata:get', productSet, fileName),
+    // v2.4.2：主进程按文件绝对路径推导元数据 key（含子文件夹），不再传 productSet/fileName
+    get: (filePath: string) => invoke('qihebox:metadata:get', filePath),
     update: (req: unknown) => invoke('qihebox:metadata:update', req),
   },
   dashboard: {

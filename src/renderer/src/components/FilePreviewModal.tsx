@@ -36,6 +36,10 @@ export default function FilePreviewModal() {
   const isImage = () => previewFile()?.file_type === "image";
   const isVideo = () => previewFile()?.file_type === "video";
   const showMetadata = () => !!previewContext().productSet && previewContext().editMetadata;
+  // v2.4.2（P1-P1）：pdfjs 对非 http 协议整文件加载——超大 PDF 内嵌预览会整载进内存（Linux 1GB 堆上限下
+  // 有 OOM 白屏风险），超过阈值改引导「用系统程序打开」
+  const PDF_INLINE_LIMIT_BYTES = 100 * 1024 * 1024;
+  const isPdfTooLarge = () => isPdf() && (previewFile()?.size ?? 0) > PDF_INLINE_LIMIT_BYTES;
 
   const [contextMenu, setContextMenu] = createSignal<{ show: boolean; x: number; y: number }>({
     show: false,
@@ -186,12 +190,29 @@ export default function FilePreviewModal() {
                       />
                     </Match>
                     <Match when={isPdf()}>
-                      {/* v2.1.0：PDFium 不渲染 iframe 自定义协议，改 pdfjs 渲染进程渲染 */}
-                      <PdfPreview
-                        url={previewUrl()}
-                        onError={(m) => setPreviewError(m)}
-                        onTextExtract={(fn) => setExtractText(() => fn)}
-                      />
+                      {/* v2.1.0：PDFium 不渲染 iframe 自定义协议，改 pdfjs 渲染进程渲染
+                          v2.4.2（P1-P1）：超大 PDF 整载有 OOM 风险 → 引导用系统程序打开 */}
+                      <Show
+                        when={!isPdfTooLarge()}
+                        fallback={
+                          <div class="flex flex-col items-center gap-3 p-6 text-center text-sm text-surface-500">
+                            <span class="text-5xl">📄</span>
+                            <span>
+                              PDF 较大（{formatBytes(previewFile()?.size ?? 0)}），内嵌预览需整文件加载，
+                              建议用系统程序打开
+                            </span>
+                            <button class="btn-primary" onClick={openCurrentWithSystem}>
+                              用系统程序打开
+                            </button>
+                          </div>
+                        }
+                      >
+                        <PdfPreview
+                          url={previewUrl()}
+                          onError={(m) => setPreviewError(m)}
+                          onTextExtract={(fn) => setExtractText(() => fn)}
+                        />
+                      </Show>
                     </Match>
                   </Switch>
                 </Show>

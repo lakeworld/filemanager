@@ -34,8 +34,6 @@ export default function FileBrowser() {
   const [newFolderName, setNewFolderName] = createSignal("");
   const [selectedFilePaths, setSelectedFilePaths] = createSignal<string[]>([]);
   const contextMenu = useContextMenu<string[]>();
-  // v2.4.1：单击选择 / 双击打开——单击延迟 250ms 判定（双击时清除），避免双击触发两次选择
-  let clickTimer: number | undefined;
   const [showMove, setShowMove] = createSignal(false);
   // v2.3.3（P2）：批量重命名对话框（多选）
   const [showBatchRename, setShowBatchRename] = createSignal(false);
@@ -86,12 +84,16 @@ export default function FileBrowser() {
     }
   };
 
+  // v2.4.x：请求序号守卫——快速连点切换文件夹时，丢弃过期请求的返回，保证最终显示正确文件夹
+  let loadSeq = 0;
   const loadFiles = async () => {
+    const seq = ++loadSeq;
     const result = await api.files.list({
       product_set: decodedProductSet(),
       file_type: params.type ?? "image",
       sub_folder: decodedSubFolder(),
     });
+    if (seq !== loadSeq) return; // 已切到别的文件夹，过期结果直接丢弃
     if (result.success && result.data) {
       setFiles(result.data);
     }
@@ -133,9 +135,14 @@ export default function FileBrowser() {
     if (paths.length === 0) return;
     if (!window.confirm(`确定删除选中的 ${paths.length} 个文件吗？将移入回收站，可在回收站恢复。`)) return;
     const result = await api.files.delete(paths);
-    if (result.success) {
+    if (result.success && result.data) {
       loadFiles();
-      showActionMessage(`已删除 ${paths.length} 个文件（可在回收站恢复）`);
+      const { deleted, failed } = result.data;
+      showActionMessage(`已删除 ${deleted} 个文件${failed.length > 0 ? `，失败 ${failed.length} 个` : ""}（可在回收站恢复）`);
+      // v2.4.2：全部失败时展示首个失败原因（聚合结果部分失败不回滚，明细可见）
+      if (deleted === 0 && failed.length > 0) {
+        window.alert(result.data.failed[0].error);
+      }
     } else {
       window.alert(result.error || "删除失败");
     }
@@ -337,7 +344,6 @@ export default function FileBrowser() {
   const applyAiTag = async (selected: number[]) => {
     const panel = aiPanel();
     if (!panel) return;
-    const ps = decodedProductSet();
     let applied = 0;
     let failed = 0;
     let skipped = 0;
@@ -353,12 +359,12 @@ export default function FileBrowser() {
         skipped++;
         continue;
       }
-      const meta = await api.metadata.get(ps, file.name);
+      // v2.4.2：主进程按文件绝对路径推导元数据 key（含子文件夹）
+      const meta = await api.metadata.get(file.path);
       const current = meta.success && meta.data ? meta.data : { cert_type: "", expiry_date: "", tags: [] as string[], notes: "" };
       const merged = Array.from(new Set([...(current.tags ?? []), ...valid]));
       const r = await api.metadata.update({
-        product_set: ps,
-        file_name: file.name,
+        file_path: file.path,
         cert_type: current.cert_type ?? "",
         expiry_date: current.expiry_date ?? "",
         tags: merged,
@@ -477,25 +483,20 @@ export default function FileBrowser() {
               itemHeight={224}
               columns={{ base: 2, md: 3, lg: 4, xl: 5 }}
               gap={16}
+              scrollResetKey={`${params.type}/${params.productSet}/${params.subFolder}`}
               renderItem={(file) => (
                 <div
                   class={`card p-3 cursor-pointer hover:shadow-card-hover transition-all select-none ${selectedFilePaths().includes(file.path) ? "border-primary-500 bg-primary-50" : ""}`}
                   draggable={true}
                   onDragStart={(e) => handleDragOut(e, file.path, selectedFilePaths())}
                   onContextMenu={(e) => {
-                    const paths = selectedFilePaths().includes(file.path)
-                      ? selectedFilePaths()
-                      : [file.path];
+                    // v2.4.2：右键——目标未选中时先单选它，菜单作用于「选中集合或该文件」
+                    const paths = selectedFilePaths().includes(file.path) ? selectedFilePaths() : [file.path];
+                    if (!selectedFilePaths().includes(file.path)) setSelectedFilePaths([file.path]);
                     contextMenu.open(e, paths);
                   }}
-                  onClick={() => {
-                    window.clearTimeout(clickTimer);
-                    clickTimer = window.setTimeout(() => toggleFileSelection(file), 250);
-                  }}
-                  onDblClick={() => {
-                    window.clearTimeout(clickTimer);
-                    handleOpenPreview(file);
-                  }}
+                  onClick={() => toggleFileSelection(file)}
+                  onDblClick={() => handleOpenPreview(file)}
                 >
                   <div class="relative h-36 rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden mb-3">
                     <input

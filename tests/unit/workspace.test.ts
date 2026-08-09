@@ -105,7 +105,7 @@ describe('工作区全链路（对照原 app_test.go）', () => {
     await box.workspace.productSetCreate({ name: '待删' })
 
     // 写入一条元数据
-    await box.metadata.update({ product_set: '待删', file_name: 'a.jpg', cert_type: '3C' })
+    await box.metadata.update({ file_path: path.join(ws, '产品集', '待删', '图包', '主图', 'a.jpg'), cert_type: '3C' })
 
     await box.deleteProductSet('待删')
     const dir = path.join(ws, '产品集', '待删')

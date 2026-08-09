@@ -1,10 +1,18 @@
 /**
  * 文件元数据（对照原 Go metadata.go）
- * 纯 TS 业务层：key 格式 `产品集/文件名` 与原实现一致。
+ * 纯 TS 业务层。
+ *
+ * v2.4.2（D3+D4）：元数据 key 重构
+ * - 旧格式：`产品集/文件名`（path.join 拼接 → Windows 落盘 `\`、Linux 落盘 `/`，且不含子文件夹，
+ *   同产品集不同子文件夹的同名文件元数据互相串号、回收站 purge 会误删仍在使用的同名文件）
+ * - 新格式：`产品集/图包|证书/子文件夹/文件名`，由「相对工作区的文件路径」推导、固定 `/` 分隔符
+ *   → 跨平台（Win/Linux 双机坚果云共享）一致、子文件夹间隔离
+ * - 兼容：读取按 keyCandidates 回退旧格式 key；首次写入新 key 时把旧条目懒迁移并删除旧 key
+ * - v2.4.2（C1）：expiry_date 写入时归一化为 YYYY-MM-DD（可解析则转换，解析失败原样保留由读取侧宽松解析）
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
-import { metadataPath, writeJsonAtomic, ensureWorkspaceDirs } from './paths'
+import { metadataPath, writeJsonAtomic, ensureWorkspaceDirs, PRODUCT_SETS_DIR, productSetFromFilePath } from './paths'
 import { WorkspaceService } from './workspace'
 import type { FileMetadata, MetadataUpdateRequest } from '../../shared/types'
 
@@ -22,10 +30,42 @@ export function currentTimeString(): string {
   return new Date().toISOString()
 }
 
+/**
+ * v2.4.2（C1）：宽松解析到期日期。
+ * 优先按 YYYY[-/.]M[-/.]D 提取（严格校验年月日合法性，杜绝 2023-02-30 这类滚动日期），
+ * 再回退整串 ISO 解析（AI 抽取可能带时间）。解析失败返回 Invalid Date。
+ */
+export function parseExpiryDate(s: string): Date {
+  const v = s.trim()
+  const m = v.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/)
+  if (m) {
+    const y = Number(m[1])
+    const mo = Number(m[2])
+    const d = Number(m[3])
+    const t = new Date(y, mo - 1, d)
+    if (t.getFullYear() === y && t.getMonth() === mo - 1 && t.getDate() === d) return t
+    return new Date(NaN) // 非法日（2023-02-30）明确失败
+  }
+  const full = new Date(v)
+  return Number.isNaN(full.getTime()) ? new Date(NaN) : full
+}
+
+/** v2.4.2（C1）：归一化为 YYYY-MM-DD；解析失败返回 null（调用方决定保留原文还是拒收） */
+export function normalizeExpiryDate(s: string): string | null {
+  const t = parseExpiryDate(s)
+  if (Number.isNaN(t.getTime())) return null
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`
+}
+
 export class MetadataService {
-  /** 内存缓存：按工作区路径缓存 store，避免大 metadata.json 反复全量解析。
-   *  v2.2.1：LRU 上限 3 个工作区，防长期运行无界增长 */
-  private cache = new Map<string, MetadataStore>()
+  /**
+   * 内存缓存：按工作区路径缓存 store，避免大 metadata.json 反复全量解析。
+   * v2.4.2（批次二）：缓存条目记录 metadata.json 的 mtime——每次读取先 stat 一次，
+   * mtime 变化（另一台机器同步覆盖）即重读磁盘，避免本机缓存整体覆盖新数据。
+   * v2.2.1：LRU 上限 3 个工作区，防长期运行无界增长。
+   */
+  private cache = new Map<string, { mtime: number; store: MetadataStore }>()
   private readonly CACHE_MAX = 3
 
   constructor(private workspace: WorkspaceService) {}
@@ -36,22 +76,31 @@ export class MetadataService {
     return ws
   }
 
+  private async statMtime(p: string): Promise<number> {
+    try {
+      return (await fsp.stat(p)).mtimeMs
+    } catch {
+      return 0
+    }
+  }
+
   /** 读取元数据存储；损坏时自动备份原文件并降级为空库（稳定性增强，原 Go 无备份） */
   async loadMetadataStore(ws?: string): Promise<MetadataStore> {
     const w = ws ?? this.requireWS()
+    const mtime = await this.statMtime(metadataPath(w))
     const hit = this.cache.get(w)
-    if (hit) {
+    if (hit && hit.mtime === mtime) {
       // LRU 触摸：移到末尾
       this.cache.delete(w)
       this.cache.set(w, hit)
-      return hit
+      return hit.store
     }
     const store = await this.readFromDisk(w)
     if (this.cache.size >= this.CACHE_MAX) {
       const oldest = this.cache.keys().next().value
       if (oldest !== undefined) this.cache.delete(oldest)
     }
-    this.cache.set(w, store)
+    this.cache.set(w, { mtime, store })
     return store
   }
 
@@ -82,61 +131,122 @@ export class MetadataService {
 
   async saveMetadataStore(store: MetadataStore, ws?: string): Promise<void> {
     const w = ws ?? this.requireWS()
-    // 写入时同步更新缓存，保持读一致性
-    this.cache.set(w, store)
+    // 写入时同步更新缓存（记录写入后的 mtime，保证下次 stat 命中缓存，保持读一致性）
     ensureWorkspaceDirs(w)
     await writeJsonAtomic(metadataPath(w), store)
+    const mtime = await this.statMtime(metadataPath(w))
+    this.cache.set(w, { mtime, store })
   }
 
-  fileMetadataKey(productSet: string, fileName: string): string {
-    return path.join(productSet, fileName)
+  /**
+   * v2.4.2（D3+D4）：元数据 key = 相对工作区「产品集」目录的路径，固定 `/` 分隔符。
+   * 形如 `系列A/图包/主图/a.jpg`；文件不在产品集内返回空串。
+   */
+  fileMetadataKey(filePath: string): string {
+    const ws = this.requireWS()
+    const base = path.join(path.resolve(ws), PRODUCT_SETS_DIR)
+    const rel = path.relative(base, path.resolve(filePath))
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return ''
+    return rel.split(path.sep).join('/')
   }
 
-  async get(productSet: string, fileName: string): Promise<FileMetadata> {
+  /** 读取候选 key（新格式 + 旧格式兼容回退）；第一个是目标 key，其余是旧数据位置 */
+  private keyCandidates(filePath: string): string[] {
+    const ws = this.requireWS()
+    const key = this.fileMetadataKey(filePath)
+    const ps = productSetFromFilePath(ws, filePath)
+    const base = path.basename(filePath)
+    const legacy: string[] = []
+    if (ps) legacy.push(`${ps}/${base}`, `${ps}\\${base}`)
+    return [key, ...legacy.filter((k) => k !== key)]
+  }
+
+  async get(filePath: string): Promise<FileMetadata> {
     this.requireWS()
     const store = await this.loadMetadataStore()
-    const meta = store.files[this.fileMetadataKey(productSet, fileName)]
-    if (!meta) return emptyMetadata()
-    return meta
+    for (const k of this.keyCandidates(filePath)) {
+      const meta = store.files[k]
+      if (meta) return meta
+    }
+    return emptyMetadata()
   }
 
   async update(req: MetadataUpdateRequest): Promise<void> {
     const ws = this.requireWS()
+    if (!req.file_path) throw new Error('缺少文件路径')
+    const keys = this.keyCandidates(req.file_path)
+    const key = keys[0]
+    if (!key) throw new Error('文件不在产品集内，无法保存元数据')
     const store = await this.loadMetadataStore()
-    const key = this.fileMetadataKey(req.product_set, req.file_name)
-    const existing = store.files[key] ?? emptyMetadata()
-    if (!existing.added_at) existing.added_at = currentTimeString()
-    existing.cert_type = (req.cert_type ?? '').trim()
-    existing.expiry_date = (req.expiry_date ?? '').trim()
-    existing.tags = req.tags ?? []
-    existing.notes = (req.notes ?? '').trim()
-    store.files[key] = existing
+    // 懒迁移：旧格式 key 存在则取走其数据并删除旧条目（写入即迁移，无需全量扫描）
+    let existing = store.files[key]
+    if (!existing) {
+      for (const lk of keys.slice(1)) {
+        if (store.files[lk]) {
+          existing = store.files[lk]
+          delete store.files[lk]
+          break
+        }
+      }
+    }
+    const cur = existing ?? emptyMetadata()
+    if (!cur.added_at) cur.added_at = currentTimeString()
+    cur.cert_type = (req.cert_type ?? '').trim()
+    const rawExpiry = (req.expiry_date ?? '').trim()
+    cur.expiry_date = rawExpiry ? (normalizeExpiryDate(rawExpiry) ?? rawExpiry) : ''
+    cur.tags = req.tags ?? []
+    cur.notes = (req.notes ?? '').trim()
+    store.files[key] = cur
     await this.saveMetadataStore(store, ws)
   }
 
-  async setFileMetadata(productSet: string, fileName: string, meta: FileMetadata): Promise<void> {
+  async setFileMetadata(filePath: string, meta: FileMetadata): Promise<void> {
+    await this.setFileMetadataBatch([{ filePath, meta }])
+  }
+
+  /**
+   * v2.4.2（I3）：批量写入——单次 IO 落盘，替代导入循环内逐文件全量重写 metadata.json。
+   * 已存在元数据的 key（如删除进回收站后重新导入的同名文件）保留原标签/备注，只补 added_at。
+   */
+  async setFileMetadataBatch(entries: { filePath: string; meta: FileMetadata }[]): Promise<void> {
+    if (entries.length === 0) return
     const ws = this.requireWS()
     const store = await this.loadMetadataStore()
-    store.files[this.fileMetadataKey(productSet, fileName)] = meta
+    for (const { filePath, meta } of entries) {
+      const key = this.fileMetadataKey(filePath)
+      if (!key) continue
+      const existing = store.files[key]
+      if (existing) {
+        if (!existing.added_at) existing.added_at = meta.added_at || currentTimeString()
+        continue
+      }
+      store.files[key] = meta
+    }
     await this.saveMetadataStore(store, ws)
   }
 
-  async removeFileMetadata(productSet: string, fileName: string): Promise<void> {
+  async removeFileMetadata(filePath: string): Promise<void> {
     const ws = this.requireWS()
     const store = await this.loadMetadataStore()
-    const key = this.fileMetadataKey(productSet, fileName)
-    if (!store.files[key]) return
-    delete store.files[key]
+    const keys = this.keyCandidates(filePath)
+    let changed = false
+    for (const k of keys) {
+      if (store.files[k]) {
+        delete store.files[k]
+        changed = true
+      }
+    }
+    if (!changed) return
     await this.saveMetadataStore(store, ws)
   }
 
   async removeFileMetadataForProductSet(productSet: string): Promise<void> {
     const ws = this.requireWS()
     const store = await this.loadMetadataStore()
-    const prefix = productSet + path.sep
+    const prefixes = [productSet + '/', productSet + '\\'] // 兼容旧 `\` key
     let changed = false
     for (const key of Object.keys(store.files)) {
-      if (key.startsWith(prefix)) {
+      if (prefixes.some((p) => key.startsWith(p))) {
         delete store.files[key]
         changed = true
       }

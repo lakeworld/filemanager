@@ -1,4 +1,4 @@
-import { For, createSignal, onMount, onCleanup, type JSX } from "solid-js";
+import { For, createSignal, createEffect, onMount, onCleanup, type JSX } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 
 /**
@@ -27,6 +27,8 @@ interface VirtualGridProps<T> {
   renderItem: (item: T, index: number) => JSX.Element;
   /** 滚动容器额外类 */
   class?: string;
+  /** v2.4.x：值变化时滚动归零（如文件夹切换，新内容从顶部开始）；不传则保持现状 */
+  scrollResetKey?: unknown;
 }
 
 const BREAKPOINTS = [
@@ -55,6 +57,12 @@ export default function VirtualGrid<T>(props: VirtualGridProps<T>) {
 
   const [cols, setCols] = createSignal(resolveColumns());
 
+  // v2.4.x：scrollResetKey 变化（文件夹切换等）→ 列表容器回到顶部
+  createEffect(() => {
+    props.scrollResetKey;
+    if (containerRef) containerRef.scrollTop = 0;
+  });
+
   onMount(() => {
     const mqs = BREAKPOINTS.map(({ mq }) => window.matchMedia(mq));
     const update = () => setCols(resolveColumns());
@@ -63,9 +71,12 @@ export default function VirtualGrid<T>(props: VirtualGridProps<T>) {
   });
 
   const virtualizer = createVirtualizer({
-    // Solid 版 createVirtualizer 内部为响应式上下文：count 直接传求值结果，
-    // 内部访问 items/cols 会自动追踪变化（数据增减、窗口断点切换时自动重建）
-    count: Math.ceil(props.items.length / cols()),
+    // count 必须是 getter：@tanstack/solid-virtual 在 setOptions 展开读取选项时建立 signal 依赖，
+    // getter 内部访问 props.items/cols 才会被自动追踪（数据增减、断点切换时重建）。
+    // 旧实现直接传一次性求值结果 → 切文件夹时 items 变化但 count 冻结 → 网格停留在旧行数不更新。
+    get count() {
+      return Math.ceil(props.items.length / cols())
+    },
     getScrollElement: () => containerRef as HTMLDivElement,
     estimateSize: () => props.itemHeight,
     overscan: 3,
@@ -79,11 +90,14 @@ export default function VirtualGrid<T>(props: VirtualGridProps<T>) {
       <div style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative", width: "100%" }}>
         <For each={virtualizer.getVirtualItems()}>
           {(row) => {
-            const rowStart = row.index * cols();
-            const rowItems = props.items.slice(
-              rowStart,
-              Math.min(rowStart + cols(), props.items.length)
-            );
+            // 行切片必须用派生函数：在 JSX 求值时读取 props.items/cols 建立响应式依赖，
+            // 切文件夹/断点变化时行内容随 items 更新（旧实现常量切片 → 行内容死引用旧数组）
+            const rowStart = () => row.index * cols()
+            const rowItems = () =>
+              props.items.slice(
+                rowStart(),
+                Math.min(rowStart() + cols(), props.items.length)
+              )
             return (
               <div
                 style={{
@@ -99,8 +113,8 @@ export default function VirtualGrid<T>(props: VirtualGridProps<T>) {
                   "align-content": "start",
                 }}
               >
-                <For each={rowItems}>
-                  {(item, i) => props.renderItem(item, rowStart + i())}
+                <For each={rowItems()}>
+                  {(item, i) => props.renderItem(item, rowStart() + i())}
                 </For>
               </div>
             );

@@ -125,11 +125,15 @@ export function scheduleDestroy(): void {
     destroyTimer = null
     void log(
       'info',
-      `[sleep] 倒计时到期: mainWindow=${!!mainWindow} destroyed=${mainWindow?.isDestroyed() ?? 'n/a'} quitting=${quitting}`,
+      `[sleep] 倒计时到期: mainWindow=${!!mainWindow} destroyed=${mainWindow?.isDestroyed() ?? 'n/a'} quitting=${quitting} visible=${mainWindow?.isVisible() ?? 'n/a'}`,
     )
-    if (mainWindow && !mainWindow.isDestroyed() && !quitting) {
+    // v2.4.x 修复：倒计时到期时窗口若已恢复显示（用户操作中），不得销毁——
+    // 此前 windowShow 未取消倒计时，用户恢复窗口后继续操作会在 2 分钟时被强制销毁（界面突然消失）
+    if (mainWindow && !mainWindow.isDestroyed() && !quitting && !mainWindow.isVisible()) {
       mainWindow.destroy()
       void log('info', '[sleep] 已销毁窗口（渲染进程回收）')
+    } else {
+      void log('info', '[sleep] 窗口已恢复显示或退出中，取消休眠销毁')
     }
   }, DESTROY_DELAY_MS)
 }
@@ -145,6 +149,8 @@ export function windowShow(): void {
   if (win.isMinimized()) win.restore()
   win.show()
   win.focus()
+  // v2.4.x 修复：恢复显示必须取消休眠销毁倒计时（否则操作中会被强制销毁）
+  cancelDestroy()
 }
 
 export function windowMinimize(): void {

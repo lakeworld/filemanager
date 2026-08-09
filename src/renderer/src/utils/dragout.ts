@@ -44,5 +44,8 @@ export function handleDragOut(e: DragEvent, filePath: string, selectedPaths: str
   if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copyMove'
 
   // 主进程 webContents.startDrag 发起原生文件拖拽（ghost 图标由主进程取缩略图缓存）
-  void window.qihebox.files.startDrag(paths)
+  // v2.4.2：检查返回值——startDrag 失败不再静默（此前 void 丢弃，拖拽无声失效难排查）
+  window.qihebox.files.startDrag(paths).then((r: any) => {
+    if (r && r.success === false) console.warn("[dragout] startDrag 失败:", r.error)
+  }).catch((err: unknown) => console.warn("[dragout] startDrag 异常:", String(err)))
 }

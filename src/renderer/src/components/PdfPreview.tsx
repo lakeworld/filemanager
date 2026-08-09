@@ -3,15 +3,25 @@ import { Show, createSignal, onMount, onCleanup } from "solid-js";
 // 注意：必须动态 import（组件顶层依赖全局 pdfjsLib，需先注入核心库）
 import type { PDFViewer, PDFLinkService, PDFFindController, EventBus } from "pdfjs-dist/web/pdf_viewer";
 import "pdfjs-dist/web/pdf_viewer.css";
-// pdfjs worker 作为静态资源打包（vite ?url）：dev 与打包后 file:// 环境均可加载
+// v2.4.2（P1-P3 修复 dev 下 PDF 打不开的根因）：
+// dev 下 vite 会给经 module graph 服务的文件注入 `import "/@vite/client"`，从 blob: URL 建模块 worker
+// 无法解析该裸路径（"Invalid relative url or base scheme isn't hierarchical"）→ worker 失败 → PDF 打不开。
+// 已实测：?url / 动态 ?raw / 直接 URL 三种方式在 dev 下均不可用，唯独「静态 ?raw + optimizeDeps.exclude
+// （electron.vite.config.ts）取原始源码」可用。生产构建中 import.meta.env.DEV 为 false，
+// ?raw 分支被死代码消除（不内联进主包），worker 仍走 ?url 独立资产（打包体积不变）。
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import pdfWorkerRaw from "pdfjs-dist/build/pdf.worker.min.mjs?raw";
 
 /**
  * PDF 预览（v2.2.1 终版）：基于 pdfjs-dist 官方 PDFViewer 组件
  * - 连续滚动 + 渲染队列（视口内渲染、空闲预渲染，翻页/滚动流畅）
  * - 文本层（文字可选中复制）+ 缩放（适配页面/宽度/自定义）+ 页码跳转
  * - 全文搜索（PDFFindController）
- * - 流式加载（Range）+ worker 单例 + 组件销毁清理
+ * - v2.4.2（P1-P1）：pdfjs 对非 http(s) 协议（qihebox://）不发 Range，实际为整文件加载——
+ *   rangeChunkSize 是死参数，已删除；超大文件（>100MB）由 FilePreviewModal 拦截至「用系统程序打开」
+ * - v2.4.2（P1-P3）：disposed 标志防异步挂载竞态——加载中关闭弹窗时，后续 await 立即销毁并返回，
+ *   不再往已卸载 DOM 渲染、不再泄漏 PDFDocument + worker
+ * - worker 单例 + 组件销毁清理
  */
 interface PdfPreviewProps {
   url: string;
@@ -23,6 +33,11 @@ interface PdfPreviewProps {
 // worker blob URL 模块级单例（只建一次）
 let workerUrlPromise: Promise<string> | null = null;
 function getWorkerUrl(): Promise<string> {
+  if (import.meta.env.DEV) {
+    // dev：用 ?raw 原始源码打 blob（无 vite 注入，实测唯一可用方式）
+    const workerBlob = new Blob([pdfWorkerRaw], { type: "text/javascript" });
+    return Promise.resolve(URL.createObjectURL(workerBlob));
+  }
   if (!workerUrlPromise) {
     workerUrlPromise = (async () => {
       const workerResp = await fetch(pdfWorkerUrl);
@@ -51,6 +66,16 @@ export default function PdfPreview(props: PdfPreviewProps) {
   let eventBus: EventBus | null = null;
   let pdfDoc: any = null;
   let loadingTask: { promise: Promise<unknown>; destroy: () => Promise<void> } | null = null;
+  /** v2.4.2（P1-P3）：组件已卸载标记——onCleanup 先置位，onMount 每个 await 后检查 */
+  let disposed = false;
+
+  /** 销毁 PDF 文档/加载任务（重复销毁的 rejection 吞掉，避免 unhandled rejection 噪音） */
+  const destroyAll = () => {
+    void pdfDoc?.destroy?.().catch(() => {});
+    void loadingTask?.destroy?.().catch(() => {});
+    pdfDoc = null;
+    loadingTask = null;
+  };
 
   // 惰性文本提取（前 5 页，2 万字符上限），供 AI 证书抽取
   const extractText = async (): Promise<string> => {
@@ -77,10 +102,13 @@ export default function PdfPreview(props: PdfPreviewProps) {
     try {
       setLoading(true);
       const pdfjs = await import("pdfjs-dist");
+      if (disposed) return;
       // 官方 PDFViewer 组件通过全局 pdfjsLib 访问核心库（AbortException 等）——必须先注入再加载组件
       ;(globalThis as { pdfjsLib?: unknown }).pdfjsLib = pdfjs;
       const { EventBus, PDFViewer, PDFLinkService, PDFFindController } = await import("pdfjs-dist/web/pdf_viewer");
+      if (disposed) return;
       pdfjs.GlobalWorkerOptions.workerSrc = await getWorkerUrl();
+      if (disposed) return;
 
       eventBus = new EventBus();
       linkService = new PDFLinkService({ eventBus });
@@ -104,9 +132,13 @@ export default function PdfPreview(props: PdfPreviewProps) {
         setMatchInfo(m && m.total > 0 ? `${m.current}/${m.total}` : "");
       });
 
-      // 流式加载（Range）
-      loadingTask = pdfjs.getDocument({ url: props.url, rangeChunkSize: 65536 });
+      // 整文件加载（v2.4.2 P1-P1：非 http 协议 pdfjs 不支持 Range）
+      loadingTask = pdfjs.getDocument({ url: props.url });
       pdfDoc = await loadingTask.promise;
+      if (disposed) {
+        destroyAll();
+        return;
+      }
       setNumPages(pdfDoc.numPages);
       viewer.setDocument(pdfDoc);
       linkService.setDocument(pdfDoc, null);
@@ -115,22 +147,21 @@ export default function PdfPreview(props: PdfPreviewProps) {
       setZoom(Math.round(viewer.currentScale * 100));
       props.onTextExtract?.(extractText);
     } catch (e) {
+      if (disposed) {
+        destroyAll();
+        return;
+      }
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
       props.onError?.(msg);
     } finally {
-      setLoading(false);
+      if (!disposed) setLoading(false);
     }
   });
 
   onCleanup(() => {
-    try {
-      void pdfDoc?.destroy?.();
-    } catch { /* 忽略 */ }
-    try {
-      void loadingTask?.destroy?.();
-    } catch { /* 忽略 */ }
-    pdfDoc = null;
+    disposed = true;
+    destroyAll();
     viewer = null;
     linkService = null;
     findController = null;

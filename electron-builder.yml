@@ -67,3 +67,8 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   shortcutName: 启禾文件管理
+  # v2.4.2（批次二）卸载策略决策：保留 %APPDATA% 用户数据（缩略图缓存/索引/日志/账号 token）。
+  # 理由：卸载后重装/降级不丢体验与登录态，且工作区数据本就在用户目录不受影响；
+  # 代价是缓存残留（GB 级缩略图）——如需彻底清除可引导用户在「设置」中清理或手动删除
+  # %APPDATA%/qihe-filemanager。若未来改为清理，需同时删 thumbs/ 与 account.json（含 token）。
+  deleteAppDataOnUninstall: false

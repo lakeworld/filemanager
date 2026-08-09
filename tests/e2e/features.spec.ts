@@ -163,7 +163,8 @@ test.describe('后端打磨（v2.4.0）', () => {
       [srcFile, targetDir],
     )
     expect(mv.success).toBe(true)
-    expect(mv.data).toHaveLength(1)
+    // v2.4.2（D5）：move 返回 { moved, failed } 聚合结构
+    expect((mv.data as { moved: unknown[] }).moved).toHaveLength(1)
 
     const listSrc = await page.evaluate(async () =>
       (window as any).qihebox.files.list({ product_set: '移动集', file_type: 'image', sub_folder: '主图' }),

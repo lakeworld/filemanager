@@ -7,7 +7,8 @@ import GlobalDropOverlay from "~/components/GlobalDropOverlay";
 import FilePreviewModal from "~/components/FilePreviewModal";
 import { loadCurrentWorkspace, loadWorkspaces, setFileBrowserRefreshTrigger } from "~/stores/workspace";
 import { loadTagDefs } from "~/stores/tags";
-import { onMount, createSignal, createEffect, onCleanup } from "solid-js";
+import { banner, showCertReminder } from "~/stores/notifyBanner";
+import { onMount, createSignal, createEffect, onCleanup, Show } from "solid-js";
 
 function FramelessResizer() {
   const [resizing, setResizing] = createSignal(false);
@@ -155,6 +156,7 @@ function FramelessResizer() {
 
 export default function App(props: RouteSectionProps) {
   let unsubImport: (() => void) | null = null;
+  let unsubCertReminder: (() => void) | null = null;
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -201,18 +203,31 @@ export default function App(props: RouteSectionProps) {
       }
     });
 
+    // v2.4.2（C3）：证书到期提醒降级横幅（系统通知不可用时由主进程发 cert:expiring）
+    unsubCertReminder = window.qihebox.events.on("cert:expiring", (data: any) => {
+      if (Array.isArray(data) && data.length > 0) showCertReminder(data);
+    });
+
     onCleanup(() => {
       window.clearTimeout(blurTimer);
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
       unsubImport?.();
+      unsubCertReminder?.();
     });
   });
 
   return (
     <div class="h-screen w-screen flex flex-col overflow-hidden bg-surface-50 relative">
       <TitleBar />
+      {/* v2.4.2（C3）：证书到期提醒降级横幅（系统通知不可用时；15s 自动消失） */}
+      <Show when={banner()}>
+        <div class="fixed top-14 left-1/2 -translate-x-1/2 z-[60] bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 shadow-lg max-w-xl">
+          <div class="font-semibold mb-0.5">{banner()!.title}</div>
+          <div>{banner()!.body}</div>
+        </div>
+      </Show>
       <Header />
       <div class="flex-1 flex overflow-hidden">
         <Sidebar />

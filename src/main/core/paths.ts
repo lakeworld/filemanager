@@ -107,6 +107,59 @@ export function isPathInsideWorkspace(workspace: string, filePath: string): bool
   return p.startsWith(ws + path.sep)
 }
 
+/**
+ * v2.4.2（D7）：realpath 版校验——解析符号链接/junction 后再做前缀比对，
+ * 堵住「工作区内 symlink 指向外部 → 越界读写」的逃逸。不存在的路径（如待新建文件）
+ * realpath 失败时回退词法校验，行为与旧版一致。安全边界一律用此版。
+ */
+export async function isPathInsideWorkspaceReal(workspace: string, filePath: string): Promise<boolean> {
+  const real = async (p: string): Promise<string> => {
+    try {
+      return await fsp.realpath(p)
+    } catch {
+      return path.resolve(p)
+    }
+  }
+  const wsR = await real(workspace)
+  const pR = await real(filePath)
+  if (pR === wsR) return true
+  return pR.startsWith(wsR + path.sep)
+}
+
+// —— v2.4.2（S1）：名称入参校验（防路径穿越，写操作与拼路径入口统一收口）——
+
+/** 目录/文件名段基础校验：非空、不含分隔符、不含 `..`（fileList 等只读拼路径入口用） */
+export function assertSafePathSegment(name: string, label = '名称'): string {
+  const n = name.trim()
+  if (!n) throw new Error(`${label}不能为空`)
+  if (n.includes('/') || n.includes('\\')) throw new Error(`${label}不能包含路径分隔符`)
+  if (n.split('/').concat(n.split('\\')).some((s) => s === '..')) {
+    throw new Error(`${label}不能包含 ..`)
+  }
+  return n
+}
+
+/** 文件夹/产品集名完整校验（新建/重命名入口用）：在段校验之上追加 Windows 非法字符与首尾点/空格 */
+export function assertSafeFolderName(name: string, label = '名称'): string {
+  const n = assertSafePathSegment(name, label)
+  if (n.startsWith('.') || n.endsWith('.') || n.endsWith(' ')) {
+    throw new Error(`${label}不能以 . 或空格开头/结尾`)
+  }
+  if (/[:*?"<>|]/.test(n)) throw new Error(`${label}包含非法字符（: * ? " < > |）`)
+  return n
+}
+
+/** 文件名校验（重命名入口用）：段校验 + Windows 非法字符/保留名/尾随点与空格 */
+export function assertSafeFileName(name: string): string {
+  const n = assertSafePathSegment(name, '文件名')
+  if (n.endsWith('.') || n.endsWith(' ')) throw new Error('文件名不能以 . 或空格结尾')
+  if (/[:*?"<>|]/.test(n)) throw new Error('文件名包含非法字符（: * ? " < > |）')
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(n.split('.')[0])) {
+    throw new Error('文件名与系统保留名冲突')
+  }
+  return n
+}
+
 // —— 缩略图路径（对照 files.go thumbnailPath：sha256 前 16 字节 hex 前 2 位分桶）——
 // v2.0.1 起 hash 输入改为「相对工作区路径」，跨平台（Win/Linux）一致，
 // 避免旧版绝对路径 hash 在平台切换后缩略图失效（工作区经坚果云双机共享时也能复用）
