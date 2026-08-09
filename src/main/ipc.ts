@@ -261,6 +261,12 @@ export function registerIpc(box: BoxService, account: AccountService): void {
     handle(() => box.tags.adopt(name, color)),
   )
 
+  // —— 回收站（v2.3.1）——
+  ipcMain.handle('qihebox:trash:list', () => handle(() => box.trash.list()))
+  ipcMain.handle('qihebox:trash:restore', (_e, id: string) => handle(() => box.trash.restore(id)))
+  ipcMain.handle('qihebox:trash:purge', (_e, id: string) => handle(() => box.trash.purge(id)))
+  ipcMain.handle('qihebox:trash:empty', () => handle(() => box.trash.empty()))
+
   // —— XLSX ——
   ipcMain.handle('qihebox:xlsx:exportTemplate', (_e, p: string) => handle(() => box.xlsxExportTemplate(p)))
   ipcMain.handle('qihebox:xlsx:import', (_e, p: string) => handle(() => box.xlsxImport(p)))

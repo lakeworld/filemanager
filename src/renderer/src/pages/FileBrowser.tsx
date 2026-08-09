@@ -125,10 +125,11 @@ export default function FileBrowser() {
 
   const handleDelete = async (paths: string[]) => {
     if (paths.length === 0) return;
-    if (!window.confirm(`确定要删除选中的 ${paths.length} 个文件吗？此操作不可恢复。`)) return;
+    if (!window.confirm(`确定删除选中的 ${paths.length} 个文件吗？将移入回收站，可在回收站恢复。`)) return;
     const result = await api.files.delete(paths);
     if (result.success) {
       loadFiles();
+      showActionMessage(`已删除 ${paths.length} 个文件（可在回收站恢复）`);
     }
   };
 
@@ -191,7 +192,7 @@ export default function FileBrowser() {
   const handleDeleteSubfolder = async () => {
     const folder = decodedSubFolder();
     if (!folder) return;
-    if (!window.confirm(`确定要删除子文件夹 "${folder}" 吗？该操作会删除其中所有文件，且不可恢复。`)) return;
+    if (!window.confirm(`确定删除子文件夹 "${folder}" 吗？将移入回收站，可在回收站恢复。`)) return;
     const result = await api.files.deleteSubfolder({
       product_set: decodedProductSet(),
       file_type: params.type as "image" | "cert",

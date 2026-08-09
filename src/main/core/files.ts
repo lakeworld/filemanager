@@ -94,6 +94,7 @@ export class FilesService {
     private workspace: WorkspaceService,
     private metadata: MetadataService,
     private thumbs: ThumbnailProvider,
+    private trash?: import('./trash').TrashService,
   ) {}
 
   private requireWS(): string {
@@ -262,13 +263,13 @@ export class FilesService {
     }
   }
 
-  // —— FileDelete ——
+  // —— FileDelete（v2.3.1：改为移入回收站，可恢复；元数据/缩略图保留）——
   async fileDelete(paths: string[]): Promise<void> {
     const ws = this.requireWS()
+    if (!this.trash) throw new Error('回收站服务未初始化')
     for (const p of paths) {
       if (!isPathInsideWorkspace(ws, p)) throw new Error('只能删除工作区内的文件')
-      await fsp.rm(p, { force: true }).catch(() => {})
-      await this.thumbs.removeThumbnail(p)
+      await this.trash.trashItem(ws, p, 'file')
     }
   }
 
@@ -294,6 +295,7 @@ export class FilesService {
 
   async deleteSubfolder(req: DeleteSubfolderRequest): Promise<void> {
     const ws = this.requireWS()
+    if (!this.trash) throw new Error('回收站服务未初始化')
     req.product_set = req.product_set.trim()
     req.name = req.name.trim()
     if (!req.product_set || !req.name) throw new Error('产品集和子文件夹名称不能为空')
@@ -302,9 +304,8 @@ export class FilesService {
         ? path.join(ws, PRODUCT_SETS_DIR, req.product_set, IMAGES_DIR, req.name)
         : path.join(ws, PRODUCT_SETS_DIR, req.product_set, CERTS_DIR, req.name)
     if (!(await fsp.stat(dir).then(() => true).catch(() => false))) throw new Error('子文件夹不存在')
-    // 清理元数据与缩略图（仅该子文件夹内文件）
-    await this.thumbs.removeThumbnailsInDir(dir)
-    await fsp.rm(dir, { recursive: true, force: true })
+    // v2.3.1：移入回收站（不再直接 rm；恢复时自动把子文件夹名加回 config）
+    await this.trash.trashItem(ws, dir, 'subfolder')
     // 从 config 移除
     const cfg = await this.loadConfig(ws)
     if (req.file_type === 'image') {

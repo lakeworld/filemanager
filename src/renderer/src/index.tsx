@@ -15,6 +15,7 @@ const Certs = lazy(() => import("./pages/Certs"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Help = lazy(() => import("./pages/Help"));
+const Trash = lazy(() => import("./pages/Trash"));
 
 function RootApp(props: RouteSectionProps) {
   return <App {...props} />;
@@ -32,6 +33,7 @@ render(
       <Route path="/settings" component={Settings} />
       <Route path="/profile" component={Profile} />
       <Route path="/help" component={Help} />
+      <Route path="/trash" component={Trash} />
       <Route path="/files/:type/:productSet/:subFolder" component={FileBrowser} />
     </Router>
   ),

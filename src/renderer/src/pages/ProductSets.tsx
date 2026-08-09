@@ -175,7 +175,7 @@ export default function ProductSets() {
   const handleDeleteProductSet = async () => {
     const ps = psName();
     if (!ps) return;
-    if (!window.confirm(`确定要删除产品集 "${ps}" 吗？该操作会删除其下所有文件，且不可恢复。`)) return;
+    if (!window.confirm(`确定删除产品集 "${ps}" 吗？将移入回收站，可在回收站恢复。`)) return;
     const result = await api.productSets.delete(ps);
     if (result.success) {
       navigate("/product-sets");
@@ -208,7 +208,7 @@ export default function ProductSets() {
   const handleCardDelete = async (ps: ProductSetInfo, e: MouseEvent) => {
     e.stopPropagation();
     closeContextMenu();
-    if (!window.confirm(`确定要删除产品集 "${ps.name}" 吗？该操作会删除其下所有文件，且不可恢复。`)) return;
+    if (!window.confirm(`确定删除产品集 "${ps.name}" 吗？将移入回收站，可在回收站恢复。`)) return;
     const result = await api.productSets.delete(ps.name);
     if (result.success) loadProductSets();
   };
