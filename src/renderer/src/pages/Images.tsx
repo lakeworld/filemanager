@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createEffect } from "solid-js";
+import { Show, For, createSignal, createEffect, createMemo } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import {
@@ -9,10 +9,15 @@ import {
   loadProductSets,
 } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
+import { tagLabel } from "~/stores/tags";
+import { showToast } from "~/stores/notifyBanner";
 import FileThumbnail from "~/components/FileThumbnail";
+import TagChips from "~/components/TagChips";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
 import MoveDialog from "~/components/MoveDialog";
+import BatchTagDialog from "~/components/BatchTagDialog";
+import ArchiveProgressDialog from "~/components/ArchiveProgressDialog";
 import EmptyState from "~/components/EmptyState";
 import type { FileEntry, ProductSetInfo } from "~/types";
 import { handleDragOut } from "~/utils/dragout";
@@ -36,6 +41,10 @@ export default function Images() {
   const navigate = useNavigate();
   const [items, setItems] = createSignal<ImageItem[]>([]);
   const [search, setSearch] = createSignal("");
+  // v2.4.4：类型筛选（图片/视频，默认图片）——加载时按当前类型聚合
+  const [typeFilter, setTypeFilter] = createSignal<"image" | "video">("image");
+  // v2.4.4：标签筛选（渲染侧过滤，选项来自当前 items 实际出现的标签）
+  const [tagFilter, setTagFilter] = createSignal("");
   const [productSetFilter, setProductSetFilter] = createSignal<string>("");
   const [subFolderFilter, setSubFolderFilter] = createSignal<string>("");
   const [sortBy, setSortBy] = createSignal<"modified" | "name" | "size">("modified");
@@ -44,6 +53,9 @@ export default function Images() {
   const contextMenu = useContextMenu<string>();
 
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
+  // v2.4.4：批量打标 / 压缩分享·解压 弹窗状态
+  const [batchTagState, setBatchTagState] = createSignal<{ paths: string[]; commonTags: string[] } | null>(null);
+  const [archiveState, setArchiveState] = createSignal<{ token: string; phase: "compress" | "extract" } | null>(null);
 
   const showActionMessage = (msg: string) => {
     setActionMessage(msg);
@@ -73,7 +85,9 @@ export default function Images() {
       for (const sub of imageFolders()) {
         const fileResult = await api.files.list({
           product_set: ps.name,
+          // v2.4.4：视频与图片同居图包目录（file_type 定目录），media_type 定「图片/视频」筛选
           file_type: "image",
+          media_type: typeFilter(),
           sub_folder: sub,
         });
         if (fileResult.success && fileResult.data) {
@@ -88,18 +102,43 @@ export default function Images() {
   };
 
   createEffect(() => {
+    // v2.4.4：显式依赖 typeFilter——loadAllImages 在 await 之后才读取它，Solid 不会自动追踪，
+    // 必须在此建立依赖，切换图片/视频时才重新加载
+    void typeFilter();
     if (currentWorkspace()) {
       loadAllImages();
     }
   });
 
-  const filteredItems = () => {
+  // v2.4.4：标签筛选下拉选项——当前 items（按类型加载后）实际出现的全部标签，去重排序
+  const allTags = () => {
+    const set = new Set<string>();
+    for (const it of items()) {
+      for (const t of it.tags ?? []) set.add(t);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  };
+
+  // v2.4.6：path→修改时间戳 预解析 Map——仅 items 变化时重算一次，
+  // 排序比较器查 Map 比数字，避免每对元素都 new Date()（万级条目一次排序 10 万+ 次 Date 解析）
+  const modifiedTs = createMemo(() => {
+    const map = new Map<string, number>();
+    for (const it of items()) map.set(it.path, new Date(it.modified).getTime());
+    return map;
+  });
+
+  // v2.4.6：filteredItems 包成 createMemo——visibleCount / 全选 / VirtualGrid 共享一次筛选+排序结果，
+  // 不再每处调用都重排；排序规则（字段/方向）不变
+  const filteredItems = createMemo(() => {
     const term = search().trim().toLowerCase();
     const ps = productSetFilter();
     const sub = subFolderFilter();
+    const tag = tagFilter();
+    const ts = modifiedTs();
     let list = items().filter((it) => {
       if (ps && it.productSet !== ps) return false;
       if (sub && it.subFolder !== sub) return false;
+      if (tag && !(it.tags ?? []).includes(tag)) return false;
       if (term && !it.name.toLowerCase().includes(term)) return false;
       return true;
     });
@@ -111,11 +150,11 @@ export default function Images() {
           return b.size - a.size;
         case "modified":
         default:
-          return new Date(b.modified).getTime() - new Date(a.modified).getTime();
+          return (ts.get(b.path) ?? 0) - (ts.get(a.path) ?? 0);
       }
     });
     return list;
-  };
+  });
 
   const toggleSelection = (path: string) => {
     setSelectedPaths((prev) =>
@@ -174,12 +213,53 @@ export default function Images() {
   const selectedCount = () => selectedPaths().length;
   const visibleCount = () => filteredItems().length;
 
+  // —— v2.4.4：批量打标 / 压缩分享·解压 ——
+
+  /** 选中路径在已加载 items 上的标签交集（无 tags 或缺标签的文件视为空集） */
+  const commonTagsOf = (paths: string[]) => {
+    const byPath = new Map(items().map((f) => [f.path, f]));
+    const lists = paths.map((p) => byPath.get(p)?.tags ?? []);
+    if (lists.length === 0) return [];
+    return lists[0].filter((t) => lists.every((l) => l.includes(t)));
+  };
+
+  /** 归档任务取消令牌：crypto.randomUUID 兜底时间戳+随机 */
+  const newArchiveToken = () =>
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  const handleBatchTag = (paths: string[]) => {
+    setBatchTagState({ paths, commonTags: commonTagsOf(paths) });
+  };
+
+  const handleCompress = async (paths: string[]) => {
+    const token = newArchiveToken();
+    setArchiveState({ token, phase: "compress" });
+    const r = await api.archive.compress({ paths, cancelToken: token });
+    // 主进程异步执行（进度/结果走事件），此处失败仅作防御性收口
+    if (!r.success) {
+      setArchiveState(null);
+      showToast("error", "压缩失败", r.error || "未知错误");
+    }
+  };
+
+  const handleExtract = async (file: ImageItem, mode: "here" | "folder") => {
+    const token = newArchiveToken();
+    setArchiveState({ token, phase: "extract" });
+    const r = await api.archive.extract({ zipPath: file.path, mode, cancelToken: token });
+    if (!r.success) {
+      setArchiveState(null);
+      showToast("error", "解压失败", r.error || "未知错误");
+    }
+  };
+
   return (
     <div class="p-6 max-w-7xl mx-auto flex flex-col h-full">
       <div class="flex items-center justify-between mb-6">
         <div>
           <h1 class="text-2xl font-bold text-surface-900">图包库</h1>
-          <p class="text-surface-500 mt-1">所有图片资源</p>
+          <p class="text-surface-500 mt-1">{typeFilter() === "video" ? "所有视频资源" : "所有图片资源"}</p>
         </div>
       </div>
 
@@ -192,6 +272,28 @@ export default function Images() {
           value={search()}
           onInput={(e) => setSearch(e.currentTarget.value)}
         />
+        <select
+          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+          value={typeFilter()}
+          onChange={(e) => {
+            setTypeFilter(e.currentTarget.value as "image" | "video");
+            // 类型切换会整体重新加载，标签选项随之变化，重置标签筛选避免组合出空结果
+            setTagFilter("");
+          }}
+        >
+          <option value="image">图片</option>
+          <option value="video">视频</option>
+        </select>
+        <select
+          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+          value={tagFilter()}
+          onChange={(e) => setTagFilter(e.currentTarget.value)}
+        >
+          <option value="">全部标签</option>
+          <For each={allTags()}>
+            {(tag) => <option value={tag}>{tagLabel(tag)}</option>}
+          </For>
+        </select>
         <select
           class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
           value={productSetFilter()}
@@ -241,6 +343,12 @@ export default function Images() {
             <button class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg" onClick={() => handleShowInExplorer(selectedPaths())}>
               📂 在文件夹中显示
             </button>
+            <button class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg" onClick={() => handleBatchTag(selectedPaths())}>
+              🏷️ 打标
+            </button>
+            <button class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg" onClick={() => void handleCompress(selectedPaths())}>
+              📦 压缩分享
+            </button>
             <button class="px-3 py-1.5 text-sm text-white bg-red-500 hover:bg-red-600 rounded-lg" onClick={() => handleDelete(selectedPaths())}>
               🗑️ 删除
             </button>
@@ -249,7 +357,11 @@ export default function Images() {
       </Show>
 
       <Show when={visibleCount() > 0} fallback={
-        <EmptyState icon="🖼️" title="暂无图片" desc="导入图片到产品集中" />
+        <EmptyState
+          icon={typeFilter() === "video" ? "🎬" : "🖼️"}
+          title={typeFilter() === "video" ? "暂无视频" : "暂无图片"}
+          desc={typeFilter() === "video" ? "导入视频到图包子文件夹中" : "导入图片到产品集中"}
+        />
       }>
         <div class="flex items-center justify-between mb-3 shrink-0">
           <span class="text-sm text-surface-500">{visibleCount()} 个文件</span>
@@ -287,6 +399,8 @@ export default function Images() {
                   <FileThumbnail filePath={img.path} fileType={img.file_type} />
                 </div>
                 <div class="text-xs font-medium truncate mt-2 px-1">{img.name}</div>
+                {/* v2.4.4：卡片标签 chips（最多 2 个，超出 +N） */}
+                <TagChips tags={img.tags} />
                 <div class="text-[10px] text-surface-400 px-1 truncate">{img.productSet} / {img.subFolder}</div>
                 <div class="text-[10px] text-surface-400 px-1">{formatBytes(img.size)}</div>
               </div>
@@ -312,6 +426,9 @@ export default function Images() {
             onShowInExplorer: handleShowInExplorer,
             onMove: (paths) => setMovePaths(paths),
             onRename: handleRename,
+            onBatchTag: (paths) => handleBatchTag(paths),
+            onCompress: (paths) => void handleCompress(paths),
+            onExtract: (file, mode) => void handleExtract(file, mode),
             onDelete: handleDelete,
           })}
         />
@@ -324,6 +441,24 @@ export default function Images() {
           onClose={() => setMovePaths(null)}
           onMoved={() => void loadAllImages()}
         />
+      </Show>
+
+      {/* 批量打标（v2.4.4） */}
+      <Show when={batchTagState()}>
+        <BatchTagDialog
+          paths={batchTagState()!.paths}
+          commonTags={batchTagState()!.commonTags}
+          onClose={() => setBatchTagState(null)}
+          onDone={() => {
+            void loadAllImages();
+            setSelectedPaths([]);
+          }}
+        />
+      </Show>
+
+      {/* 压缩分享 / 解压 进度（v2.4.4） */}
+      <Show when={archiveState()}>
+        <ArchiveProgressDialog token={archiveState()!.token} onClose={() => setArchiveState(null)} />
       </Show>
     </div>
   );

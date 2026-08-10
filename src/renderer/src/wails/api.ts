@@ -12,6 +12,10 @@ import type {
   ImportFileRequest,
   FileListRequest,
   MetadataUpdateRequest,
+  BatchTagRequest,
+  BatchTagResult,
+  ArchiveCompressRequest,
+  ArchiveExtractRequest,
   SubfolderCreateRequest,
   DeleteSubfolderRequest,
   FileRenameRequest,
@@ -87,15 +91,29 @@ export const api = {
     deleteSubfolder: (req: DeleteSubfolderRequest) =>
       qb.files.deleteSubfolder(req as any) as Promise<ApiResult<boolean>>,
     dataUrl: (path: string) => qb.files.dataUrl(path) as Promise<ApiResult<string>>,
+    previewUrl: (path: string) => qb.files.previewUrl(path) as Promise<ApiResult<string>>,
     workspaceUrl: (path: string) => qb.files.workspaceUrl(path) as Promise<ApiResult<string>>,
     openWithDefaultApp: (path: string) =>
       qb.files.openWithDefaultApp(path) as Promise<ApiResult<boolean>>,
+    videoThumbnail: (path: string) =>
+      qb.files.videoThumbnail(path) as Promise<ApiResult<string>>,
+    saveVideoFrame: (path: string, buf: ArrayBuffer) =>
+      qb.files.saveVideoFrame(path, buf) as Promise<ApiResult<string>>,
   },
   metadata: {
     get: (filePath: string) =>
       qb.metadata.get(filePath) as Promise<ApiResult<FileMetadata>>,
     update: (req: MetadataUpdateRequest) =>
       qb.metadata.update(req as any) as Promise<ApiResult<boolean>>,
+    batchTag: (req: BatchTagRequest) =>
+      qb.metadata.batchTag(req as any) as Promise<ApiResult<BatchTagResult>>,
+  },
+  archive: {
+    compress: (req: ArchiveCompressRequest) =>
+      qb.archive.compress(req as any) as Promise<ApiResult<unknown[]>>,
+    extract: (req: ArchiveExtractRequest) =>
+      qb.archive.extract(req as any) as Promise<ApiResult<unknown[]>>,
+    cancel: (token: string) => qb.archive.cancel(token) as Promise<ApiResult<boolean>>,
   },
   dashboard: {
     stats: () => qb.dashboard.stats() as Promise<ApiResult<DashboardStatsType>>,

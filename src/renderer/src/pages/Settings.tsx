@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createEffect } from "solid-js";
+import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import {
   currentWorkspace,
   workspaceConfig,
@@ -8,6 +8,8 @@ import {
 } from "~/stores/workspace";
 import { api } from "~/wails/api";
 import { loadTagDefs, refreshTags } from "~/stores/tags";
+import { showToast } from "~/stores/notifyBanner";
+import ConfirmDialog from "~/components/ConfirmDialog";
 import type { ApiResult, TagInfo, WorkspaceConfig } from "~/types";
 
 /** 预设色板（标签颜色选择） */
@@ -172,6 +174,8 @@ export default function Settings() {
   const [editingColor, setEditingColor] = createSignal<string | null>(null); // 正在改色的标签
   const [renaming, setRenaming] = createSignal<string | null>(null); // 正在重命名的标签
   const [renameValue, setRenameValue] = createSignal("");
+  const [movingTag, setMovingTag] = createSignal<string | null>(null); // 顶层标签「移至…」展开的标签
+  const [confirmDelete, setConfirmDelete] = createSignal<{ name: string; orphan: boolean } | null>(null); // 删除/清引用确认弹窗
 
   /** 顶层标签（供新建时选父级） */
   const topLevelTags = () => tags().filter((t) => !t.parent);
@@ -193,7 +197,7 @@ export default function Settings() {
     if (!name) return;
     const r = await api.tags.create(name, newTagColor(), newTagParent());
     if (!r.success) {
-      alert(r.error || "创建标签失败");
+      showToast("error", "创建标签失败", r.error || "未知错误");
       return;
     }
     setNewTagName("");
@@ -204,7 +208,7 @@ export default function Settings() {
 
   const handleSetColor = async (name: string, color: string) => {
     const r = await api.tags.setColor(name, color);
-    if (!r.success && r.error) alert(r.error);
+    if (!r.success && r.error) showToast("error", "修改颜色失败", r.error);
     setEditingColor(null);
     await loadTags();
     refreshTags();
@@ -223,25 +227,43 @@ export default function Settings() {
       await loadTags();
       refreshTags();
     } else {
-      alert(r.error || "重命名失败");
+      showToast("error", "重命名失败", r.error || "未知错误");
     }
   };
 
-  const handleDeleteTag = async (name: string) => {
-    if (!confirm(`确定删除标签「${name}」？将同时从所有文件与产品集中移除。`)) return;
+  /** 删除标签 → 弹确认框（带影响范围 count） */
+  const handleDeleteTag = (name: string) => {
+    setConfirmDelete({ name, orphan: false });
+  };
+
+  const doDeleteTag = async (name: string) => {
+    const count = tags().find((t) => t.name === name)?.count ?? 0;
     const r = await api.tags.delete(name);
     if (r.success) {
       await loadTags();
       refreshTags();
+      showToast("success", `已删除标签「${name}」`, `将从 ${count} 处移除`);
     } else {
-      alert(r.error || "删除失败");
+      showToast("error", "删除失败", r.error || "未知错误");
     }
   };
 
   const handlePromote = async (name: string) => {
     const r = await api.tags.setParent(name, null);
     if (!r.success) {
-      alert(r.error || "升级失败");
+      showToast("error", "提升失败", r.error || "未知错误");
+      return;
+    }
+    await loadTags();
+    refreshTags();
+  };
+
+  /** 顶层标签移至其他顶层标签下 */
+  const handleMoveTo = async (name: string, target: string) => {
+    const r = await api.tags.setParent(name, target);
+    setMovingTag(null);
+    if (!r.success) {
+      showToast("error", "移动失败", r.error || "未知错误");
       return;
     }
     await loadTags();
@@ -254,21 +276,61 @@ export default function Settings() {
 
   const handleAdopt = async (name: string, color: string) => {
     const r = await api.tags.adopt(name, color);
-    if (!r.success && r.error) alert(r.error);
+    if (!r.success && r.error) showToast("error", "转正失败", r.error);
     setAdoptingOrphan(null);
     await loadTags();
     refreshTags();
   };
 
-  const handleRemoveOrphan = async (name: string) => {
-    if (!confirm(`确定清除标签「${name}」的所有引用吗？将从所有文件与产品集中移除。`)) return;
+  /** 清除孤儿引用 → 弹确认框（带影响范围 count） */
+  const handleRemoveOrphan = (name: string) => {
+    setConfirmDelete({ name, orphan: true });
+  };
+
+  const doRemoveOrphan = async (name: string) => {
+    const count = tags().find((t) => t.name === name)?.count ?? 0;
     const r = await api.tags.delete(name);
     if (r.success) {
       await loadTags();
       refreshTags();
+      showToast("success", `已清除标签「${name}」的引用`, `将从 ${count} 处移除`);
     } else {
-      alert(r.error || "删除失败");
+      showToast("error", "清除失败", r.error || "未知错误");
     }
+  };
+
+  /** 顶层标签「移至…」下拉：点击其他区域关闭 */
+  onMount(() => {
+    const onDown = (e: MouseEvent) => {
+      if (movingTag() === null) return;
+      const t = e.target as Node;
+      if (t instanceof Element && t.closest("[data-move-menu]")) return;
+      setMovingTag(null);
+    };
+    window.addEventListener("mousedown", onDown);
+    onCleanup(() => window.removeEventListener("mousedown", onDown));
+  });
+
+  /** 删除/清除引用确认弹窗内容（target 由 Show 保证非空） */
+  const DeleteConfirm = (props: { name: string; orphan: boolean; onDone: () => void }) => {
+    const count = () => tags().find((t) => t.name === props.name)?.count ?? 0;
+    return (
+      <ConfirmDialog
+        title={props.orphan ? "清除引用" : "删除标签"}
+        message={
+          props.orphan
+            ? `确定清除标签「${props.name}」的所有引用吗？将从 ${count()} 处移除。`
+            : `确定删除标签「${props.name}」吗？将从 ${count()} 处移除，并同步清理所有文件与产品集。`
+        }
+        confirmLabel={props.orphan ? "清除" : "删除"}
+        danger
+        onConfirm={() => {
+          props.onDone();
+          void (props.orphan ? doRemoveOrphan(props.name) : doDeleteTag(props.name));
+        }}
+        onCancel={props.onDone}
+      />
+    );
   };
 
   return (
@@ -386,6 +448,31 @@ export default function Settings() {
                         >
                           重命名
                         </button>
+                        <Show when={topLevelTags().length > 1}>
+                          <div data-move-menu class="relative shrink-0">
+                            <button
+                              class="text-xs text-surface-500 hover:text-primary-600"
+                              onClick={() => setMovingTag(movingTag() === tag.name ? null : tag.name)}
+                            >
+                              移至…
+                            </button>
+                            <Show when={movingTag() === tag.name}>
+                              <div class="absolute right-0 top-full mt-1 z-30 bg-white border border-surface-200 rounded-lg shadow-lg py-1 min-w-32">
+                                <div class="px-3 py-1 text-[11px] text-surface-400">移至其他顶层标签下</div>
+                                <For each={topLevelTags().filter((t) => t.name !== tag.name)}>
+                                  {(target) => (
+                                    <button
+                                      class="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-100"
+                                      onClick={() => void handleMoveTo(tag.name, target.name)}
+                                    >
+                                      {target.name}
+                                    </button>
+                                  )}
+                                </For>
+                              </div>
+                            </Show>
+                          </div>
+                        </Show>
                         <button
                           class="text-xs text-red-500 hover:text-red-600 shrink-0"
                           onClick={() => handleDeleteTag(tag.name)}
@@ -525,6 +612,15 @@ export default function Settings() {
                   </For>
                 </div>
               </div>
+            </Show>
+
+            {/* 删除/清除引用确认弹窗 */}
+            <Show when={confirmDelete()}>
+              <DeleteConfirm
+                name={confirmDelete()!.name}
+                orphan={confirmDelete()!.orphan}
+                onDone={() => setConfirmDelete(null)}
+              />
             </Show>
           </div>
 

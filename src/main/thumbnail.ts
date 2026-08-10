@@ -13,6 +13,10 @@
  *   切文件夹后旧积压立即清空，新文件夹请求优先拿到生成槽位
  * - 单任务 15s 超时（防 sharp 挂死/同步目录读阻塞占满 4 槽位 = 全局真死锁）
  * - 队列上限 200：background 超限快速失败；browse 不受限（切文件夹时会被代际作废清空）
+ *
+ * v2.4.6：新增预览降采样副本管线（ensurePreview）——渲染层图片预览不再 <img> 直挂原图
+ * 全尺寸解码（6000×4000 解码位图 ~96MB，渲染进程 RSS 膨胀主因），改为 sharp 预生成
+ * ≤2048px JPEG q85 副本，存缓存根 preview/ 子目录，走同一 qihebox://thumb 协议与长缓存头。
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
@@ -22,6 +26,8 @@ import { WorkspaceService } from './core/workspace'
 import type { ThumbnailProvider, ThumbOrigin } from './core/files'
 
 const THUMB_SIZE = 256
+// v2.4.6：预览降采样副本边长上限（渲染层预览用大尺寸副本，原图不再进渲染进程全尺寸解码）
+const PREVIEW_SIZE = 2048
 const JPEG_QUALITY = 85
 
 // v2.4.x 生成端内存上界：
@@ -215,6 +221,15 @@ export class SharpThumbnailService implements ThumbnailProvider {
     return thumbnailPath(ws, filePath)
   }
 
+  /**
+   * v2.4.6：预览降采样副本位置（缓存根 preview/ 子目录，与缩略图同哈希推导）。
+   * 无 userData 配置（thumbRootFor 返回 ''）时返回空串——不污染工作区，预览副本不做旧位置回退。
+   */
+  private previewPathFor(ws: string, filePath: string): string {
+    const root = this.thumbRootFor(ws)
+    return root ? thumbnailPath(ws, filePath, path.join(root, 'preview')) : ''
+  }
+
   /** v2.4.2（修复 2）：作废所有排队中的浏览任务（切文件夹入口调用） */
   cancelPendingBrowse(): void {
     this.genQueue.cancelPendingBrowse()
@@ -285,6 +300,44 @@ export class SharpThumbnailService implements ThumbnailProvider {
     return task
   }
 
+  /**
+   * v2.4.6：确保图片预览降采样副本存在（渲染层预览用），返回副本路径。
+   * 仅图片；无工作区/无 userData 缓存配置/生成失败 → 空串（渲染层回退原图）。
+   * 与缩略图共用 genQueue（browse）与在途去重（key 加 'prev:' 前缀区分同文件缩略图任务）。
+   */
+  async ensurePreview(filePath: string): Promise<string> {
+    if (classifyFileType(filePath) !== 'image') return ''
+    const ws = this.workspace.currentWorkspacePath()
+    if (!ws) return ''
+    const preview = this.previewPathFor(ws, filePath)
+    if (!preview) return ''
+    // 1. mtime 命中 → 直接返回
+    if (await this.isFresh(preview, filePath)) return preview
+    // 2. 生成（在途去重）
+    const key = `prev:${filePath}`
+    const inFlight = this.pending.get(key)
+    if (inFlight) return inFlight
+    const task = this.genQueue.enqueue(async () => {
+      try {
+        // 延迟加载 sharp 复用 loadSharp()（与缩略图同一原生库）
+        const sharp = await loadSharp()
+        await fsp.mkdir(path.dirname(preview), { recursive: true })
+        await sharp(filePath, { limitInputPixels: MAX_INPUT_PIXELS })
+          .resize(PREVIEW_SIZE, PREVIEW_SIZE, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: JPEG_QUALITY })
+          .toFile(preview)
+        return preview
+      } catch (err) {
+        console.error('[thumbnail] 预览副本生成失败:', filePath, err)
+        return ''
+      } finally {
+        this.pending.delete(key)
+      }
+    }, 'browse')
+    this.pending.set(key, task)
+    return task
+  }
+
   async thumbnailUrl(filePath: string): Promise<string> {
     const ws = this.workspace.currentWorkspacePath()
     if (!ws) return ''
@@ -295,10 +348,36 @@ export class SharpThumbnailService implements ThumbnailProvider {
     return ''
   }
 
+  // —— v2.4.4：视频帧缩略图（渲染层 <video>+canvas 抓帧，主进程仅落盘；与图片同根同哈希）——
+
+  /** 视频帧缩略图路径（userData 缓存根；非视频返回空串） */
+  videoThumbPath(filePath: string): string {
+    const ws = this.workspace.currentWorkspacePath()
+    if (!ws || classifyFileType(filePath) !== 'video') return ''
+    return this.newThumbPath(ws, filePath)
+  }
+
+  /** 写入渲染层抓取的视频帧（尺寸/大小已在 IPC 层校验） */
+  async saveVideoFrame(filePath: string, data: Buffer): Promise<string> {
+    const p = this.videoThumbPath(filePath)
+    if (!p) return ''
+    await fsp.mkdir(path.dirname(p), { recursive: true })
+    await fsp.writeFile(p, data, { mode: 0o644 })
+    return p
+  }
+
+  /** 视频帧缓存命中返回路径（mtime 校验），否则空串 */
+  async videoThumbnail(filePath: string): Promise<string> {
+    const p = this.videoThumbPath(filePath)
+    if (p && (await this.isFresh(p, filePath))) return p
+    return ''
+  }
+
   async removeThumbnail(filePath: string): Promise<void> {
     const ws = this.workspace.currentWorkspacePath()
     if (!ws) return
-    const paths = [this.newThumbPath(ws, filePath), this.legacyThumbPath(ws, filePath)].filter(Boolean)
+    // v2.4.6：删缩略图时同步删预览降采样副本（preview/ 子目录，无配置时 previewPathFor 返回空被过滤）
+    const paths = [this.newThumbPath(ws, filePath), this.legacyThumbPath(ws, filePath), this.previewPathFor(ws, filePath)].filter(Boolean)
     await Promise.all(paths.map((p) => fsp.rm(p, { force: true }).catch(() => {})))
   }
 
@@ -322,7 +401,8 @@ export class SharpThumbnailService implements ThumbnailProvider {
         if (e.isDirectory()) {
           await walk(full)
         } else {
-          const paths = [this.newThumbPath(ws, full), this.legacyThumbPath(ws, full)].filter(Boolean)
+          // v2.4.6：同步删预览降采样副本
+          const paths = [this.newThumbPath(ws, full), this.legacyThumbPath(ws, full), this.previewPathFor(ws, full)].filter(Boolean)
           await Promise.all(paths.map((p) => fsp.rm(p, { force: true }).catch(() => {})))
         }
       }

@@ -1,10 +1,17 @@
 /**
  * XLSX 模板导出/批量导入（对照原 Go xlsx.go，exceljs 替代 excelize）
  * 纯 TS 业务层：不 import electron，可在 node 环境直接测试。
- * 性能：exceljs 延迟加载（动态 import），避免主进程启动加载其依赖链。
+ * v2.4.6：exceljs 真正改为动态 import（此前顶层静态引入，注释与实现不符——
+ * 主进程启动即加载 exceljs 依赖链，实测 heap +9.7MB / RSS +24MB），首次导出/导入时才加载。
  */
-import ExcelJS from 'exceljs'
+import type ExcelJS from 'exceljs'
 import { WorkspaceService, ProductSetInfo } from './workspace'
+
+/** v2.4.6：延迟加载 exceljs（参照 thumbnail.ts loadSharp 模式；模块由运行时缓存，二次调用零成本） */
+async function loadExcelJS(): Promise<typeof ExcelJS> {
+  const { default: XLSX } = await import('exceljs')
+  return XLSX
+}
 
 const TEMPLATE_SHEET = '产品集导入模板'
 const INSTRUCTIONS_SHEET = '填写说明'
@@ -23,7 +30,7 @@ export class XlsxService {
   /** 导出带样式的导入模板（对照 ExportXlsxTemplate） */
   async exportTemplate(filePath: string): Promise<void> {
     if (!filePath.trim()) throw new Error('路径不能为空')
-    const XLSX = ExcelJS
+    const XLSX = await loadExcelJS()
     const wb = new XLSX.Workbook()
     const ws = wb.worksheets[0] ?? wb.addWorksheet(TEMPLATE_SHEET)
     ws.name = TEMPLATE_SHEET
@@ -63,7 +70,7 @@ export class XlsxService {
     if (!ws0) throw new Error('未打开工作区')
     if (!filePath.trim()) throw new Error('路径不能为空')
 
-    const XLSX = ExcelJS
+    const XLSX = await loadExcelJS()
     const wb = new XLSX.Workbook()
     await wb.xlsx.readFile(filePath)
     const sheet = wb.worksheets[0]

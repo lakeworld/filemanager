@@ -19,6 +19,7 @@ import { workspaceFileUrl, thumbnailFileUrl } from './protocol'
 import { checkUpdate, downloadUpdate, applyUpdate, UpdateInfo } from './updater'
 import { isPathInsideWorkspaceReal, classifyFileType } from './core/paths'
 import { FilesService, ImportCancelledError } from './core/files'
+import { ZipCancelledError } from './core/archive'
 import { openFileWithDefaultApp } from './open'
 import {
   getMainWindow,
@@ -56,7 +57,7 @@ async function handle<T>(fn: () => Promise<T> | T): Promise<ApiResult<T>> {
 }
 
 /**
- * v2.4.2（R2）：向窗口发送事件的安全通道——窗口已被休眠销毁（close → 托盘 → 2 分钟 → destroy）
+ * v2.4.2（R2）：向窗口发送事件的安全通道——窗口已被休眠销毁（close → 托盘 → 30 秒 → destroy，v2.4.5 T3）
  * 时 webContents.send 会抛 "Object has been destroyed"，旧实现会让异常同步传播进导入循环、
  * 静默中断导入。此处统一守卫 + try/catch。
  */
@@ -239,6 +240,18 @@ export function registerIpc(box: BoxService, account: AccountService): void {
       return thumb ? thumbnailFileUrl(thumb) : ''
     }),
   )
+  // v2.4.6：图片预览降采样副本 URL（≤2048px JPEG，走 qihebox://thumb 协议与长缓存头；
+  // 渲染层预览不再 <img> 直挂原图全尺寸解码）。空串表示不可用（渲染层回退原图）
+  ipcMain.handle('qihebox:files:previewUrl', (_e, filePath: string) =>
+    handle(async () => {
+      const ws = box.workspace.currentWorkspacePath()
+      if (!ws) throw new Error('未打开工作区')
+      if (!(await isPathInsideWorkspaceReal(ws, filePath))) throw new Error('只能访问工作区内的文件')
+      if (classifyFileType(filePath) !== 'image') return ''
+      const preview = await box.ensurePreviewFor(filePath)
+      return preview ? thumbnailFileUrl(preview) : ''
+    }),
+  )
   ipcMain.handle('qihebox:files:copyPaths', (_e, paths: string[]) =>
     handle(() => {
       if (!paths || paths.length === 0) throw new Error('没有选择文件')
@@ -291,6 +304,88 @@ export function registerIpc(box: BoxService, account: AccountService): void {
     handle(() => box.metadata.get(String(filePath ?? ''))),
   )
   ipcMain.handle('qihebox:metadata:update', (_e, req) => handle(() => box.metadata.update(req)))
+  // v2.4.4（T4）：批量打标（一次加载 + 一次落盘）
+  ipcMain.handle('qihebox:metadata:batchTag', (_e, req) => handle(() => box.metadata.setTagsBatch(req)))
+
+  // —— v2.4.4：压缩分享 / 解压（进度事件 + 取消令牌，与导入同机制）——
+  const archiveCancelled = new Set<string>()
+  ipcMain.handle('qihebox:archive:compress', async (e, req) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const token: string | undefined = req?.cancelToken
+    box.archive
+      .compress(req, {
+        onProgress: (done, total, current) =>
+          sendTo(win, 'qihebox:event:archive:progress', { phase: 'compress', done, total, current }),
+        isCancelled: () => !!token && archiveCancelled.has(token),
+      })
+      .then((result) => {
+        sendTo(win, 'qihebox:event:archive:complete', { success: true, cancelled: false, error: null, result })
+      })
+      .catch((err: unknown) => {
+        sendTo(win, 'qihebox:event:archive:complete', {
+          success: false,
+          cancelled: err instanceof ZipCancelledError,
+          error: err instanceof Error ? err.message : String(err),
+          result: null,
+        })
+      })
+      .finally(() => {
+        if (token) archiveCancelled.delete(token)
+      })
+    return ok<never[]>([])
+  })
+  ipcMain.handle('qihebox:archive:extract', async (e, req) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const token: string | undefined = req?.cancelToken
+    box.archive
+      .extract(req, {
+        onProgress: (done, total, current) =>
+          sendTo(win, 'qihebox:event:archive:progress', { phase: 'extract', done, total, current }),
+        isCancelled: () => !!token && archiveCancelled.has(token),
+      })
+      .then((result) => {
+        sendTo(win, 'qihebox:event:archive:complete', { success: true, cancelled: false, error: null, result })
+      })
+      .catch((err: unknown) => {
+        sendTo(win, 'qihebox:event:archive:complete', {
+          success: false,
+          cancelled: err instanceof ZipCancelledError,
+          error: err instanceof Error ? err.message : String(err),
+          result: null,
+        })
+      })
+      .finally(() => {
+        if (token) archiveCancelled.delete(token)
+      })
+    return ok<never[]>([])
+  })
+  ipcMain.handle('qihebox:archive:cancel', (_e, token: string) => {
+    if (token) archiveCancelled.add(token)
+    return ok<boolean>(true)
+  })
+
+  // —— v2.4.4：视频帧缩略图（渲染层抓帧 → 主进程落盘 / 缓存命中直取 URL）——
+  ipcMain.handle('qihebox:files:videoThumbnail', (_e, filePath: string) =>
+    handle(async () => {
+      const ws = box.workspace.currentWorkspacePath()
+      if (!ws) throw new Error('未打开工作区')
+      if (!(await isPathInsideWorkspaceReal(ws, filePath))) throw new Error('只能访问工作区内的文件')
+      const thumb = await box.videoThumbnail(filePath)
+      return thumb ? thumbnailFileUrl(thumb) : ''
+    }),
+  )
+  ipcMain.handle('qihebox:files:saveVideoFrame', (_e, filePath: string, buf: ArrayBuffer) =>
+    handle(async () => {
+      const ws = box.workspace.currentWorkspacePath()
+      if (!ws) throw new Error('未打开工作区')
+      if (!(await isPathInsideWorkspaceReal(ws, filePath))) throw new Error('只能访问工作区内的文件')
+      if (classifyFileType(filePath) !== 'video') throw new Error('非视频文件')
+      const data = Buffer.from(buf ?? new ArrayBuffer(0))
+      if (data.length === 0 || data.length > 512 * 1024) throw new Error('帧数据无效或过大（>512KB）')
+      const thumb = await box.saveVideoFrame(filePath, data)
+      return thumb ? thumbnailFileUrl(thumb) : ''
+    }),
+  )
 
   // —— 仪表盘 / 搜索 ——
   ipcMain.handle('qihebox:dashboard:stats', () => handle(() => box.dashboard.dashboardStats()))

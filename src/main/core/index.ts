@@ -16,6 +16,7 @@ import { XlsxService } from './xlsx'
 import { PRODUCT_SETS_DIR, isPathInsideWorkspaceReal, classifyFileType } from './paths'
 import { TagService } from './tags'
 import { TrashService } from './trash'
+import { ArchiveService } from './archive'
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 
@@ -28,6 +29,7 @@ export class BoxService {
   xlsx: XlsxService
   tags: TagService
   trash: TrashService
+  archive: ArchiveService
   private thumbs: ThumbnailProvider
 
   constructor(thumbs: ThumbnailProvider, workspace?: WorkspaceService) {
@@ -36,9 +38,10 @@ export class BoxService {
     this.trash = new TrashService(this.workspace, this.metadata, thumbs)
     this.files = new FilesService(this.workspace, this.metadata, thumbs, this.trash)
     this.dashboard = new DashboardService(this.workspace, this.metadata, this.files)
-    this.search = new SearchService(this.workspace, this.files)
+    this.search = new SearchService(this.workspace, this.files, this.metadata)
     this.xlsx = new XlsxService(this.workspace)
     this.tags = new TagService(this.workspace, this.metadata)
+    this.archive = new ArchiveService(this.workspace)
     this.thumbs = thumbs
   }
 
@@ -75,5 +78,32 @@ export class BoxService {
    */
   beginBrowse(): void {
     this.thumbs.cancelPendingBrowse?.()
+  }
+
+  // —— v2.4.4：视频帧缩略图（能力由 ThumbnailProvider 可选方法提供）——
+
+  videoThumbPathFor(filePath: string): string {
+    return this.thumbs.videoThumbPath?.(filePath) ?? ''
+  }
+
+  async saveVideoFrame(filePath: string, data: Buffer): Promise<string> {
+    const t = classifyFileType(filePath)
+    if (t !== 'video') return ''
+    // v2.4.6：修复脱绑调用（旧写法 const fn = this.thumbs.saveVideoFrame; fn(...) 丢失 this，
+    // SharpThumbnailService 方法内部依赖 this.workspace → 缓存写入一直静默失败，每次访问重抓帧）
+    return this.thumbs.saveVideoFrame ? this.thumbs.saveVideoFrame(filePath, data) : ''
+  }
+
+  async videoThumbnail(filePath: string): Promise<string> {
+    const t = classifyFileType(filePath)
+    if (t !== 'video') return ''
+    // v2.4.6：同上修复脱绑调用（缓存读取静默失败 → mtime 命中永不生效）
+    return this.thumbs.videoThumbnail ? this.thumbs.videoThumbnail(filePath) : ''
+  }
+
+  /** v2.4.6：图片预览降采样副本（能力由 ThumbnailProvider 可选方法提供；IPC 层已做工作区边界校验） */
+  async ensurePreviewFor(filePath: string): Promise<string> {
+    if (classifyFileType(filePath) !== 'image') return ''
+    return this.thumbs.ensurePreview ? this.thumbs.ensurePreview(filePath) : ''
   }
 }

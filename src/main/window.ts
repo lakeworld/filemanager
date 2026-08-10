@@ -4,8 +4,9 @@
  *
  * v2.3.0 分层休眠（用户方案落地）：
  * - 第二层：最小化 2 分钟无恢复 → 渲染进程 reload 回收（不可见无感）
- * - 第三层：关闭（隐藏到托盘）2 分钟无活跃 → 销毁 BrowserWindow，内存只留主进程；
+ * - 第三层：关闭（隐藏到托盘）30 秒无活跃 → 销毁 BrowserWindow，内存只留主进程；
  *   托盘点击 / 二次启动时 ensureMainWindow 重建，秒开。
+ *   （v2.4.5 T3：2 分钟 → 30 秒提速——30s 内回切零成本，超期重建由 v2.4.3 唤醒修复保障体验）
  *
  * v2.4.3 唤醒修复（docs/PLAN-v2.4.3.md，F1-F4 / F6）：
  * - F1 加载底色改浅色，唤醒重建期不再露出深蓝近黑空窗
@@ -22,8 +23,9 @@ let mainWindow: BrowserWindow | null = null
 let quitting = false
 
 // —— 分层休眠定时器 ——
-// v2.4.3（F6）：支持 env 覆盖（默认 2 分钟），验证/自查时缩到 10 秒跑完整休眠→唤醒循环
-const DESTROY_DELAY_MS = Number(process.env.QIHEBOX_DESTROY_DELAY_MS) || 2 * 60 * 1000 // 第三层：隐藏后 2 分钟销毁窗口
+// v2.4.3（F6）：支持 env 覆盖，验证/自查时缩到 10 秒跑完整休眠→唤醒循环
+// v2.4.5（T3）：第三层默认 2 分钟 → 30 秒（托盘常驻内存快速回落；重建体验由 F1-F4 保障）
+const DESTROY_DELAY_MS = Number(process.env.QIHEBOX_DESTROY_DELAY_MS) || 30 * 1000 // 第三层：隐藏后 30 秒销毁窗口
 const MINIMIZE_RECOVER_MS = Number(process.env.QIHEBOX_MINIMIZE_RECOVER_MS) || 2 * 60 * 1000 // 第二层：最小化后 2 分钟渲染进程回收
 const WAKE_PING_TIMEOUT_MS = 2000 // v2.4.3（F3）：渲染进程活性 ping 超时
 let destroyTimer: NodeJS.Timeout | null = null
@@ -84,6 +86,8 @@ export function createMainWindow(): BrowserWindow {
       sandbox: false, // ESM preload 需要；阶段 6 安全评估
       spellcheck: false, // v2.1.0：关拼写检查，省渲染进程资源
       webgl: false, // v2.3.0：应用无 WebGL 场景，禁用以省 GPU 上下文初始化
+      // v2.4.6：V8 code cache 落盘复用——降低启动/重建窗口时的重复编译 CPU 开销，内存轻微正收益
+      v8CacheOptions: 'code',
     },
   })
 
@@ -173,10 +177,10 @@ export function windowHideToTray(): void {
   scheduleDestroy() // 第三层：隐藏后启动销毁倒计时
 }
 
-/** 第三层：隐藏（关闭到托盘）后 2 分钟无活跃 → 销毁窗口 */
+/** 第三层：隐藏（关闭到托盘）后 30 秒无活跃 → 销毁窗口（v2.4.5 T3：2 分钟 → 30 秒） */
 export function scheduleDestroy(): void {
   destroyTimer = clearTimer(destroyTimer)
-  void log('info', '[sleep] 已排定销毁倒计时（2 分钟）')
+  void log('info', '[sleep] 已排定销毁倒计时（30 秒）')
   destroyTimer = setTimeout(() => {
     destroyTimer = null
     void log(
@@ -184,7 +188,7 @@ export function scheduleDestroy(): void {
       `[sleep] 倒计时到期: mainWindow=${!!mainWindow} destroyed=${mainWindow?.isDestroyed() ?? 'n/a'} quitting=${quitting} visible=${mainWindow?.isVisible() ?? 'n/a'}`,
     )
     // v2.4.x 修复：倒计时到期时窗口若已恢复显示（用户操作中），不得销毁——
-    // 此前 windowShow 未取消倒计时，用户恢复窗口后继续操作会在 2 分钟时被强制销毁（界面突然消失）
+    // 此前 windowShow 未取消倒计时，用户恢复窗口后继续操作会被强制销毁（界面突然消失）
     if (mainWindow && !mainWindow.isDestroyed() && !quitting && !mainWindow.isVisible()) {
       mainWindow.destroy()
       void log('info', '[sleep] 已销毁窗口（渲染进程回收）')

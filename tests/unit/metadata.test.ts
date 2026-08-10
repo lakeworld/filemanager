@@ -231,3 +231,39 @@ describe('文件元数据（MetadataService）', () => {
     expect(store.files['系列A/图包/主图/b.jpg'].added_at).toBe('2025-01-01T00:00:00Z')
   })
 })
+
+describe('批量打标（v2.4.4 T4）', () => {
+  it('setTagsBatch：add 去重合并、remove 移除、单次落盘', async () => {
+    const home = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-meta-'))
+    const ws = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-meta-'))
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    const p1 = path.join(ws, '产品集', '系列A', '图包', '主图', 'a.jpg')
+    const p2 = path.join(ws, '产品集', '系列A', '图包', '主图', 'b.jpg')
+    const p3 = path.join(ws, '产品集', '系列A', '证书', '3C', 'c.pdf')
+
+    // 预置：p1 已有标签
+    await box.metadata.update({ file_path: p1, tags: ['已有'], notes: '' })
+
+    // 添加
+    let r = await box.metadata.setTagsBatch({ paths: [p1, p2, p3], add: ['重点', '已有'] })
+    expect(r.updated).toBe(3)
+    expect(r.failed).toHaveLength(0)
+    expect((await box.metadata.get(p1)).tags).toEqual(['已有', '重点'])
+    expect((await box.metadata.get(p2)).tags).toEqual(['重点', '已有'])
+    expect((await box.metadata.get(p3)).tags).toEqual(['重点', '已有'])
+
+    // 移除
+    r = await box.metadata.setTagsBatch({ paths: [p1], remove: ['已有'] })
+    expect(r.updated).toBe(1)
+    expect((await box.metadata.get(p1)).tags).toEqual(['重点'])
+
+    // 非产品集内文件 → 失败清单，不中断整体
+    const outside = path.join(ws, '导出', 'x.txt')
+    r = await box.metadata.setTagsBatch({ paths: [p2, outside], add: ['新'] })
+    expect(r.updated).toBe(1)
+    expect(r.failed).toHaveLength(1)
+    expect(r.failed[0].error).toContain('不在产品集')
+  })
+})

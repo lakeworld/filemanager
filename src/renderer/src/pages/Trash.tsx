@@ -29,6 +29,18 @@ function relLocation(originalPath: string): string {
   return idx >= 0 ? originalPath.slice(idx) : originalPath;
 }
 
+// v2.4.6：回收站文件类型本地判断——与主进程 classifyFileType（src/main/core/paths.ts）语义一致。
+// TrashEntry 不带 file_type；此前非 .pdf 一律按 "image" 传给 FileThumbnail，
+// 视频/zip/文本全走图片缩略图 IPC 注定失败（视频抓帧/📎 占位才是正确路径）
+function trashFileType(name: string): string {
+  const idx = name.lastIndexOf(".");
+  const ext = idx >= 0 ? name.slice(idx).toLowerCase() : "";
+  if ([".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"].includes(ext)) return "image";
+  if (ext === ".pdf") return "pdf";
+  if ([".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"].includes(ext)) return "video";
+  return "other";
+}
+
 const KIND_META: Record<TrashEntry["kind"], { icon: string; label: string }> = {
   file: { icon: "📄", label: "文件" },
   subfolder: { icon: "🗂️", label: "子文件夹" },
@@ -134,7 +146,7 @@ export default function Trash() {
                     when={e.kind === "file"}
                     fallback={<span class="text-2xl">{KIND_META[e.kind].icon}</span>}
                   >
-                    <FileThumbnail filePath={e.originalPath} fileType={e.originalPath.toLowerCase().endsWith(".pdf") ? "pdf" : "image"} class="w-full h-full object-cover" />
+                    <FileThumbnail filePath={e.originalPath} fileType={trashFileType(e.name)} class="w-full h-full object-cover" />
                   </Show>
                 </div>
                 <div class="flex-1 min-w-0">

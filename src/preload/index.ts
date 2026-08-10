@@ -55,15 +55,29 @@ const api = {
     dataUrl: (filePath: string) => invoke('qihebox:files:dataUrl', filePath),
     ensureThumbnail: (filePath: string) => invoke('qihebox:files:ensureThumbnail', filePath),
     thumbnailUrl: (filePath: string) => invoke('qihebox:files:thumbnailUrl', filePath),
+    // v2.4.6：图片预览降采样副本 URL（≤2048px JPEG，主进程 sharp 生成并缓存）
+    previewUrl: (filePath: string) => invoke('qihebox:files:previewUrl', filePath),
     copyPaths: (paths: string[]) => invoke('qihebox:files:copyPaths', paths),
     startDrag: (paths: string[]) => invoke('qihebox:files:startDrag', paths),
     workspaceUrl: (filePath: string) => invoke('qihebox:files:workspaceUrl', filePath),
     openWithDefaultApp: (filePath: string) => invoke('qihebox:files:openWithDefaultApp', filePath),
+    // v2.4.4：视频帧缩略图（缓存命中 → URL；miss → 渲染层抓帧后 saveVideoFrame 写入）
+    videoThumbnail: (filePath: string) => invoke('qihebox:files:videoThumbnail', filePath),
+    saveVideoFrame: (filePath: string, buf: ArrayBuffer) =>
+      invoke('qihebox:files:saveVideoFrame', filePath, buf),
   },
   metadata: {
     // v2.4.2：主进程按文件绝对路径推导元数据 key（含子文件夹），不再传 productSet/fileName
     get: (filePath: string) => invoke('qihebox:metadata:get', filePath),
     update: (req: unknown) => invoke('qihebox:metadata:update', req),
+    // v2.4.4：批量打标（多选）
+    batchTag: (req: unknown) => invoke('qihebox:metadata:batchTag', req),
+  },
+  archive: {
+    // v2.4.4：压缩分享 / 解压（异步，进度经 events.on('archive:progress')，完成经 events.on('archive:complete')）
+    compress: (req: unknown) => invoke('qihebox:archive:compress', req),
+    extract: (req: unknown) => invoke('qihebox:archive:extract', req),
+    cancel: (token: string) => invoke('qihebox:archive:cancel', token),
   },
   dashboard: {
     stats: () => invoke('qihebox:dashboard:stats'),

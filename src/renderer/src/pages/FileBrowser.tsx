@@ -4,13 +4,17 @@ import { api } from "~/wails/api";
 import { workspaceConfig, loadWorkspaceConfig, currentWorkspace, fileBrowserRefreshTrigger } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
 import { requireLogin } from "~/stores/account";
+import { showToast } from "~/stores/notifyBanner";
 import { FEATURE_AI } from "~/features";
-import { loadTagDefs, tagList } from "~/stores/tags";
+import { loadTagDefs, tagLabel, tagList } from "~/stores/tags";
 import FileThumbnail from "~/components/FileThumbnail";
+import TagChips from "~/components/TagChips";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
 import MoveDialog from "~/components/MoveDialog";
 import BatchRenameDialog from "~/components/BatchRenameDialog";
+import BatchTagDialog from "~/components/BatchTagDialog";
+import ArchiveProgressDialog from "~/components/ArchiveProgressDialog";
 import EmptyState from "~/components/EmptyState";
 import AiSuggestionPanel, { AiPanelItem } from "~/components/AiSuggestionPanel";
 import { handleDragOut } from "~/utils/dragout";
@@ -33,11 +37,20 @@ export default function FileBrowser() {
   const [showNewFolder, setShowNewFolder] = createSignal(false);
   const [newFolderName, setNewFolderName] = createSignal("");
   const [selectedFilePaths, setSelectedFilePaths] = createSignal<string[]>([]);
+  // v2.4.4（T3）：标签筛选——渲染侧过滤，计数/全选作用于过滤结果，loadFiles 与选中/预览/右键行为零改动
+  const [tagFilter, setTagFilter] = createSignal("");
+  const filteredFiles = () => {
+    const sel = tagFilter();
+    return sel ? files().filter((f) => f.tags?.includes(sel)) : files();
+  };
   const contextMenu = useContextMenu<string[]>();
   const [showMove, setShowMove] = createSignal(false);
   // v2.3.3（P2）：批量重命名对话框（多选）
   const [showBatchRename, setShowBatchRename] = createSignal(false);
   const [batchRenameFiles, setBatchRenameFiles] = createSignal<FileEntry[]>([]);
+  // v2.4.4：批量打标 / 压缩分享·解压 弹窗状态
+  const [batchTagState, setBatchTagState] = createSignal<{ paths: string[]; commonTags: string[] } | null>(null);
+  const [archiveState, setArchiveState] = createSignal<{ token: string; phase: "compress" | "extract" } | null>(null);
   const [actionMessage, setActionMessage] = createSignal("");
   const [aiPanel, setAiPanel] = createSignal<{ mode: "rename" | "tag"; items: AiPanelItem[] } | null>(null);
   const [aiBusy, setAiBusy] = createSignal(false);
@@ -117,7 +130,7 @@ export default function FileBrowser() {
   };
 
   const selectAllFiles = () => {
-    setSelectedFilePaths(files().map((f) => f.path));
+    setSelectedFilePaths(filteredFiles().map((f) => f.path));
   };
 
   const clearSelection = () => {
@@ -169,6 +182,47 @@ export default function FileBrowser() {
     if (list.length < 2) return;
     setBatchRenameFiles(list);
     setShowBatchRename(true);
+  };
+
+  // —— v2.4.4：批量打标 / 压缩分享·解压 ——
+
+  /** 选中路径在已加载 files 上的标签交集（无 tags 或缺标签的文件视为空集） */
+  const commonTagsOf = (paths: string[]) => {
+    const byPath = new Map(files().map((f) => [f.path, f]));
+    const lists = paths.map((p) => byPath.get(p)?.tags ?? []);
+    if (lists.length === 0) return [];
+    return lists[0].filter((t) => lists.every((l) => l.includes(t)));
+  };
+
+  /** 归档任务取消令牌：crypto.randomUUID 兜底时间戳+随机 */
+  const newArchiveToken = () =>
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  const handleBatchTag = (paths: string[]) => {
+    setBatchTagState({ paths, commonTags: commonTagsOf(paths) });
+  };
+
+  const handleCompress = async (paths: string[]) => {
+    const token = newArchiveToken();
+    setArchiveState({ token, phase: "compress" });
+    const r = await api.archive.compress({ paths, cancelToken: token });
+    // 主进程异步执行（进度/结果走事件），此处失败仅作防御性收口
+    if (!r.success) {
+      setArchiveState(null);
+      showToast("error", "压缩失败", r.error || "未知错误");
+    }
+  };
+
+  const handleExtract = async (file: FileEntry, mode: "here" | "folder") => {
+    const token = newArchiveToken();
+    setArchiveState({ token, phase: "extract" });
+    const r = await api.archive.extract({ zipPath: file.path, mode, cancelToken: token });
+    if (!r.success) {
+      setArchiveState(null);
+      showToast("error", "解压失败", r.error || "未知错误");
+    }
   };
 
   const handleCopyPaths = async (paths: string[]) => {
@@ -453,6 +507,18 @@ export default function FileBrowser() {
               📂 在文件夹中显示
             </button>
             <button
+              class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg transition-colors"
+              onClick={() => handleBatchTag(selectedFilePaths())}
+            >
+              🏷️ 打标
+            </button>
+            <button
+              class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg transition-colors"
+              onClick={() => void handleCompress(selectedFilePaths())}
+            >
+              📦 压缩分享
+            </button>
+            <button
               class="px-3 py-1.5 text-sm text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
               onClick={handleBatchDelete}
             >
@@ -465,11 +531,24 @@ export default function FileBrowser() {
       <div
         class="border-2 border-dashed rounded-2xl p-8 transition-colors border-surface-200 bg-surface-0 flex-1 min-h-0 flex flex-col"
       >
-        <Show when={files().length > 0} fallback={
-          <EmptyState icon="📂" title="拖放文件到此处" desc="支持图片、PDF 等文件" />
+        <Show when={filteredFiles().length > 0} fallback={
+          <EmptyState icon="📂" title={tagFilter() ? "没有匹配标签的文件" : "拖放文件到此处"} desc={tagFilter() ? "换个标签试试" : "支持图片、PDF 等文件"} />
         }>
           <div class="flex items-center justify-between mb-3 shrink-0">
-            <span class="text-sm text-surface-500">{files().length} 个文件</span>
+            <div class="flex items-center gap-3">
+              <span class="text-sm text-surface-500">{filteredFiles().length} 个文件</span>
+              <select
+                class="px-2 py-1.5 border border-surface-200 rounded-lg text-sm bg-white text-surface-600"
+                value={tagFilter()}
+                onChange={(e) => setTagFilter(e.currentTarget.value)}
+                title="按标签筛选"
+              >
+                <option value="">全部标签</option>
+                <For each={tagList()}>
+                  {(t) => <option value={t.name}>{tagLabel(t.name)}</option>}
+                </For>
+              </select>
+            </div>
             <button
               class="text-sm text-primary-600 hover:text-primary-700"
               onClick={selectAllFiles}
@@ -479,8 +558,8 @@ export default function FileBrowser() {
           </div>
           <div class="flex-1 min-h-0">
             <VirtualGrid
-              items={files()}
-              itemHeight={224}
+              items={filteredFiles()}
+              itemHeight={252}
               columns={{ base: 2, md: 3, lg: 4, xl: 5 }}
               gap={16}
               scrollResetKey={`${params.type}/${params.productSet}/${params.subFolder}`}
@@ -509,6 +588,7 @@ export default function FileBrowser() {
                     <FileThumbnail filePath={file.path} fileType={file.file_type} />
                   </div>
                   <div class="text-sm font-medium truncate">{file.name}</div>
+                  <TagChips tags={file.tags} />
                   <div class="text-xs text-surface-400 flex justify-between mt-1">
                     <span>{formatBytes(file.size)}</span>
                     <span>{file.modified}</span>
@@ -558,7 +638,10 @@ export default function FileBrowser() {
               onShowInExplorer: handleShowPathsInExplorer,
               onMove: () => setShowMove(true),
               onRename: handleRename,
+              onBatchTag: (paths) => handleBatchTag(paths),
               onBatchRename: () => void handleBatchRename(),
+              onCompress: (paths) => void handleCompress(paths),
+              onExtract: (file, mode) => void handleExtract(file, mode),
               onDelete: handleDelete,
             }),
             // AI 命名 / AI 打标（FEATURE_AI 开启后展示）
@@ -600,6 +683,24 @@ export default function FileBrowser() {
             setSelectedFilePaths([]);
           }}
         />
+      </Show>
+
+      {/* 批量打标（v2.4.4） */}
+      <Show when={batchTagState()}>
+        <BatchTagDialog
+          paths={batchTagState()!.paths}
+          commonTags={batchTagState()!.commonTags}
+          onClose={() => setBatchTagState(null)}
+          onDone={() => {
+            loadFiles();
+            setSelectedFilePaths([]);
+          }}
+        />
+      </Show>
+
+      {/* 压缩分享 / 解压 进度（v2.4.4） */}
+      <Show when={archiveState()}>
+        <ArchiveProgressDialog token={archiveState()!.token} onClose={() => setArchiveState(null)} />
       </Show>
 
       {/* AI 建议面板（v2.2.0） */}

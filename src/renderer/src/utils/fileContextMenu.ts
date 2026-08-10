@@ -5,7 +5,8 @@ import type { FileEntry } from "~/types";
 /**
  * 统一文件右键菜单 builder（v2.3.x UI 统一批）。
  * 固定顺序：预览 / 编辑信息 / 用默认程序打开 / 复制 / 复制路径 /
- * 在文件夹中显示 / 移动到… / 重命名 / 批量重命名（多选） / 删除。
+ * 在文件夹中显示 / 移动到… / 重命名 / 打标 / 批量重命名（多选） /
+ * 压缩分享 / 解压到当前文件夹 / 解压到 <包名>/（.zip）/ 删除。
  * 未提供对应回调的项自动隐藏，各页面按自身能力裁剪。
  */
 
@@ -28,8 +29,14 @@ export interface FileContextMenuOptions<T extends FileEntry> {
   onMove?: (paths: string[]) => void;
   /** 重命名（单文件） */
   onRename?: (file: T) => void;
+  /** 打标（单选/多选；打开批量打标弹窗，show: paths.length >= 1） */
+  onBatchTag?: (paths: string[]) => void;
   /** 批量重命名（多选；show 由调用方控制：多选且提供回调） */
   onBatchRename?: (files: T[]) => void;
+  /** 压缩分享（单选/多选；打开进度弹窗，show: paths.length >= 1） */
+  onCompress?: (paths: string[]) => void;
+  /** 解压（单 .zip 文件；'here' = 解压到当前文件夹，'folder' = 解压到 <包名>/ 子文件夹） */
+  onExtract?: (file: T, mode: "here" | "folder") => void;
   /** 删除 */
   onDelete?: (paths: string[]) => void;
 }
@@ -41,7 +48,7 @@ export function buildFileContextMenuItems<T extends FileEntry>(
   const paths = opts.paths ?? (file ? [file.path] : []);
   // 单文件操作：仅单选（且能找到文件）时显示
   const single = paths.length === 1 && !!file;
-  const { onPreview, onEditInfo, onOpenDefault, onCopy, onShowInExplorer, onMove, onRename, onBatchRename, onDelete } = opts;
+  const { onPreview, onEditInfo, onOpenDefault, onCopy, onShowInExplorer, onMove, onRename, onBatchTag, onBatchRename, onCompress, onExtract, onDelete } = opts;
 
   const items: ContextMenuItem[] = [];
 
@@ -127,6 +134,17 @@ export function buildFileContextMenuItems<T extends FileEntry>(
     });
   }
 
+  // 8.4 打标（单选/多选；builder 无法从路径解析 FileEntry，
+  // 由调用方基于自身选中态在回调内解析并打开对话框）
+  if (onBatchTag) {
+    items.push({
+      label: "打标",
+      icon: "🏷️",
+      show: paths.length >= 1,
+      action: () => onBatchTag(paths),
+    });
+  }
+
   // 8.5 批量重命名（多选；builder 无法从路径解析 FileEntry，
   // 由调用方基于自身选中态在回调内解析并打开对话框）
   if (onBatchRename) {
@@ -138,7 +156,39 @@ export function buildFileContextMenuItems<T extends FileEntry>(
     });
   }
 
-  // 9. 删除
+  // 9.5 压缩分享（单选/多选）
+  if (onCompress) {
+    items.push({
+      label: "压缩分享",
+      icon: "📦",
+      show: paths.length >= 1,
+      action: () => onCompress(paths),
+    });
+  }
+
+  // 9.6 解压（单 .zip；'folder' 目标名取压缩包主名）
+  if (onExtract) {
+    const isZip = single && file.name.toLowerCase().endsWith(".zip");
+    const zipBase = single ? file.name.replace(/\.zip$/i, "") : "";
+    items.push({
+      label: "解压到当前文件夹",
+      icon: "📂",
+      show: isZip,
+      action: () => {
+        if (file) onExtract(file, "here");
+      },
+    });
+    items.push({
+      label: `解压到 ${zipBase}/`,
+      icon: "📁",
+      show: isZip,
+      action: () => {
+        if (file) onExtract(file, "folder");
+      },
+    });
+  }
+
+  // 10. 删除
   if (onDelete) {
     items.push({
       label: "删除",

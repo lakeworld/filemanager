@@ -71,6 +71,8 @@ export interface FileEntry {
   file_type: string
   /** 缩略图路径；无缩略图时可能为 null（渲染端以此判断占位） */
   thumbnail_path: string | null
+  /** v2.4.4：文件标签（fileList 从 metadata 缓存 join；无元数据或缺省为空数组） */
+  tags?: string[]
 }
 
 export interface FileMetadata {
@@ -85,6 +87,12 @@ export interface FileListRequest {
   product_set: string
   file_type: string
   sub_folder: string
+  /**
+   * v2.4.4：媒体类型过滤（图包库「图片/视频」筛选用）。
+   * 仅在图包目录（file_type='image'/'video'）语义下生效：传入后按条目实际类型过滤；
+   * 不传则列出目录内全部文件（FileBrowser 文件管理视图依赖此行为）。
+   */
+  media_type?: 'image' | 'video'
 }
 
 export interface ImportFileRequest {
@@ -197,4 +205,56 @@ export interface TrashEntry {
   kind: TrashKind
   name: string
   size: number
+}
+
+// —— v2.4.4：压缩分享 / 解压 ——
+export interface ArchiveCompressRequest {
+  /** 待压缩的文件/目录绝对路径（须在工作区内） */
+  paths: string[]
+  /** 压缩包文件名（不含 .zip）；缺省按「<产品集名>_分享 或 分享_时间戳」自动生成 */
+  name?: string
+  /** 取消令牌（与导入取消同机制） */
+  cancelToken?: string
+}
+export interface ArchiveExtractRequest {
+  /** .zip 文件绝对路径（须在工作区内） */
+  zipPath: string
+  /** 'here' = 解压到当前文件夹；'folder' = 解压到 <zip 名>/ 子文件夹 */
+  mode: 'here' | 'folder'
+  /** 取消令牌 */
+  cancelToken?: string
+}
+export interface ArchiveProgress {
+  phase: 'compress' | 'extract'
+  done: number
+  total: number
+  /** 当前处理条目名 */
+  current: string
+}
+export interface ArchiveResult {
+  /** 产物绝对路径（压缩包 / 解压目标目录） */
+  path: string
+  /** 处理的条目数 */
+  count: number
+  /** 总字节数 */
+  size: number
+}
+export interface ArchiveEventPayload {
+  success: boolean
+  cancelled?: boolean
+  error?: string | null
+  result?: ArchiveResult | null
+}
+
+// —— v2.4.4：批量打标 ——
+export interface BatchTagRequest {
+  paths: string[]
+  /** 添加的标签（已有则跳过） */
+  add?: string[]
+  /** 移除的标签（没有则跳过） */
+  remove?: string[]
+}
+export interface BatchTagResult {
+  updated: number
+  failed: FailedItem[]
 }

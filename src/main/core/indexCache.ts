@@ -3,7 +3,7 @@
  * - 每个叶子目录一张快照：目录自身 mtimeMs 签名 + 紧凑条目（元组，避免对象属性名重复占内存）
  * - 查询命中 → 纯内存展开 FileEntry（零 readdir/逐文件 stat/缩略图 IO）；签名变化（仅一次 stat）→ 重建
  * - 写操作与 fs.watch 事件显式 invalidate（dirtyDirs），查询时重建，不即时扫描
- * - 快照 LRU 上限（默认 4096），防长期运行无界增长
+ * - 快照 LRU 上限（v2.4.6 起默认 512），防长期运行无界增长
  * - save/load：userData/index/<workspaceHash>/index.json 紧凑 JSON，二次启动免全量扫描
  * 纯 TS：可在 node 环境直接测试。
  */
@@ -24,7 +24,9 @@ interface DirSnapshot {
 /** 落盘文件名（root/index.json） */
 const INDEX_FILE = 'index.json'
 const INDEX_VERSION = 1
-const DEFAULT_MAX = 4096
+// v2.4.6：4096 → 512。单工作区工具 4096 目录快照过大（理论上限 60-120MB）；
+// 512 足够覆盖单工作区目录规模，理论上限降到 ~8-15MB
+const DEFAULT_MAX = 512
 
 export class WorkspaceIndex {
   private snapshots = new Map<string, DirSnapshot>()
@@ -165,7 +167,12 @@ export class WorkspaceIndex {
     this.dirtyDirs.add(dir)
   }
 
-  /** 清空快照与脏标记（工作区切换 / 测试） */
+  /** 脏目录标记数（v2.4.6 测试断言用，参照 ThumbQueue.pendingCount 先例） */
+  get dirtyCount(): number {
+    return this.dirtyDirs.size
+  }
+
+  /** 清空快照与脏标记（工作区切换 / 测试）。v2.4.6 核实：必须同时清空 dirtyDirs，否则脏标记滞留 */
   clear(): void {
     this.snapshots.clear()
     this.dirtyDirs.clear()
