@@ -68,10 +68,10 @@ export const closePreview = () => {
   setShowPreview(false);
 };
 
-export const saveCurrentMetadata = async () => {
+export const saveCurrentMetadata = async (): Promise<{ ok: boolean; error?: string }> => {
   const file = previewFile();
   const productSet = previewContext().productSet;
-  if (!file || !productSet) return false;
+  if (!file || !productSet) return { ok: false, error: "缺少文件上下文，无法保存" };
 
   // v2.4.2：元数据 key 由主进程按 file_path 推导（含子文件夹），无需再传 product_set/file_name
   const result = await api.metadata.update({
@@ -82,11 +82,12 @@ export const saveCurrentMetadata = async () => {
     notes: metadata().notes,
   });
 
+  // v2.4.3（F9）：返回结构化结果，由调用方（FilePreviewModal）弹保存成功/失败提示
   if (result.success) {
     loadMetadata(file);
-    return true;
+    return { ok: true };
   }
-  return false;
+  return { ok: false, error: result.error || "保存失败，请重试" };
 };
 
 export const deleteCurrentFile = async () => {

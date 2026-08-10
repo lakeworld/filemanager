@@ -1,6 +1,7 @@
 import { Show, For, createResource, createSignal, createEffect } from "solid-js";
 import { A } from "@solidjs/router";
 import { api } from "~/wails/api";
+import { openPreview } from "~/stores/preview";
 import EmptyState from "~/components/EmptyState";
 import type { ApiResult, DashboardStats, FileEntry } from "~/types";
 
@@ -25,9 +26,9 @@ export default function Dashboard() {
   });
 
   const statCards = [
-    { label: "产品集", value: () => stats()?.data?.total_product_sets ?? 0, icon: "📦", color: "bg-blue-50 text-blue-700" },
-    { label: "图片", value: () => stats()?.data?.total_images ?? 0, icon: "🖼️", color: "bg-purple-50 text-purple-700" },
-    { label: "证书", value: () => stats()?.data?.total_certs ?? 0, icon: "📜", color: "bg-orange-50 text-orange-700" },
+    { label: "产品集", value: () => stats()?.data?.total_product_sets ?? 0, icon: "📦", color: "bg-blue-50 text-blue-700", href: "/product-sets" },
+    { label: "图片", value: () => stats()?.data?.total_images ?? 0, icon: "🖼️", color: "bg-purple-50 text-purple-700", href: "/images" },
+    { label: "证书", value: () => stats()?.data?.total_certs ?? 0, icon: "📜", color: "bg-orange-50 text-orange-700", href: "/certs" },
   ];
 
   return (
@@ -40,17 +41,19 @@ export default function Dashboard() {
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         <For each={statCards}>
           {(card) => (
-            <div class="card p-5">
-              <div class="flex items-center justify-between">
-                <div>
-                  <div class="text-sm text-surface-500 mb-1">{card.label}</div>
-                  <div class="text-3xl font-bold text-surface-900">{card.value()}</div>
-                </div>
-                <div class={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${card.color}`}>
-                  {card.icon}
+            <A href={card.href} class="block h-full" title={`查看全部${card.label}`}>
+              <div class="card p-5 h-full transition-shadow hover:shadow-card-hover">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <div class="text-sm text-surface-500 mb-1">{card.label}</div>
+                    <div class="text-3xl font-bold text-surface-900">{card.value()}</div>
+                  </div>
+                  <div class={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${card.color}`}>
+                    {card.icon}
+                  </div>
                 </div>
               </div>
-            </div>
+            </A>
           )}
         </For>
       </div>
@@ -65,7 +68,11 @@ export default function Dashboard() {
             <div class="space-y-2">
               <For each={stats()?.data?.recent_files ?? []}>
                 {(file) => (
-                  <div class="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-50 transition-colors">
+                  <div
+                    class="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-50 transition-colors cursor-pointer"
+                    onClick={() => void openPreview(file)}
+                    title={`点击预览：${file.path}`}
+                  >
                     <div class="w-10 h-10 rounded-lg bg-surface-100 flex items-center justify-center text-lg">
                       {file.file_type === "image" ? "🖼️" : file.file_type === "pdf" ? "📄" : "📎"}
                     </div>
@@ -90,13 +97,17 @@ export default function Dashboard() {
             <div class="space-y-2 max-h-80 overflow-y-auto">
               <For each={expiringCerts()}>
                 {([productSet, fileName, expiry]) => (
-                  <div class="flex items-center gap-3 p-3 rounded-lg bg-orange-50">
+                  <A
+                    href={`/certs?productSet=${encodeURIComponent(productSet)}`}
+                    class="flex items-center gap-3 p-3 rounded-lg bg-orange-50 hover:bg-orange-100 transition-colors"
+                    title={`在证书库查看「${productSet}」的证书`}
+                  >
                     <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center text-lg">⚠️</div>
                     <div class="flex-1 min-w-0">
                       <div class="text-sm font-medium truncate">{fileName}</div>
                       <div class="text-xs text-surface-500">{productSet} · 到期日 {expiry}</div>
                     </div>
-                  </div>
+                  </A>
                 )}
               </For>
             </div>

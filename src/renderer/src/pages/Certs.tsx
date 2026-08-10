@@ -1,5 +1,5 @@
 import { Show, For, createSignal, createEffect } from "solid-js";
-import { useNavigate } from "@solidjs/router";
+import { useNavigate, useSearchParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import {
   currentWorkspace,
@@ -47,6 +47,13 @@ export default function Certs() {
   const contextMenu = useContextMenu<string>();
   // v2.4.2：证书到期日缓存（path → expiry_date），用于卡片徽标
   const [expiries, setExpiries] = createSignal<Record<string, string>>({});
+
+  // v2.4.3：支持 ?productSet= 深链（仪表盘「到期提醒」跳转，自动按产品集过滤）
+  const [searchParams] = useSearchParams();
+  createEffect(() => {
+    const qps = searchParams.productSet;
+    if (qps) setProductSetFilter(qps);
+  });
 
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
 

@@ -75,6 +75,8 @@ let tray: Tray | null = null
 const CRASH_WINDOW_MS = 10 * 60 * 1000
 const CRASH_MAX = 3
 const crashTimes: number[] = []
+/** v2.4.3（F5）：GPU 崩溃恢复的 app 级监听只注册一次（窗口重建不重复挂，避免重复 reload） */
+let gpuRecoveryRegistered = false
 
 function setupTray(): void {
   const iconPath = path.join(app.getAppPath(), 'build/trayicon.png')
@@ -116,12 +118,30 @@ function setupCrashRecovery(win: BrowserWindow): void {
       if (!win.isDestroyed()) win.reload()
     }, 500)
   })
-  // GPU 进程崩溃 → 记录（后续自动切 --disable-gpu）
-  app.on('child-process-gone', (_e, details) => {
-    if (details.type === 'GPU') {
+  // v2.4.3（F5）：GPU 进程崩溃 → 1 秒后 reload 主窗口一次，纳入崩溃时间窗计数（10 分钟 ≥3 次退出，防循环）
+  // 注意：app 级监听只在首次注册，窗口重建（setupCrashRecovery 再次调用）不重复挂，避免重复 reload
+  if (!gpuRecoveryRegistered) {
+    gpuRecoveryRegistered = true
+    app.on('child-process-gone', (_e, details) => {
+      if (details.type !== 'GPU') return
       void log('warn', 'gpu process gone, may fallback to software rendering')
-    }
-  })
+      const win = getMainWindow()
+      if (!win || win.isDestroyed() || isQuitting()) return
+      const now = Date.now()
+      while (crashTimes.length > 0 && now - crashTimes[0] > CRASH_WINDOW_MS) crashTimes.shift()
+      crashTimes.push(now)
+      if (crashTimes.length > CRASH_MAX) {
+        void log('error', 'GPU 进程反复崩溃，应用退出')
+        setQuitting(true)
+        app.quit()
+        return
+      }
+      setTimeout(() => {
+        const w = getMainWindow()
+        if (w && !w.isDestroyed()) w.reload()
+      }, 1000)
+    })
+  }
 }
 
 // 关闭窗口 → 隐藏到托盘（对照原 Go beforeClose）；v2.3.0：隐藏后启动销毁倒计时（第三层休眠）

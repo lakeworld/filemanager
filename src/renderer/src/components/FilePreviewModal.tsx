@@ -2,6 +2,7 @@ import { Show, Switch, Match, createSignal } from "solid-js";
 import { api } from "~/wails/api";
 import { tagList } from "~/stores/tags";
 import { requireLogin } from "~/stores/account";
+import { showToast } from "~/stores/notifyBanner";
 import { FEATURE_AI } from "~/features";
 import PdfPreview from "~/components/PdfPreview";
 import ContextMenu from "~/components/ContextMenu";
@@ -48,6 +49,20 @@ export default function FilePreviewModal() {
   });
 
   const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
+
+  // —— v2.4.3（F9）：保存元数据反馈——saving 态防连点 + 成功/失败 toast ——
+  const [saving, setSaving] = createSignal(false);
+  const handleSaveMetadata = async () => {
+    if (saving()) return;
+    setSaving(true);
+    const res = await saveCurrentMetadata();
+    setSaving(false);
+    if (res.ok) {
+      showToast("success", "元数据已保存");
+    } else {
+      showToast("error", "保存失败", res.error);
+    }
+  };
 
   // —— v2.2.0：AI 证书信息抽取 ——
   const [extractText, setExtractText] = createSignal<(() => Promise<string>) | null>(null);
@@ -310,8 +325,8 @@ export default function FilePreviewModal() {
                   />
                 </div>
 
-                <button class="btn-primary w-full" onClick={saveCurrentMetadata}>
-                  保存元数据
+                <button class="btn-primary w-full" disabled={saving()} onClick={handleSaveMetadata}>
+                  {saving() ? "保存中..." : "保存元数据"}
                 </button>
               </div>
             </Show>
