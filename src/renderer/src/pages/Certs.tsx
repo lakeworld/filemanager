@@ -52,7 +52,8 @@ export default function Certs() {
   const [searchParams] = useSearchParams();
   createEffect(() => {
     const qps = searchParams.productSet;
-    if (qps) setProductSetFilter(qps);
+    // SearchParams 值可能是 string[]（同名参数多值），只接受单值
+    if (qps && typeof qps === "string") setProductSetFilter(qps);
   });
 
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
