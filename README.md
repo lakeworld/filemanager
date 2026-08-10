@@ -84,7 +84,7 @@ npm install          # 安装依赖（.npmrc 已配置国内镜像加速）
 npm run dev          # 开发模式（热更新 + 应用窗口）
 npm test             # 单元测试（vitest，仅 tests/unit，96 用例）
 npm run test:e2e     # 端到端测试（Playwright，19 用例，e2e 模式 QIHEBOX_E2E=1）
-npm run bench        # 性能基准 → docs/PERF.md（不进 CI）
+npm run bench        # 性能基准（数据记录在本地内部文档，不进公开仓库）
 npm run build        # 构建三段产物到 out/
 npm run build:linux  # 打包 Linux（AppImage + deb）
 npm run build:win    # 打包 Windows（NSIS，需在 Windows/CI 构建）
@@ -122,7 +122,7 @@ Windows 安装/运行时提示「未知发布者」或蓝色警告是**正常现
 │   ├── unit/        # vitest 单测（core 层）
 │   ├── bench/       # 性能基准
 │   └── e2e/         # Playwright _electron
-├── docs/            # PERF.md 性能基线等
+├── docs/            # 公开文档（发布说明等；运维/规划类文档本地保留）
 └── scripts/         # 辅助脚本
 ```
 

@@ -36,7 +36,7 @@ npm run dev
 ```bash
 npm test            # 单元测试（vitest，core 业务层 96 用例）
 npm run test:e2e    # 端到端测试（Playwright _electron，19 用例，e2e 模式 QIHEBOX_E2E=1；无桌面环境需 xvfb-run）
-npm run bench       # 性能基准 → 追加 docs/PERF.md（不进 CI）
+npm run bench       # 性能基准（数据记录在本地内部文档，不进公开仓库）
 ```
 
 ## 五、构建与打包
