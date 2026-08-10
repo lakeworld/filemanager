@@ -21,6 +21,13 @@ export type {
   MoveFilesRequest,
   BatchMoveResult,
   DeleteResult,
+  BatchTagRequest,
+  BatchTagResult,
+  ArchiveCompressRequest,
+  ArchiveExtractRequest,
+  ArchiveProgress,
+  ArchiveResult,
+  ArchiveEventPayload,
   TagInfo,
   TrashEntry,
 } from "../../shared/types";

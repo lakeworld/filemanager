@@ -49,12 +49,19 @@ linux:
   # v2.1.1 进程瘦身：去 zygote（-3 进程 -118MB）+ 禁用 GPU（Deepin 软件渲染纯开销，-117MB）。
   # 参数必须为启动参数（appendSwitch 运行时设置不生效）；仅 Linux 生效（Windows 无 zygote 且保留 GPU 加速）。
   # v2.3.0：V8 堆上限 2048 → 1024、半空间 32 → 16（GC 更积极、常驻内存下降；PDF 预览仍有余量）
+  # v2.4.5（T2 实测回退）：--enable-features=NetworkServiceInProcess 在 Electron 31 实测不生效
+  # （network.mojom.NetworkService 仍独立成 utility 进程，RSS ~70MB），按 PLAN-v2.4.5 §三预案撤回，不固化。
+  # v2.4.6：删 --max-semi-space-size=16（Node 20 / V8 11.3 起 semi-space 随堆上限自适应缩小，
+  # 显式 16MB 反把每个 isolate 年轻代抬到 ~48MB，见 nodejs/node#55487）；
+  # 堆上限 1024 → 768（GC 更积极，PDF 内嵌预览有 100MB 文件上限兜底，余量充足）。
+  # --in-process-gpu 保留：实测（Deepin）--disable-gpu 下 GPU 进程仍创建（软件渲染，~149MB RSS），
+  # 删掉该参数后 gpu 进程独立常驻、托盘 RSS 合计 +50MB——调研结论“冗余”与实测不符，以实测为准。
   executableArgs:
     - --no-zygote
     - --no-sandbox
     - --disable-gpu
     - --in-process-gpu
-    - --js-flags=--max-old-space-size=1024 --max-semi-space-size=16
+    - --js-flags=--max-old-space-size=768
 
 win:
   target:

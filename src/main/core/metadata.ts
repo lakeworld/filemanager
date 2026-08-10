@@ -14,9 +14,9 @@ import path from 'node:path'
 import fsp from 'node:fs/promises'
 import { metadataPath, writeJsonAtomic, ensureWorkspaceDirs, PRODUCT_SETS_DIR, productSetFromFilePath } from './paths'
 import { WorkspaceService } from './workspace'
-import type { FileMetadata, MetadataUpdateRequest } from '../../shared/types'
+import type { FileMetadata, MetadataUpdateRequest, BatchTagRequest, BatchTagResult, FailedItem } from '../../shared/types'
 
-export type { FileMetadata, MetadataUpdateRequest } from '../../shared/types'
+export type { FileMetadata, MetadataUpdateRequest, BatchTagRequest, BatchTagResult } from '../../shared/types'
 
 interface MetadataStore {
   files: Record<string, FileMetadata>
@@ -202,6 +202,47 @@ export class MetadataService {
 
   async setFileMetadata(filePath: string, meta: FileMetadata): Promise<void> {
     await this.setFileMetadataBatch([{ filePath, meta }])
+  }
+
+  /**
+   * v2.4.4（T4）：批量打标——一次加载 + 一次落盘，逐文件 add/remove 合并去重。
+   * 非产品集内文件/空路径进入失败清单，单文件失败不中断整体。
+   */
+  async setTagsBatch(req: BatchTagRequest): Promise<BatchTagResult> {
+    if (!req.paths || req.paths.length === 0) throw new Error('没有选择文件')
+    const ws = this.requireWS()
+    const add = new Set(req.add ?? [])
+    const remove = new Set(req.remove ?? [])
+    const store = await this.loadMetadataStore()
+    let changed = false
+    const failed: FailedItem[] = []
+    for (const raw of req.paths) {
+      const p = raw.trim()
+      if (!p) {
+        failed.push({ path: raw, error: '路径为空' })
+        continue
+      }
+      const key = this.fileMetadataKey(p)
+      if (!key) {
+        failed.push({ path: p, error: '文件不在产品集内' })
+        continue
+      }
+      const cur = store.files[key] ?? emptyMetadata()
+      if (!cur.added_at) cur.added_at = currentTimeString()
+      const tags = (cur.tags ?? []).filter((t) => !remove.has(t))
+      for (const a of add) {
+        if (!tags.includes(a)) tags.push(a)
+      }
+      const same =
+        (cur.tags ?? []).length === tags.length && (cur.tags ?? []).every((t, i) => t === tags[i])
+      if (!same) {
+        cur.tags = tags
+        store.files[key] = cur
+        changed = true
+      }
+    }
+    if (changed) await this.saveMetadataStore(store, ws)
+    return { updated: req.paths.length - failed.length, failed }
   }
 
   /**

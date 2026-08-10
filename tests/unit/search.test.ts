@@ -69,3 +69,46 @@ describe('全局搜索（SearchService）', () => {
     expect(blank.product_sets).toHaveLength(0)
   })
 })
+
+describe('搜索命中标签（v2.4.4 T1）', () => {
+  it('文件标签命中：返回文件并附带 tags 供展示', async () => {
+    const { box, ws } = await buildSearchBox()
+    // 给「系列A」导入的图片打标（按名字定位，readdir 顺序不稳定）
+    const setList = await box.workspace.productSetList()
+    const setA = setList.find((s) => s.name === '系列A')!
+    const fileList = await box.files.fileList({
+      product_set: setA.name,
+      file_type: 'image',
+      sub_folder: '主图',
+    })
+    expect(fileList.length).toBeGreaterThan(0)
+    const target = fileList.find((f) => f.name.includes('红色毛衣'))!
+    // T2：文件列表附带 tags（先打标后 list 应带上）
+    await box.metadata.update({ file_path: target.path, tags: ['红色毛衣', '主打款'] })
+    const relisted = await box.files.fileList({
+      product_set: setA.name,
+      file_type: 'image',
+      sub_folder: '主图',
+    })
+    expect(relisted.find((f) => f.name.includes('红色毛衣'))!.tags).toEqual(['红色毛衣', '主打款'])
+
+    // 文件名不含关键词但标签命中
+    const r = await box.search.search('主打款')
+    expect(r.files.map((f) => f.name).some((n) => n.includes('红色毛衣'))).toBe(true)
+    expect(r.files.find((f) => f.name.includes('红色毛衣'))!.tags).toContain('主打款')
+    expect(r.product_sets.map((p) => p.name)).toContain('系列A')
+  })
+
+  it('产品集标签命中：产品集 tags 含关键词即返回（无需文件命中）', async () => {
+    const { box } = await buildSearchBox()
+    const setList = await box.workspace.productSetList()
+    const setB = setList.find((s) => s.name === '系列B')!
+    await box.workspace.updateProductSetInfo({ name: setB.name, tags: ['外贸主力'], notes: '' })
+
+    const r = await box.search.search('外贸')
+    expect(r.product_sets.map((p) => p.name)).toContain('系列B')
+    // 产品集信息附带真实 tags（不再硬编码空数组）
+    const hit = r.product_sets.find((p) => p.name === '系列B')!
+    expect(hit.tags).toContain('外贸主力')
+  })
+})

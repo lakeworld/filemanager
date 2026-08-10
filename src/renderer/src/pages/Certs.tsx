@@ -9,10 +9,15 @@ import {
   loadProductSets,
 } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
+import { loadTagDefs, tagLabel, tagList } from "~/stores/tags";
+import { showToast } from "~/stores/notifyBanner";
 import FileThumbnail from "~/components/FileThumbnail";
+import TagChips from "~/components/TagChips";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
 import MoveDialog from "~/components/MoveDialog";
+import BatchTagDialog from "~/components/BatchTagDialog";
+import ArchiveProgressDialog from "~/components/ArchiveProgressDialog";
 import EmptyState from "~/components/EmptyState";
 import { handleDragOut } from "~/utils/dragout";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
@@ -41,6 +46,8 @@ export default function Certs() {
   const [search, setSearch] = createSignal("");
   const [productSetFilter, setProductSetFilter] = createSignal<string>("");
   const [subFolderFilter, setSubFolderFilter] = createSignal<string>("");
+  // v2.4.4（T3）：标签筛选——与产品集/子文件夹/搜索组合生效（filteredItems 内叠加条件）
+  const [tagFilter, setTagFilter] = createSignal<string>("");
   const [sortBy, setSortBy] = createSignal<"modified" | "name" | "size">("modified");
   const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
   const [actionMessage, setActionMessage] = createSignal("");
@@ -57,6 +64,9 @@ export default function Certs() {
   });
 
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
+  // v2.4.4：批量打标 / 压缩分享·解压 弹窗状态
+  const [batchTagState, setBatchTagState] = createSignal<{ paths: string[]; commonTags: string[] } | null>(null);
+  const [archiveState, setArchiveState] = createSignal<{ token: string; phase: "compress" | "extract" } | null>(null);
 
   const showActionMessage = (msg: string) => {
     setActionMessage(msg);
@@ -64,13 +74,14 @@ export default function Certs() {
   };
 
   // —— 虚拟滚动由 VirtualGrid 承担：只渲染可见行，滚出即卸载（替代旧 slice+哨兵分批）——
-  // 证书卡片为横向布局，固定行高
-  const ITEM_HEIGHT = 100;
+  // 证书卡片为横向布局，固定行高（v2.4.4：加标签 chips 行后抬高，避免行重叠）
+  const ITEM_HEIGHT = 152;
 
   createEffect(() => {
     if (currentWorkspace()) {
       loadWorkspaceConfig();
       loadProductSets();
+      loadTagDefs();
     }
   });
 
@@ -124,10 +135,12 @@ export default function Certs() {
     const term = search().trim().toLowerCase();
     const ps = productSetFilter();
     const sub = subFolderFilter();
+    const tag = tagFilter();
     let list = items().filter((it) => {
       if (ps && it.productSet !== ps) return false;
       if (sub && it.subFolder !== sub) return false;
       if (term && !it.name.toLowerCase().includes(term)) return false;
+      if (tag && !it.tags?.includes(tag)) return false;
       return true;
     });
     list = [...list].sort((a, b) => {
@@ -211,6 +224,47 @@ export default function Certs() {
   const selectedCount = () => selectedPaths().length;
   const visibleCount = () => filteredItems().length;
 
+  // —— v2.4.4：批量打标 / 压缩分享·解压 ——
+
+  /** 选中路径在已加载 items 上的标签交集（无 tags 或缺标签的文件视为空集） */
+  const commonTagsOf = (paths: string[]) => {
+    const byPath = new Map(items().map((f) => [f.path, f]));
+    const lists = paths.map((p) => byPath.get(p)?.tags ?? []);
+    if (lists.length === 0) return [];
+    return lists[0].filter((t) => lists.every((l) => l.includes(t)));
+  };
+
+  /** 归档任务取消令牌：crypto.randomUUID 兜底时间戳+随机 */
+  const newArchiveToken = () =>
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  const handleBatchTag = (paths: string[]) => {
+    setBatchTagState({ paths, commonTags: commonTagsOf(paths) });
+  };
+
+  const handleCompress = async (paths: string[]) => {
+    const token = newArchiveToken();
+    setArchiveState({ token, phase: "compress" });
+    const r = await api.archive.compress({ paths, cancelToken: token });
+    // 主进程异步执行（进度/结果走事件），此处失败仅作防御性收口
+    if (!r.success) {
+      setArchiveState(null);
+      showToast("error", "压缩失败", r.error || "未知错误");
+    }
+  };
+
+  const handleExtract = async (file: CertItem, mode: "here" | "folder") => {
+    const token = newArchiveToken();
+    setArchiveState({ token, phase: "extract" });
+    const r = await api.archive.extract({ zipPath: file.path, mode, cancelToken: token });
+    if (!r.success) {
+      setArchiveState(null);
+      showToast("error", "解压失败", r.error || "未知错误");
+    }
+  };
+
   return (
     <div class="p-6 max-w-7xl mx-auto flex flex-col h-full">
       <div class="flex items-center justify-between mb-6">
@@ -251,6 +305,16 @@ export default function Certs() {
         </select>
         <select
           class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+          value={tagFilter()}
+          onChange={(e) => setTagFilter(e.currentTarget.value)}
+        >
+          <option value="">全部标签</option>
+          <For each={tagList()}>
+            {(t) => <option value={t.name}>{tagLabel(t.name)}</option>}
+          </For>
+        </select>
+        <select
+          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
           value={sortBy()}
           onChange={(e) => setSortBy(e.currentTarget.value as "modified" | "name" | "size")}
         >
@@ -277,6 +341,12 @@ export default function Certs() {
             </button>
             <button class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg" onClick={() => handleShowInExplorer(selectedPaths())}>
               📂 在文件夹中显示
+            </button>
+            <button class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg" onClick={() => handleBatchTag(selectedPaths())}>
+              🏷️ 打标
+            </button>
+            <button class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg" onClick={() => void handleCompress(selectedPaths())}>
+              📦 压缩分享
             </button>
             <button class="px-3 py-1.5 text-sm text-white bg-red-500 hover:bg-red-600 rounded-lg" onClick={() => handleDelete(selectedPaths())}>
               🗑️ 删除
@@ -327,6 +397,7 @@ export default function Certs() {
                       </div>
                     )}
                   </Show>
+                  <TagChips tags={cert.tags} />
                 </div>
                 <input
                   type="checkbox"
@@ -358,6 +429,9 @@ export default function Certs() {
             onShowInExplorer: handleShowInExplorer,
             onMove: (paths) => setMovePaths(paths),
             onRename: handleRename,
+            onBatchTag: (paths) => handleBatchTag(paths),
+            onCompress: (paths) => void handleCompress(paths),
+            onExtract: (file, mode) => void handleExtract(file, mode),
             onDelete: handleDelete,
           })}
         />
@@ -370,6 +444,24 @@ export default function Certs() {
           onClose={() => setMovePaths(null)}
           onMoved={() => void loadAllCerts()}
         />
+      </Show>
+
+      {/* 批量打标（v2.4.4） */}
+      <Show when={batchTagState()}>
+        <BatchTagDialog
+          paths={batchTagState()!.paths}
+          commonTags={batchTagState()!.commonTags}
+          onClose={() => setBatchTagState(null)}
+          onDone={() => {
+            void loadAllCerts();
+            setSelectedPaths([]);
+          }}
+        />
+      </Show>
+
+      {/* 压缩分享 / 解压 进度（v2.4.4） */}
+      <Show when={archiveState()}>
+        <ArchiveProgressDialog token={archiveState()!.token} onClose={() => setArchiveState(null)} />
       </Show>
     </div>
   );

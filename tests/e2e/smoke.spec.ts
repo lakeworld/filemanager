@@ -166,6 +166,17 @@ test.describe('qihe-box e2e', () => {
     expect(thumbResp.status).toBe(200)
     expect(thumbResp.type).toContain('image/jpeg')
 
+    // v2.4.6：预览降采样副本（2048px 管线）——previewUrl 生成/命中后走 qihebox://thumb/ 协议
+    const prevUrlRes = await page.evaluate(async (p) => (window as any).qihebox.files.previewUrl(p), entry.path)
+    expect(prevUrlRes.success).toBe(true)
+    expect(prevUrlRes.data).toMatch(/^qihebox:\/\/thumb\//)
+    const prevResp = await page.evaluate(async (u) => {
+      const r = await fetch(u)
+      return { status: r.status, type: r.headers.get('content-type') }
+    }, prevUrlRes.data)
+    expect(prevResp.status).toBe(200)
+    expect(prevResp.type).toContain('image/jpeg')
+
     // 越界文件被协议拒绝
     const outside = path.join(os.tmpdir(), `qihebox-outside-${Date.now()}.png`)
     await sharp({ create: { width: 10, height: 10, channels: 3, background: { r: 1, g: 2, b: 3 } } })

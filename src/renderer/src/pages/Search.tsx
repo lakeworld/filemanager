@@ -7,6 +7,8 @@ import { FEATURE_AI } from "~/features";
 import { loadTagDefs, tagList } from "~/stores/tags";
 import { openPreview } from "~/stores/preview";
 import FileThumbnail from "~/components/FileThumbnail";
+import TagChips from "~/components/TagChips";
+import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
 import MoveDialog from "~/components/MoveDialog";
 import EmptyState from "~/components/EmptyState";
@@ -168,13 +170,13 @@ export default function Search() {
   };
 
   return (
-    <div class="p-6 max-w-7xl mx-auto">
-      <div class="mb-6">
+    <div class="p-6 max-w-7xl mx-auto flex flex-col h-full">
+      <div class="mb-6 shrink-0">
         <h1 class="text-2xl font-bold text-surface-900">搜索</h1>
         <p class="text-surface-500 mt-1">搜索产品集和文件</p>
       </div>
 
-      <form onSubmit={handleSubmit} class="mb-6">
+      <form onSubmit={handleSubmit} class="mb-6 shrink-0">
         <div class="relative">
           <div class="absolute inset-y-0 left-3 flex items-center pointer-events-none">
             <span class="text-surface-400">🔍</span>
@@ -215,7 +217,7 @@ export default function Search() {
       </Show>
 
       <Show when={!loading() && results().product_sets.length > 0}>
-        <div class="mb-6">
+        <div class="mb-6 shrink-0">
           <h2 class="text-lg font-semibold mb-3">产品集 ({results().product_sets.length})</h2>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
             <For each={results().product_sets}>
@@ -228,6 +230,8 @@ export default function Search() {
                       <div class="text-sm text-surface-400">{ps.image_count} 图 / {ps.cert_count} 证</div>
                     </div>
                   </div>
+                  {/* v2.4.4（验收修复 T2）：搜索结果产品集卡片展示标签 chips */}
+                  <TagChips tags={ps.tags} />
                 </div>
               )}
             </For>
@@ -236,11 +240,20 @@ export default function Search() {
       </Show>
 
       <Show when={!loading() && results().files.length > 0}>
-        <div class="mb-6">
-          <h2 class="text-lg font-semibold mb-3">文件 ({results().files.length})</h2>
-          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            <For each={results().files}>
-              {(file: FileEntry) => (
+        {/* v2.4.6：结果文件网格虚拟化——几千命中时 <For> 全量渲染 DOM 爆炸，且每个 FileThumbnail
+            挂载即发缩略图 IPC；VirtualGrid 只渲染可见行（自带滚动容器，本节占满剩余高度）。
+            卡片结构/单击选中/双击预览/右键交互不变；缩略图框 aspect-square → h-36 固定高
+            （VirtualGrid 行高固定，对齐 FileBrowser 卡片规格） */}
+        <div class="mb-6 flex-1 min-h-0 flex flex-col">
+          <h2 class="text-lg font-semibold mb-3 shrink-0">文件 ({results().files.length})</h2>
+          <div class="flex-1 min-h-0">
+            <VirtualGrid
+              items={results().files}
+              itemHeight={252}
+              columns={{ base: 2, md: 4, lg: 5 }}
+              gap={12}
+              scrollResetKey={results().files}
+              renderItem={(file: FileEntry) => (
                 <div
                   class={`card p-3 cursor-pointer hover:shadow-card-hover transition-all select-none ${
                     selectedPaths().includes(file.path) ? "border-primary-500 bg-primary-50" : ""
@@ -255,13 +268,15 @@ export default function Search() {
                   }}
                   onContextMenu={(e) => contextMenu.open(e, file)}
                 >
-                  <div class="aspect-square rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden mb-2">
+                  <div class="h-36 rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden mb-2">
                     <FileThumbnail filePath={file.path} fileType={file.file_type} />
                   </div>
                   <div class="text-sm font-medium truncate">{file.name}</div>
+                  {/* v2.4.4（验收修复 T2）：搜索结果文件卡片展示标签 chips */}
+                  <TagChips tags={file.tags} />
                 </div>
               )}
-            </For>
+            />
           </div>
         </div>
       </Show>

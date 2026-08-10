@@ -59,6 +59,33 @@ describe('文件导入与命名（对照原 files.go / app_test.go 链路）', (
     expect(list).toHaveLength(1)
   })
 
+  it('media_type 过滤：图包目录下图片/视频视图分离，不过滤则全部列出（v2.4.4 验收修复）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+
+    const dir = path.join(ws, '产品集', '系列A', '图包', '主图')
+    await fsp.mkdir(dir, { recursive: true })
+    await fsp.writeFile(path.join(dir, 'a.jpg'), PNG_1PX)
+    await fsp.writeFile(path.join(dir, 'b.mp4'), Buffer.from('fake-mp4-bytes'))
+
+    const base = { product_set: '系列A', sub_folder: '主图' }
+    // FileBrowser 语义：不传 media_type → 目录内全部列出
+    const all = await box.files.fileList({ ...base, file_type: 'image' })
+    expect(all.map((f) => f.name).sort()).toEqual(['a.jpg', 'b.mp4'])
+    // 图包库「图片」视图：只含图片，不混入视频
+    const images = await box.files.fileList({ ...base, file_type: 'image', media_type: 'image' })
+    expect(images.map((f) => f.name)).toEqual(['a.jpg'])
+    // 图包库「视频」视图：只含视频
+    const videos = await box.files.fileList({ ...base, file_type: 'image', media_type: 'video' })
+    expect(videos.map((f) => f.name)).toEqual(['b.mp4'])
+    // file_type: 'video' 同样映射图包目录（不回落证书目录）
+    const videos2 = await box.files.fileList({ ...base, file_type: 'video', media_type: 'video' })
+    expect(videos2.map((f) => f.name)).toEqual(['b.mp4'])
+  })
+
   it('同名文件冲突自动加 _1 序号', async () => {
     const home = await tmp()
     const ws = await tmp()

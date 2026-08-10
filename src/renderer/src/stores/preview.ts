@@ -52,6 +52,20 @@ export const openPreview = async (file: FileEntry, context?: PreviewContext) => 
     loadMetadata(file);
   }
 
+  // v2.4.6：图片预览优先走主进程 2048px 降采样副本（qihebox://thumb/）——
+  // 全尺寸原图解码位图 ~96MB 是渲染进程 RSS 膨胀主因，副本压到 ≤16MB；
+  // 生成失败/非图片返回空串 → 回退原 workspaceUrl 原图逻辑，功能不受影响
+  if (file.file_type === "image") {
+    const thumbResult = await api.files.previewUrl(file.path);
+    // v2.4.2（批次二）：序号守卫照旧——等待期间用户已打开其他文件 → 丢弃过期结果
+    if (previewFile()?.path !== file.path) return;
+    if (thumbResult.success && thumbResult.data) {
+      setPreviewUrl(thumbResult.data);
+      setShowPreview(true);
+      return;
+    }
+  }
+
   const urlResult = await api.files.workspaceUrl(file.path);
   // v2.4.2（批次二）：等待期间用户已打开其他文件 → 丢弃过期结果，不覆盖
   if (previewFile()?.path !== file.path) return;

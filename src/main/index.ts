@@ -7,6 +7,7 @@
  */
 import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage, Notification } from 'electron'
 import path from 'node:path'
+import os from 'node:os'
 import fs from 'node:fs'
 import { createHash } from 'node:crypto'
 import { BoxService } from './core'
@@ -60,6 +61,14 @@ protocol.registerSchemesAsPrivileged([
 //    disableHardwareAcceleration 崩溃的环境）。
 // 注：zygote 与 OS 级 sandbox 绑定，关闭需配 --no-sandbox；本机现状已有 --no-zygote-sandbox，
 // 本地单用户工具 + webPreferences.sandbox:false，风险可控。
+
+// —— e2e 隔离（QIHEBOX_E2E=1）：userData 指向独立临时目录 ——
+// 修复：e2e 此前与生产应用共享 userData（~/.config/启禾文件管理）——
+// ① 生产应用在跑时，单实例锁把 e2e 实例判为二次启动 → 启动即退（本机 e2e 全灭的根因）；
+// ② e2e 会读写真实缩略图/索引/账号文件，污染生产数据。须在单实例锁之前设置。
+if (process.env.QIHEBOX_E2E === '1') {
+  app.setPath('userData', path.join(os.tmpdir(), 'qihebox-e2e-userdata'))
+}
 
 // —— 单实例锁（替代原 Go CreateMutex）——
 const gotLock = app.requestSingleInstanceLock()
@@ -162,7 +171,7 @@ app.on('before-quit', () => {
   setQuitting(true)
 })
 
-// v2.3.0 分层休眠：窗口被休眠销毁（close → 托盘 → 2 分钟无活跃 → destroy）时，
+// v2.3.0 分层休眠：窗口被休眠销毁（close → 托盘 → 30 秒无活跃 → destroy，v2.4.5 T3 提速）时，
 // 必须监听 window-all-closed 阻止 Electron 默认退出（Windows/Linux 无监听时全窗口关闭即退出）。
 // 空监听即视为自定义处理：主进程 + 托盘图标常驻，等待托盘点击 / 二次启动重建窗口。
 // e2e 模式不注册：Playwright app.close() 需要全窗口关闭即退出。

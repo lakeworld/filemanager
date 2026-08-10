@@ -45,14 +45,23 @@ interface QiheboxApi {
     dataUrl: (filePath: string) => Promise<unknown>
     ensureThumbnail: (filePath: string) => Promise<unknown>
     thumbnailUrl: (filePath: string) => Promise<unknown>
+    previewUrl: (filePath: string) => Promise<unknown>
     copyPaths: (paths: string[]) => Promise<unknown>
     startDrag: (paths: string[]) => Promise<unknown>
     workspaceUrl: (filePath: string) => Promise<unknown>
     openWithDefaultApp: (filePath: string) => Promise<unknown>
+    videoThumbnail: (filePath: string) => Promise<unknown>
+    saveVideoFrame: (filePath: string, buf: ArrayBuffer) => Promise<unknown>
   }
   metadata: {
     get: (filePath: string) => Promise<unknown>
     update: (req: unknown) => Promise<unknown>
+    batchTag: (req: unknown) => Promise<unknown>
+  }
+  archive: {
+    compress: (req: unknown) => Promise<unknown>
+    extract: (req: unknown) => Promise<unknown>
+    cancel: (token: string) => Promise<unknown>
   }
   dashboard: {
     stats: () => Promise<unknown>

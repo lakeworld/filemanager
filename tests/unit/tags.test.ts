@@ -260,3 +260,64 @@ describe('标签体系（v2.0.2 / v2.3.2 迁移）', () => {
     expect(list[0].tags).toEqual([])
   })
 })
+
+describe('标签引用源注册机制（v2.4.4 T7）', () => {
+  it('自定义引用源注册后：rename/delete/adopt 的引用传播自动覆盖', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    // 模拟未来实体（v2.6 客户 / v2.7 发票）：独立 JSON 存储，注册为引用源
+    const storeFile = path.join(ws, '.qihefilemanager', 'mock_sources.json')
+    const mock: Record<string, { tags: string[] }> = {
+      客户甲: { tags: ['大客户', '待跟进'] },
+      客户乙: { tags: ['大客户'] },
+    }
+    await fsp.writeFile(storeFile, JSON.stringify(mock))
+    const load = async (): Promise<Record<string, { tags: string[] }>> =>
+      JSON.parse(await fsp.readFile(storeFile, 'utf-8'))
+    const save = async (m: Record<string, { tags: string[] }>): Promise<void> =>
+      fsp.writeFile(storeFile, JSON.stringify(m))
+
+    box.tags.registerSource('mock', {
+      id: 'mock',
+      list: async () =>
+        Object.entries(await load()).map(([name, v]) => ({ name, tags: [...(v.tags ?? [])] })),
+      save: async (entries) => {
+        const m = await load()
+        for (const { name, tags } of entries) {
+          if (m[name]) m[name].tags = tags
+        }
+        await save(m)
+      },
+    })
+
+    // 新建标签定义（先过 migrateAndInit）
+    await box.tags.create('大客户', '#123456')
+
+    // rename：传播到 mock 源
+    await box.tags.rename('大客户', '重点客户')
+    let m = await load()
+    expect(m['客户甲'].tags).toEqual(['重点客户', '待跟进'])
+    expect(m['客户乙'].tags).toEqual(['重点客户'])
+    // 计数包含自定义源
+    const tags = await box.tags.list()
+    expect(tags.find((t) => t.name === '重点客户')?.count).toBe(2)
+
+    // delete：传播到 mock 源
+    await box.tags.delete('重点客户')
+    m = await load()
+    expect(m['客户甲'].tags).toEqual(['待跟进'])
+    expect(m['客户乙'].tags).toEqual([])
+
+    // 孤儿（未定义引用）计数同样来自全部引用源
+    await fsp.writeFile(
+      storeFile,
+      JSON.stringify({ 客户甲: { tags: ['野生标'] } } as Record<string, { tags: string[] }>),
+    )
+    const orphan = (await box.tags.list()).find((t) => t.name === '野生标')
+    expect(orphan?.defined).toBe(false)
+    expect(orphan?.count).toBe(1)
+  })
+})

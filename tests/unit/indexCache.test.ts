@@ -92,6 +92,24 @@ describe('WorkspaceIndex（v2.4.x Everything 式精简索引）', () => {
     expect(calls).toBe(2) // 查询时重建
   })
 
+  it('clear 同时清空 dirtyDirs 脏标记（v2.4.6：防脏标记滞留）；query 命中消费脏标记', async () => {
+    const ws = await tmp()
+    const dir = path.join(ws, PRODUCT_SETS_DIR, 'S1', IMAGES_DIR, '主图')
+    await fsp.mkdir(dir, { recursive: true })
+    const index = new WorkspaceIndex()
+    index.invalidate(dir)
+    index.invalidate(path.join(ws, 'other'))
+    expect(index.dirtyCount).toBe(2)
+    index.clear()
+    expect(index.dirtyCount).toBe(0)
+    // query 命中脏目录后消费标记（既有行为锁定）
+    const listRaw = async (): Promise<CompactItem[]> => []
+    index.invalidate(dir)
+    expect(index.dirtyCount).toBe(1)
+    await index.query(dir, listRaw)
+    expect(index.dirtyCount).toBe(0)
+  })
+
   it('save → 新实例 load → query 命中（往返，不重扫）', async () => {
     const ws = await tmp()
     const dir = path.join(ws, PRODUCT_SETS_DIR, 'S1', IMAGES_DIR, '主图')

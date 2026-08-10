@@ -42,9 +42,8 @@ web-tools/dist/
 docs/INTERNAL/
 docs/RELEASE-AUDIT.md
 # 内部运维文档与部署配置（v2.4.3 起从公开仓库移出，本地保留）
+# v2.4.6 起 PERF.md / PERFORMANCE.md 重新纳入公开仓库（内存与性能实测数据与基线，随版本维护）
 docs/OPS.md
 docs/PACKAGING.md
-docs/PERF.md
-docs/PERFORMANCE.md
 docs/SUBSCRIPTION.md
 deploy/

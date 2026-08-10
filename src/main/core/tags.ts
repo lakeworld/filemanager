@@ -23,6 +23,19 @@ export interface TagDef {
   builtin?: boolean
 }
 
+/**
+ * v2.4.4（T7）：标签引用源——可枚举「实体 → 标签数组」并整体回写的存储。
+ * 内置源：文件（metadata.json）、产品集（product_sets.json）。
+ * 未来接入：v2.6 客户（customers.json）、v2.7 发票（invoices.json）——registerSource 即用，
+ * rename/delete/adopt/迁移/计数全部自动覆盖，不再手写逐库传播。
+ * list() 必须返回 tags 的副本（调用方原地修改后经 save() 回写，避免污染共享引用）。
+ */
+export interface TagReferenceSource {
+  readonly id: string
+  list(): Promise<{ name: string; tags: string[] }[]>
+  save(entries: { name: string; tags: string[] }[]): Promise<void>
+}
+
 export const DEFAULT_TAG_COLOR = '#94a3b8'
 
 /** 内置预设标签（v2.3.2 起仅用于迁移识别，不再用于补全/创建） */
@@ -43,10 +56,64 @@ function isInternalKey(name: string): boolean {
 }
 
 export class TagService {
+  private refSources = new Map<string, TagReferenceSource>()
+
   constructor(
     private workspace: WorkspaceService,
     private metadata: MetadataService,
-  ) {}
+  ) {
+    this.registerDefaultSources()
+  }
+
+  /** 注册标签引用源（未来实体接入点） */
+  registerSource(id: string, src: TagReferenceSource): void {
+    this.refSources.set(id, src)
+  }
+
+  /** 内置引用源：文件元数据 + 产品集（list 返回 tags 副本，防原地修改污染共享引用） */
+  private registerDefaultSources(): void {
+    this.registerSource('files', {
+      id: 'files',
+      list: async () => {
+        const store = await this.metadata.loadMetadataStore()
+        return Object.entries(store.files).map(([name, meta]) => ({ name, tags: [...(meta.tags ?? [])] }))
+      },
+      save: async (entries) => {
+        const store = await this.metadata.loadMetadataStore()
+        let changed = false
+        for (const { name, tags } of entries) {
+          const meta = store.files[name]
+          if (!meta) continue
+          if (JSON.stringify(meta.tags ?? []) !== JSON.stringify(tags)) {
+            meta.tags = tags
+            changed = true
+          }
+        }
+        if (changed) await this.metadata.saveMetadataStore(store)
+      },
+    })
+    this.registerSource('productSets', {
+      id: 'productSets',
+      list: async () => {
+        const extra = await this.workspace.loadProductSetsInfo()
+        return Object.entries(extra).map(([name, ex]) => ({ name, tags: [...(ex.tags ?? [])] }))
+      },
+      save: async (entries) => {
+        const ws = this.requireWS()
+        const extra = await this.workspace.loadProductSetsInfo()
+        let changed = false
+        for (const { name, tags } of entries) {
+          const ex = extra[name]
+          if (!ex) continue
+          if (JSON.stringify(ex.tags ?? []) !== JSON.stringify(tags)) {
+            ex.tags = tags
+            changed = true
+          }
+        }
+        if (changed) await this.workspace.saveProductSetsInfo(ws, extra)
+      },
+    })
+  }
 
   private requireWS(): string {
     const ws = this.workspace.currentWorkspacePath()
@@ -94,46 +161,34 @@ export class TagService {
       if (defs[name].builtin) delete defs[name]
     }
 
-    // 移除引用：文件级 tags（metadata.json）+ 产品集级 tags（product_sets.json）中的内置名称
+    // 移除引用：全部引用源中的内置名称（文件 + 产品集 + 未来实体，统一走引用源）
     const builtinNames = Object.keys(BUILTIN_TAGS)
-
-    const store = await this.metadata.loadMetadataStore(ws)
-    let fileChanged = false
-    for (const meta of Object.values(store.files)) {
-      const tags = (meta.tags ?? []).filter((t) => !builtinNames.includes(t))
-      if (tags.length !== (meta.tags ?? []).length) {
-        meta.tags = tags
-        fileChanged = true
+    for (const src of this.refSources.values()) {
+      const entries = await src.list()
+      let changed = false
+      for (const e of entries) {
+        const tags = (e.tags ?? []).filter((t) => !builtinNames.includes(t))
+        if (tags.length !== (e.tags ?? []).length) {
+          e.tags = tags
+          changed = true
+        }
       }
+      if (changed) await src.save(entries)
     }
-    if (fileChanged) await this.metadata.saveMetadataStore(store, ws)
-
-    const extra = await this.workspace.loadProductSetsInfo(ws)
-    let psChanged = false
-    for (const ex of Object.values(extra)) {
-      const tags = (ex.tags ?? []).filter((t) => !builtinNames.includes(t))
-      if (tags.length !== (ex.tags ?? []).length) {
-        ex.tags = tags
-        psChanged = true
-      }
-    }
-    if (psChanged) await this.workspace.saveProductSetsInfo(ws, extra)
 
     // 写入迁移标记（内部键，后续 list()/create 等遍历会跳过该键）
     defs[MIGRATED_BUILTIN_KEY] = { color: '' }
     await this.saveDefs(ws, defs)
   }
 
-  /** 聚合所有已使用标签（文件 + 产品集）及计数 */
-  private async collectUsedTags(ws: string): Promise<Map<string, number>> {
+  /** 聚合所有已使用标签（全部引用源）及计数 */
+  private async collectUsedTags(): Promise<Map<string, number>> {
     const counts = new Map<string, number>()
-    const store = await this.metadata.loadMetadataStore(ws)
-    for (const meta of Object.values(store.files)) {
-      for (const t of meta.tags ?? []) counts.set(t, (counts.get(t) ?? 0) + 1)
-    }
-    const extra = await this.workspace.loadProductSetsInfo(ws)
-    for (const ex of Object.values(extra)) {
-      for (const t of ex.tags ?? []) counts.set(t, (counts.get(t) ?? 0) + 1)
+    for (const src of this.refSources.values()) {
+      const entries = await src.list()
+      for (const e of entries) {
+        for (const t of e.tags) counts.set(t, (counts.get(t) ?? 0) + 1)
+      }
     }
     return counts
   }
@@ -143,7 +198,7 @@ export class TagService {
     const ws = this.requireWS()
     await this.migrateAndInit(ws)
     const defs = await this.loadDefs(ws)
-    const counts = await this.collectUsedTags(ws)
+    const counts = await this.collectUsedTags()
 
     // 校验 parent 指向的父标签必须存在且本身无 parent（两层结构）；排除内部迁移标记键
     const names = new Set(Object.keys(defs).filter((n) => !isInternalKey(n)))
@@ -214,7 +269,7 @@ export class TagService {
     if (!name) throw new Error('名称不能为空')
     const defs = await this.loadDefs(ws)
     if (defs[name]) return // 已定义
-    const counts = await this.collectUsedTags(ws)
+    const counts = await this.collectUsedTags()
     if (!counts.has(name)) throw new Error(`标签「${name}」未被使用`)
     defs[name] = { color }
     await this.saveDefs(ws, defs)
@@ -305,31 +360,20 @@ export class TagService {
     }
     await this.saveDefs(ws, defs)
 
-    // 文件引用
-    const store = await this.metadata.loadMetadataStore(ws)
-    let fileChanged = false
-    for (const meta of Object.values(store.files)) {
-      const tags = meta.tags ?? []
-      const idx = tags.indexOf(oldName)
-      if (idx >= 0) {
-        tags[idx] = newName
-        fileChanged = true
+    // 文件/产品集/未来实体引用统一经引用源传播
+    for (const src of this.refSources.values()) {
+      const entries = await src.list()
+      let changed = false
+      for (const e of entries) {
+        const tags = e.tags ?? []
+        const idx = tags.indexOf(oldName)
+        if (idx >= 0) {
+          tags[idx] = newName
+          changed = true
+        }
       }
+      if (changed) await src.save(entries)
     }
-    if (fileChanged) await this.metadata.saveMetadataStore(store, ws)
-
-    // 产品集引用
-    const extra = await this.workspace.loadProductSetsInfo(ws)
-    let psChanged = false
-    for (const ex of Object.values(extra)) {
-      const tags = ex.tags ?? []
-      const idx = tags.indexOf(oldName)
-      if (idx >= 0) {
-        tags[idx] = newName
-        psChanged = true
-      }
-    }
-    if (psChanged) await this.workspace.saveProductSetsInfo(ws, extra)
   }
 
   /** 删除标签：定义 + 引用移除；删除父标签时其子标签提升为顶层 */
@@ -352,26 +396,18 @@ export class TagService {
       await this.saveDefs(ws, defs)
     }
 
-    const store = await this.metadata.loadMetadataStore(ws)
-    let fileChanged = false
-    for (const meta of Object.values(store.files)) {
-      const tags = (meta.tags ?? []).filter((t) => t !== name)
-      if (tags.length !== (meta.tags ?? []).length) {
-        meta.tags = tags
-        fileChanged = true
+    // 全部引用源移除该标签（孤儿标签删除同样只走引用清理）
+    for (const src of this.refSources.values()) {
+      const entries = await src.list()
+      let changed = false
+      for (const e of entries) {
+        const tags = (e.tags ?? []).filter((t) => t !== name)
+        if (tags.length !== (e.tags ?? []).length) {
+          e.tags = tags
+          changed = true
+        }
       }
+      if (changed) await src.save(entries)
     }
-    if (fileChanged) await this.metadata.saveMetadataStore(store, ws)
-
-    const extra = await this.workspace.loadProductSetsInfo(ws)
-    let psChanged = false
-    for (const ex of Object.values(extra)) {
-      const tags = (ex.tags ?? []).filter((t) => t !== name)
-      if (tags.length !== (ex.tags ?? []).length) {
-        ex.tags = tags
-        psChanged = true
-      }
-    }
-    if (psChanged) await this.workspace.saveProductSetsInfo(ws, extra)
   }
 }

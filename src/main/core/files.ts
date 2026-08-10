@@ -80,6 +80,12 @@ export interface ThumbnailProvider {
   removeThumbnailsInDir(dir: string): Promise<void>
   /** v2.4.2（修复 2）：作废所有排队中的浏览缩略图任务（files:list 入口调用；无此能力的实现可省略） */
   cancelPendingBrowse?(): void
+  /** v2.4.4：视频帧缩略图能力（SharpThumbnailService 实现；无能力实现可省略） */
+  videoThumbPath?(filePath: string): string
+  saveVideoFrame?(filePath: string, data: Buffer): Promise<string>
+  videoThumbnail?(filePath: string): Promise<string>
+  /** v2.4.6：图片预览降采样副本（≤2048px JPEG）路径；非图片/无能力/失败返回空串 */
+  ensurePreview?(filePath: string): Promise<string>
 }
 
 /** 缩略图生成请求来源（v2.4.2：队列据此区分优先级与代际作废） */
@@ -220,11 +226,23 @@ export class FilesService {
     // v2.4.2（S1）：拼路径入口做段校验，防穿越
     const ps = assertSafePathSegment(req.product_set, '产品集')
     const sub = assertSafePathSegment(req.sub_folder, '子文件夹')
+    // v2.4.4（验收修复）：视频与图片同居图包目录（沿用图包子文件夹结构）；'cert' 及其余 → 证书目录
     const dir =
-      req.file_type === 'image'
+      req.file_type === 'image' || req.file_type === 'video'
         ? path.join(ws, PRODUCT_SETS_DIR, ps, IMAGES_DIR, sub)
         : path.join(ws, PRODUCT_SETS_DIR, ps, CERTS_DIR, sub)
-    return this.listDirFiles(dir)
+    let entries = await this.listDirFiles(dir)
+    // v2.4.4（验收修复）：media_type 显式过滤（图包库「图片/视频」切换）；不传则目录内全部列出（FileBrowser 语义）
+    if (req.media_type) entries = entries.filter((f) => f.file_type === req.media_type)
+    if (entries.length === 0) return entries
+    // v2.4.4（T2）：从 metadata 内存缓存 join 标签（纯内存操作，不碰文件索引；无元数据/空标签不附加）
+    const store = await this.metadata.loadMetadataStore()
+    for (const f of entries) {
+      const key = this.metadata.fileMetadataKey(f.path)
+      const tags = key ? store.files[key]?.tags : undefined
+      if (tags && tags.length > 0) f.tags = tags
+    }
+    return entries
   }
 
   // —— FileImport（完整导入，返回导入结果；异步事件由 ipc 层处理）——
