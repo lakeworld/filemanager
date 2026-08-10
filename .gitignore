@@ -38,9 +38,13 @@ desktop.ini
 web-tools/dist/
 软件发布包/
 
-# 内部审计文档（v2.4.2 起不进公开仓库，保留本地）
+# 内部文档（运维 / 审计 / 规划 / 动作记录，一律本地保留，绝不进开源仓库）
+docs/INTERNAL/
 docs/RELEASE-AUDIT.md
-# 内部规划/设计文档（v2.4.3 起不进公开仓库，保留本地）
-docs/PLAN-v2.4.3.md
-docs/PLUGIN.md
-docs/ROADMAP.md
+# 内部运维文档与部署配置（v2.4.3 起从公开仓库移出，本地保留）
+docs/OPS.md
+docs/PACKAGING.md
+docs/PERF.md
+docs/PERFORMANCE.md
+docs/SUBSCRIPTION.md
+deploy/
