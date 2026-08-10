@@ -6,6 +6,13 @@
  * - 第二层：最小化 2 分钟无恢复 → 渲染进程 reload 回收（不可见无感）
  * - 第三层：关闭（隐藏到托盘）2 分钟无活跃 → 销毁 BrowserWindow，内存只留主进程；
  *   托盘点击 / 二次启动时 ensureMainWindow 重建，秒开。
+ *
+ * v2.4.3 唤醒修复（docs/PLAN-v2.4.3.md，F1-F4 / F6）：
+ * - F1 加载底色改浅色，唤醒重建期不再露出深蓝近黑空窗
+ * - F2 重建窗口不提前 show，交给 ready-to-show（黑屏根因之一）
+ * - F3 唤醒活性检查（ping）：渲染假死（非崩溃）自动 reload，解决"黑屏无唤醒机制"
+ * - F4 最小化不可见 reload 后置标记，恢复时在可见状态再校验一次活性
+ * - F6 休眠定时器支持 env 覆盖（QIHEBOX_DESTROY_DELAY_MS / QIHEBOX_MINIMIZE_RECOVER_MS）+ 唤醒路径日志
  */
 import { BrowserWindow, app, shell } from 'electron'
 import path from 'node:path'
@@ -15,10 +22,14 @@ let mainWindow: BrowserWindow | null = null
 let quitting = false
 
 // —— 分层休眠定时器 ——
-const DESTROY_DELAY_MS = 2 * 60 * 1000 // 第三层：隐藏后 2 分钟销毁窗口
-const MINIMIZE_RECOVER_MS = 2 * 60 * 1000 // 第二层：最小化后 2 分钟渲染进程回收
+// v2.4.3（F6）：支持 env 覆盖（默认 2 分钟），验证/自查时缩到 10 秒跑完整休眠→唤醒循环
+const DESTROY_DELAY_MS = Number(process.env.QIHEBOX_DESTROY_DELAY_MS) || 2 * 60 * 1000 // 第三层：隐藏后 2 分钟销毁窗口
+const MINIMIZE_RECOVER_MS = Number(process.env.QIHEBOX_MINIMIZE_RECOVER_MS) || 2 * 60 * 1000 // 第二层：最小化后 2 分钟渲染进程回收
+const WAKE_PING_TIMEOUT_MS = 2000 // v2.4.3（F3）：渲染进程活性 ping 超时
 let destroyTimer: NodeJS.Timeout | null = null
 let minimizeRecoverTimer: NodeJS.Timeout | null = null
+let reloadedWhileHidden = false // v2.4.3（F4）：最小化不可见 reload 标记
+let wakePingInFlight = false // v2.4.3（F3）：活性检查互斥，避免并发 ping
 
 /** 窗口重建钩子（index.ts 注册 setupCrashRecovery / setupCloseToTray） */
 let onCreateHandler: ((win: BrowserWindow) => void) | null = null
@@ -47,6 +58,7 @@ export function getMainWindow(): BrowserWindow | null {
 /** 确保主窗口存在（被休眠销毁后重建），并执行窗口初始化钩子 */
 export function ensureMainWindow(): BrowserWindow {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow
+  void log('info', '[wake] 窗口已被休眠销毁，重建中')
   const win = createMainWindow()
   onCreateHandler?.(win)
   return win
@@ -62,7 +74,8 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 720,
     show: false,
     frame: false, // 无边框：前端 TitleBar 用 -webkit-app-region 实现拖拽
-    backgroundColor: '#0f172a',
+    // v2.4.3（F1）：加载底色与界面 bg-surface-50 一致——唤醒重建时不再露出深蓝近黑空窗
+    backgroundColor: '#f8fafc',
     icon: path.join(app.getAppPath(), 'build/appicon.png'), // Linux 任务栏/窗口图标
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.mjs'),
@@ -74,8 +87,11 @@ export function createMainWindow(): BrowserWindow {
     },
   })
 
+  // v2.4.3（F2）：重建窗口只在这里 show+focus（渲染就绪才显示），windowShow 不再提前 show
   mainWindow.on('ready-to-show', () => {
+    void log('info', '[wake] 窗口就绪（ready-to-show）')
     mainWindow?.show()
+    mainWindow?.focus()
   })
 
   mainWindow.on('closed', () => {
@@ -90,11 +106,20 @@ export function createMainWindow(): BrowserWindow {
       if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isMinimized()) return
       if (mainWindow && !mainWindow.isDestroyed() && !quitting) {
         mainWindow.webContents.reload()
+        // v2.4.3（F4）：不可见状态 reload 后置标记，恢复时在可见状态再校验一次活性
+        reloadedWhileHidden = true
+        void log('info', '[sleep] 最小化超时：渲染进程已 reload 回收（标记恢复检查）')
       }
     }, MINIMIZE_RECOVER_MS)
   })
   mainWindow.on('restore', () => {
     minimizeRecoverTimer = clearTimer(minimizeRecoverTimer)
+    // v2.4.3（F4）：不可见 reload 后的恢复——可见状态补一次活性检查
+    if (reloadedWhileHidden) {
+      reloadedWhileHidden = false
+      const win = mainWindow
+      if (win && !win.isDestroyed()) void pingRenderer(win)
+    }
   })
 
   // 外部链接交给系统浏览器
@@ -109,6 +134,37 @@ export function createMainWindow(): BrowserWindow {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
   return mainWindow
+}
+
+// —— v2.4.3（F3）：渲染进程活性检查（唤醒机制本体）——
+// 渲染假死（不触发 render-process-gone）时自动 reload；每次唤醒（windowShow / 最小化恢复）调用。
+async function pingRenderer(win: BrowserWindow): Promise<void> {
+  if (wakePingInFlight || win.isDestroyed() || win.isMinimized()) return
+  const wc = win.webContents
+  if (wc.isCrashed()) {
+    void log('warn', '[wake] 渲染进程已崩溃，reload 恢复')
+    wc.reload()
+    return
+  }
+  if (wc.isLoading()) return // 加载中：ready-to-show 会兜底显示，无需干预
+  wakePingInFlight = true
+  let timer: NodeJS.Timeout | null = null
+  try {
+    const ok = await Promise.race([
+      wc.executeJavaScript('document.readyState === "complete"', true).catch(() => false),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), WAKE_PING_TIMEOUT_MS)
+      }),
+    ])
+    void log('info', `[wake] 活性检查: ${ok ? 'ok' : '超时/无响应，执行 reload'}`)
+    if (!ok && !win.isDestroyed()) wc.reload()
+  } catch (e) {
+    void log('warn', `[wake] 活性检查异常: ${String(e)}`)
+    if (!win.isDestroyed()) wc.reload()
+  } finally {
+    if (timer) clearTimeout(timer)
+    wakePingInFlight = false
+  }
 }
 
 // —— 窗口控制（对照 app.go Window* 方法）——
@@ -146,11 +202,17 @@ export function cancelDestroy(): void {
 export function windowShow(): void {
   // 窗口可能已被休眠销毁 → 重建
   const win = ensureMainWindow()
+  const wc = win.webContents
   if (win.isMinimized()) win.restore()
-  win.show()
-  win.focus()
+  // v2.4.3（F2）：刚重建/加载中的窗口不提前 show——交给 ready-to-show 显示（避免渲染未就绪时露出深色空窗）
+  if (!wc.isLoading()) {
+    win.show()
+    win.focus()
+  }
   // v2.4.x 修复：恢复显示必须取消休眠销毁倒计时（否则操作中会被强制销毁）
   cancelDestroy()
+  // v2.4.3（F3）：唤醒即做活性检查（加载中自动跳过，ready-to-show 兜底）
+  void pingRenderer(win)
 }
 
 export function windowMinimize(): void {

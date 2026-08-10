@@ -40,3 +40,7 @@ web-tools/dist/
 
 # 内部审计文档（v2.4.2 起不进公开仓库，保留本地）
 docs/RELEASE-AUDIT.md
+# 内部规划/设计文档（v2.4.3 起不进公开仓库，保留本地）
+docs/PLAN-v2.4.3.md
+docs/PLUGIN.md
+docs/ROADMAP.md
