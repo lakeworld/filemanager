@@ -48,15 +48,15 @@ test.describe('视频预览 seek', () => {
       await fsp.copyFile(path.join(ROOT, 'tests/e2e/fixtures', name), path.join(wsDir, name))
     }
 
-    // 大视频：noise 源压缩率极低，3s 640x360 即 >1MB；默认输出 moov 在文件尾
-    // 评审 P2：ffmpeg 命令失败 → 环境缺依赖，允许 skip；命令成功但产物 ≤1MB → 前提不成立，直接 fail
+    // 大视频：testsrc2 标准滤镜（所有 ffmpeg 版本可用，CI ubuntu 兼容；geq/random 在部分版本不兼容——
+    // CI 实测 geq 生成失败），20s 1280x720 高画质保证任何编码器下稳定 >1MB；默认输出 moov 在文件尾
+    // 评审 P2：ffmpeg 命令失败 → 环境缺依赖，允许 skip（打印原因便于排查）；产物 ≤1MB → 前提不成立 fail
     let ffmpegFailed = false
     try {
       await execFileP('ffmpeg', [
         '-y', '-loglevel', 'error',
-        '-f', 'lavfi', '-i', 'nullsrc=size=640x360,geq=random(1)*255:128:128',
-        '-t', '3',
-        '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
+        '-f', 'lavfi', '-i', 'testsrc2=duration=20:size=1280x720:rate=30',
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '15', '-pix_fmt', 'yuv420p',
         path.join(wsDir, 'big-tail.mp4'),
       ], { timeout: 60000 })
       const st = await fsp.stat(path.join(wsDir, 'big-tail.mp4'))
@@ -65,10 +65,12 @@ test.describe('视频预览 seek', () => {
       if (st.size <= 1024 * 1024) {
         ffmpegFailed = true // 大视频前提不成立——核心回归用例不该静默消失
       }
-    } catch {
+    } catch (e) {
+      // 打印失败原因（CI 上曾因滤镜不兼容静默 skip，加诊断便于定位）
+      console.error('[video-seek] ffmpeg 生成大视频失败（用例将 skip）:', e instanceof Error ? e.message : String(e))
       ffmpegAvailable = false
     }
-    expect(ffmpegFailed ? 'ffmpeg 产物 ≤1MB，无法覆盖 Range 流式路径（需调整生成参数）' : '').toBe('')
+    expect(ffmpegFailed ? `ffmpeg 产物 ${bigTailSize}B ≤1MB，无法覆盖 Range 流式路径（需调整生成参数）` : '').toBe('')
   })
 
   test.afterAll(async () => {

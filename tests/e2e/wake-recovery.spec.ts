@@ -71,19 +71,25 @@ test.describe('休眠唤醒自愈', () => {
   })
 
   test('渲染进程崩溃后 resume → 自动 reload 恢复', async () => {
-    // 强制崩溃渲染进程（此后 page 对象不可用，全程走主进程上下文）
+    // 注册崩溃信号 + 强制崩溃渲染进程（render-process-gone 是确定性信号，不依赖 isCrashed 时序；
+    // 此后页面对象不可用，全程走主进程上下文，且不得在崩溃过程中桥接 executeJavaScript——会 GC 错误）
     await app.evaluate(({ BrowserWindow }) => {
       const w = BrowserWindow.getAllWindows()[0]
-      if (w) w.webContents.forcefullyCrashRenderer()
+      ;(globalThis as any).__e2eCrashGone = false
+      w.webContents.once('render-process-gone', () => {
+        ;(globalThis as any).__e2eCrashGone = true
+      })
+      w.webContents.forcefullyCrashRenderer()
       return true
     })
-    // 等崩溃生效
+    // 等崩溃生效（15s 覆盖 CI 慢环境；纯主进程轮询信号/isCrashed，无渲染桥接）
     const crashed = await app.evaluate(async ({ BrowserWindow }) => {
       const w = BrowserWindow.getAllWindows()[0]
-      const deadline = Date.now() + 5000
+      const deadline = Date.now() + 15000
       while (Date.now() < deadline) {
-        if (w && w.webContents.isCrashed()) return true
-        await new Promise((r) => setTimeout(r, 100))
+        if ((globalThis as any).__e2eCrashGone) return true
+        if (w && !w.isDestroyed() && w.webContents.isCrashed()) return true
+        await new Promise((r) => setTimeout(r, 50))
       }
       return false
     })
