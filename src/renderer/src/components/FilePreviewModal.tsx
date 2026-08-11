@@ -1,15 +1,12 @@
 import { Show, Switch, Match, createSignal, onMount, onCleanup } from "solid-js";
 import { api } from "~/wails/api";
 import { tagList } from "~/stores/tags";
-import { requireLogin } from "~/stores/account";
 import { showToast } from "~/stores/notifyBanner";
-import { FEATURE_AI } from "~/features";
 import PdfPreview from "~/components/PdfPreview";
 import ContextMenu from "~/components/ContextMenu";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import TagInput from "~/components/TagInput";
 import DatePicker from "~/components/DatePicker";
-import type { AiCertInfo } from "~/types";
 import {
   showPreview,
   previewFile,
@@ -76,50 +73,6 @@ export default function FilePreviewModal() {
     }
   };
 
-  // —— v2.2.0：AI 证书信息抽取 ——
-  const [extractText, setExtractText] = createSignal<(() => Promise<string>) | null>(null);
-  const [aiCertBusy, setAiCertBusy] = createSignal(false);
-  const [aiCertMsg, setAiCertMsg] = createSignal("");
-
-  const handleAiExtract = async () => {
-    if (!requireLogin()) return;
-    const file = previewFile();
-    const extract = extractText();
-    if (!file || !extract) {
-      setAiCertMsg("PDF 尚未加载完成，请稍后重试");
-      return;
-    }
-    setAiCertBusy(true);
-    setAiCertMsg("");
-    try {
-      const text = await extract();
-      if (!text) {
-        setAiCertMsg("未能提取证书文本（可能是扫描件），可改用其他方式填写");
-        return;
-      }
-      const r = await api.ai.call("cert", { file_name: file.name, text });
-      if (!r.success || !r.data) {
-        setAiCertMsg(r.error || "AI 抽取失败，请稍后重试");
-        return;
-      }
-      const cert = (r.data as { cert: AiCertInfo }).cert;
-      setMetadata((prev) => ({
-        ...prev,
-        cert_type: cert.name || prev.cert_type,
-        expiry_date: cert.valid_to || prev.expiry_date,
-        notes:
-          [cert.number && `编号：${cert.number}`, cert.issuer && `发证机构：${cert.issuer}`]
-            .filter(Boolean)
-            .join("\n") || prev.notes,
-      }));
-      setAiCertMsg(
-        `AI 已抽取${cert.name ? `「${cert.name}」` : "证书信息"}，请核对后点「保存元数据」`,
-      );
-    } finally {
-      setAiCertBusy(false);
-    }
-  };
-
   const handleCopyFile = async () => {
     const file = previewFile();
     if (!file) return;
@@ -171,11 +124,6 @@ export default function FilePreviewModal() {
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-lg font-semibold">{previewFile()?.name}</h3>
             <div class="flex gap-2">
-              <Show when={isPdf() && FEATURE_AI}>
-                <button class="btn-secondary text-sm" onClick={handleAiExtract} disabled={aiCertBusy()}>
-                  {aiCertBusy() ? "AI 抽取中..." : "🤖 AI 抽取信息"}
-                </button>
-              </Show>
               <button class="btn-secondary text-sm" onClick={handleCopyFile}>
                 📋 复制文件
               </button>
@@ -194,12 +142,6 @@ export default function FilePreviewModal() {
           <Show when={previewError()}>
             <div class="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
               {previewError()}
-            </div>
-          </Show>
-
-          <Show when={aiCertMsg()}>
-            <div class="mb-4 p-3 bg-primary-50 border border-primary-100 rounded-lg text-sm text-primary-700">
-              {aiCertMsg()}
             </div>
           </Show>
 
@@ -255,7 +197,6 @@ export default function FilePreviewModal() {
                         <PdfPreview
                           url={previewUrl()}
                           onError={(m) => setPreviewError(m)}
-                          onTextExtract={(fn) => setExtractText(() => fn)}
                         />
                       </Show>
                     </Match>

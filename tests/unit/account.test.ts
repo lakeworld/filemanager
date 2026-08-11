@@ -97,53 +97,6 @@ describe('AccountService', () => {
     expect((r as { error?: string }).error).toContain('网络')
   })
 
-  it('未登录时 aiCall 提示登录', async () => {
-    const r = await svc.aiCall('rename', { files: [] })
-    expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.code).toBe('AUTH_REQUIRED')
-  })
-
-  it('aiCall 成功：返回数据并更新 remaining 落盘', async () => {
-    await svc.login('a@b.com', 'pw')
-    const fetchImpl = mockFetchStatus(200, {
-      code: 200,
-      data: { suggestions: [{ original: 'a.jpg', suggested: 'b.jpg' }], remaining: 49 },
-    })
-    svc = new AccountService({ ...deps, fetchImpl })
-    const r = await svc.aiCall('rename', { files: ['a.jpg'] })
-    expect(r.ok).toBe(true)
-    if (r.ok) {
-      expect(r.remaining).toBe(49)
-      expect((r.data as { suggestions: unknown[] }).suggestions).toHaveLength(1)
-    }
-    expect(svc.status().remaining).toBe(49)
-  })
-
-  it('aiCall 401：标记会话失效', async () => {
-    await svc.login('a@b.com', 'pw')
-    const fetchImpl = mockFetchStatus(401, { code: 'AUTH_REQUIRED', message: 'need login' })
-    svc = new AccountService({ ...deps, fetchImpl })
-    const r = await svc.aiCall('tag', {})
-    expect(r.ok).toBe(false)
-    if (!r.ok) {
-      expect(r.code).toBe('AUTH_REQUIRED')
-      expect(r.error).toContain('过期')
-    }
-    expect(svc.status().sessionExpired).toBe(true)
-  })
-
-  it('aiCall 429 配额：透传错误文案', async () => {
-    await svc.login('a@b.com', 'pw')
-    const fetchImpl = mockFetchStatus(429, { code: 'QUOTA_EXCEEDED', message: 'AI 试用额度已用完' })
-    svc = new AccountService({ ...deps, fetchImpl })
-    const r = await svc.aiCall('search', {})
-    expect(r.ok).toBe(false)
-    if (!r.ok) {
-      expect(r.code).toBe('QUOTA_EXCEEDED')
-      expect(r.error).toContain('额度已用完')
-    }
-  })
-
   it('心跳：成功静默，401 标记失效，网络异常不抛错', async () => {
     await svc.login('a@b.com', 'pw')
     // 401

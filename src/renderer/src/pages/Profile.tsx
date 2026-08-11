@@ -2,7 +2,6 @@ import { Show, For, createSignal, onCleanup, onMount, createEffect } from "solid
 import { api } from "~/wails/api";
 import { simpleMarkdownToHtml } from "~/utils/markdown";
 import { accountStatus, loginAccount, logoutAccount } from "~/stores/account";
-import { FEATURE_AI } from "~/features";
 import helpMarkdown from "../../../../HELP.md?raw";
 import privacyMarkdown from "../../../../PRIVACY.md?raw";
 import type { UpdateInfo } from "~/types";
@@ -25,7 +24,7 @@ const icons = {
 };
 
 const menuItems: { key: SectionKey; label: string; desc: string }[] = [
-  { key: "account", label: "账号", desc: "登录解锁 AI 智能整理" },
+  { key: "account", label: "账号", desc: "登录、账号与统计说明" },
   { key: "update", label: "检查更新", desc: "版本、下载、自动安装" },
   { key: "help", label: "使用帮助", desc: "功能说明与常见问题" },
   { key: "privacy", label: "隐私协议", desc: "数据与隐私说明" },
@@ -302,14 +301,7 @@ export default function Profile() {
   );
 }
 
-// —— 账号区（v2.2.0：可选登录复用 ERP 账号，解锁 AI 智能整理）——
-
-const AI_FEATURES = [
-  { icon: "✏️", title: "AI 批量命名", desc: "按命名模板批量生成规范文件名" },
-  { icon: "🏷️", title: "AI 标签建议", desc: "按文件名自动推荐现有标签" },
-  { icon: "📄", title: "证书信息抽取", desc: "从证书 PDF 提取名称/编号/有效期" },
-  { icon: "🔍", title: "AI 语义搜索", desc: "自然语言找到你要的文件" },
-];
+// —— 账号区（v2.2.0：可选登录复用 ERP 账号）——
 
 function AccountSection() {
   const [email, setEmail] = createSignal("");
@@ -343,40 +335,13 @@ function AccountSection() {
         when={accountStatus().loggedIn}
         fallback={
           <>
-            {/* 登录价值说明（AI 未发布时中性文案；FEATURE_AI=true 时显示 AI 试用横幅） */}
-            <Show when={FEATURE_AI}>
-              <div class="rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 px-4 py-3 text-white">
-                <div class="font-semibold">新用户 50 次 AI 免费试用 🎁</div>
-                <div class="mt-0.5 text-xs text-primary-100">
-                  登录账号即可使用 AI 批量命名、打标、证书抽取与语义搜索
-                </div>
+            {/* 登录价值说明 */}
+            <div class="rounded-xl bg-surface-100 px-4 py-3 text-surface-700">
+              <div class="font-semibold">登录启禾账号</div>
+              <div class="mt-0.5 text-xs text-surface-500">
+                登录后自动上报活跃信息（设备标识、版本、使用时间），仅用于统计产品使用情况，可随时登出停止
               </div>
-            </Show>
-            <Show when={!FEATURE_AI}>
-              <div class="rounded-xl bg-surface-100 px-4 py-3 text-surface-700">
-                <div class="font-semibold">登录启禾账号</div>
-                <div class="mt-0.5 text-xs text-surface-500">
-                  登录后自动上报活跃信息（设备标识、版本、使用时间），仅用于统计产品使用情况，可随时登出停止
-                </div>
-              </div>
-            </Show>
-
-            {/* AI 功能简介（仅 AI 发布时显示） */}
-            <Show when={FEATURE_AI}>
-              <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <For each={AI_FEATURES}>
-                  {(f) => (
-                    <div class="flex items-start gap-3 rounded-xl border border-surface-100 bg-surface-50 p-3">
-                      <span class="text-xl">{f.icon}</span>
-                      <div>
-                        <div class="text-sm font-semibold text-surface-800">{f.title}</div>
-                        <div class="mt-0.5 text-xs text-surface-500">{f.desc}</div>
-                      </div>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
+            </div>
 
             {/* 登录表单 */}
             <form
@@ -415,9 +380,6 @@ function AccountSection() {
                   没有账号？去官网注册 →
                 </button>
               </div>
-              <p class="text-xs text-surface-400">
-                🔒 AI 仅上传文件名与文本，图片与文件本体永不出本机。
-              </p>
             </form>
           </>
         }
@@ -429,11 +391,6 @@ function AccountSection() {
           </div>
           <div class="min-w-0 flex-1">
             <div class="truncate text-sm font-semibold text-surface-900">{accountStatus().email}</div>
-            <Show when={FEATURE_AI}>
-              <div class="mt-0.5 text-xs text-surface-500">
-                AI 试用剩余 {accountStatus().remaining ?? 50}/50 次
-              </div>
-            </Show>
           </div>
           <button
             class="shrink-0 rounded-lg border border-surface-200 px-4 py-2 text-sm text-surface-700 transition hover:bg-surface-50"
@@ -444,7 +401,7 @@ function AccountSection() {
         </div>
         <Show when={accountStatus().sessionExpired}>
           <div class="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-            登录已过期，请重新登录后继续使用 AI 功能。
+            登录已过期，请重新登录。
           </div>
         </Show>
         <p class="mt-4 text-xs text-surface-400">

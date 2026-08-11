@@ -63,7 +63,7 @@ describe('文件元数据（MetadataService）', () => {
     expect(raw.files['系列A/图包/主图/b.jpg']).toBeTruthy()
   })
 
-  it('v2.4.2（C1）：expiry_date 写入时归一化为 YYYY-MM-DD（AI 抽取的 YYYY/M/D / ISO 带时间）', async () => {
+  it('v2.4.2（C1）：expiry_date 写入时归一化为 YYYY-MM-DD（提取/导入的 YYYY/M/D / ISO 带时间）', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)

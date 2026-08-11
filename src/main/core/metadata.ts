@@ -43,7 +43,7 @@ export function currentTimeString(): string {
 /**
  * v2.4.2（C1）：宽松解析到期日期。
  * 优先按 YYYY[-/.]M[-/.]D 提取（严格校验年月日合法性，杜绝 2023-02-30 这类滚动日期），
- * 再回退整串 ISO 解析（AI 抽取可能带时间）。解析失败返回 Invalid Date。
+ * 再回退整串 ISO 解析（提取/导入可能带时间）。解析失败返回 Invalid Date。
  */
 export function parseExpiryDate(s: string): Date {
   const v = s.trim()

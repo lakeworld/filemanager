@@ -1,6 +1,6 @@
 /**
- * 账号 store（v2.2.0）：登录态 + AI 剩余试用额度。
- * 登录为可选（复用 ERP 账号），登录后解锁 AI 智能整理；统计是心跳副产品。
+ * 账号 store（v2.2.0）：登录态（复用 ERP 账号）。
+ * 登录为可选；统计是心跳副产品。
  */
 import { createSignal } from "solid-js";
 import { api } from "~/wails/api";
@@ -10,7 +10,6 @@ export const [accountStatus, setAccountStatus] = createSignal<AccountStatus>({
   loggedIn: false,
   email: "",
   sessionExpired: false,
-  remaining: null,
 });
 
 export async function loadAccountStatus(): Promise<void> {
@@ -34,12 +33,5 @@ export async function loginAccount(
 
 export async function logoutAccount(): Promise<void> {
   await api.account.logout();
-  setAccountStatus({ loggedIn: false, email: "", sessionExpired: false, remaining: null });
-}
-
-/** AI 入口守卫：未登录提示并返回 false */
-export function requireLogin(): boolean {
-  if (accountStatus().loggedIn) return true;
-  alert("请先登录后使用 AI 功能（「我的」→ 账号，新用户 50 次免费试用）");
-  return false;
+  setAccountStatus({ loggedIn: false, email: "", sessionExpired: false });
 }

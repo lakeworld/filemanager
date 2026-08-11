@@ -14,9 +14,6 @@ const api = {
     login: (email: string, password: string) => invoke('qihebox:account:login', email, password),
     logout: () => invoke('qihebox:account:logout'),
   },
-  ai: {
-    call: (action: string, payload: unknown) => invoke('qihebox:ai:call', action, payload),
-  },
   workspace: {
     list: () => invoke('qihebox:workspace:list'),
     current: () => invoke('qihebox:workspace:current'),

@@ -633,7 +633,7 @@ export default function Settings() {
                 <div class="flex items-center gap-2 mb-2">
                   <span class="text-sm font-medium text-surface-600">未定义标签</span>
                   <span class="text-[11px] text-surface-400">
-                    存在于文件/产品集但未在此定义（历史自由输入或 AI 打标引入），可转为正式标签或清除引用
+                    存在于文件/产品集但未在此定义（历史自由输入引入），可转为正式标签或清除引用
                   </span>
                 </div>
                 <div class="space-y-1">

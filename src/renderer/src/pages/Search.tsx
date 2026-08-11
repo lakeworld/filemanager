@@ -2,8 +2,6 @@ import { Show, For, createSignal, createEffect, onCleanup } from "solid-js";
 import { useSearchParams, useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { currentWorkspace, workspaceConfig, loadWorkspaceConfig, productSets, loadProductSets } from "~/stores/workspace";
-import { requireLogin } from "~/stores/account";
-import { FEATURE_AI } from "~/features";
 import { loadTagDefs, tagList } from "~/stores/tags";
 import { openPreview } from "~/stores/preview";
 import { showToast } from "~/stores/notifyBanner";
@@ -16,7 +14,7 @@ import ConfirmDialog from "~/components/ConfirmDialog";
 import EmptyState from "~/components/EmptyState";
 import Loading from "~/components/Loading";
 import { useContextMenu } from "~/hooks/useContextMenu";
-import type { SearchResult, FileEntry, ProductSetInfo, CustomerInfo, AiSearchResult } from "~/types";
+import type { SearchResult, FileEntry, ProductSetInfo, CustomerInfo } from "~/types";
 import { buildFileContextMenuItems, productSetFromFilePath } from "~/utils/fileContextMenu";
 
 /** 解析 core formatTime 输出的 "YYYY-MM-DD HH:mm:ss"（本地时间），失败返回 NaN */
@@ -24,12 +22,6 @@ function parseModified(s: string): number {
   const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(s);
   if (!m) return NaN;
   return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
-}
-
-/** v2.4.7 修复：AI 语义搜索 filters.recent_days「近N天」按 file.modified 生效（core 无此支持，渲染层过滤） */
-function modifiedWithinDays(modified: string, days: number): boolean {
-  const t = parseModified(modified);
-  return Number.isFinite(t) && Date.now() - t <= days * 24 * 60 * 60 * 1000;
 }
 
 export default function Search() {
@@ -47,8 +39,6 @@ export default function Search() {
   let clickTimer: number | undefined;
   const toggleSelection = (path: string) =>
     setSelectedPaths((prev) => (prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]));
-  const [aiSearching, setAiSearching] = createSignal(false);
-  const [aiTranslation, setAiTranslation] = createSignal("");
 
   createEffect(() => {
     if (currentWorkspace()) {
@@ -85,75 +75,6 @@ export default function Search() {
     const q = query();
     if (q && typeof q === "string") {
       doSearch(q);
-    }
-  };
-
-  // —— v2.2.0：AI 语义搜索（自然语言 → 关键词组合 + 过滤）——
-  const handleAiSearch = async () => {
-    if (!requireLogin()) return;
-    if (!currentWorkspace()) {
-      showToast("info", "请先打开工作区");
-      return;
-    }
-    const q = query().trim();
-    if (!q) return;
-    setAiSearching(true);
-    setAiTranslation("");
-    try {
-      await Promise.all([loadProductSets(), loadTagDefs()]);
-      const r = await api.ai.call("search", {
-        query: q,
-        index: {
-          product_sets: productSets().map((p) => p.name),
-          tags: tagList().map((t) => t.name),
-          types: ["image", "pdf", "cert"],
-        },
-      });
-      if (!r.success || !r.data) {
-        showToast("error", "AI 搜索失败", r.error || "请稍后重试");
-        return;
-      }
-      const sr = r.data as AiSearchResult;
-      const keywords = (sr.keywords ?? []).filter((k) => k.trim());
-      if (keywords.length === 0) {
-        showToast("info", "AI 未能理解查询，请换一种说法");
-        return;
-      }
-      // 逐关键词本地搜索并合并去重
-      const mergedFiles = new Map<string, FileEntry>();
-      const mergedSets = new Map<string, ProductSetInfo>();
-      const mergedCustomers = new Map<string, CustomerInfo>();
-      for (const kw of keywords) {
-        const res = await api.search(kw);
-        if (res.success && res.data) {
-          for (const f of res.data.files) mergedFiles.set(f.path, f);
-          for (const s of res.data.product_sets) mergedSets.set(s.name, s);
-          for (const c of res.data.customers ?? []) mergedCustomers.set(c.name, c);
-        }
-      }
-      // 应用 filters
-      let files = [...mergedFiles.values()];
-      if (sr.filters?.type) {
-        files = files.filter((f) => f.file_type === sr.filters.type);
-      }
-      if (sr.filters?.product_set) {
-        files = files.filter((f) => f.path.includes(sr.filters!.product_set!));
-      }
-      if (sr.filters?.recent_days) {
-        files = files.filter((f) => modifiedWithinDays(f.modified, sr.filters!.recent_days!));
-      }
-      setResults({ files, product_sets: [...mergedSets.values()], customers: [...mergedCustomers.values()] });
-      const cond = [
-        keywords.join("、"),
-        sr.filters?.type ? `类型=${sr.filters.type}` : "",
-        sr.filters?.recent_days ? `近${sr.filters.recent_days}天` : "",
-        sr.filters?.product_set ? `产品集=${sr.filters.product_set}` : "",
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      setAiTranslation(`AI 翻译：「${q}」→ ${cond}`);
-    } finally {
-      setAiSearching(false);
     }
   };
 
@@ -233,7 +154,7 @@ export default function Search() {
           <input
             type="text"
             class="w-full pl-10 pr-4 py-3 bg-surface-0 border border-surface-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all shadow-sm"
-            placeholder="输入关键词搜索，或用 AI 自然语言查找..."
+            placeholder="输入关键词搜索..."
             value={query()}
             onInput={(e) => setQuery(e.currentTarget.value)}
           />
@@ -245,19 +166,6 @@ export default function Search() {
           >
             搜索
           </button>
-          <Show when={FEATURE_AI}>
-            <button
-              type="button"
-              class="px-4 py-1.5 text-sm rounded-lg bg-primary-50 text-primary-700 border border-primary-200 hover:bg-primary-100 transition-colors"
-              onClick={() => void handleAiSearch()}
-              disabled={aiSearching()}
-            >
-              {aiSearching() ? "AI 理解中..." : "🤖 AI 搜索"}
-            </button>
-          </Show>
-          <Show when={aiTranslation()}>
-            <span class="text-xs text-primary-600 truncate">{aiTranslation()}</span>
-          </Show>
         </div>
       </form>
 
