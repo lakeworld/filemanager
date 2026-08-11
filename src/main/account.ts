@@ -240,7 +240,9 @@ export class AccountService {
 
   startHeartbeat(): void {
     if (this.heartbeatTimer) return
+    // v2.4.7（评审 P5）：.unref()——心跳定时器不阻止进程退出（与每日任务一致；托盘常驻本身已保活）
     this.heartbeatTimer = setInterval(() => void this.beat(), HEARTBEAT_INTERVAL_MS)
+    this.heartbeatTimer.unref()
   }
 
   stopHeartbeat(): void {

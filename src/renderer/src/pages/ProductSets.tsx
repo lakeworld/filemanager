@@ -4,8 +4,11 @@ import { api } from "~/wails/api";
 import { tagList } from "~/stores/tags";
 import TagChip from "~/components/TagChip";
 import ContextMenu from "~/components/ContextMenu";
+import ConfirmDialog from "~/components/ConfirmDialog";
 import TagInput from "~/components/TagInput";
 import EmptyState from "~/components/EmptyState";
+import ArchiveProgressDialog from "~/components/ArchiveProgressDialog";
+import { showToast } from "~/stores/notifyBanner";
 import { useContextMenu } from "~/hooks/useContextMenu";
 import {
   currentWorkspace,
@@ -39,6 +42,40 @@ export default function ProductSets() {
   const [relatedCustomers, setRelatedCustomers] = createSignal<CustomerInfo[]>([]);
 
   const contextMenu = useContextMenu<ProductSetInfo>();
+
+  // v2.4.7（统一改造）：删除确认弹窗状态——原生 confirm → ConfirmDialog（name=待删产品集，fromCard=列表卡片入口）
+  const [confirmDelete, setConfirmDelete] = createSignal<{ name: string; fromCard: boolean } | null>(null);
+
+  // v2.4.7（F9）：打包此图包——整个产品集目录一键压缩（产物落 工作区/导出/，完成弹窗可见）
+  const [archiveState, setArchiveState] = createSignal<{ token: string; phase: "compress" } | null>(null);
+
+  /** 归档任务取消令牌：crypto.randomUUID 兜底时间戳+随机 */
+  const newArchiveToken = () =>
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  const handleCompressProductSet = async (name: string) => {
+    if (archiveState()) return; // 单任务守卫（主进程 taskRunning 之外的前端防线，防顶掉进度弹窗）
+    const ws = currentWorkspace()?.path;
+    if (!ws) {
+      showToast("error", "未打开工作区");
+      return;
+    }
+    if (!name) {
+      showToast("error", "缺少产品集名称");
+      return;
+    }
+    const token = newArchiveToken();
+    setArchiveState({ token, phase: "compress" });
+    // 产品集目录 = 工作区/产品集/<产品集名>/（与 core/paths.ts productSetRootPath 一致）；
+    // suggestZipName 按产品集名自动命名 <名>_分享.zip
+    const r = await api.archive.compress({ paths: [`${ws}/产品集/${name}`], cancelToken: token });
+    if (!r.success) {
+      setArchiveState(null);
+      showToast("error", "压缩失败", r.error || "未知错误");
+    }
+  };
 
   const psName = () => {
     const name = params.name || "";
@@ -120,7 +157,7 @@ export default function ProductSets() {
       setNewPsNotes("");
       loadProductSets();
     } else {
-      window.alert(result.error || "创建失败");
+      showToast("error", "创建失败", result.error || undefined);
     }
   };
 
@@ -130,10 +167,10 @@ export default function ProductSets() {
       const path = await api.dialog.saveFile("保存 CSV 模板", "product_set_template.csv");
       if (path) {
         const saved = await api.files.saveTextFile(path, result.data);
-        if (!saved.success) window.alert(saved.error || "保存模板失败");
+        if (!saved.success) showToast("error", "保存模板失败", saved.error || undefined);
       }
     } else {
-      window.alert(result.error || "获取 CSV 模板失败");
+      showToast("error", "获取 CSV 模板失败", result.error || undefined);
     }
   };
 
@@ -142,7 +179,7 @@ export default function ProductSets() {
     if (path) {
       const result = await api.xlsx.exportTemplate(path);
       if (!result.success) {
-        window.alert(result.error || "导出模板失败");
+        showToast("error", "导出模板失败", result.error || undefined);
       }
     }
   };
@@ -156,7 +193,7 @@ export default function ProductSets() {
       if (result.success) {
         loadProductSets();
       } else {
-        window.alert(result.error || "导入失败");
+        showToast("error", "导入失败", result.error || undefined);
       }
     }
   };
@@ -173,22 +210,30 @@ export default function ProductSets() {
       loadProductSets();
       navigate(`/product-sets/${encodeURIComponent(editingPsName())}`);
     } else {
-      window.alert(result.error || "重命名失败");
+      showToast("error", "重命名失败", result.error || undefined);
       setEditingPsName(ps);
     }
   };
 
-  const handleDeleteProductSet = async () => {
+  /** 确认后执行删除（v2.4.7 统一改造：原生 confirm → ConfirmDialog；fromCard=列表卡片入口，成功不跳转） */
+  const doDeleteProductSet = async (name: string, fromCard: boolean) => {
+    const result = await api.productSets.delete(name);
+    if (result.success) {
+      if (fromCard) {
+        loadProductSets();
+      } else {
+        navigate("/product-sets");
+        loadProductSets();
+      }
+    } else {
+      showToast("error", "删除产品集失败", result.error || undefined);
+    }
+  };
+
+  const handleDeleteProductSet = () => {
     const ps = psName();
     if (!ps) return;
-    if (!window.confirm(`确定删除产品集 "${ps}" 吗？将移入回收站，可在回收站恢复。`)) return;
-    const result = await api.productSets.delete(ps);
-    if (result.success) {
-      navigate("/product-sets");
-      loadProductSets();
-    } else {
-      window.alert(result.error || "删除产品集失败");
-    }
+    setConfirmDelete({ name: ps, fromCard: false });
   };
 
   const openEditInfo = (ps: ProductSetInfo) => {
@@ -209,20 +254,14 @@ export default function ProductSets() {
       setEditingInfoPs(null);
       loadProductSets();
     } else {
-      window.alert(result.error || "保存失败");
+      showToast("error", "保存失败", result.error || undefined);
     }
   };
 
-  const handleCardDelete = async (ps: ProductSetInfo, e?: MouseEvent) => {
+  const handleCardDelete = (ps: ProductSetInfo, e?: MouseEvent) => {
     e?.stopPropagation();
     contextMenu.close();
-    if (!window.confirm(`确定删除产品集 "${ps.name}" 吗？将移入回收站，可在回收站恢复。`)) return;
-    const result = await api.productSets.delete(ps.name);
-    if (result.success) {
-      loadProductSets();
-    } else {
-      window.alert(result.error || "删除产品集失败");
-    }
+    setConfirmDelete({ name: ps.name, fromCard: true });
   };
 
   return (
@@ -289,6 +328,18 @@ export default function ProductSets() {
                       <span class="text-xs px-2 py-1 rounded-full bg-surface-100 text-surface-500">
                         {ps.image_count} 图 / {ps.cert_count} 证
                       </span>
+                      {/* v2.4.7（F9）：打包整个产品集目录 */}
+                      <button
+                        class="text-surface-400 hover:text-primary-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          contextMenu.close();
+                          void handleCompressProductSet(ps.name);
+                        }}
+                        title="打包此图包（压缩整个产品集目录）"
+                      >
+                        📦
+                      </button>
                       <button
                         class="text-surface-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                         onClick={(e) => handleCardDelete(ps, e)}
@@ -351,6 +402,10 @@ export default function ProductSets() {
               <p class="text-surface-500 mt-1">选择下方入口管理文件</p>
             </div>
             <div class="flex gap-3">
+              {/* v2.4.7（F9）：打包此图包（整个产品集目录一键压缩） */}
+              <button class="btn-secondary" onClick={() => void handleCompressProductSet(psName())}>
+                📦 打包此图包
+              </button>
               <button
                 class="btn-secondary text-red-600 hover:bg-red-50 hover:border-red-200"
                 onClick={handleDeleteProductSet}
@@ -529,6 +584,11 @@ export default function ProductSets() {
                 action: () => openEditInfo(ps()),
               },
               {
+                label: "打包此图包",
+                icon: "📦",
+                action: () => void handleCompressProductSet(ps().name),
+              },
+              {
                 label: "删除",
                 icon: "🗑️",
                 danger: true,
@@ -537,6 +597,27 @@ export default function ProductSets() {
             ]}
           />
         )}
+      </Show>
+
+      {/* 打包此图包 进度弹窗（v2.4.7 F9） */}
+      <Show when={archiveState()}>
+        <ArchiveProgressDialog token={archiveState()!.token} onClose={() => setArchiveState(null)} />
+      </Show>
+
+      {/* 删除产品集确认弹窗（v2.4.7 统一改造：原生 confirm → ConfirmDialog，确认后才执行删除） */}
+      <Show when={confirmDelete()}>
+        <ConfirmDialog
+          title="删除产品集"
+          message={`确定删除产品集 "${confirmDelete()!.name}" 吗？将移入回收站，可在回收站恢复。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={() => {
+            const target = confirmDelete()!;
+            setConfirmDelete(null);
+            void doDeleteProductSet(target.name, target.fromCard);
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
       </Show>
     </div>
   );

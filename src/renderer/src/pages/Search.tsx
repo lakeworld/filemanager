@@ -6,25 +6,42 @@ import { requireLogin } from "~/stores/account";
 import { FEATURE_AI } from "~/features";
 import { loadTagDefs, tagList } from "~/stores/tags";
 import { openPreview } from "~/stores/preview";
+import { showToast } from "~/stores/notifyBanner";
 import FileThumbnail from "~/components/FileThumbnail";
 import TagChips from "~/components/TagChips";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
 import MoveDialog from "~/components/MoveDialog";
+import ConfirmDialog from "~/components/ConfirmDialog";
 import EmptyState from "~/components/EmptyState";
 import Loading from "~/components/Loading";
 import { useContextMenu } from "~/hooks/useContextMenu";
-import type { SearchResult, FileEntry, ProductSetInfo, AiSearchResult } from "~/types";
+import type { SearchResult, FileEntry, ProductSetInfo, CustomerInfo, AiSearchResult } from "~/types";
 import { buildFileContextMenuItems, productSetFromFilePath } from "~/utils/fileContextMenu";
+
+/** 解析 core formatTime 输出的 "YYYY-MM-DD HH:mm:ss"（本地时间），失败返回 NaN */
+function parseModified(s: string): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(s);
+  if (!m) return NaN;
+  return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
+}
+
+/** v2.4.7 修复：AI 语义搜索 filters.recent_days「近N天」按 file.modified 生效（core 无此支持，渲染层过滤） */
+function modifiedWithinDays(modified: string, days: number): boolean {
+  const t = parseModified(modified);
+  return Number.isFinite(t) && Date.now() - t <= days * 24 * 60 * 60 * 1000;
+}
 
 export default function Search() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [query, setQuery] = createSignal<string>((searchParams.q as string) || "");
-  const [results, setResults] = createSignal<SearchResult>({ files: [], product_sets: [] });
+  const [results, setResults] = createSignal<SearchResult>({ files: [], product_sets: [], customers: [] });
   const [loading, setLoading] = createSignal(false);
   const contextMenu = useContextMenu<FileEntry>();
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
+  // 删除确认弹窗状态（统一确认体系，替代 window.confirm；确认后异步执行删除）
+  const [confirmDelete, setConfirmDelete] = createSignal<{ paths: string[] } | null>(null);
   // v2.4.1：搜索结果文件项单击选择 / 双击打开
   const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
   let clickTimer: number | undefined;
@@ -41,6 +58,10 @@ export default function Search() {
 
   const doSearch = async (q: string) => {
     if (!q.trim()) return;
+    if (!currentWorkspace()) {
+      showToast("info", "请先打开工作区");
+      return;
+    }
     setLoading(true);
     const result = await api.search(q);
     if (result.success && result.data) {
@@ -70,6 +91,10 @@ export default function Search() {
   // —— v2.2.0：AI 语义搜索（自然语言 → 关键词组合 + 过滤）——
   const handleAiSearch = async () => {
     if (!requireLogin()) return;
+    if (!currentWorkspace()) {
+      showToast("info", "请先打开工作区");
+      return;
+    }
     const q = query().trim();
     if (!q) return;
     setAiSearching(true);
@@ -85,23 +110,25 @@ export default function Search() {
         },
       });
       if (!r.success || !r.data) {
-        window.alert(r.error || "AI 搜索失败，请稍后重试");
+        showToast("error", "AI 搜索失败", r.error || "请稍后重试");
         return;
       }
       const sr = r.data as AiSearchResult;
       const keywords = (sr.keywords ?? []).filter((k) => k.trim());
       if (keywords.length === 0) {
-        window.alert("AI 未能理解查询，请换一种说法");
+        showToast("info", "AI 未能理解查询，请换一种说法");
         return;
       }
       // 逐关键词本地搜索并合并去重
       const mergedFiles = new Map<string, FileEntry>();
       const mergedSets = new Map<string, ProductSetInfo>();
+      const mergedCustomers = new Map<string, CustomerInfo>();
       for (const kw of keywords) {
         const res = await api.search(kw);
         if (res.success && res.data) {
           for (const f of res.data.files) mergedFiles.set(f.path, f);
           for (const s of res.data.product_sets) mergedSets.set(s.name, s);
+          for (const c of res.data.customers ?? []) mergedCustomers.set(c.name, c);
         }
       }
       // 应用 filters
@@ -112,7 +139,10 @@ export default function Search() {
       if (sr.filters?.product_set) {
         files = files.filter((f) => f.path.includes(sr.filters!.product_set!));
       }
-      setResults({ files, product_sets: [...mergedSets.values()] });
+      if (sr.filters?.recent_days) {
+        files = files.filter((f) => modifiedWithinDays(f.modified, sr.filters!.recent_days!));
+      }
+      setResults({ files, product_sets: [...mergedSets.values()], customers: [...mergedCustomers.values()] });
       const cond = [
         keywords.join("、"),
         sr.filters?.type ? `类型=${sr.filters.type}` : "",
@@ -131,7 +161,7 @@ export default function Search() {
     if (paths.length === 0) return;
     const result = await api.files.copyFilesToClipboard(paths);
     if (!result.success) {
-      window.alert(result.error || "复制失败");
+      showToast("error", "复制失败", result.error ?? undefined);
     }
   };
 
@@ -139,19 +169,38 @@ export default function Search() {
     if (paths.length === 0) return;
     const result = await api.files.showFilesInExplorer(paths);
     if (!result.success) {
-      window.alert(result.error || "打开文件夹失败");
+      showToast("error", "打开文件夹失败", result.error ?? undefined);
     }
   };
 
-  const handleDelete = async (paths: string[]) => {
+  const handleDelete = (paths: string[]) => {
     if (paths.length === 0) return;
-    if (!window.confirm(`确定要删除选中的 ${paths.length} 个文件吗？此操作不可恢复。`)) return;
-    const result = await api.files.delete(paths);
-    if (result.success) {
-      doSearch(query());
-    } else {
-      window.alert(result.error || "删除失败");
-    }
+    // 打开确认弹窗，确认后由 DeleteConfirm 异步执行删除（保持原语义：确认才删除）
+    setConfirmDelete({ paths });
+  };
+
+  /** 删除确认弹窗内容（target 由 Show 保证非空）；删除类文案与项目统一：将移入回收站，可在回收站恢复 */
+  const DeleteConfirm = (props: { paths: string[]; onDone: () => void }) => {
+    return (
+      <ConfirmDialog
+        title="删除文件"
+        message={`确定要删除选中的 ${props.paths.length} 个文件吗？将移入回收站，可在回收站恢复。`}
+        confirmLabel="删除"
+        danger
+        onConfirm={() => {
+          props.onDone();
+          void (async () => {
+            const result = await api.files.delete(props.paths);
+            if (result.success) {
+              doSearch(query());
+            } else {
+              showToast("error", "删除失败", result.error ?? undefined);
+            }
+          })();
+        }}
+        onCancel={props.onDone}
+      />
+    );
   };
 
   const handleRename = async (file: FileEntry) => {
@@ -161,7 +210,7 @@ export default function Search() {
     if (result.success) {
       doSearch(query());
     } else {
-      window.alert(result.error || "重命名失败");
+      showToast("error", "重命名失败", result.error ?? undefined);
     }
   };
 
@@ -239,6 +288,30 @@ export default function Search() {
         </div>
       </Show>
 
+      {/* v2.4.7：客户实体命中（core/search.ts 产出 customers：客户名/别名/标签命中，含文件命中带出的客户）——
+          卡片形态对齐产品集结果卡，点击跳客户详情 */}
+      <Show when={!loading() && (results().customers ?? []).length > 0}>
+        <div class="mb-6 shrink-0">
+          <h2 class="text-lg font-semibold mb-3">客户 ({results().customers?.length ?? 0})</h2>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <For each={results().customers ?? []}>
+              {(c: CustomerInfo) => (
+                <div class="card p-4 cursor-pointer hover:shadow-card-hover" onClick={() => navigate(`/clients/${encodeURIComponent(c.name)}`)}>
+                  <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center text-lg">🤝</div>
+                    <div>
+                      <div class="font-medium">{c.name}</div>
+                      <div class="text-sm text-surface-400">{c.file_count} 文件</div>
+                    </div>
+                  </div>
+                  <TagChips tags={c.tags} />
+                </div>
+              )}
+            </For>
+          </div>
+        </div>
+      </Show>
+
       <Show when={!loading() && results().files.length > 0}>
         {/* v2.4.6：结果文件网格虚拟化——几千命中时 <For> 全量渲染 DOM 爆炸，且每个 FileThumbnail
             挂载即发缩略图 IPC；VirtualGrid 只渲染可见行（自带滚动容器，本节占满剩余高度）。
@@ -281,7 +354,7 @@ export default function Search() {
         </div>
       </Show>
 
-      <Show when={!loading() && query() && results().files.length === 0 && results().product_sets.length === 0}>
+      <Show when={!loading() && query() && results().files.length === 0 && results().product_sets.length === 0 && (results().customers ?? []).length === 0}>
         <EmptyState icon="🔍" title={`未找到与 "${query()}" 相关的结果`} />
       </Show>
 
@@ -319,6 +392,14 @@ export default function Search() {
           paths={movePaths()!}
           onClose={() => setMovePaths(null)}
           onMoved={() => doSearch(query())}
+        />
+      </Show>
+
+      {/* 删除确认弹窗（统一确认体系，替代 window.confirm） */}
+      <Show when={confirmDelete()}>
+        <DeleteConfirm
+          paths={confirmDelete()!.paths}
+          onDone={() => setConfirmDelete(null)}
         />
       </Show>
     </div>

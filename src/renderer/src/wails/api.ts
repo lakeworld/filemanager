@@ -230,6 +230,8 @@ export const api = {
   },
   updater: {
     check: () => qb.updater.check() as Promise<ApiResult<UpdateInfo | null>>,
+    // v2.4.7（评审 P1）：主进程缓存的更新可用状态（Profile 懒加载错过 update:available 事件时兜底）
+    state: () => qb.updater.state() as Promise<ApiResult<UpdateInfo | null>>,
     download: (info: UpdateInfo) => qb.updater.download(info as any) as Promise<ApiResult<string>>,
     apply: (installerPath: string, checksum: string) =>
       qb.updater.apply(installerPath, checksum) as Promise<ApiResult<boolean>>,

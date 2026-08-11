@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createEffect } from "solid-js";
+import { Show, For, createSignal, createEffect, createMemo, onCleanup } from "solid-js";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import {
@@ -18,6 +18,7 @@ import ContextMenu from "~/components/ContextMenu";
 import MoveDialog from "~/components/MoveDialog";
 import BatchTagDialog from "~/components/BatchTagDialog";
 import ArchiveProgressDialog from "~/components/ArchiveProgressDialog";
+import ConfirmDialog from "~/components/ConfirmDialog";
 import EmptyState from "~/components/EmptyState";
 import { handleDragOut } from "~/utils/dragout";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
@@ -67,11 +68,18 @@ export default function Certs() {
   // v2.4.4：批量打标 / 压缩分享·解压 弹窗状态
   const [batchTagState, setBatchTagState] = createSignal<{ paths: string[]; commonTags: string[] } | null>(null);
   const [archiveState, setArchiveState] = createSignal<{ token: string; phase: "compress" | "extract" } | null>(null);
+  // v2.4.7：删除确认弹窗（替代 window.confirm）
+  const [confirmDelete, setConfirmDelete] = createSignal<{ paths: string[] } | null>(null);
 
+  // v2.4.7（PERF-SOP §四）：setTimeout 存句柄 + onCleanup 清理——防卸载后 setActionMessage 触碰已销毁组件
+  let actionMessageTimer: number | undefined;
   const showActionMessage = (msg: string) => {
     setActionMessage(msg);
-    setTimeout(() => setActionMessage(""), 2000);
+    window.clearTimeout(actionMessageTimer);
+    actionMessageTimer = window.setTimeout(() => setActionMessage(""), 2000);
   };
+
+  onCleanup(() => window.clearTimeout(actionMessageTimer));
 
   // —— 虚拟滚动由 VirtualGrid 承担：只渲染可见行，滚出即卸载（替代旧 slice+哨兵分批）——
   // 证书卡片为横向布局，固定行高（v2.4.4：加标签 chips 行后抬高，避免行重叠）
@@ -114,13 +122,17 @@ export default function Certs() {
     setSelectedPaths([]);
 
     // v2.4.2：批量拉取每张证书的到期日（成功且 expiry_date 非空才记录）
+    // v2.4.7（评审 P2）：Promise.all 无并发闸会同时打满 IPC——照 Invoices checkFilesExistence 的 8 并发 worker 模式
     const map: Record<string, string> = {};
-    await Promise.all(
-      all.map(async (c) => {
-        const r = await api.metadata.get(c.path);
-        if (r.success && r.data?.expiry_date) map[c.path] = r.data.expiry_date;
-      }),
-    );
+    const queue = all.map((c) => c.path);
+    const workers = Array.from({ length: 8 }, async () => {
+      while (queue.length > 0) {
+        const p = queue.shift()!;
+        const r = await api.metadata.get(p);
+        if (r.success && r.data?.expiry_date) map[p] = r.data.expiry_date;
+      }
+    });
+    await Promise.all(workers);
     if (seq !== certLoadSeq) return;
     setExpiries(map);
   };
@@ -131,11 +143,22 @@ export default function Certs() {
     }
   });
 
-  const filteredItems = () => {
+  // v2.4.7（评审 P2）：path→修改时间戳 预解析 Map——仅 items 变化时重算一次，
+  // 排序比较器查 Map 比数字，避免每对元素都 new Date()（照 Images.tsx modifiedTs 先例）
+  const modifiedTs = createMemo(() => {
+    const map = new Map<string, number>();
+    for (const it of items()) map.set(it.path, new Date(it.modified).getTime());
+    return map;
+  });
+
+  // v2.4.7（评审 P2）：filteredItems 包成 createMemo——visibleCount / 全选 / VirtualGrid / 打包按钮
+  // 共享一次筛选+排序结果，不再每处调用都重排；排序规则（字段/方向）不变（照 Images.tsx filteredItems 先例）
+  const filteredItems = createMemo(() => {
     const term = search().trim().toLowerCase();
     const ps = productSetFilter();
     const sub = subFolderFilter();
     const tag = tagFilter();
+    const ts = modifiedTs();
     let list = items().filter((it) => {
       if (ps && it.productSet !== ps) return false;
       if (sub && it.subFolder !== sub) return false;
@@ -151,11 +174,11 @@ export default function Certs() {
           return b.size - a.size;
         case "modified":
         default:
-          return new Date(b.modified).getTime() - new Date(a.modified).getTime();
+          return (ts.get(b.path) ?? 0) - (ts.get(a.path) ?? 0);
       }
     });
     return list;
-  };
+  });
 
   const toggleSelection = (path: string) => {
     setSelectedPaths((prev) =>
@@ -185,7 +208,7 @@ export default function Certs() {
     if (result.success) {
       showActionMessage(`已复制 ${paths.length} 个文件到剪贴板`);
     } else {
-      window.alert(result.error || "复制失败");
+      showToast("error", "复制失败", result.error || "未知错误");
     }
   };
 
@@ -193,19 +216,23 @@ export default function Certs() {
     if (paths.length === 0) return;
     const result = await api.files.showFilesInExplorer(paths);
     if (!result.success) {
-      window.alert(result.error || "打开文件夹失败");
+      showToast("error", "打开文件夹失败", result.error || "未知错误");
     }
   };
 
-  const handleDelete = async (paths: string[]) => {
+  const handleDelete = (paths: string[]) => {
     if (paths.length === 0) return;
-    if (!window.confirm(`确定要删除选中的 ${paths.length} 个文件吗？此操作不可恢复。`)) return;
+    // 确认后由 ConfirmDialog onConfirm 执行 doDelete
+    setConfirmDelete({ paths });
+  };
+
+  const doDelete = async (paths: string[]) => {
     const result = await api.files.delete(paths);
     if (result.success) {
       setSelectedPaths([]);
       loadAllCerts();
     } else {
-      window.alert(result.error || "删除失败");
+      showToast("error", "删除失败", result.error || "未知错误");
     }
   };
 
@@ -217,7 +244,7 @@ export default function Certs() {
       setSelectedPaths([]);
       loadAllCerts();
     } else {
-      window.alert(result.error || "重命名失败");
+      showToast("error", "重命名失败", result.error || "未知错误");
     }
   };
 
@@ -245,6 +272,7 @@ export default function Certs() {
   };
 
   const handleCompress = async (paths: string[]) => {
+    if (archiveState()) return; // 单任务守卫（评审 P1：防重复触发顶掉进行中任务的进度弹窗）
     const token = newArchiveToken();
     setArchiveState({ token, phase: "compress" });
     const r = await api.archive.compress({ paths, cancelToken: token });
@@ -322,6 +350,15 @@ export default function Certs() {
           <option value="name">按文件名</option>
           <option value="size">按文件大小</option>
         </select>
+        {/* v2.4.7（F9）：一键打包当前筛选结果（无需先全选）——产物落 工作区/导出/，完成弹窗可见 */}
+        <button
+          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white text-surface-700 hover:bg-surface-50 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={visibleCount() === 0}
+          title="将当前筛选出的全部证书压缩为一个 zip"
+          onClick={() => void handleCompress(filteredItems().map((it) => it.path))}
+        >
+          📦 打包当前筛选（{visibleCount()}）
+        </button>
       </div>
 
       <Show when={selectedCount() > 0}>
@@ -462,6 +499,22 @@ export default function Certs() {
       {/* 压缩分享 / 解压 进度（v2.4.4） */}
       <Show when={archiveState()}>
         <ArchiveProgressDialog token={archiveState()!.token} onClose={() => setArchiveState(null)} />
+      </Show>
+
+      {/* 删除确认（v2.4.7：替代 window.confirm） */}
+      <Show when={confirmDelete()}>
+        <ConfirmDialog
+          title="删除文件"
+          message={`确定删除选中的 ${confirmDelete()!.paths.length} 个文件吗？将移入回收站，可在回收站恢复。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={() => {
+            const paths = confirmDelete()!.paths;
+            setConfirmDelete(null);
+            void doDelete(paths);
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
       </Show>
     </div>
   );

@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createEffect } from "solid-js";
+import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { api } from "~/wails/api";
 import {
   currentWorkspace,
@@ -31,6 +31,16 @@ export default function MoveDialog(props: {
 
   const imageFolders = () => workspaceConfig()?.image_subfolders || ["主图", "详情页", "白底图", "素材"];
   const certFolders = () => workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"];
+
+  // 收尾轮：Esc 关闭（移动进行中不允许，只能等待完成）
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (status() !== "moving") props.onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
+  });
 
   const handleMove = async () => {
     const ws = currentWorkspace();

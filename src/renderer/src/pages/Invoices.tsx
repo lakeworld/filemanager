@@ -269,6 +269,9 @@ export default function Invoices() {
     id: "", date: "", supplier: "", product_set: "", amount: "", notes: "", file_path: "",
   });
   const [deleteTarget, setDeleteTarget] = createSignal<{ kind: "invoice" | "inbound"; key: string; name: string; withFile: boolean } | null>(null);
+  // v2.4.7（评审 P2）：本次弹窗内已归档但尚未保存的文件（工作区相对路径）——archiveFile 立即落盘，
+  // 取消/查重拒绝会留下孤儿文件，关闭弹窗时提示可删除（最小实现：文案说明，不提供删除按钮）
+  const [stagedArchive, setStagedArchive] = createSignal("");
 
   // —— 加载（seq 序号守卫，v2.4.x 范式：切工作区后丢弃过期请求返回）——
   let invoiceSeq = 0;
@@ -354,7 +357,7 @@ export default function Invoices() {
       showToast("success", `发票 ${number} 已流转为「${status}」`);
       void loadInvoices();
     } else {
-      window.alert(r.error || "状态更新失败");
+      showToast("error", "状态更新失败", r.error || "未知错误");
     }
   };
 
@@ -375,7 +378,7 @@ export default function Invoices() {
       if (t.kind === "invoice") void loadInvoices();
       else void loadInbound();
     } else {
-      window.alert(r.error || "删除失败");
+      showToast("error", "删除失败", r.error || "未知错误");
     }
   };
 
@@ -426,7 +429,7 @@ export default function Invoices() {
   const pickInvoiceFile = async () => {
     const date = invoiceForm().date;
     if (!date) {
-      window.alert("请先选择开票日期，再归档文件（归档目录按开票日期年份）");
+      showToast("info", "请先选择开票日期，再归档文件（归档目录按开票日期年份）");
       return;
     }
     const src = await api.dialog.openFile("选择发票文件", [{ displayName: "所有文件", pattern: "*" }]);
@@ -434,9 +437,21 @@ export default function Invoices() {
     const r = await api.invoices.archiveFile(src, date);
     if (r.success && r.data) {
       setInvoiceField("file_path", r.data);
+      // v2.4.7：记录本次归档，弹窗未保存关闭时提示可删除
+      setStagedArchive(r.data);
     } else {
-      window.alert(r.error || "文件归档失败");
+      showToast("error", "文件归档失败", r.error || "未知错误");
     }
+  };
+
+  /** 关闭新建/编辑弹窗：本次已归档未保存的文件提示可删除（取消或遮罩点击共用） */
+  const closeInvoiceEditor = () => {
+    const staged = stagedArchive();
+    if (staged) {
+      showToast("info", "刚归档的文件未保存为发票记录", `「${staged}」已落在 发票/<年份>/ 归档目录。如不需要，请到文件管理中删除该文件。`);
+    }
+    setStagedArchive("");
+    setInvoiceEditor(null);
   };
 
   const saveInvoice = async () => {
@@ -444,32 +459,32 @@ export default function Invoices() {
     const f = invoiceForm();
     const number = f.number.trim();
     if (!number) {
-      window.alert("发票号码不能为空");
+      showToast("info", "发票号码不能为空");
       return;
     }
     if (!f.file_path) {
-      window.alert("请先选择并归档发票文件");
+      showToast("info", "请先选择并归档发票文件");
       return;
     }
     if (!f.date) {
-      window.alert("请选择开票日期");
+      showToast("info", "请选择开票日期");
       return;
     }
     if (f.amount.trim() === "") {
-      window.alert("金额不能为空");
+      showToast("info", "金额不能为空");
       return;
     }
     const amount = Number(f.amount);
     if (!Number.isFinite(amount)) {
-      window.alert("金额无效");
+      showToast("info", "金额无效");
       return;
     }
     if (!f.seller.trim()) {
-      window.alert("开票方不能为空");
+      showToast("info", "开票方不能为空");
       return;
     }
     if (!f.buyer.trim()) {
-      window.alert("购买方不能为空");
+      showToast("info", "购买方不能为空");
       return;
     }
     const common = {
@@ -498,11 +513,12 @@ export default function Invoices() {
       result = await api.invoices.create({ ...common, number, file_path: f.file_path });
     }
     if (result.success) {
+      setStagedArchive(""); // 已保存为记录，文件不再孤儿
       setInvoiceEditor(null);
       showToast("success", editor?.mode === "edit" ? "发票已更新" : "发票已登记");
       void loadInvoices();
     } else {
-      window.alert(result.error || "保存失败");
+      showToast("error", "保存失败", result.error || "未知错误");
     }
   };
 
@@ -533,7 +549,7 @@ export default function Invoices() {
   const pickInboundFile = async () => {
     const date = inboundForm().date;
     if (!date) {
-      window.alert("请先选择入库日期，再归档文件（归档目录按入库日期年份）");
+      showToast("info", "请先选择入库日期，再归档文件（归档目录按入库日期年份）");
       return;
     }
     const src = await api.dialog.openFile("选择入库文件", [{ displayName: "所有文件", pattern: "*" }]);
@@ -541,28 +557,40 @@ export default function Invoices() {
     const r = await api.inbound.archiveFile(src, date);
     if (r.success && r.data) {
       setInboundField("file_path", r.data);
+      // v2.4.7：记录本次归档，弹窗未保存关闭时提示可删除
+      setStagedArchive(r.data);
     } else {
-      window.alert(r.error || "文件归档失败");
+      showToast("error", "文件归档失败", r.error || "未知错误");
     }
+  };
+
+  /** 关闭新建/编辑弹窗：本次已归档未保存的文件提示可删除（取消或遮罩点击共用） */
+  const closeInboundEditor = () => {
+    const staged = stagedArchive();
+    if (staged) {
+      showToast("info", "刚归档的文件未保存为入库单", `「${staged}」已落在 入库/<年份>/ 归档目录。如不需要，请到文件管理中删除该文件。`);
+    }
+    setStagedArchive("");
+    setInboundEditor(null);
   };
 
   const saveInbound = async () => {
     const editor = inboundEditor();
     const f = inboundForm();
     if (!f.id.trim()) {
-      window.alert("单据编号不能为空");
+      showToast("info", "单据编号不能为空");
       return;
     }
     if (!f.file_path) {
-      window.alert("请先选择并归档入库文件");
+      showToast("info", "请先选择并归档入库文件");
       return;
     }
     if (!f.date) {
-      window.alert("请选择入库日期");
+      showToast("info", "请选择入库日期");
       return;
     }
     if (!f.supplier.trim()) {
-      window.alert("供应商不能为空");
+      showToast("info", "供应商不能为空");
       return;
     }
     const req: InboundCreateRequest = {
@@ -576,11 +604,12 @@ export default function Invoices() {
     };
     const result = editor?.mode === "edit" ? await api.inbound.update(editor.record.id, req) : await api.inbound.create(req);
     if (result.success) {
+      setStagedArchive(""); // 已保存为记录，文件不再孤儿
       setInboundEditor(null);
       showToast("success", editor?.mode === "edit" ? "入库单已更新" : "入库单已登记");
       void loadInbound();
     } else {
-      window.alert(result.error || "保存失败");
+      showToast("error", "保存失败", result.error || "未知错误");
     }
   };
 
@@ -588,7 +617,7 @@ export default function Invoices() {
   const handleExport = async () => {
     const records = filteredInvoices();
     if (records.length === 0) {
-      window.alert("没有可导出的记录");
+      showToast("info", "没有可导出的记录");
       return;
     }
     const path = await api.dialog.saveFile("导出发票台账", `发票台账_${toDateKey(new Date())}.xlsx`);
@@ -597,7 +626,7 @@ export default function Invoices() {
     if (r.success) {
       showToast("success", "Excel 台账已导出");
     } else {
-      window.alert(r.error || "导出失败");
+      showToast("error", "导出失败", r.error || "未知错误");
     }
   };
 
@@ -704,6 +733,8 @@ export default function Invoices() {
                       itemHeight={48}
                       columns={1}
                       gap={8}
+                      // v2.4.7（评审 P2）：筛选/搜索变化时滚动归零（VirtualGrid scrollResetKey 约定）
+                      scrollResetKey={`${statusFilter()}|${customerFilter()}|${dueSoonOnly()}|${query()}`}
                       renderItem={(rec) => (
                         <div
                           class={`px-3 py-2 rounded-lg grid items-center gap-2 text-sm transition-colors hover:bg-surface-50 ${missingFiles()[rec.file_path] ? "opacity-60" : ""}`}
@@ -882,7 +913,7 @@ export default function Invoices() {
 
       {/* ============ 发票 新建/编辑 弹窗 ============ */}
       <Show when={invoiceEditor()}>
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setInvoiceEditor(null)}>
+        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeInvoiceEditor}>
           <div
             class="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-xl max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
@@ -1010,7 +1041,7 @@ export default function Invoices() {
               />
             </div>
             <div class="flex gap-3 justify-end mt-6">
-              <button class="btn-secondary" onClick={() => setInvoiceEditor(null)}>取消</button>
+              <button class="btn-secondary" onClick={closeInvoiceEditor}>取消</button>
               <button class="btn-primary" onClick={() => void saveInvoice()}>
                 {invoiceEditor()?.mode === "edit" ? "保存" : "确认登记"}
               </button>
@@ -1021,7 +1052,7 @@ export default function Invoices() {
 
       {/* ============ 入库单 新建/编辑 弹窗 ============ */}
       <Show when={inboundEditor()}>
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setInboundEditor(null)}>
+        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeInboundEditor}>
           <div
             class="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-xl max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
@@ -1100,7 +1131,7 @@ export default function Invoices() {
               />
             </div>
             <div class="flex gap-3 justify-end mt-6">
-              <button class="btn-secondary" onClick={() => setInboundEditor(null)}>取消</button>
+              <button class="btn-secondary" onClick={closeInboundEditor}>取消</button>
               <button class="btn-primary" onClick={() => void saveInbound()}>
                 {inboundEditor()?.mode === "edit" ? "保存" : "确认登记"}
               </button>

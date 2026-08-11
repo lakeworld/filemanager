@@ -40,6 +40,7 @@ web-tools/dist/
 
 # 内部文档（运维 / 审计 / 规划 / 动作记录，一律本地保留，绝不进开源仓库）
 docs/INTERNAL/
+AGENTS.md
 docs/RELEASE-AUDIT.md
 # 内部运维文档与部署配置（v2.4.3 起从公开仓库移出，本地保留）
 # v2.4.6 起 PERF.md / PERFORMANCE.md 重新纳入公开仓库（内存与性能实测数据与基线，随版本维护）

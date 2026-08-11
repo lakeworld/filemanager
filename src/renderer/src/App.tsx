@@ -221,14 +221,16 @@ export default function App(props: RouteSectionProps) {
   return (
     <div class="h-screen w-screen flex flex-col overflow-hidden bg-surface-50 relative">
       <TitleBar />
-      {/* v2.4.2（C3）：证书到期提醒降级横幅；v2.4.3（F8）：通用 toast 按 tone 着色（success 绿 / error 红），
+      {/* v2.4.2（C3）：证书到期提醒降级横幅；v2.4.3（F8）：通用 toast 按 tone 着色（success 绿 / error 红 / info 蓝），
           证书提醒 tone=error 保持红色 15s 行为不变 */}
       <Show when={banner()}>
         <div
           class={`fixed top-14 left-1/2 -translate-x-1/2 z-[60] rounded-lg px-4 py-3 text-sm shadow-lg max-w-xl ${
             banner()!.tone === "success"
               ? "bg-green-50 border border-green-200 text-green-700"
-              : "bg-red-50 border border-red-200 text-red-700"
+              : banner()!.tone === "info"
+                ? "bg-blue-50 border border-blue-200 text-blue-700"
+                : "bg-red-50 border border-red-200 text-red-700"
           }`}
         >
           <div class="font-semibold mb-0.5">{banner()!.title}</div>

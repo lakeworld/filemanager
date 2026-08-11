@@ -136,6 +136,8 @@ export default function GlobalDropOverlay() {
   // Listen for import completion events from the main process
   let unsubImport: (() => void) | null = null;
   let unsubProgress: (() => void) | null = null;
+  // v2.4.7：import:complete 置 idle 的 3s 定时器句柄——连续投递时旧 timer 不得压掉新 importing 态
+  let importIdleTimer: number | undefined;
   onMount(() => {
     // v2.3.0：批量导入进度
     unsubProgress = window.qihebox.events.on("import:progress", (data: any) => {
@@ -157,8 +159,12 @@ export default function GlobalDropOverlay() {
         setImportError(data?.error || "导入失败");
         setImportStatus("error");
       }
-      // Clear status after 3 seconds
-      setTimeout(() => setImportStatus("idle"), 3000);
+      // Clear status after 3 seconds（v2.4.7：句柄化；置 idle 前守卫 cancelToken——
+      // 期间新导入已发起（token 被接管）则旧 timer 不再压状态，等新导入自身完成事件接管）
+      window.clearTimeout(importIdleTimer);
+      importIdleTimer = window.setTimeout(() => {
+        if (cancelToken() === null) setImportStatus("idle");
+      }, 3000);
     });
   });
 
@@ -274,12 +280,20 @@ export default function GlobalDropOverlay() {
     window.addEventListener("dragleave", onDragLeave);
     window.addEventListener("drop", onDrop);
 
+    // 收尾轮：Esc 关闭导入目标选择弹窗（选择阶段，导入开始即关闭弹窗，无进行中冲突）
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowDialog(false);
+    };
+    window.addEventListener("keydown", onKey);
+
     onCleanup(() => {
       window.removeEventListener("dragenter", onDragEnter);
       window.removeEventListener("dragover", onDragOver);
       window.removeEventListener("dragleave", onDragLeave);
       window.removeEventListener("drop", onDrop);
+      window.removeEventListener("keydown", onKey);
       clearHideTimeout();
+      window.clearTimeout(importIdleTimer);
       unsubImport?.();
       unsubProgress?.();
     });
@@ -384,6 +398,8 @@ export default function GlobalDropOverlay() {
                     class={`flex-1 py-2 text-sm rounded-md transition-colors ${targetType() === "image" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}
                     onClick={() => {
                       setTargetType("image");
+                      // v2.4.7：切回图包/证书时清空残留的客户选择，避免导入到 产品集/<客户名>/ 幽灵目录
+                      setSelectedProductSet("");
                       setSubFolder(imageFolders()[0]);
                     }}
                   >
@@ -393,6 +409,8 @@ export default function GlobalDropOverlay() {
                     class={`flex-1 py-2 text-sm rounded-md transition-colors ${targetType() === "cert" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}
                     onClick={() => {
                       setTargetType("cert");
+                      // v2.4.7：切回图包/证书时清空残留的客户选择，避免导入到 产品集/<客户名>/ 幽灵目录
+                      setSelectedProductSet("");
                       setSubFolder(certFolders()[0]);
                     }}
                   >

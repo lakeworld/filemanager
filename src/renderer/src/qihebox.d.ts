@@ -143,6 +143,7 @@ interface QiheboxApi {
   }
   updater: {
     check: () => Promise<unknown>
+    state: () => Promise<unknown>
     download: (info: unknown) => Promise<unknown>
     apply: (installerPath: string, checksum: string) => Promise<unknown>
   }

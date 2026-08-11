@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createEffect, createMemo } from "solid-js";
+import { Show, For, createSignal, createEffect, createMemo, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import {
@@ -15,6 +15,7 @@ import FileThumbnail from "~/components/FileThumbnail";
 import TagChips from "~/components/TagChips";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
+import ConfirmDialog from "~/components/ConfirmDialog";
 import MoveDialog from "~/components/MoveDialog";
 import BatchTagDialog from "~/components/BatchTagDialog";
 import ArchiveProgressDialog from "~/components/ArchiveProgressDialog";
@@ -50,17 +51,24 @@ export default function Images() {
   const [sortBy, setSortBy] = createSignal<"modified" | "name" | "size">("modified");
   const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
   const [actionMessage, setActionMessage] = createSignal("");
-  const contextMenu = useContextMenu<string>();
+  const contextMenu = useContextMenu<string[]>();
 
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
   // v2.4.4：批量打标 / 压缩分享·解压 弹窗状态
   const [batchTagState, setBatchTagState] = createSignal<{ paths: string[]; commonTags: string[] } | null>(null);
   const [archiveState, setArchiveState] = createSignal<{ token: string; phase: "compress" | "extract" } | null>(null);
+  // v2.4.7：删除确认弹窗状态（替代 window.confirm）
+  const [confirmDelete, setConfirmDelete] = createSignal<string[] | null>(null);
 
+  // v2.4.7（PERF-SOP §四）：setTimeout 存句柄 + onCleanup 清理——防卸载后 setActionMessage 触碰已销毁组件
+  let actionMessageTimer: number | undefined;
   const showActionMessage = (msg: string) => {
     setActionMessage(msg);
-    setTimeout(() => setActionMessage(""), 2000);
+    window.clearTimeout(actionMessageTimer);
+    actionMessageTimer = window.setTimeout(() => setActionMessage(""), 2000);
   };
+
+  onCleanup(() => window.clearTimeout(actionMessageTimer));
 
   // —— 虚拟滚动由 VirtualGrid 承担：只渲染可见行，滚出即卸载（替代旧 slice+哨兵分批）——
   // 卡片固定行高（图 160px + 文本区），行高常量与卡片 CSS 保持一致
@@ -174,7 +182,7 @@ export default function Images() {
     if (result.success) {
       showActionMessage(`已复制 ${paths.length} 个文件到剪贴板`);
     } else {
-      window.alert(result.error || "复制失败");
+      showToast("error", "复制失败", result.error || "未知错误");
     }
   };
 
@@ -182,19 +190,23 @@ export default function Images() {
     if (paths.length === 0) return;
     const result = await api.files.showFilesInExplorer(paths);
     if (!result.success) {
-      window.alert(result.error || "打开文件夹失败");
+      showToast("error", "打开文件夹失败", result.error || "未知错误");
     }
   };
 
-  const handleDelete = async (paths: string[]) => {
+  const handleDelete = (paths: string[]) => {
     if (paths.length === 0) return;
-    if (!window.confirm(`确定要删除选中的 ${paths.length} 个文件吗？此操作不可恢复。`)) return;
+    setConfirmDelete(paths);
+  };
+
+  /** 确认后的删除执行 */
+  const doDelete = async (paths: string[]) => {
     const result = await api.files.delete(paths);
     if (result.success) {
       setSelectedPaths([]);
       loadAllImages();
     } else {
-      window.alert(result.error || "删除失败");
+      showToast("error", "删除失败", result.error || "未知错误");
     }
   };
 
@@ -206,7 +218,7 @@ export default function Images() {
       setSelectedPaths([]);
       loadAllImages();
     } else {
-      window.alert(result.error || "重命名失败");
+      showToast("error", "重命名失败", result.error || "未知错误");
     }
   };
 
@@ -234,6 +246,7 @@ export default function Images() {
   };
 
   const handleCompress = async (paths: string[]) => {
+    if (archiveState()) return; // 单任务守卫（评审 P2：防重复触发顶掉进行中任务的进度弹窗，与 Certs.tsx 一致）
     const token = newArchiveToken();
     setArchiveState({ token, phase: "compress" });
     const r = await api.archive.compress({ paths, cancelToken: token });
@@ -381,9 +394,10 @@ export default function Images() {
                 draggable={true}
                 onDragStart={(e) => handleDragOut(e, img.path, selectedPaths())}
                 onContextMenu={(e) => {
-                  // v2.4.2：右键——目标未选中时先单选它，菜单作用于该文件
+                  // v2.4.7：右键——目标未选中时先单选它，菜单作用于「选中集合或该文件」（对齐 FileBrowserView）
+                  const paths = selectedPaths().includes(img.path) ? selectedPaths() : [img.path];
                   if (!selectedPaths().includes(img.path)) setSelectedPaths([img.path]);
-                  contextMenu.open(e, img.path);
+                  contextMenu.open(e, paths);
                 }}
                 onClick={() => toggleSelection(img.path)}
                 onDblClick={() => openPreview(img, { onDelete: loadAllImages })}
@@ -416,8 +430,8 @@ export default function Images() {
           y={contextMenu.y()}
           onClose={contextMenu.close}
           items={buildFileContextMenuItems({
-            file: items().find((i) => i.path === contextMenu.payload()),
-            paths: contextMenu.payload() ? [contextMenu.payload()!] : [],
+            file: items().find((i) => i.path === contextMenu.payload()?.[0]),
+            paths: contextMenu.payload() ?? [],
             onPreview: (img) => openPreview(img, { onDelete: loadAllImages }),
             onEditInfo: (img) =>
               openPreview(img, { productSet: img.productSet, editMetadata: true, onDelete: loadAllImages }),
@@ -459,6 +473,22 @@ export default function Images() {
       {/* 压缩分享 / 解压 进度（v2.4.4） */}
       <Show when={archiveState()}>
         <ArchiveProgressDialog token={archiveState()!.token} onClose={() => setArchiveState(null)} />
+      </Show>
+
+      {/* 删除确认弹窗（v2.4.7 替代 window.confirm） */}
+      <Show when={confirmDelete()}>
+        <ConfirmDialog
+          title="删除文件"
+          message={`确定删除选中的 ${confirmDelete()!.length} 个文件吗？将移入回收站，可在回收站恢复。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={() => {
+            const paths = confirmDelete()!;
+            setConfirmDelete(null);
+            void doDelete(paths);
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
       </Show>
     </div>
   );

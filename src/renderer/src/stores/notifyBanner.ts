@@ -6,7 +6,7 @@ import { createSignal } from "solid-js"
  * v2.4.3（F7）：泛化为通用 toast——showToast(tone, title, body?, durationMs?)，
  * success 绿 / error 红，默认 3s；新 toast 顶掉旧的。
  */
-export type ToastTone = "success" | "error"
+export type ToastTone = "success" | "error" | "info"
 
 interface Toast {
   tone: ToastTone

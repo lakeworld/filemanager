@@ -11,11 +11,13 @@ import FileThumbnail from "~/components/FileThumbnail";
 import TagChips from "~/components/TagChips";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
+import ConfirmDialog from "~/components/ConfirmDialog";
 import MoveDialog from "~/components/MoveDialog";
 import BatchRenameDialog from "~/components/BatchRenameDialog";
 import BatchTagDialog from "~/components/BatchTagDialog";
 import ArchiveProgressDialog from "~/components/ArchiveProgressDialog";
 import EmptyState from "~/components/EmptyState";
+import Loading from "~/components/Loading";
 import AiSuggestionPanel, { AiPanelItem } from "~/components/AiSuggestionPanel";
 import { handleDragOut } from "~/utils/dragout";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
@@ -57,8 +59,13 @@ function formatBytes(bytes: number): string {
 export default function FileBrowserView(props: FileBrowserViewProps) {
   const navigate = useNavigate();
   const [files, setFiles] = createSignal<FileEntry[]>([]);
+  // v2.4.7（评审修复）：列表加载态与失败反馈——加载中显示 Loading 而非空态，失败展示错误横幅
+  const [loading, setLoading] = createSignal(false);
+  const [loadError, setLoadError] = createSignal("");
   const [showNewFolder, setShowNewFolder] = createSignal(false);
   const [newFolderName, setNewFolderName] = createSignal("");
+  // v2.4.7（评审修复）：新建子文件夹在途守卫——Enter/按钮连击防重复创建
+  const [creatingFolder, setCreatingFolder] = createSignal(false);
   const [selectedFilePaths, setSelectedFilePaths] = createSignal<string[]>([]);
   // v2.4.4（T3）：标签筛选——渲染侧过滤，计数/全选作用于过滤结果，loadFiles 与选中/预览/右键行为零改动
   const [tagFilter, setTagFilter] = createSignal("");
@@ -77,6 +84,8 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   const [actionMessage, setActionMessage] = createSignal("");
   const [aiPanel, setAiPanel] = createSignal<{ mode: "rename" | "tag"; items: AiPanelItem[] } | null>(null);
   const [aiBusy, setAiBusy] = createSignal(false);
+  // v2.4.7（UI 反馈统一）：删除确认弹窗状态（替代 window.confirm）——kind=files 批量删文件 / kind=subfolder 删子文件夹
+  const [confirmDelete, setConfirmDelete] = createSignal<{ kind: "files"; paths: string[] } | { kind: "subfolder"; folder: string } | null>(null);
 
   // v2.4.7（PERF-SOP §四）：组件级 setTimeout 进 onCleanup——防卸载后 setActionMessage 触碰已销毁组件
   let actionMessageTimer: number | undefined;
@@ -113,15 +122,26 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   let loadSeq = 0;
   const loadFiles = async () => {
     const seq = ++loadSeq;
-    const result = await api.files.list({
-      product_set: props.entity,
-      file_type: isCustomer() ? "" : fileType(),
-      sub_folder: props.subFolder,
-      scope: props.scope,
-    });
-    if (seq !== loadSeq) return; // 已切到别的文件夹，过期结果直接丢弃
-    if (result.success && result.data) {
-      setFiles(result.data);
+    setLoading(true);
+    setLoadError("");
+    try {
+      const result = await api.files.list({
+        product_set: props.entity,
+        file_type: isCustomer() ? "" : fileType(),
+        sub_folder: props.subFolder,
+        scope: props.scope,
+      });
+      if (seq !== loadSeq) return; // 已切到别的文件夹，过期结果直接丢弃
+      if (result.success && result.data) {
+        setFiles(result.data);
+      } else {
+        setLoadError(result.error || "文件列表加载失败");
+      }
+    } catch (e) {
+      if (seq !== loadSeq) return;
+      setLoadError(e instanceof Error ? e.message : "文件列表加载失败");
+    } finally {
+      if (seq === loadSeq) setLoading(false);
     }
   };
 
@@ -150,27 +170,30 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     setSelectedFilePaths([]);
   };
 
-  const handleBatchDelete = async () => {
+  const handleBatchDelete = () => {
     const paths = selectedFilePaths();
     if (paths.length === 0) return;
-    await handleDelete(paths);
-    setSelectedFilePaths([]);
+    handleDelete(paths);
   };
 
-  const handleDelete = async (paths: string[]) => {
+  const handleDelete = (paths: string[]) => {
     if (paths.length === 0) return;
-    if (!window.confirm(`确定删除选中的 ${paths.length} 个文件吗？将移入回收站，可在回收站恢复。`)) return;
+    setConfirmDelete({ kind: "files", paths });
+  };
+
+  const doDeleteFiles = async (paths: string[]) => {
     const result = await api.files.delete(paths);
     if (result.success && result.data) {
       loadFiles();
+      setSelectedFilePaths([]); // 右键/工具栏删除成功后统一清空选中集（评审修复）
       const { deleted, failed } = result.data;
       showActionMessage(`已删除 ${deleted} 个文件${failed.length > 0 ? `，失败 ${failed.length} 个` : ""}（可在回收站恢复）`);
       // v2.4.2：全部失败时展示首个失败原因（聚合结果部分失败不回滚，明细可见）
       if (deleted === 0 && failed.length > 0) {
-        window.alert(result.data.failed[0].error);
+        showToast("error", "删除失败", result.data.failed[0].error);
       }
     } else {
-      window.alert(result.error || "删除失败");
+      showToast("error", "删除失败", result.error ?? undefined);
     }
   };
 
@@ -182,7 +205,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       loadFiles();
       setSelectedFilePaths([]);
     } else {
-      window.alert(result.error || "重命名失败");
+      showToast("error", "重命名失败", result.error ?? undefined);
     }
   };
 
@@ -218,6 +241,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   };
 
   const handleCompress = async (paths: string[]) => {
+    if (archiveState()) return; // 单任务守卫（与 Certs 同款：防重复触发顶掉进行中任务的进度弹窗）
     const token = newArchiveToken();
     setArchiveState({ token, phase: "compress" });
     const r = await api.archive.compress({ paths, cancelToken: token });
@@ -244,7 +268,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     if (result.success) {
       showActionMessage(`已复制 ${paths.length} 个文件到剪贴板`);
     } else {
-      window.alert(result.error || "复制失败");
+      showToast("error", "复制失败", result.error ?? undefined);
     }
   };
 
@@ -252,7 +276,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     if (paths.length === 0) return;
     const result = await api.files.showFilesInExplorer(paths);
     if (!result.success) {
-      window.alert(result.error || "打开文件夹失败");
+      showToast("error", "打开文件夹失败", result.error ?? undefined);
     }
   };
 
@@ -278,10 +302,13 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     });
   });
 
-  const handleDeleteSubfolder = async () => {
+  const handleDeleteSubfolder = () => {
     const folder = props.subFolder;
     if (!folder) return;
-    if (!window.confirm(`确定删除子文件夹 "${folder}" 吗？将移入回收站，可在回收站恢复。`)) return;
+    setConfirmDelete({ kind: "subfolder", folder });
+  };
+
+  const doDeleteSubfolder = async (folder: string) => {
     const result = await api.files.deleteSubfolder({
       product_set: props.entity,
       file_type: isCustomer() ? "" : fileType(),
@@ -294,26 +321,32 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       navigate(folderPath(next));
       loadWorkspaceConfig();
     } else {
-      window.alert(result.error || "删除子文件夹失败");
+      showToast("error", "删除子文件夹失败", result.error ?? undefined);
     }
   };
 
   const handleCreateFolder = async () => {
+    if (creatingFolder()) return; // 在途守卫：Enter/按钮连击只放行一次
     const name = newFolderName().trim();
     if (!name) return;
-    const result = await api.files.createSubfolder({
-      product_set: props.entity,
-      file_type: isCustomer() ? "" : fileType(),
-      name,
-      scope: props.scope,
-    });
-    if (result.success) {
-      setShowNewFolder(false);
-      setNewFolderName("");
-      loadWorkspaceConfig();
-      navigate(folderPath(name));
-    } else {
-      window.alert(result.error || "创建子文件夹失败");
+    setCreatingFolder(true);
+    try {
+      const result = await api.files.createSubfolder({
+        product_set: props.entity,
+        file_type: isCustomer() ? "" : fileType(),
+        name,
+        scope: props.scope,
+      });
+      if (result.success) {
+        setShowNewFolder(false);
+        setNewFolderName("");
+        loadWorkspaceConfig();
+        navigate(folderPath(name));
+      } else {
+        showToast("error", "创建子文件夹失败", result.error ?? undefined);
+      }
+    } finally {
+      setCreatingFolder(false);
     }
   };
 
@@ -355,12 +388,12 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     });
     setAiBusy(false);
     if (!r.success || !r.data) {
-      window.alert(r.error || "AI 命名失败，请稍后重试");
+      showToast("error", "AI 命名失败", r.error || "请稍后重试");
       return;
     }
     const suggestions = (r.data as { suggestions?: { original: string; suggested: string; note?: string }[] })?.suggestions ?? [];
     if (suggestions.length === 0) {
-      window.alert("AI 没有返回命名建议，请重试");
+      showToast("info", "AI 命名", "AI 没有返回命名建议，请重试");
       return;
     }
     setAiPanel({ mode: "rename", items: suggestions });
@@ -378,12 +411,12 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     });
     setAiBusy(false);
     if (!r.success || !r.data) {
-      window.alert(r.error || "AI 打标失败，请稍后重试");
+      showToast("error", "AI 打标失败", r.error || "请稍后重试");
       return;
     }
     const suggestions = (r.data as { suggestions?: { file: string; tags: string[] }[] })?.suggestions ?? [];
     if (suggestions.length === 0) {
-      window.alert("AI 没有返回标签建议，请重试");
+      showToast("info", "AI 打标", "AI 没有返回标签建议，请重试");
       return;
     }
     setAiPanel({
@@ -407,7 +440,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         applied++;
       } else {
         failed++;
-        window.alert(`「${item.original}」重命名失败：${r.error ?? "未知错误"}`);
+        showToast("error", "重命名失败", `「${item.original}」：${r.error ?? "未知错误"}`);
       }
     }
     setAiPanel(null);
@@ -451,7 +484,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         applied++;
       } else {
         failed++;
-        window.alert(`「${item.original}」打标失败：${r.error ?? "未知错误"}`);
+        showToast("error", "打标失败", `「${item.original}」：${r.error ?? "未知错误"}`);
       }
     }
     setAiPanel(null);
@@ -460,6 +493,30 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       applied > 0
         ? `AI 打标完成：成功 ${applied} 项${failed ? `，失败 ${failed} 项` : ""}${skipped ? `，忽略未定义标签 ${skipped} 项` : ""}`
         : (skipped > 0 ? "AI 建议的标签均未在设置中定义，未应用" : "没有可应用的标签建议"),
+    );
+  };
+
+  /** 删除确认弹窗（v2.4.7 UI 反馈统一，替代 window.confirm；state 由 Show 保证非空） */
+  const DeleteConfirm = (props: {
+    state: { kind: "files"; paths: string[] } | { kind: "subfolder"; folder: string };
+    onDone: () => void;
+  }) => {
+    return (
+      <ConfirmDialog
+        title={props.state.kind === "files" ? "删除文件" : "删除子文件夹"}
+        message={
+          props.state.kind === "files"
+            ? `确定删除选中的 ${props.state.paths.length} 个文件吗？将移入回收站，可在回收站恢复。`
+            : `确定删除子文件夹 "${props.state.folder}" 吗？将移入回收站，可在回收站恢复。`
+        }
+        confirmLabel="删除"
+        danger
+        onConfirm={() => {
+          props.onDone();
+          void (props.state.kind === "files" ? doDeleteFiles(props.state.paths) : doDeleteSubfolder(props.state.folder));
+        }}
+        onCancel={props.onDone}
+      />
     );
   };
 
@@ -564,8 +621,18 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       <div
         class="border-2 border-dashed rounded-2xl p-8 transition-colors border-surface-200 bg-surface-0 flex-1 min-h-0 flex flex-col"
       >
+        <Show when={loadError()}>
+          <div class="mb-3 px-3 py-2 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600 flex items-center justify-between shrink-0">
+            <span>文件列表加载失败：{loadError()}</span>
+            <button class="text-primary-600 hover:text-primary-700 whitespace-nowrap" onClick={() => void loadFiles()}>重试</button>
+          </div>
+        </Show>
         <Show when={filteredFiles().length > 0} fallback={
-          <EmptyState icon="📂" title={tagFilter() ? "没有匹配标签的文件" : "拖放文件到此处"} desc={tagFilter() ? "换个标签试试" : "支持图片、PDF 等文件"} />
+          <Show when={loading()} fallback={
+            <EmptyState icon="📂" title={tagFilter() ? "没有匹配标签的文件" : "拖放文件到此处"} desc={tagFilter() ? "换个标签试试" : "支持图片、PDF 等文件"} />
+          }>
+            <Loading text="文件加载中…" />
+          </Show>
         }>
           <div class="flex items-center justify-between mb-3 shrink-0">
             <div class="flex items-center gap-3">
@@ -643,12 +710,13 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
               class="w-full px-3 py-2 border border-surface-200 rounded-lg mb-4"
               placeholder={isCustomer() ? "如：报价" : fileType() === "image" ? "如：场景图" : "如：FDA认证"}
               value={newFolderName()}
+              disabled={creatingFolder()}
               onInput={(e) => setNewFolderName(e.currentTarget.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
             />
             <div class="flex gap-3 justify-end">
               <button class="btn-secondary" onClick={() => setShowNewFolder(false)}>取消</button>
-              <button class="btn-primary" onClick={handleCreateFolder}>创建</button>
+              <button class="btn-primary" onClick={handleCreateFolder} disabled={creatingFolder()}>创建</button>
             </div>
           </div>
         </div>
@@ -745,6 +813,11 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
           onApply={aiPanel()!.mode === "rename" ? applyAiRename : applyAiTag}
           onClose={() => setAiPanel(null)}
         />
+      </Show>
+
+      {/* 删除确认弹窗（v2.4.7 UI 反馈统一，替代 window.confirm） */}
+      <Show when={confirmDelete()}>
+        <DeleteConfirm state={confirmDelete()!} onDone={() => setConfirmDelete(null)} />
       </Show>
     </div>
   );
