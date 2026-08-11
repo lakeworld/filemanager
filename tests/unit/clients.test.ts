@@ -88,7 +88,7 @@ describe('客户服务（v2.4.7 §5）', () => {
     await box.workspace.productSetCreate({ name: '系列A' })
     await box.clients.create({ name: '张三' })
 
-    // 预置 erp_ext（v2.6 erp-bridge 写回命名空间，本体不可写但必须保留）
+    // 预置 erp_ext（v2.7 erp-bridge 写回命名空间，本体不可写但必须保留）
     const store = await readCustomersStore(ws)
     ;(store['张三'] as { erp_ext?: unknown }).erp_ext = { level: 'VIP', last_order: '2026-08-01' }
     await fsp.writeFile(path.join(ws, '.qihefilemanager', 'customers.json'), JSON.stringify(store, null, 2))

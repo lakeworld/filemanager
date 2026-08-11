@@ -21,7 +21,7 @@
 - **工作区更干净**：缩略图缓存迁移到系统用户数据目录，不再写进工作区文件夹；放坚果云/OneDrive 同步时不被缓存文件刷屏
 - **稳定加固**：修复真实证书（含嵌入字体/复杂对象）导致的闪退问题
 
-> 下载体验 v2.1.0：👉 [https://www.qihebook.cloud/box/](https://www.qihebook.cloud/box/)
+> 下载体验最新版（v2.4.8）：👉 [https://www.qihebook.cloud/file-manager](https://www.qihebook.cloud/file-manager)
 
 ## 二、与启禾 ERP 的关系：同源衍生
 
@@ -53,7 +53,7 @@
 2. **生态**：开发者可基于源码扩展，反哺产品
 3. **官网引流**：安装包统一从官网下载，保证版本更新与安全分发渠道，也让我们知道谁在用它
 
-**下载安装包**：👉 [https://www.qihebook.cloud/box/](https://www.qihebook.cloud/box/)
+**下载安装包**：👉 [https://www.qihebook.cloud/file-manager](https://www.qihebook.cloud/file-manager)
 
 ### 开源仓库
 

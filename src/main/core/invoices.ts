@@ -38,7 +38,7 @@ export type { InvoiceRecord } from '../../shared/types'
 export const INVOICE_STATUSES = ['待报销', '已报销', '已入账'] as const
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number]
 
-/** 新建请求（API 面不含 ocr_ext——本体物理不可写，v2.6 OCR 插件才写回） */
+/** 新建请求（API 面不含 ocr_ext——本体物理不可写，v2.7 OCR 插件才写回） */
 export interface InvoiceCreateRequest {
   number: string
   code?: string

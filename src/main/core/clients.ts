@@ -3,7 +3,7 @@
  * - 目录扫描为实，JSON 为档案（与 product_sets.json 同哲学）：客户名 = 目录名 = JSON key；
  *   目录不存在 = 客户不存在；删除走回收站时 JSON 条目保留（恢复即复原）
  * - 子文件夹默认集来自 config.customer_subfolders（旧 config 缺省由 loadConfig 合并默认值）
- * - erp_ext 为 v2.6 erp-bridge 预留命名空间：本体只读不校验、API 面不含入参
+ * - erp_ext 为 v2.7 erp-bridge 预留命名空间：本体只读不校验、API 面不含入参
  *   （CustomerUpdateRequest 无此字段 → 物理不可写；读写档案时原样保留）
  * 纯 TS：不 import electron，可在 node 环境直接测试。
  */
@@ -111,7 +111,7 @@ export class ClientsService {
 
   /**
    * 更新档案：alias/country/contact/source + tags/notes + related_product_sets（未传字段保留原值）。
-   * API 面不含 erp_ext（本体物理不可写，v2.6 erp-bridge 才写回）；读写时原样保留；updated_at 刷新。
+   * API 面不含 erp_ext（本体物理不可写，v2.7 erp-bridge 才写回）；读写时原样保留；updated_at 刷新。
    */
   async update(req: CustomerUpdateRequest): Promise<CustomerInfo> {
     const ws = this.requireWS()

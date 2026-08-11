@@ -26,7 +26,7 @@ export interface TagDef {
 /**
  * v2.4.4（T7）：标签引用源——可枚举「实体 → 标签数组」并整体回写的存储。
  * 内置源：文件（metadata.json）、产品集（product_sets.json）。
- * 未来接入：v2.6 客户（customers.json）、v2.7 发票（invoices.json）——registerSource 即用，
+ * v2.4.7 已接入：客户（customers.json）、发票（invoices.json）——registerSource 即用，
  * rename/delete/adopt/迁移/计数全部自动覆盖，不再手写逐库传播。
  * list() 必须返回 tags 的副本（调用方原地修改后经 save() 回写，避免污染共享引用）。
  */
