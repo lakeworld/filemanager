@@ -16,6 +16,7 @@ import type {
   BatchTagResult,
   ArchiveCompressRequest,
   ArchiveExtractRequest,
+  ExportEntry,
   SubfolderCreateRequest,
   DeleteSubfolderRequest,
   FileRenameRequest,
@@ -172,6 +173,10 @@ export const api = {
     extract: (req: ArchiveExtractRequest) =>
       qb.archive.extract(req as any) as Promise<ApiResult<unknown[]>>,
     cancel: (token: string) => qb.archive.cancel(token) as Promise<ApiResult<boolean>>,
+  },
+  // v2.4.8：导出区（工作区/导出/ 产物列表）
+  exports: {
+    list: () => qb.exports.list() as Promise<ApiResult<ExportEntry[]>>,
   },
   dashboard: {
     stats: () => qb.dashboard.stats() as Promise<ApiResult<DashboardStatsType>>,

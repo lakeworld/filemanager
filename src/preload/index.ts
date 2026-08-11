@@ -113,6 +113,10 @@ const api = {
     extract: (req: unknown) => invoke('qihebox:archive:extract', req),
     cancel: (token: string) => invoke('qihebox:archive:cancel', token),
   },
+  // v2.4.8：导出区（工作区/导出/ 压缩分享产物列表）
+  exports: {
+    list: () => invoke('qihebox:exports:list'),
+  },
   dashboard: {
     stats: () => invoke('qihebox:dashboard:stats'),
     expiringCerts: () => invoke('qihebox:dashboard:expiringCerts'),

@@ -28,6 +28,7 @@ export type {
   ArchiveProgress,
   ArchiveResult,
   ArchiveEventPayload,
+  ExportEntry,
   TagInfo,
   TrashEntry,
   // —— v2.4.7：客户 / 发票 / 入库 / 交换区 ——

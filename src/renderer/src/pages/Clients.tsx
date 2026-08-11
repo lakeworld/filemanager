@@ -492,8 +492,10 @@ export default function Clients() {
             </div>
 
             {/* ② 子文件夹文件区：FileBrowserView 自含子文件夹 Tab（报价/合同/沟通/其他）与文件网格，
-                tab 点击经组件内 navigate 直达 /files/customer/:name/:subFolder 完整文件管理页 */}
-            <div class="flex-1 min-h-0">
+                tab 点击经组件内 navigate 直达 /files/customer/:name/:subFolder 完整文件管理页
+                v2.4.8：保底高度——档案卡高时 flex-1 把文件区压缩成小条，拖放提示溢出虚线框外；
+                改 min-h-[420px]（空态 ~180px + 面包屑/Tab ~100px 后仍有富余），内容超高时由外层 main 滚动 */}
+            <div class="flex-1 min-h-[420px]">
               <FileBrowserView scope="customer" entity={customerName()} subFolder={subFolders()[0] || ""} />
             </div>
           </Show>

@@ -259,6 +259,17 @@ export interface ArchiveResult {
   /** 总字节数 */
   size: number
 }
+// —— v2.4.8：导出区条目（工作区/导出/ 下的压缩分享产物）——
+export interface ExportEntry {
+  /** 文件名（如 xx.zip） */
+  name: string
+  /** 绝对路径 */
+  path: string
+  /** 文件大小（字节） */
+  size: number
+  /** 修改时间（ISO 字符串） */
+  mtime: string
+}
 export interface ArchiveEventPayload {
   success: boolean
   cancelled?: boolean

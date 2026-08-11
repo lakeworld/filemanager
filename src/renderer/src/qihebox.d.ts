@@ -91,6 +91,10 @@ interface QiheboxApi {
     extract: (req: unknown) => Promise<unknown>
     cancel: (token: string) => Promise<unknown>
   }
+  // v2.4.8：导出区（工作区/导出/ 产物列表）
+  exports: {
+    list: () => Promise<unknown>
+  }
   dashboard: {
     stats: () => Promise<unknown>
     expiringCerts: () => Promise<unknown>

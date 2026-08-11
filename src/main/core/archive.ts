@@ -20,7 +20,7 @@ import zlib from 'node:zlib'
 import { isPathInsideWorkspaceReal, productSetFromFilePath, EXPORTS_DIR } from './paths'
 import { resolveConflictName } from './naming'
 import { WorkspaceService } from './workspace'
-import type { ArchiveCompressRequest, ArchiveExtractRequest, ArchiveResult } from '../../shared/types'
+import type { ArchiveCompressRequest, ArchiveExtractRequest, ArchiveResult, ExportEntry } from '../../shared/types'
 
 export interface ArchiveProgressCb {
   (done: number, total: number, current: string): void
@@ -574,6 +574,36 @@ export class ArchiveService {
   private beginTask(): void {
     if (this.taskRunning) throw new Error('已有压缩/解压任务进行中，请等待其完成')
     this.taskRunning = true
+  }
+
+  /** 列出导出区产物（工作区/导出/ 下文件，按修改时间倒序；目录条目忽略；目录不存在返回空） */
+  async listExports(): Promise<ExportEntry[]> {
+    const ws = this.requireWS()
+    const exportDir = path.join(ws, EXPORTS_DIR)
+    let names: string[]
+    try {
+      names = await fsp.readdir(exportDir)
+    } catch {
+      return []
+    }
+    const entries: ExportEntry[] = []
+    for (const name of names) {
+      const full = path.join(exportDir, name)
+      let st: fs.Stats
+      try {
+        st = await fsp.stat(full)
+      } catch {
+        continue // 竞态删除/不可读条目跳过
+      }
+      if (!st.isFile()) continue
+      entries.push({
+        name,
+        path: full,
+        size: st.size,
+        mtime: st.mtime.toISOString(),
+      })
+    }
+    return entries.sort((a, b) => (a.mtime < b.mtime ? 1 : a.mtime > b.mtime ? -1 : 0))
   }
 
   /** 压缩分享：产物落 工作区/导出/，返回产物路径 */

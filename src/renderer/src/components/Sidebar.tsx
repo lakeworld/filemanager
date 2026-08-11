@@ -1,7 +1,7 @@
-import { Show, For, createSignal, createEffect } from "solid-js";
+import { Show, For, createSignal } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import Logo from "~/components/Logo";
-import { currentWorkspace, productSets, selectedProductSet, setSelectedProductSet, loadProductSets } from "~/stores/workspace";
+import { currentWorkspace } from "~/stores/workspace";
 
 interface MenuItem {
   icon: string;
@@ -19,12 +19,6 @@ export default function Sidebar() {
   const location = useLocation();
   const [expanded, setExpanded] = createSignal(true);
 
-  createEffect(() => {
-    if (currentWorkspace()) {
-      loadProductSets();
-    }
-  });
-
   const groups: MenuGroup[] = [
     {
       title: "资料管理",
@@ -40,7 +34,11 @@ export default function Sidebar() {
     },
     {
       title: "工具",
-      items: [{ icon: "🔍", label: "搜索", path: "/search" }],
+      items: [
+        { icon: "🔍", label: "搜索", path: "/search" },
+        // v2.4.8：导出区入口（压缩分享产物）
+        { icon: "📤", label: "导出", path: "/exports" },
+      ],
     },
     {
       title: "系统",
@@ -114,42 +112,6 @@ export default function Sidebar() {
             </>
           )}
         </For>
-
-        <Show when={expanded() && currentWorkspace()}>
-          <div class="mt-4 px-3 mb-2">
-            <div class="text-xs font-medium text-surface-400 uppercase tracking-wider px-2">产品集</div>
-          </div>
-          <div class="px-3">
-            <For each={productSets().slice(0, 5)}>
-              {(ps) => (
-                <button
-                  class="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors hover:bg-surface-100"
-                  classList={{
-                    "bg-primary-50 text-primary-700": selectedProductSet() === ps.name,
-                    "text-surface-600": selectedProductSet() !== ps.name,
-                  }}
-                  onClick={() => {
-                    setSelectedProductSet(ps.name);
-                    navigate(`/product-sets/${ps.name}`);
-                  }}
-                >
-                  <div class="flex items-center gap-2">
-                    <span>📦</span>
-                    <span class="truncate">{ps.name}</span>
-                  </div>
-                </button>
-              )}
-            </For>
-            <Show when={productSets().length > 5}>
-              <button
-                class="mt-1 w-full text-left px-3 py-2 rounded-lg text-xs text-surface-400 transition-colors hover:bg-surface-100 hover:text-primary-600"
-                onClick={() => navigate("/product-sets")}
-              >
-                查看全部 ({productSets().length})
-              </button>
-            </Show>
-          </div>
-        </Show>
       </div>
 
       <Show when={expanded()}>
