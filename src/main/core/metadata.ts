@@ -12,7 +12,17 @@
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
-import { metadataPath, writeJsonAtomic, ensureWorkspaceDirs, PRODUCT_SETS_DIR, productSetFromFilePath } from './paths'
+import {
+  metadataPath,
+  writeJsonAtomic,
+  ensureWorkspaceDirs,
+  PRODUCT_SETS_DIR,
+  CUSTOMERS_DIR,
+  INVOICES_DIR,
+  INBOUND_DIR,
+  EXCHANGE_DIR,
+  productSetFromFilePath,
+} from './paths'
 import { WorkspaceService } from './workspace'
 import type { FileMetadata, MetadataUpdateRequest, BatchTagRequest, BatchTagResult, FailedItem } from '../../shared/types'
 
@@ -56,6 +66,32 @@ export function normalizeExpiryDate(s: string): string | null {
   if (Number.isNaN(t.getTime())) return null
   const p = (n: number): string => String(n).padStart(2, '0')
   return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`
+}
+
+/** v2.4.7（§4.1）：元数据 key 首段所属区域（结构化解析 key 的统一判读出口） */
+export type MetadataKeyRegion = 'productSet' | 'customer' | 'invoice' | 'inbound' | 'exchange'
+
+/**
+ * v2.4.7（§4.1）：元数据 key 区域判读——所有结构化解析 key 的位置统一走此函数。
+ * 判读规则：key 首段 ∈ {客户, 发票, 入库, 交换区} 且该首段不是实存产品集目录 → 按对应区域解读；
+ * 否则按产品集 key 解读（存量同名产品集兼容优先，§3.7 保留名使新数据无歧义）。
+ * ws：工作区路径（未打开工作区时传入空串会返回 'productSet'，由调用方自行决定语义）。
+ */
+export async function interpretMetadataKeyRegion(ws: string, key: string): Promise<MetadataKeyRegion> {
+  const first = key.replace(/\\/g, '/').split('/')[0] ?? ''
+  if (first !== CUSTOMERS_DIR && first !== INVOICES_DIR && first !== INBOUND_DIR && first !== EXCHANGE_DIR) {
+    return 'productSet'
+  }
+  // 首段为保留名但存在同名产品集目录 → 产品集优先（存量兼容）
+  try {
+    await fsp.stat(path.join(path.resolve(ws), PRODUCT_SETS_DIR, first))
+    return 'productSet'
+  } catch {
+    if (first === CUSTOMERS_DIR) return 'customer'
+    if (first === INVOICES_DIR) return 'invoice'
+    if (first === INBOUND_DIR) return 'inbound'
+    return 'exchange'
+  }
 }
 
 export class MetadataService {
@@ -141,13 +177,24 @@ export class MetadataService {
   /**
    * v2.4.2（D3+D4）：元数据 key = 相对工作区「产品集」目录的路径，固定 `/` 分隔符。
    * 形如 `系列A/图包/主图/a.jpg`；文件不在产品集内返回空串。
+   *
+   * v2.4.7（§4.1）：key 泛化——工作区内任意文件都有 key：
+   * - `产品集/` 内：相对产品集目录（格式不变，存量元数据/缩略图哈希/回收站逻辑零迁移）
+   * - 工作区内其他位置：相对工作区根（如 `客户/张三/报价/a.pdf`、`发票/2026/f.pdf`）
+   * - 工作区外：空串（调用方据此拒绝，如 update / setTagsBatch）
    */
   fileMetadataKey(filePath: string): string {
     const ws = this.requireWS()
-    const base = path.join(path.resolve(ws), PRODUCT_SETS_DIR)
-    const rel = path.relative(base, path.resolve(filePath))
-    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return ''
-    return rel.split(path.sep).join('/')
+    const resolved = path.resolve(filePath)
+    const psBase = path.join(path.resolve(ws), PRODUCT_SETS_DIR)
+    const psRel = path.relative(psBase, resolved)
+    if (!psRel) return '' // 产品集目录本身（与 v2.4.2 行为一致，目录无元数据 key）
+    if (!psRel.startsWith('..') && !path.isAbsolute(psRel)) {
+      return psRel.split(path.sep).join('/')
+    }
+    const wsRel = path.relative(path.resolve(ws), resolved)
+    if (!wsRel || wsRel.startsWith('..') || path.isAbsolute(wsRel)) return ''
+    return wsRel.split(path.sep).join('/')
   }
 
   /** 读取候选 key（新格式 + 旧格式兼容回退）；第一个是目标 key，其余是旧数据位置 */
@@ -176,7 +223,7 @@ export class MetadataService {
     if (!req.file_path) throw new Error('缺少文件路径')
     const keys = this.keyCandidates(req.file_path)
     const key = keys[0]
-    if (!key) throw new Error('文件不在产品集内，无法保存元数据')
+    if (!key) throw new Error('文件不在工作区内，无法保存元数据')
     const store = await this.loadMetadataStore()
     // 懒迁移：旧格式 key 存在则取走其数据并删除旧条目（写入即迁移，无需全量扫描）
     let existing = store.files[key]
@@ -224,7 +271,7 @@ export class MetadataService {
       }
       const key = this.fileMetadataKey(p)
       if (!key) {
-        failed.push({ path: p, error: '文件不在产品集内' })
+        failed.push({ path: p, error: '文件不在工作区内' })
         continue
       }
       const cur = store.files[key] ?? emptyMetadata()

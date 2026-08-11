@@ -22,11 +22,13 @@ import {
   PRODUCT_SETS_DIR,
   IMAGES_DIR,
   CERTS_DIR,
+  CUSTOMERS_DIR,
 } from './paths'
 import { WorkspaceService } from './workspace'
 import { MetadataService } from './metadata'
 import { globalWorkspaceIndex } from './indexCache'
 import type { ThumbnailProvider } from './files'
+import type { ClientsService } from './clients'
 import type { TrashEntry, TrashKind } from '../../shared/types'
 
 export type { TrashEntry, TrashKind } from '../../shared/types'
@@ -36,10 +38,15 @@ export const TRASH_DIR = 'trash'
 interface TrashMeta extends TrashEntry {}
 
 export class TrashService {
+  /**
+   * v2.4.7：clients 注入用于 kind='customer' 的 purge 时清理 customers.json 条目
+   * （可选——未注入（旧调用方）时跳过条目清理，其余行为不变）。
+   */
   constructor(
     private workspace: WorkspaceService,
     private metadata: MetadataService,
     private thumbs: ThumbnailProvider,
+    private clients?: ClientsService,
   ) {}
 
   private requireWS(): string {
@@ -143,17 +150,28 @@ export class TrashService {
 
     // 子文件夹恢复：名字加回 config（产品集列表为目录扫描，无需额外注册）
     if (meta.kind === 'subfolder') {
-      const rel = path.relative(path.join(ws, PRODUCT_SETS_DIR), meta.originalPath)
-      const parts = rel.split(path.sep)
-      const subName = parts[parts.length - 1]
-      const type = parts[1] === IMAGES_DIR ? 'image' : parts[1] === CERTS_DIR ? 'cert' : null
-      if (type && subName) {
+      // v2.4.7（§4.4）：原路径首段为 客户 → 回填 cfg.customer_subfolders；否则走现有 image/cert 逻辑
+      const relRoot = path.relative(ws, meta.originalPath)
+      const rootParts = relRoot.split(path.sep)
+      const subName = rootParts[rootParts.length - 1]
+      if (rootParts[0] === CUSTOMERS_DIR && subName) {
         const cfg = await this.workspace.loadConfig(ws)
-        const list = type === 'image' ? cfg.image_subfolders : cfg.cert_subfolders
-        if (!list.includes(subName)) {
-          if (type === 'image') cfg.image_subfolders.push(subName)
-          else cfg.cert_subfolders.push(subName)
+        if (!(cfg.customer_subfolders ?? []).includes(subName)) {
+          cfg.customer_subfolders = [...(cfg.customer_subfolders ?? []), subName]
           await this.workspace.saveConfig(ws, cfg)
+        }
+      } else {
+        const rel = path.relative(path.join(ws, PRODUCT_SETS_DIR), meta.originalPath)
+        const parts = rel.split(path.sep)
+        const type = parts[1] === IMAGES_DIR ? 'image' : parts[1] === CERTS_DIR ? 'cert' : null
+        if (type && subName) {
+          const cfg = await this.workspace.loadConfig(ws)
+          const list = type === 'image' ? cfg.image_subfolders : cfg.cert_subfolders
+          if (!list.includes(subName)) {
+            if (type === 'image') cfg.image_subfolders.push(subName)
+            else cfg.cert_subfolders.push(subName)
+            await this.workspace.saveConfig(ws, cfg)
+          }
         }
       }
     }
@@ -194,10 +212,25 @@ export class TrashService {
       await collect(dataDir, meta.originalPath)
       if (meta.kind === 'subfolder') {
         for (const f of originalFiles) await this.metadata.removeFileMetadata(f).catch(() => {})
-      } else {
+      } else if (meta.kind === 'productSet') {
         // productSet：整个产品集元数据按前缀清理
         const name = path.basename(meta.originalPath)
         await this.metadata.removeFileMetadataForProductSet(name).catch(() => {})
+      } else if (meta.kind === 'customer') {
+        // v2.4.7（§4.4）：客户区元数据按前缀 客户/<名>/ 清理（key 泛化后为工作区相对路径）
+        const name = path.basename(meta.originalPath)
+        const store = await this.metadata.loadMetadataStore()
+        const prefixes = [`${CUSTOMERS_DIR}/${name}/`, `${CUSTOMERS_DIR}\\${name}\\`]
+        let changed = false
+        for (const key of Object.keys(store.files)) {
+          if (prefixes.some((p) => key.startsWith(p))) {
+            delete store.files[key]
+            changed = true
+          }
+        }
+        if (changed) await this.metadata.saveMetadataStore(store)
+        // customers.json 条目清理（账物分离：invoices/inbound 中 customer 字段保留字面值，本处不动）
+        await this.clients?.removeEntry(name).catch(() => {})
       }
       await this.thumbs.removeThumbnails(originalFiles).catch(() => {})
     }

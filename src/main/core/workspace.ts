@@ -17,10 +17,12 @@ import {
   PRODUCT_SETS_DIR,
   IMAGES_DIR,
   CERTS_DIR,
+  CUSTOMERS_DIR,
   filterSlice,
   writeJsonAtomic,
   readJsonFile,
   assertSafeFolderName,
+  isReservedRootName,
 } from './paths'
 import { globalCountCache } from './scanCache'
 import { globalWorkspaceIndex } from './indexCache'
@@ -111,10 +113,18 @@ export class WorkspaceService {
   async loadConfig(workspace?: string): Promise<WorkspaceConfig> {
     const ws = workspace ?? this.currentWS
     const cfg = await readJsonFile<WorkspaceConfig>(configPath(ws))
-    if (cfg) return cfg
-    const def = defaultWorkspaceConfig()
-    await this.saveConfig(ws, def)
-    return def
+    if (!cfg) {
+      const def = defaultWorkspaceConfig()
+      await this.saveConfig(ws, def)
+      return def
+    }
+    // v2.4.7：旧 config 缺 customer_subfolders → 合并默认值并写回（向后兼容零迁移；
+    // 已存在但为空数组 = 用户主动清空，不覆盖）
+    if (cfg.customer_subfolders === undefined || cfg.customer_subfolders === null) {
+      cfg.customer_subfolders = defaultWorkspaceConfig().customer_subfolders
+      await this.saveConfig(ws, cfg)
+    }
+    return cfg
   }
 
   async saveConfig(workspace: string, cfg: WorkspaceConfig): Promise<void> {
@@ -208,11 +218,12 @@ export class WorkspaceService {
 
   /**
    * 子文件夹重命名（v2.2.1）：同步迁移所有已有产品集下的同名目录，并更新工作区配置。
-   * - 目录迁移：{产品集}/{images|certs}/{oldName} → {newName}（目标存在跳过、源不存在跳过，幂等）
-   * - metadata 按「产品集/文件名」存储（不含子文件夹），无需迁移
+   * v2.4.7：type 扩展 'customer'——迁移所有 客户/<名>/<old> → <new>，config 操作对象为 customer_subfolders。
+   * - 目录迁移：{产品集}/{images|certs}/{oldName} → {newName} 或 {客户}/{oldName} → {newName}（目标存在跳过、源不存在跳过，幂等）
+   * - metadata 按相对工作区路径存储，无需迁移
    * - 返回更新后的完整配置（Settings 页直接用于刷新）
    */
-  async renameSubfolder(type: 'image' | 'cert', oldName: string, newName: string): Promise<WorkspaceConfig> {
+  async renameSubfolder(type: 'image' | 'cert' | 'customer', oldName: string, newName: string): Promise<WorkspaceConfig> {
     this.requireWorkspace()
     oldName = oldName.trim()
     // v2.4.2（S1）：新名称完整校验（拒绝分隔符 / .. / Windows 非法字符等）
@@ -220,25 +231,27 @@ export class WorkspaceService {
     if (!oldName || !newName) throw new Error('名称不能为空')
     if (oldName === newName) return this.loadConfig()
     const cfg = await this.loadConfig()
-    const list = type === 'image' ? cfg.image_subfolders : cfg.cert_subfolders
-    if (!list.includes(oldName)) throw new Error(`子文件夹「${oldName}」不存在`)
+    // v2.4.7：type='customer' 时配置操作对象为 cfg.customer_subfolders（旧 config 缺省已由 loadConfig 合并默认值）
+    const list = type === 'image' ? cfg.image_subfolders : type === 'cert' ? cfg.cert_subfolders : cfg.customer_subfolders
+    if (!list || !list.includes(oldName)) throw new Error(`子文件夹「${oldName}」不存在`)
     if (list.includes(newName)) throw new Error(`子文件夹「${newName}」已存在`)
 
-    // 同步迁移所有产品集下的同名目录
-    const setsDir = path.join(this.currentWS, PRODUCT_SETS_DIR)
-    const typeDir = type === 'image' ? IMAGES_DIR : CERTS_DIR
-    const entries = await fsp.readdir(setsDir, { withFileTypes: true }).catch(() => [] as fs.Dirent[])
+    // 同步迁移所有 产品集 或 客户 目录下的同名子文件夹（源不存在跳过、目标存在跳过，幂等）
+    const parentDir =
+      type === 'customer' ? path.join(this.currentWS, CUSTOMERS_DIR) : path.join(this.currentWS, PRODUCT_SETS_DIR)
+    const typeDir = type === 'customer' ? '' : type === 'image' ? IMAGES_DIR : CERTS_DIR
+    const entries = await fsp.readdir(parentDir, { withFileTypes: true }).catch(() => [] as fs.Dirent[])
     for (const e of entries) {
       if (!e.isDirectory()) continue
-      const oldPath = path.join(setsDir, e.name, typeDir, oldName)
-      const newPath = path.join(setsDir, e.name, typeDir, newName)
+      const oldPath = path.join(parentDir, e.name, typeDir, oldName)
+      const newPath = path.join(parentDir, e.name, typeDir, newName)
       try {
         await fsp.stat(oldPath)
         const exists = await fsp.stat(newPath).then(() => true).catch(() => false)
         if (exists) continue
         await fsp.rename(oldPath, newPath)
       } catch {
-        // 源目录不存在（该产品集未建此子目录）→ 跳过
+        // 源目录不存在（该产品集/客户未建此子目录）→ 跳过
       }
     }
 
@@ -284,6 +297,8 @@ export class WorkspaceService {
     // v2.4.2（S1）：产品集名称完整校验（拒绝分隔符 / .. / Windows 非法字符等）
     const name = assertSafeFolderName(req.name, '产品集名称')
     if (!name) throw new Error('名称不能为空')
+    // v2.4.7（§3.7）：工作区根目录保留名拦截（metadata key 首段区域判别用，不区分大小写）
+    if (isReservedRootName(name)) throw new Error(`${name} 为工作区保留目录名，不可用作产品集`)
     const dir = productSetRootPath(this.currentWS, name)
     try {
       await fsp.stat(dir)
@@ -333,6 +348,8 @@ export class WorkspaceService {
     // v2.4.2（S1）：新名称完整校验
     newName = assertSafeFolderName(newName, '产品集名称')
     if (!oldName || !newName) throw new Error('名称不能为空')
+    // v2.4.7（§3.7）：工作区根目录保留名拦截（metadata key 首段区域判别用，不区分大小写）
+    if (isReservedRootName(newName)) throw new Error(`${newName} 为工作区保留目录名，不可用作产品集`)
     const oldDir = productSetRootPath(this.currentWS, oldName)
     const newDir = productSetRootPath(this.currentWS, newName)
     await fsp.stat(oldDir)
