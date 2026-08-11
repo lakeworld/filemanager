@@ -467,6 +467,8 @@ export function registerIpc(box: BoxService, account: AccountService): void {
 
   // —— 回收站（v2.3.1）——
   ipcMain.handle('qihebox:trash:list', () => handle(() => box.trash.list()))
+  // v2.4.8：导出区产物列表（工作区/导出/）
+  ipcMain.handle('qihebox:exports:list', () => handle(() => box.archive.listExports()))
   ipcMain.handle('qihebox:trash:restore', (_e, id: string) => handle(() => box.trash.restore(id)))
   ipcMain.handle('qihebox:trash:purge', (_e, id: string) => handle(() => box.trash.purge(id)))
   ipcMain.handle('qihebox:trash:empty', () => handle(() => box.trash.empty()))

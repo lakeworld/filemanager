@@ -299,3 +299,65 @@ describe('压缩分享 / 解压（v2.4.4）', () => {
     await expect(box.archive.extract({ zipPath, mode: 'folder' })).resolves.toBeTruthy()
   })
 })
+
+describe('导出区列表 listExports（v2.4.8）', () => {
+  it('空导出目录 → 返回空数组', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    expect(await box.archive.listExports()).toEqual([])
+  })
+
+  it('按修改时间倒序列出 zip，字段完整', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    const exportDir = path.join(ws, '导出')
+    const aPath = path.join(exportDir, 'a.zip')
+    const bPath = path.join(exportDir, 'b.zip')
+    await fsp.writeFile(aPath, SAMPLE)
+    await fsp.writeFile(bPath, Buffer.from('b'))
+    // 拉开 mtime：b.zip 较新（默认写入序通常已满足，但显式设置保证确定性）
+    const old = new Date('2026-01-01T00:00:00Z')
+    const fresh = new Date('2026-08-01T00:00:00Z')
+    await fsp.utimes(aPath, old, old)
+    await fsp.utimes(bPath, fresh, fresh)
+
+    const list = await box.archive.listExports()
+    expect(list.map((e) => e.name)).toEqual(['b.zip', 'a.zip'])
+    expect(list[0]).toMatchObject({
+      name: 'b.zip',
+      path: bPath,
+      size: 1,
+      mtime: fresh.toISOString(),
+    })
+    expect(list[1].mtime).toBe(old.toISOString())
+  })
+
+  it('导出目录中的子目录被过滤，仅文件入列', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    const exportDir = path.join(ws, '导出')
+    await fsp.writeFile(path.join(exportDir, 'c.zip'), SAMPLE)
+    await fsp.mkdir(path.join(exportDir, '子目录'), { recursive: true })
+
+    const list = await box.archive.listExports()
+    expect(list.map((e) => e.name)).toEqual(['c.zip'])
+  })
+
+  it('导出目录不存在（异常工作区）→ 返回空数组而非抛错', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    // 手工移除导出目录，模拟目录缺失场景
+    await fsp.rm(path.join(ws, '导出'), { recursive: true, force: true })
+    expect(await box.archive.listExports()).toEqual([])
+  })
+})

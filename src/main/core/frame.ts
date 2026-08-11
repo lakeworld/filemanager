@@ -17,10 +17,18 @@
 const BLANK_BG = { r: 248, g: 250, b: 252 }
 /** 纯白（部分合成环境丢底色回退为纯白） */
 const BLANK_WHITE = { r: 255, g: 255, b: 255 }
+/** 深蓝空窗 #0f172a（v2.4.3 前的旧加载底色 / surface-900）：GPU 表面失效露出的另一种
+ *  可能颜色——真机「蓝屏」残留即此；容差 12 下与纯黑视频帧 (0,0,0) 可区分，不误伤 */
+const BLANK_DEEP = { r: 15, g: 23, b: 42 }
 /** 采样点与目标色的容差（/255；底色 248-252 波动、JPEG 白底 245-255 均可覆盖） */
 const TOL = 12
 /** 采样点数（间隔采样，控制遍历成本） */
 const SAMPLE_POINTS = 2000
+
+/** 默认判定色：浅色系空窗（白屏） */
+export const BLANK_TARGETS_DEFAULT = [BLANK_BG, BLANK_WHITE]
+/** 休眠唤醒自愈复检的扩展判定色：浅色 + 深蓝空窗（覆盖真机「蓝白屏」两种残留） */
+export const BLANK_TARGETS_WAKE = [BLANK_BG, BLANK_WHITE, BLANK_DEEP]
 
 export interface FrameLike {
   isEmpty(): boolean
@@ -37,8 +45,10 @@ function near(color: { r: number; g: number; b: number }, target: { r: number; g
   )
 }
 
-/** 截屏是否为「空白空窗」（接近加载底色或纯白）——是则休眠唤醒自愈应 reload */
-export function isBlankFrameLike(img: FrameLike): boolean {
+/** 截屏是否为「空白空窗」（接近加载底色/纯白，或扩展判定色）——是则休眠唤醒自愈应继续升级。
+ *  targets 默认浅色系（保持既有语义）；自愈复检传 BLANK_TARGETS_WAKE（含深蓝空窗）。
+ *  纯黑刻意不入任何判定集：黑帧视频/深色画面不得误判为空窗导致无端 reload（评审 P1 红线）。 */
+export function isBlankFrameLike(img: FrameLike, targets = BLANK_TARGETS_DEFAULT): boolean {
   if (!img || img.isEmpty()) return true
   const { width, height } = img.getSize()
   if (width <= 0 || height <= 0) return true
@@ -52,8 +62,8 @@ export function isBlankFrameLike(img: FrameLike): boolean {
     const b = buf[i]
     const g = buf[i + 1]
     const r = buf[i + 2]
-    // 任一点既非底色也非纯白 → 有实际内容，判定非空白
-    if (!near({ r, g, b }, BLANK_BG) && !near({ r, g, b }, BLANK_WHITE)) {
+    // 任一点不命中任何目标色 → 有实际内容，判定非空白
+    if (!targets.some((t) => near({ r, g, b }, t))) {
       return false
     }
   }

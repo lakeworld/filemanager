@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isBlankFrameLike, type FrameLike } from '../../src/main/core/frame'
+import { isBlankFrameLike, BLANK_TARGETS_WAKE, type FrameLike } from '../../src/main/core/frame'
 
 /** 构造 BGRA 帧 fake：fill 为填充函数 (i,j) => [r,g,b]，默认全色 */
 function makeFrame(width: number, height: number, pixel: (i: number, j: number) => [number, number, number]): FrameLike {
@@ -56,5 +56,24 @@ describe('isBlankFrameLike（休眠唤醒白屏像素检测）', () => {
   it('随机彩色内容（真实界面）→ 非空白', () => {
     const f = makeFrame(SIZE, SIZE, (i, j) => [(i * 7 + j) % 256, (i * 13 + j * 3) % 256, (i * 29 + j * 5) % 256])
     expect(isBlankFrameLike(f)).toBe(false)
+  })
+
+  it('深蓝空窗 #0f172a：默认集判非空白（保持既有语义），唤醒扩展集判空白（真机蓝屏残留）', () => {
+    const f = makeFrame(SIZE, SIZE, () => [15, 23, 42])
+    expect(isBlankFrameLike(f)).toBe(false)
+    expect(isBlankFrameLike(f, BLANK_TARGETS_WAKE)).toBe(true)
+  })
+
+  it('深蓝附近波动（容差内）→ 唤醒扩展集判空白', () => {
+    const f = makeFrame(SIZE, SIZE, (i, j) => [15 + ((i + j) % 10), 23 + ((i + j) % 8), 42 + ((i + j) % 6)])
+    expect(isBlankFrameLike(f, BLANK_TARGETS_WAKE)).toBe(true)
+  })
+
+  it('全黑（视频黑帧）→ 唤醒扩展集也非空白（防误伤红线保持）', () => {
+    expect(isBlankFrameLike(makeFrame(SIZE, SIZE, () => [0, 0, 0]), BLANK_TARGETS_WAKE)).toBe(false)
+  })
+
+  it('深灰 #1e293b（surface-800 深色界面）→ 唤醒扩展集非空白（与 #0f172a 色差>12，不误伤）', () => {
+    expect(isBlankFrameLike(makeFrame(SIZE, SIZE, () => [30, 41, 59]), BLANK_TARGETS_WAKE)).toBe(false)
   })
 })

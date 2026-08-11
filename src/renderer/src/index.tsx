@@ -16,6 +16,8 @@ const Settings = lazy(() => import("./pages/Settings"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Help = lazy(() => import("./pages/Help"));
 const Trash = lazy(() => import("./pages/Trash"));
+// v2.4.8：导出区（压缩分享产物）
+const Exports = lazy(() => import("./pages/Exports"));
 // v2.4.7：客户 / 发票（PLAN §5.2 / §6.5）
 const Clients = lazy(() => import("./pages/Clients"));
 const Invoices = lazy(() => import("./pages/Invoices"));
@@ -37,6 +39,7 @@ render(
       <Route path="/profile" component={Profile} />
       <Route path="/help" component={Help} />
       <Route path="/trash" component={Trash} />
+      <Route path="/exports" component={Exports} />
       {/* v2.4.7：客户 / 发票 / 客户文件区路由（静态段 customer 优先于通用 :type 通配，参数槽位 :name = 客户名） */}
       <Route path="/clients" component={Clients} />
       <Route path="/clients/:name" component={Clients} />

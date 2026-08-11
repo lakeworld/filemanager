@@ -19,7 +19,7 @@ import { BrowserWindow, app, powerMonitor, screen, shell } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { log } from './log'
-import { isBlankFrameLike } from './core/frame'
+import { isBlankFrameLike, BLANK_TARGETS_WAKE } from './core/frame'
 
 let mainWindow: BrowserWindow | null = null
 let quitting = false
@@ -308,39 +308,90 @@ async function pingRenderer(win: BrowserWindow): Promise<void> {
   }
 }
 
-// —— v2.4.7（F10）：系统休眠唤醒自愈（powerMonitor resume）——
+// —— v2.4.7（F10）：系统休眠唤醒自愈（powerMonitor resume）；v2.4.8 根治（真机仍蓝白屏）——
 // 背景：v2.4.3 只把加载底色从深蓝改浅色（黑屏→白屏），「窗口一直可见时休眠」的唤醒
 // 场景没有任何自愈触发点（windowShow 只覆盖托盘/激活/二次启动路径）——系统 suspend 期间
-// GPU 渲染表面在 Linux 上失效，resume 后画面空白（露出浅色底色），JS 仍响应（ping 检测不到）。
-// 策略：resume 后延迟等渲染恢复，分层检查（比 F3 多一层「画面像素检测」，能抓到 ping 抓不到的
-// 表面失效白屏；正常画面不打扰，保留用户状态）：
-// - 渲染崩溃 → reload；加载中 → 交给 ready-to-show；最小化 → 交给 restore（F4 已覆盖）
-// - 窗口不可见（用户隐藏到托盘）→ 不打扰，托盘点击自会恢复（评审 P1：不得强行弹出）
-// - 可见窗口 → capturePage 截屏像素检测：接近加载底色/纯白（白屏）→ reload；正常 → 不动
-// 判定逻辑在 core/frame.ts（纯函数，单测覆盖）。
+// GPU 渲染表面在 Linux 上失效，resume 后画面空白（露出底色），JS 仍响应（ping 检测不到）。
+// v2.4.8 根治动因：真机 Deepin 合盖→开盖仍蓝白屏。三重失效可能：
+// 1) capturePage 在表面失效时可返回合成器缓存的正常旧画面 → 像素判定误判"正常"不 reload；
+// 2) 判定色仅浅色，深蓝 #0f172a 空窗判不出 → 蓝屏残留；
+// 3) Linux 上 powerMonitor resume 存在不触发的已知问题（electron#24244/#24499）。
+// 策略升级：
+// - 监听加固：resume + unlock-screen 双事件合并（互斥防抖）；正常画面仅承受 L1 一次无害重绘。
+// - 分级自愈链（不再以像素判定作唯一闸门，逐级主动修复 + 每级复检，正常即停）：
+//     L1 webContents.invalidate() 全量重绘（不丢 JS 状态，官方重绘入口）
+//     L2 webContents.reload() 渲染进程重建
+//     L3 win.hide()+show() X11 unmap/remap 强制重建合成表面（仍不丢 JS 状态）
+//     L4 销毁重建窗口（丢页面状态，最后手段，日志如实记录）
+//   每级复检 capturePage + isBlankFrameLike（扩展判定色 BLANK_TARGETS_WAKE 含深蓝空窗；
+//   纯黑不入集——黑帧视频防误伤红线保持）。复检异常（截屏失败）视为未恢复，进入下一级。
 let wakeRecoveryRegistered = false
-let wakeRecoveryInFlight = false // 互斥：部分环境 resume 可能触发两次，避免并发 capturePage/双 reload
+let wakeRecoveryInFlight = false // 互斥：resume/unlock-screen 可能重复触发，避免并发自愈
+
+const WAKE_SETTLE_MS = 1500 // 事件后等 GPU/渲染从挂起恢复稳定（过早检查 capturePage 会误判）
+const WAKE_RECHECK_L1_MS = 2000
+const WAKE_RECHECK_L2_MS = 3000 // reload 后含重新加载耗时
+const WAKE_RECHECK_L3_MS = 2000
+const WAKE_HIDE_SHOW_GAP_MS = 150
+
 export function setupWakeRecovery(): void {
   if (wakeRecoveryRegistered) return
   wakeRecoveryRegistered = true
-  powerMonitor.on('resume', () => {
+  const onWake = (source: string) => {
     const win = getMainWindow()
     if (!win || win.isDestroyed() || quitting) return
-    void log('info', '[wake] 系统休眠恢复（powerMonitor resume），启动自愈检查')
-    // 等 GPU/渲染进程从系统挂起中恢复稳定（1.5s；过早检查 capturePage 会误判空白）
+    void log('info', `[wake] 系统休眠恢复（${source}），启动自愈检查`)
     setTimeout(() => {
       if (!win.isDestroyed() && !quitting && !wakeRecoveryInFlight) {
         void recoverAfterWake(win)
       }
-    }, 1500)
-  })
+    }, WAKE_SETTLE_MS)
+  }
+  powerMonitor.on('resume', () => onWake('powerMonitor resume'))
+  powerMonitor.on('unlock-screen', () => onWake('unlock-screen'))
+}
+
+const wakeDelay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+
+/** 自愈复检：delayMs 后截屏判定画面是否正常（正常 true；空白/崩溃/截屏异常 false→进入下一级） */
+async function wakeRecheck(win: BrowserWindow, delayMs: number): Promise<boolean> {
+  await wakeDelay(delayMs)
+  if (win.isDestroyed() || quitting) return true // 窗口已不在，不再干预
+  const wc = win.webContents
+  if (wc.isCrashed()) return false
+  if (wc.isLoading()) {
+    // reload 后加载中：等加载完成再判（5s 兜底防悬挂）
+    await new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, 5000)
+      wc.once('did-finish-load', () => {
+        clearTimeout(t)
+        resolve()
+      })
+    })
+    if (win.isDestroyed() || quitting) return true
+    if (wc.isCrashed()) return false
+  }
+  try {
+    const img = await wc.capturePage()
+    return !isBlankFrameLike(img, BLANK_TARGETS_WAKE)
+  } catch {
+    return false
+  }
 }
 
 async function recoverAfterWake(win: BrowserWindow): Promise<void> {
   wakeRecoveryInFlight = true
   try {
-    if (win.isDestroyed()) return
-    if (win.isMinimized()) return // restore 路径已带 F4 活性检查
+    if (win.isDestroyed()) {
+      // 观测性：窗口已被休眠定时器销毁（关窗到托盘超 30s）——重建路径恢复，无需自愈
+      void log('info', '[wake] 窗口已销毁，跳过自愈（托盘点击/激活时重建新窗口）')
+      return
+    }
+    if (win.isMinimized()) {
+      // 观测性：restore 路径已带 F4 活性检查
+      void log('info', '[wake] 窗口最小化，跳过自愈（恢复时活性检查兜底）')
+      return
+    }
     const wc = win.webContents
     if (wc.isCrashed()) {
       void log('warn', '[wake] 渲染进程崩溃，reload 自愈')
@@ -356,19 +407,41 @@ async function recoverAfterWake(win: BrowserWindow): Promise<void> {
       void log('info', '[wake] 窗口隐藏于托盘，跳过自愈（托盘点击恢复）')
       return
     }
-    // 画面自愈：截屏像素检测——GPU 表面失效时捕获为接近加载底色的空窗 → reload；正常 → 不打扰
-    try {
-      const img = await wc.capturePage()
-      if (isBlankFrameLike(img)) {
-        void log('warn', '[wake] 画面为空窗（渲染表面失效），reload 自愈')
-        if (!win.isDestroyed()) wc.reload()
-      } else {
-        void log('info', '[wake] 画面捕获正常，无需干预')
-      }
-    } catch (e) {
-      void log('warn', `[wake] 画面捕获异常，reload 自愈: ${String(e)}`)
-      if (!win.isDestroyed()) wc.reload()
+
+    // L1：全量重绘（最轻，不丢 JS 状态）——GPU 表面失效的首选对症修复
+    wc.invalidate()
+    void log('info', '[wake] L1 已调度全量重绘（invalidate），等待复检')
+    if (await wakeRecheck(win, WAKE_RECHECK_L1_MS)) {
+      void log('info', '[wake] 画面正常（L1 复检通过），无需进一步干预')
+      return
     }
+
+    // L2：渲染进程重建
+    if (win.isDestroyed() || quitting) return
+    void log('warn', '[wake] L1 复检为空窗（表面失效），L2 reload 渲染进程')
+    wc.reload()
+    if (await wakeRecheck(win, WAKE_RECHECK_L2_MS)) {
+      void log('info', '[wake] L2 reload 后画面恢复正常')
+      return
+    }
+
+    // L3：hide/show 强制 X11 unmap/remap，重建合成表面（JS 状态仍保留）
+    if (win.isDestroyed() || quitting) return
+    void log('warn', '[wake] L2 复检仍空窗，L3 hide/show 强制重建合成表面')
+    win.hide()
+    await wakeDelay(WAKE_HIDE_SHOW_GAP_MS)
+    if (win.isDestroyed() || quitting) return
+    win.show()
+    if (await wakeRecheck(win, WAKE_RECHECK_L3_MS)) {
+      void log('info', '[wake] L3 hide/show 后画面恢复正常')
+      return
+    }
+
+    // L4：销毁重建窗口（丢页面状态，最后手段）
+    if (win.isDestroyed() || quitting) return
+    void log('warn', '[wake] L3 复检仍空窗，L4 销毁重建窗口（页面状态将重置）')
+    win.destroy()
+    ensureMainWindow()
   } finally {
     wakeRecoveryInFlight = false
   }

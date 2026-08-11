@@ -6,12 +6,14 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 /**
- * 休眠唤醒自愈回归（v2.4.7 F10）：powerMonitor 'resume' 后的分层自愈。
+ * 休眠唤醒自愈回归（v2.4.7 F10；v2.4.8 根治：监听加固 + 分级自愈链）。
  * 覆盖：
- * 1. 正常窗口 resume 后不被打扰（画面像素检测正常 → 不 reload，保留页面状态）
- * 2. 渲染进程崩溃后 resume → 自动 reload 恢复（launch 时 QIHEBOX_CRASH_RECOVER_MS=10000
- *    拉长既有 crash-recovery 的 500ms 兜底，使恢复只能来自 F10，真判别而非 false-green）
- * 注：真实「GPU 表面失效白屏」在 e2e 环境无法构造，由画面像素检测逻辑（core/frame.ts 单测）+ 动作文档记录兜底。
+ * 1. 正常窗口 resume 后不被打扰（L1 invalidate 重绘 + capturePage 复检正常 → 不 reload，保留页面状态）
+ * 2. 正常窗口 unlock-screen 后不被打扰（监听加固：resume 之外的唤醒入口，行为同 1）
+ * 3. 渲染进程崩溃后 resume → 自动 reload 恢复（launch 时 QIHEBOX_CRASH_RECOVER_MS=10000
+ *    拉长既有 crash-recovery 的 500ms 兜底，使恢复只能来自自愈链，真判别而非 false-green）
+ * 注：真实「GPU 表面失效蓝/白屏」在 e2e 环境无法构造，L2/L3/L4 升级路径由 core/frame.ts
+ * 单测（判定色）+ 每级 [wake] 日志 + 真机合盖验证兜底。
  */
 test.describe('休眠唤醒自愈', () => {
   let app: ElectronApplication
@@ -47,22 +49,36 @@ test.describe('休眠唤醒自愈', () => {
     }
   })
 
-  /** 触发 powerMonitor 'resume'（模拟系统休眠唤醒） */
-  const fireResume = () =>
-    app.evaluate(({ powerMonitor }) => {
-      powerMonitor.emit('resume')
+  /** 触发休眠唤醒信号（模拟系统休眠唤醒 / 解锁屏幕） */
+  const fireWake = (signal: 'resume' | 'unlock-screen') =>
+    app.evaluate(({ powerMonitor }, sig) => {
+      powerMonitor.emit(sig)
       return true
-    })
+    }, signal)
 
-  test('正常窗口 resume 后不被 reload（保留页面状态）', async () => {
+  test('正常窗口 resume 后不被 reload（L1 重绘即恢复，保留页面状态）', async () => {
     // 页面标记：reload 会丢失
     await page.evaluate(() => {
       (window as any).__wakeMarker = 'alive'
     })
 
-    await fireResume()
-    // 等待 1.5s 延迟 + 自愈检查完成
-    await page.waitForTimeout(3000)
+    await fireWake('resume')
+    // 等待：1.5s 稳定 + L1 invalidate + 2s 复检（v2.4.8 根治：分级自愈链 L1 完成）
+    await page.waitForTimeout(4500)
+
+    const marker = await page.evaluate(() => (window as any).__wakeMarker ?? null)
+    expect(marker).toBe('alive')
+    const hasApi = await page.evaluate(() => typeof (window as any).qihebox?.app?.version === 'function')
+    expect(hasApi).toBe(true)
+  })
+
+  test('正常窗口 unlock-screen 后不被 reload（监听加固：resume 之外的唤醒入口）', async () => {
+    await page.evaluate(() => {
+      (window as any).__wakeMarker = 'alive'
+    })
+
+    await fireWake('unlock-screen')
+    await page.waitForTimeout(4500)
 
     const marker = await page.evaluate(() => (window as any).__wakeMarker ?? null)
     expect(marker).toBe('alive')
@@ -99,7 +115,7 @@ test.describe('休眠唤醒自愈', () => {
     })
     expect(crashed).toBe(true)
 
-    await fireResume()
+    await fireWake('resume')
 
     // 等自愈 reload + 重新加载完成（主进程轮询：不崩溃、不加载中、window.qihebox 可用）
     const recovered = await app.evaluate(async ({ BrowserWindow }) => {

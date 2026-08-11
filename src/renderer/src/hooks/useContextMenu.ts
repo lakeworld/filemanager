@@ -27,7 +27,14 @@ export function useContextMenu<T>() {
     setPayload(() => p);
   };
 
-  const close = () => setShow(false);
+  // 统一关闭语义（v2.4.8 修复）：show 与 payload 一起清——Certs/Images/FileBrowserView 用
+  // Show when=show()，ProductSets/Search/Clients 用 Show when=payload()；只清 show 时后者
+  // 菜单永不卸载（payload 残留 → Show 保持 true → 点击外部不消失）。菜单项 action 均为
+  // 同步读取 payload（先于 close 执行），清 payload 无异步边界问题。
+  const close = () => {
+    setShow(false);
+    setPayload(null);
+  };
 
   // 关闭触发：任意 mousedown（左/右键）、任意位置右键（contextmenu）、滚动（capture，覆盖滚动容器）。
   // 菜单自身点击由 ContextMenu 内部 stopPropagation 阻止冒泡到此，不会误关。
