@@ -3,7 +3,7 @@
   "productName": "启禾文件管理",
   "version": "2.4.8",
   "description": "启禾文件管理（BOX 项目）—— Electron 重构版：电商产品图包与证书管理",
-  "homepage": "https://www.qihebook.cloud/box/",
+  "homepage": "https://www.qihebook.cloud/file-manager",
   "desktopName": "qihe-box",
   "main": "./out/main/index.js",
   "author": "启禾软件 <dev@qihe.local>",

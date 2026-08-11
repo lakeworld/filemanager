@@ -256,7 +256,7 @@ export default function Clients() {
     }
   };
 
-  // —— erp_ext 只读展示（v2.6 erp-bridge 写回命名空间，本体只读不校验）——
+  // —— erp_ext 只读展示（v2.7 erp-bridge 写回命名空间，本体只读不校验）——
 
   const erpExtEntries = () => {
     const ext = detailCustomer()?.erp_ext;
@@ -428,7 +428,7 @@ export default function Clients() {
                 <Show when={detailCustomer()!.notes}>
                   <p class="text-sm text-surface-600 mt-4 whitespace-pre-wrap">{detailCustomer()!.notes}</p>
                 </Show>
-                {/* erp_ext 只读区：本体只读不校验（v2.6 erp-bridge 写回），无内容时不渲染 */}
+                {/* erp_ext 只读区：本体只读不校验（v2.7 erp-bridge 写回），无内容时不渲染 */}
                 <Show when={erpExtEntries().length > 0}>
                   <div class="mt-4 pt-4 border-t border-surface-100">
                     <p class="text-xs font-medium text-surface-400 mb-2">ERP 扩展信息（只读，由仓迹写回）</p>
