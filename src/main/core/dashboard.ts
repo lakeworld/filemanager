@@ -1,16 +1,35 @@
 /**
  * 仪表盘统计（对照原 Go dashboard.go）
  * 纯 TS 业务层。
+ *
+ * v2.4.7（§4.3）：
+ * - DashboardStats.total_customers（客户/ 一级目录数）
+ * - invoiceTodos()：30 天内 due_date 且状态 ≠ 已入账的发票（due_date 升序）→ 仪表盘「发票待办」区块
+ * - checkExpiringCerts key 判读规则（§4.1）：客户区 key 按工作区相对路径校验存在性 → 合同到期可提醒；
+ *   发票/入库/交换区 key 不走本通道（发票待办走 invoices.json，§6.4）
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
-import { PRODUCT_SETS_DIR, IMAGES_DIR, CERTS_DIR } from './paths'
+import {
+  PRODUCT_SETS_DIR,
+  IMAGES_DIR,
+  CERTS_DIR,
+  CUSTOMERS_DIR,
+  INVOICES_DIR,
+  INBOUND_DIR,
+  EXCHANGE_DIR,
+  invoicesPath,
+  readJsonFile,
+} from './paths'
 import { WorkspaceService, countFiles, formatTime } from './workspace'
 import { MetadataService, parseExpiryDate } from './metadata'
 import { FilesService, FileEntry } from './files'
-import type { DashboardStats } from '../../shared/types'
+import type { DashboardStats, InvoiceRecord } from '../../shared/types'
 
 export type { DashboardStats } from '../../shared/types'
+
+/** §4.1 判读规则：结构化 key 的区域首段（产品集存量同名时「产品集优先」，见 checkExpiringCerts） */
+const REGION_DIR_NAMES = new Set([CUSTOMERS_DIR, INVOICES_DIR, INBOUND_DIR, EXCHANGE_DIR])
 
 export class DashboardService {
   constructor(
@@ -46,6 +65,14 @@ export class DashboardService {
     }
     const rows: Row[] = []
     let badDates = 0
+    // v2.4.7（§4.1 判读规则）：首段是实存产品集目录 → 按产品集 key 解读（存量兼容优先）；
+    // 否则首段命中区域名（客户/发票/入库/交换区）→ 按区域 key（工作区相对路径）解读
+    const realSetNames = new Set<string>()
+    const setsDir = path.join(ws, PRODUCT_SETS_DIR)
+    const setEntries = await fsp.readdir(setsDir, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[])
+    for (const e of setEntries) {
+      if (e.isDirectory()) realSetNames.add(e.name)
+    }
     for (const [key, meta] of Object.entries(store.files)) {
       if (!meta.expiry_date || !meta.expiry_date.trim()) continue
       const t = parseExpiryDate(meta.expiry_date)
@@ -55,12 +82,22 @@ export class DashboardService {
       }
       const ms = t.getTime()
       if (ms > upper || ms < lower) continue
-      // 新 key：产品集/图包|证书/子文件夹/文件名（跨平台已统一 / 分隔符；兼容旧 \ key）
+      // 新 key：产品集/图包|证书/子文件夹/文件名 或 区域 key（跨平台已统一 / 分隔符；兼容旧 \ key）
       const parts = key.replace(/\\/g, '/').split('/')
+      const first = parts[0] ?? ''
       let ps = ''
       let file = ''
       let filePath: string | null = null
-      if (parts.length === 4 && (parts[1] === IMAGES_DIR || parts[1] === CERTS_DIR)) {
+      if (!realSetNames.has(first) && REGION_DIR_NAMES.has(first)) {
+        // 区域 key：整条 key 即工作区相对路径 → 直接按真实路径校验存在性；
+        // 客户区（客户/<名>/<子文件夹>/<文件>）参与提醒（ps 槽位 = 客户名，合同到期可提醒）；
+        // 发票/入库/交换区 key 不参与证书到期提醒（发票待办走 invoices.json，§6.4）
+        if (first === CUSTOMERS_DIR) {
+          ps = parts[1] ?? ''
+          file = parts[parts.length - 1] ?? ''
+          filePath = path.join(ws, ...parts)
+        }
+      } else if (parts.length === 4 && (parts[1] === IMAGES_DIR || parts[1] === CERTS_DIR)) {
         ps = parts[0]
         file = parts[3]
         filePath = path.join(ws, PRODUCT_SETS_DIR, parts[0], parts[1], parts[2], parts[3])
@@ -120,10 +157,17 @@ export class DashboardService {
       total_certs: 0,
       expiring_certs: 0,
       recent_files: [],
+      // v2.4.7：客户数（客户/ 一级目录数；目录扫描为实，customers.json 为档案）
+      total_customers: 0,
     }
     const setsDir = path.join(ws, PRODUCT_SETS_DIR)
     const entries = await fsp.readdir(setsDir, { withFileTypes: true }).catch(() => [])
     stats.total_product_sets = entries.filter((e) => e.isDirectory()).length
+
+    // v2.4.7：客户/ 一级目录数
+    const customersDir = path.join(ws, CUSTOMERS_DIR)
+    const customerEntries = await fsp.readdir(customersDir, { withFileTypes: true }).catch(() => [])
+    stats.total_customers = customerEntries.filter((e) => e.isDirectory()).length
 
     const allFiles: FileEntry[] = []
     for (const e of entries) {
@@ -143,5 +187,30 @@ export class DashboardService {
     const expiring = await this.checkExpiringCerts()
     stats.expiring_certs = expiring.length
     return stats
+  }
+
+  /**
+   * v2.4.7（§4.3）：发票待办——30 天内 due_date 且状态 ≠ 已入账的发票，due_date 升序。
+   * 窗口口径与 checkExpiringCerts 对称：due_date ∈ [now-30d, now+30d]（过期未处理仍提醒，
+   * 未来超过 30 天不提醒）；已入账（无论是否到期）一律排除。非法日期跳过（台账写入端已归一化）。
+   * 供仪表盘「发票待办」区块与系统通知合并（§6.4）使用。
+   */
+  async invoiceTodos(): Promise<InvoiceRecord[]> {
+    const ws = this.requireWS()
+    const store = await readJsonFile<{ invoices?: Record<string, InvoiceRecord> }>(invoicesPath(ws))
+    if (!store || !store.invoices) return []
+    const now = Date.now()
+    const windowMs = 30 * 24 * 60 * 60 * 1000
+    const out: InvoiceRecord[] = []
+    for (const rec of Object.values(store.invoices)) {
+      if (!rec.due_date || rec.status === '已入账') continue
+      const t = parseExpiryDate(rec.due_date)
+      if (Number.isNaN(t.getTime())) continue
+      const ms = t.getTime()
+      if (ms > now + windowMs || ms < now - windowMs) continue
+      out.push(rec)
+    }
+    out.sort((a, b) => (a.due_date! < b.due_date! ? -1 : a.due_date! > b.due_date! ? 1 : 0))
+    return out
   }
 }

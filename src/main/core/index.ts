@@ -13,10 +13,14 @@ import { FilesService, ThumbnailProvider } from './files'
 import { DashboardService } from './dashboard'
 import { SearchService } from './search'
 import { XlsxService } from './xlsx'
-import { PRODUCT_SETS_DIR, isPathInsideWorkspaceReal, classifyFileType } from './paths'
+import { PRODUCT_SETS_DIR, CUSTOMERS_DIR, isPathInsideWorkspaceReal, classifyFileType } from './paths'
 import { TagService } from './tags'
 import { TrashService } from './trash'
 import { ArchiveService } from './archive'
+import { InvoicesService } from './invoices'
+import { InboundService } from './inbound'
+import { ExchangeService } from './exchange'
+import { ClientsService } from './clients'
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 
@@ -30,19 +34,88 @@ export class BoxService {
   tags: TagService
   trash: TrashService
   archive: ArchiveService
+  /** v2.4.7：发票台账（PLAN §6） */
+  invoices: InvoicesService
+  /** v2.4.7：客户维度（客户/ 目录 + customers.json 档案，PLAN §5） */
+  clients: ClientsService
+  /** v2.4.7：入库单（PLAN §7） */
+  inbound: InboundService
+  /** v2.4.7：交换区投递（PLAN §8）——文件归集内置；发票/入库台账经 ledger sink 接入（见构造器） */
+  exchange: ExchangeService
   private thumbs: ThumbnailProvider
 
   constructor(thumbs: ThumbnailProvider, workspace?: WorkspaceService) {
     this.workspace = workspace ?? new WorkspaceService()
     this.metadata = new MetadataService(this.workspace)
-    this.trash = new TrashService(this.workspace, this.metadata, thumbs)
+    this.clients = new ClientsService(this.workspace)
+    this.trash = new TrashService(this.workspace, this.metadata, thumbs, this.clients)
     this.files = new FilesService(this.workspace, this.metadata, thumbs, this.trash)
     this.dashboard = new DashboardService(this.workspace, this.metadata, this.files)
     this.search = new SearchService(this.workspace, this.files, this.metadata)
     this.xlsx = new XlsxService(this.workspace)
+    this.invoices = new InvoicesService(this.workspace, this.trash, this.xlsx)
+    this.inbound = new InboundService(this.workspace, this.trash)
+    // v2.4.7（§8.2）：交换区 ledger sink 由台账服务提供——查重等账务规则单点落在台账服务
+    // （PLAN §6.2「创建/编辑/交换区三入口同函数」）；投递发票默认状态 待报销（§6.3 流转起点）
+    this.exchange = new ExchangeService(this.workspace, {
+      createInvoice: async (d, archived) => {
+        await this.invoices.create({
+          number: d.number,
+          code: d.code,
+          date: d.date,
+          amount: d.amount,
+          seller: d.seller,
+          buyer: d.buyer,
+          customer: d.customer,
+          due_date: d.due_date,
+          status: '待报销',
+          file_path: archived[0] ?? '',
+        })
+      },
+      createInbound: async (d, archived) => {
+        await this.inbound.create({
+          id: d.id,
+          date: d.date,
+          supplier: d.supplier,
+          product_set: d.product_set,
+          amount: d.amount,
+          notes: d.notes,
+          file_path: archived[0] ?? '',
+        })
+      },
+    })
     this.tags = new TagService(this.workspace, this.metadata)
     this.archive = new ArchiveService(this.workspace)
     this.thumbs = thumbs
+    // v2.4.7（§5.1）：发票台账标签引用源注册——rename/delete/adopt/计数自动覆盖，无手写传播
+    this.tags.registerSource('invoices', {
+      id: 'invoices',
+      list: () => this.invoices.listTagEntries(),
+      save: (entries) => this.invoices.saveTagEntries(entries),
+    })
+    // v2.4.7（§5.1）：客户标签引用源注册——rename/delete/adopt/计数自动覆盖（tags.ts T7 投资的兑现）
+    this.tags.registerSource('customers', {
+      id: 'customers',
+      list: async () => {
+        const store = await this.clients.loadCustomersInfo()
+        return Object.entries(store).map(([name, ex]) => ({ name, tags: [...(ex.tags ?? [])] }))
+      },
+      save: async (entries) => {
+        const ws = this.workspace.currentWorkspacePath()
+        if (!ws) return
+        const store = await this.clients.loadCustomersInfo()
+        let changed = false
+        for (const { name, tags } of entries) {
+          const ex = store[name]
+          if (!ex) continue
+          if (JSON.stringify(ex.tags ?? []) !== JSON.stringify(tags)) {
+            ex.tags = tags
+            changed = true
+          }
+        }
+        if (changed) await this.clients.saveCustomersInfo(ws, store)
+      },
+    })
   }
 
   async xlsxExportTemplate(filePath: string): Promise<void> {
@@ -60,6 +133,18 @@ export class BoxService {
     const dir = path.join(ws, PRODUCT_SETS_DIR, name.trim())
     await fsp.stat(dir)
     await this.trash.trashItem(ws, dir, 'productSet')
+  }
+
+  /**
+   * 删除客户（v2.4.7 §4.4：移入回收站，kind='customer'，仿 deleteProductSet 编排）。
+   * customers.json 条目保留（恢复即复原）；彻底删除（purge）时由 TrashService 清理条目与元数据前缀。
+   */
+  async deleteCustomer(name: string): Promise<void> {
+    const ws = this.workspace.currentWorkspacePath()
+    if (!ws) throw new Error('未打开工作区')
+    const dir = path.join(ws, CUSTOMERS_DIR, name.trim())
+    await fsp.stat(dir)
+    await this.trash.trashItem(ws, dir, 'customer')
   }
 
   /** 确保图片/PDF 缩略图存在（缺失自动生成，mtime 命中直接返回），返回缩略图路径 */

@@ -21,6 +21,7 @@ import {
   IMAGES_DIR,
   CERTS_DIR,
   PRODUCT_SETS_DIR,
+  CUSTOMERS_DIR,
   thumbnailPath,
   isPathInsideWorkspace,
   isPathInsideWorkspaceReal,
@@ -138,8 +139,18 @@ export class FilesService {
     return this.workspace.loadConfig(ws)
   }
 
+  /**
+   * v2.4.7（§4.6）：目标目录统一 resolver——scope='customer' 时 target_product_set 槽位承载客户名、
+   * target_type 忽略，路径 = 客户/<名>/<子文件夹>（命名模板照常套用，product_set 槽位 = 实体名）；
+   * 缺省 'productSet'（旧调用方零改动）。
+   */
   private targetDir(req: ImportFileRequest): string {
     const ws = this.requireWS()
+    if (req.scope === 'customer') {
+      const name = assertSafePathSegment(req.target_product_set, '客户名称')
+      const sub = assertSafePathSegment(req.sub_folder, '子文件夹')
+      return path.join(ws, CUSTOMERS_DIR, name, sub)
+    }
     if (req.target_type === 'image') {
       return path.join(ws, PRODUCT_SETS_DIR, req.target_product_set, IMAGES_DIR, req.sub_folder)
     }
@@ -223,14 +234,18 @@ export class FilesService {
   // —— FileList ——
   async fileList(req: FileListRequest): Promise<FileEntry[]> {
     const ws = this.requireWS()
+    const scope = req.scope ?? 'productSet'
     // v2.4.2（S1）：拼路径入口做段校验，防穿越
-    const ps = assertSafePathSegment(req.product_set, '产品集')
+    const ps = assertSafePathSegment(req.product_set, scope === 'customer' ? '客户名称' : '产品集')
     const sub = assertSafePathSegment(req.sub_folder, '子文件夹')
     // v2.4.4（验收修复）：视频与图片同居图包目录（沿用图包子文件夹结构）；'cert' 及其余 → 证书目录
+    // v2.4.7（§4.6）：customer scope → 客户/<名>/<子文件夹>（file_type 忽略）
     const dir =
-      req.file_type === 'image' || req.file_type === 'video'
-        ? path.join(ws, PRODUCT_SETS_DIR, ps, IMAGES_DIR, sub)
-        : path.join(ws, PRODUCT_SETS_DIR, ps, CERTS_DIR, sub)
+      scope === 'customer'
+        ? path.join(ws, CUSTOMERS_DIR, ps, sub)
+        : req.file_type === 'image' || req.file_type === 'video'
+          ? path.join(ws, PRODUCT_SETS_DIR, ps, IMAGES_DIR, sub)
+          : path.join(ws, PRODUCT_SETS_DIR, ps, CERTS_DIR, sub)
     let entries = await this.listDirFiles(dir)
     // v2.4.4（验收修复）：media_type 显式过滤（图包库「图片/视频」切换）；不传则目录内全部列出（FileBrowser 语义）
     if (req.media_type) entries = entries.filter((f) => f.file_type === req.media_type)
@@ -438,16 +453,23 @@ export class FilesService {
     const ws = this.requireWS()
     const name = assertSafeFolderName(req.name, '子文件夹名称')
     const cfg = await this.loadConfig(ws)
+    // v2.4.7（§4.6）：scope='customer' 时路径 = 客户/<名>/<子文件夹>（product_set 槽位承载客户名），
+    // config 写入 customer_subfolders；缺省 'productSet' 沿用现有 产品集/图包|证书 语义
     const dir =
-      req.file_type === 'cert'
-        ? path.join(ws, PRODUCT_SETS_DIR, req.product_set, CERTS_DIR, name)
-        : path.join(ws, PRODUCT_SETS_DIR, req.product_set, IMAGES_DIR, name)
+      req.scope === 'customer'
+        ? path.join(ws, CUSTOMERS_DIR, assertSafePathSegment(req.product_set, '客户名称'), name)
+        : req.file_type === 'cert'
+          ? path.join(ws, PRODUCT_SETS_DIR, req.product_set, CERTS_DIR, name)
+          : path.join(ws, PRODUCT_SETS_DIR, req.product_set, IMAGES_DIR, name)
     if (await fsp.stat(dir).then(() => true).catch(() => false)) throw new Error('子文件夹已存在')
     await fsp.mkdir(dir, { recursive: true })
     // v2.4.x：新建子文件夹 → 失效父目录（图包/证书）与新子目录的索引快照
     globalWorkspaceIndex.invalidate(path.dirname(dir))
     globalWorkspaceIndex.invalidate(dir)
-    if (req.file_type === 'cert') {
+    if (req.scope === 'customer') {
+      if (!cfg.customer_subfolders) cfg.customer_subfolders = []
+      cfg.customer_subfolders.push(name)
+    } else if (req.file_type === 'cert') {
       cfg.cert_subfolders.push(name)
     } else {
       cfg.image_subfolders.push(name)
@@ -458,12 +480,15 @@ export class FilesService {
   async deleteSubfolder(req: DeleteSubfolderRequest): Promise<void> {
     const ws = this.requireWS()
     if (!this.trash) throw new Error('回收站服务未初始化')
-    req.product_set = assertSafePathSegment(req.product_set, '产品集')
+    req.product_set = assertSafePathSegment(req.product_set, req.scope === 'customer' ? '客户名称' : '产品集')
     req.name = assertSafePathSegment(req.name, '子文件夹名称')
+    // v2.4.7（§4.6）：scope='customer' 时路径 = 客户/<名>/<子文件夹>，config 从 customer_subfolders 移除
     const dir =
-      req.file_type === 'image'
-        ? path.join(ws, PRODUCT_SETS_DIR, req.product_set, IMAGES_DIR, req.name)
-        : path.join(ws, PRODUCT_SETS_DIR, req.product_set, CERTS_DIR, req.name)
+      req.scope === 'customer'
+        ? path.join(ws, CUSTOMERS_DIR, req.product_set, req.name)
+        : req.file_type === 'image'
+          ? path.join(ws, PRODUCT_SETS_DIR, req.product_set, IMAGES_DIR, req.name)
+          : path.join(ws, PRODUCT_SETS_DIR, req.product_set, CERTS_DIR, req.name)
     if (!(await fsp.stat(dir).then(() => true).catch(() => false))) throw new Error('子文件夹不存在')
     // v2.3.1：移入回收站（不再直接 rm；恢复时自动把子文件夹名加回 config）
     await this.trash.trashItem(ws, dir, 'subfolder')
@@ -472,7 +497,9 @@ export class FilesService {
     globalWorkspaceIndex.invalidate(dir)
     // 从 config 移除
     const cfg = await this.loadConfig(ws)
-    if (req.file_type === 'image') {
+    if (req.scope === 'customer') {
+      cfg.customer_subfolders = filterSlice(cfg.customer_subfolders ?? [], req.name)
+    } else if (req.file_type === 'image') {
       cfg.image_subfolders = filterSlice(cfg.image_subfolders, req.name)
     } else {
       cfg.cert_subfolders = filterSlice(cfg.cert_subfolders, req.name)
@@ -526,16 +553,22 @@ export class FilesService {
     const ws = this.requireWS()
     if (!req.paths || req.paths.length === 0) throw new Error('没有选择文件')
     // 目标目录解析：结构化目标（产品集/类型/子文件夹）由后端拼路径，避免前端拼接风险
-    const targetDir =
-      req.target_product_set && req.target_type && req.sub_folder
-        ? path.join(
+    // v2.4.7（§4.6）：scope='customer' 时结构化目标路径 = 客户/<名>/<子文件夹>（target_type 忽略）
+    const structured =
+      req.scope === 'customer'
+        ? Boolean(req.target_product_set && req.sub_folder)
+        : Boolean(req.target_product_set && req.target_type && req.sub_folder)
+    const targetDir = structured
+      ? req.scope === 'customer'
+        ? path.join(ws, CUSTOMERS_DIR, assertSafePathSegment(req.target_product_set!, '客户名称'), assertSafePathSegment(req.sub_folder!, '子文件夹'))
+        : path.join(
             ws,
             PRODUCT_SETS_DIR,
-            req.target_product_set,
+            req.target_product_set!,
             req.target_type === 'image' ? IMAGES_DIR : CERTS_DIR,
-            req.sub_folder,
+            req.sub_folder!,
           )
-        : (req.targetDir ?? '').trim()
+      : (req.targetDir ?? '').trim()
     if (!targetDir) throw new Error('目标目录不能为空')
     if (!(await isPathInsideWorkspaceReal(ws, targetDir))) throw new Error('只能移动到工作区内的目录')
 

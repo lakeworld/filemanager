@@ -19,9 +19,28 @@ export const PRODUCT_SETS_DIR = '产品集'
 export const IMAGES_DIR = '图包'
 export const CERTS_DIR = '证书'
 export const EXPORTS_DIR = '导出'
+// v2.4.7：客户 / 发票 / 入库 / 交换区 根目录与台账/状态数据文件
+export const CUSTOMERS_DIR = '客户'
+export const INVOICES_DIR = '发票'
+export const INBOUND_DIR = '入库'
+export const EXCHANGE_DIR = '交换区'
+export const EXCHANGE_DONE_DIR = '已处理'
+export const CUSTOMERS_INFO_FILE = 'customers.json'
+export const INVOICES_FILE = 'invoices.json'
+export const INBOUND_FILE = 'inbound.json'
+export const EXCHANGE_STATE_FILE = 'exchange_state.json'
 export const RECENT_FILE = '.qihefilemanager_recent.json'
 export const TAGS_FILE = 'tags.json'
 export const THUMBNAIL_DIR = '.thumbnails'
+
+// —— v2.4.7：工作区根目录保留名（metadata key 泛化后首段承担区域判别，§3.7；产品集新建/重命名禁止使用）——
+export const RESERVED_ROOT_NAMES = ['产品集', '图包', '证书', '导出', '客户', '发票', '入库', '交换区']
+
+/** 名称是否命中工作区根目录保留名（不区分大小写比对，Windows 兼容） */
+export function isReservedRootName(name: string): boolean {
+  const n = name.trim().toLowerCase()
+  return RESERVED_ROOT_NAMES.some((r) => r.toLowerCase() === n)
+}
 
 export function defaultNamingTemplate(): NamingTemplate {
   return {
@@ -39,6 +58,7 @@ export function defaultWorkspaceConfig(): WorkspaceConfig {
     naming_template: defaultNamingTemplate(),
     image_subfolders: ['主图', '详情页', '白底图', '素材'],
     cert_subfolders: ['3C', '质检', '专利'],
+    customer_subfolders: ['报价', '合同', '沟通', '其他'],
   }
 }
 
@@ -67,7 +87,40 @@ export function productSetRootPath(workspace: string, productSet: string): strin
   return path.join(workspace, PRODUCT_SETS_DIR, productSet)
 }
 
-/** 确保工作区标准目录结构存在（.qihefilemanager/ 产品集/ 图包/ 证书/ 导出/） */
+// —— v2.4.7：客户 / 发票 / 入库 / 交换区 路径 ——
+export function customersInfoPath(workspace: string): string {
+  return path.join(cmDir(workspace), CUSTOMERS_INFO_FILE)
+}
+
+export function invoicesPath(workspace: string): string {
+  return path.join(cmDir(workspace), INVOICES_FILE)
+}
+
+export function inboundPath(workspace: string): string {
+  return path.join(cmDir(workspace), INBOUND_FILE)
+}
+
+export function exchangeStatePath(workspace: string): string {
+  return path.join(cmDir(workspace), EXCHANGE_STATE_FILE)
+}
+
+export function customerRootPath(workspace: string, name: string): string {
+  return path.join(workspace, CUSTOMERS_DIR, name)
+}
+
+export function invoiceRootPath(workspace: string): string {
+  return path.join(workspace, INVOICES_DIR)
+}
+
+export function inboundRootPath(workspace: string): string {
+  return path.join(workspace, INBOUND_DIR)
+}
+
+export function exchangeDir(workspace: string): string {
+  return path.join(workspace, EXCHANGE_DIR)
+}
+
+/** 确保工作区标准目录结构存在（.qihefilemanager/ 产品集/ 图包/ 证书/ 导出/ 客户/ 发票/ 入库/ 交换区/） */
 export function ensureWorkspaceDirs(workspace: string): void {
   const dirs = [
     cmDir(workspace),
@@ -75,6 +128,11 @@ export function ensureWorkspaceDirs(workspace: string): void {
     path.join(workspace, IMAGES_DIR),
     path.join(workspace, CERTS_DIR),
     path.join(workspace, EXPORTS_DIR),
+    // v2.4.7：客户/发票/入库/交换区（mkdirSync recursive 幂等，旧工作区打开即自动补齐）
+    path.join(workspace, CUSTOMERS_DIR),
+    path.join(workspace, INVOICES_DIR),
+    path.join(workspace, INBOUND_DIR),
+    path.join(workspace, EXCHANGE_DIR),
   ]
   for (const d of dirs) {
     fs.mkdirSync(d, { recursive: true })

@@ -5,12 +5,14 @@
  * - 写操作与 fs.watch 事件显式 invalidate（dirtyDirs），查询时重建，不即时扫描
  * - 快照 LRU 上限（v2.4.6 起默认 512），防长期运行无界增长
  * - save/load：userData/index/<workspaceHash>/index.json 紧凑 JSON，二次启动免全量扫描
+ * - v2.4.7（§4.5）：build() 增补 客户/<名>/<各子文件夹>、发票/<YYYY>/、入库/<YYYY>/ 三区扫描
+ *   （与产品集同法逐目录快照；fs.watch 工作区根 recursive 天然覆盖，失效事件零改动）
  * 纯 TS：可在 node 环境直接测试。
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 import { formatTime } from './workspace'
-import { PRODUCT_SETS_DIR, IMAGES_DIR, CERTS_DIR } from './paths'
+import { PRODUCT_SETS_DIR, IMAGES_DIR, CERTS_DIR, CUSTOMERS_DIR, INVOICES_DIR, INBOUND_DIR } from './paths'
 import type { FileEntry } from '../../shared/types'
 
 /** 紧凑条目：元组，避免对象属性名重复占用内存 */
@@ -96,18 +98,17 @@ export class WorkspaceIndex {
   }
 
   /**
-   * 遍历 ws/产品集 下各产品集的 图包 与 证书 目录的全部子文件夹，逐个构建快照；
+   * 遍历工作区各区域的叶子目录，逐个构建快照：
+   * - 产品集区：{产品集}/{图包|证书}/{子文件夹}（现有逻辑）
+   * - 客户区：{客户}/{客户名}/{子文件夹}
+   * - 发票/入库区：{发票|入库}/{YYYY}（文件直接归档在年份目录下）
    * 不可读/不存在的目录静默跳过。返回成功构建的目录数。
    */
   async build(ws: string, listRaw: (dir: string) => Promise<CompactItem[]>): Promise<number> {
-    const setsDir = path.join(ws, PRODUCT_SETS_DIR)
-    let sets: import('node:fs').Dirent[]
-    try {
-      sets = await fsp.readdir(setsDir, { withFileTypes: true })
-    } catch {
-      return 0 // 产品集目录不存在/不可读 → 无目录可构建
-    }
     let built = 0
+    // —— 产品集区（现有）——
+    const setsDir = path.join(ws, PRODUCT_SETS_DIR)
+    const sets = await fsp.readdir(setsDir, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[])
     for (const s of sets) {
       if (!s.isDirectory()) continue
       for (const typeDir of [IMAGES_DIR, CERTS_DIR]) {
@@ -123,6 +124,32 @@ export class WorkspaceIndex {
             built++
           }
         }
+      }
+    }
+    // —— v2.4.7（§4.5）：客户 / 发票 / 入库 三区（产品集区缺失也继续扫区域，目录不存在时 readdir 为空）——
+    const customersDir = path.join(ws, CUSTOMERS_DIR)
+    const customers = await fsp.readdir(customersDir, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[])
+    for (const c of customers) {
+      if (!c.isDirectory()) continue
+      built += await this.buildLeafSnapshots(path.join(customersDir, c.name), listRaw)
+    }
+    built += await this.buildLeafSnapshots(path.join(ws, INVOICES_DIR), listRaw)
+    built += await this.buildLeafSnapshots(path.join(ws, INBOUND_DIR), listRaw)
+    return built
+  }
+
+  /** v2.4.7：逐目录快照 root 下的一级子目录（客户/<名>/<子文件夹>、发票/<YYYY>/、入库/<YYYY>/） */
+  private async buildLeafSnapshots(root: string, listRaw: (dir: string) => Promise<CompactItem[]>): Promise<number> {
+    let built = 0
+    const entries = await fsp.readdir(root, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[])
+    for (const e of entries) {
+      if (!e.isDirectory()) continue
+      const d = path.join(root, e.name)
+      const snap = await this.buildSnapshot(d, listRaw).catch(() => null)
+      if (snap) {
+        this.put(d, snap)
+        this.dirtyDirs.delete(d) // 已重建 → 失效标记视为处理完毕
+        built++
       }
     }
     return built

@@ -3,14 +3,29 @@
  * 纯 TS 业务层。
  * v2.4.4（T1）：搜索命中标签——产品集与文件的 tags 参与关键词匹配；
  * 文件侧经 metadata 内存缓存按路径 join（不重建文件索引），命中条目附带 tags 供展示。
+ * v2.4.7（§4.2）：
+ * - result.customers：客户实体命中（客户名/别名/标签，对齐产品集结果形态）
+ * - result.files 纳入 客户/、发票/、入库/ 目录文件（文件名/标签命中；FileEntry.path 自明来源区域）
+ * - 实体记录（发票台账/入库单条目）不进全局搜索——台账检索由页内筛选/搜索承担（§6.5）
+ * - 产品集扫描逻辑不动（存量兼容优先，§4.1 判读规则）
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
-import { PRODUCT_SETS_DIR, IMAGES_DIR, CERTS_DIR } from './paths'
+import {
+  PRODUCT_SETS_DIR,
+  IMAGES_DIR,
+  CERTS_DIR,
+  CUSTOMERS_DIR,
+  customersInfoPath,
+  customerRootPath,
+  invoiceRootPath,
+  inboundRootPath,
+  readJsonFile,
+} from './paths'
 import { WorkspaceService, countFiles, formatTime, ProductSetInfo } from './workspace'
 import { MetadataService } from './metadata'
 import { FilesService, FileEntry } from './files'
-import type { SearchResult } from '../../shared/types'
+import type { SearchResult, CustomerInfo, CustomerExtraInfo } from '../../shared/types'
 
 export type { SearchResult } from '../../shared/types'
 
@@ -32,6 +47,8 @@ export class SearchService {
     const q = query.toLowerCase().trim()
     const result: SearchResult = { files: [], product_sets: [] }
     if (!q) return result
+    // v2.4.7：非空查询才初始化 customers（空查询保持既有返回形状，渲染端以 ?? [] 兜底）
+    result.customers = []
     const seenSet = new Set<string>()
 
     const setsDir = path.join(ws, PRODUCT_SETS_DIR)
@@ -45,10 +62,6 @@ export class SearchService {
     }
 
     const setTags = (name: string): string[] => extra[name]?.tags ?? []
-    const fileTags = (f: FileEntry): string[] => {
-      const key = this.metadata.fileMetadataKey(f.path)
-      return key ? tagsByKey.get(key) ?? [] : []
-    }
     const tagHit = (tags: string[]): boolean => tags.some((t) => t.toLowerCase().includes(q))
 
     for (const set of entries) {
@@ -82,7 +95,7 @@ export class SearchService {
         this.files.listDirFilesRecursive(path.join(setsDir, setName, CERTS_DIR)),
       ])
       for (const f of [...imgFiles, ...certFiles]) {
-        const tags = fileTags(f)
+        const tags = this.fileTags(f, tagsByKey)
         if (f.name.toLowerCase().includes(q) || tagHit(tags)) {
           if (tags.length > 0) f.tags = tags
           result.files.push(f)
@@ -93,6 +106,79 @@ export class SearchService {
         }
       }
     }
+
+    // —— v2.4.7（§4.2）：客户实体 + 客户/发票/入库 三区文件 ——
+    // 客户实体命中 = 客户名/别名/标签含关键词（对齐产品集结果形态：文件命中时客户也一并返回，供分组展示）
+    const customersDir = path.join(ws, CUSTOMERS_DIR)
+    const customerDirs = await fsp.readdir(customersDir, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[])
+    const customerStore = (await readJsonFile<Record<string, CustomerExtraInfo>>(customersInfoPath(ws))) ?? {}
+    const seenCustomer = new Set<string>()
+
+    for (const c of customerDirs) {
+      if (!c.isDirectory()) continue
+      const name = c.name
+      const ex = customerStore[name] ?? {}
+      const alias = (ex.alias ?? '').toLowerCase()
+      const entityMatched = name.toLowerCase().includes(q) || alias.includes(q) || tagHit(ex.tags ?? [])
+
+      if (entityMatched) {
+        result.customers.push(await this.buildCustomerInfo(ws, name, ex))
+        seenCustomer.add(name)
+      }
+
+      const custFiles = await this.files.listDirFilesRecursive(customerRootPath(ws, name))
+      for (const f of custFiles) {
+        const tags = this.fileTags(f, tagsByKey)
+        if (f.name.toLowerCase().includes(q) || tagHit(tags)) {
+          if (tags.length > 0) f.tags = tags
+          result.files.push(f)
+          if (!seenCustomer.has(name)) {
+            result.customers.push(await this.buildCustomerInfo(ws, name, ex))
+            seenCustomer.add(name)
+          }
+        }
+      }
+    }
+
+    // 发票/入库区：直接递归扫描（台账记录不进全局搜索，文件本体纳入）
+    for (const root of [invoiceRootPath(ws), inboundRootPath(ws)]) {
+      const regionFiles = await this.files.listDirFilesRecursive(root)
+      for (const f of regionFiles) {
+        const tags = this.fileTags(f, tagsByKey)
+        if (f.name.toLowerCase().includes(q) || tagHit(tags)) {
+          if (tags.length > 0) f.tags = tags
+          result.files.push(f)
+        }
+      }
+    }
     return result
+  }
+
+  /** v2.4.7：客户实体信息（目录扫描 × customers.json 合并，文件数递归计数，对齐产品集结果形态） */
+  private async buildCustomerInfo(ws: string, name: string, ex: CustomerExtraInfo): Promise<CustomerInfo> {
+    const dir = customerRootPath(ws, name)
+    const [info, fileCount] = await Promise.all([fsp.stat(dir), countFiles(dir)])
+    const c: CustomerInfo = {
+      name,
+      file_count: fileCount,
+      tags: ex.tags ?? [],
+      notes: ex.notes ?? '',
+      created_at: ex.created_at ?? formatTime(info.mtime),
+      updated_at: ex.updated_at ?? formatTime(info.mtime),
+    }
+    // 可选档案字段仅在存在时附加（对齐 shared/types CustomerInfo「其余可选」口径）
+    if (ex.alias) c.alias = ex.alias
+    if (ex.country) c.country = ex.country
+    if (ex.contact) c.contact = ex.contact
+    if (ex.source) c.source = ex.source
+    if (ex.related_product_sets && ex.related_product_sets.length > 0) c.related_product_sets = ex.related_product_sets
+    if (ex.erp_ext) c.erp_ext = ex.erp_ext
+    return c
+  }
+
+  /** v2.4.7：文件标签按元数据 key 查询（metadata key 泛化后客户/发票/入库区文件与产品集同法 join） */
+  private fileTags(f: FileEntry, tagsByKey: Map<string, string[]>): string[] {
+    const key = this.metadata.fileMetadataKey(f.path)
+    return key ? tagsByKey.get(key) ?? [] : []
   }
 }
