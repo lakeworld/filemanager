@@ -28,6 +28,18 @@ import type {
   AiAction,
   DeleteResult,
   BatchMoveResult,
+  // —— v2.4.7：客户 / 发票 / 入库 ——
+  CustomerInfo,
+  CustomerCreateRequest,
+  CustomerUpdateRequest,
+  InvoiceRecord,
+  InboundRecord,
+  InvoiceStatus,
+  InvoiceCreateRequest,
+  InvoiceUpdateRequest,
+  InvoiceListFilter,
+  InboundCreateRequest,
+  InboundUpdateRequest,
 } from "~/types";
 
 /**
@@ -53,7 +65,7 @@ export const api = {
     create: (path: string) => qb.workspace.create(path) as Promise<ApiResult<WorkspaceInfo>>,
     open: (path: string) => qb.workspace.open(path) as Promise<ApiResult<WorkspaceInfo>>,
     switch: (path: string) => qb.workspace.switch(path) as Promise<ApiResult<WorkspaceInfo>>,
-    renameSubfolder: (type: "image" | "cert", oldName: string, newName: string) =>
+    renameSubfolder: (type: "image" | "cert" | "customer", oldName: string, newName: string) =>
       qb.workspace.renameSubfolder(type, oldName, newName) as Promise<ApiResult<WorkspaceConfig>>,
   },
   config: {
@@ -71,6 +83,52 @@ export const api = {
       qb.productSets.rename(oldName, newName) as Promise<ApiResult<boolean>>,
     updateInfo: (req: ProductSetUpdateRequest) =>
       qb.productSets.updateInfo(req as any) as Promise<ApiResult<boolean>>,
+  },
+  // v2.4.7：客户 / 发票 / 入库（对齐 main core 服务契约；preload 命名空间纯透传）
+  clients: {
+    list: () => qb.clients.list() as Promise<ApiResult<CustomerInfo[]>>,
+    create: (req: CustomerCreateRequest) =>
+      qb.clients.create(req as any) as Promise<ApiResult<CustomerInfo>>,
+    update: (req: CustomerUpdateRequest) =>
+      qb.clients.update(req as any) as Promise<ApiResult<CustomerInfo>>,
+    rename: (oldName: string, newName: string) =>
+      qb.clients.rename(oldName, newName) as Promise<ApiResult<boolean>>,
+    delete: (name: string) => qb.clients.delete(name) as Promise<ApiResult<boolean>>,
+    linkRelation: (customer: string, productSet: string) =>
+      qb.clients.linkRelation(customer, productSet) as Promise<ApiResult<CustomerInfo>>,
+    unlinkRelation: (customer: string, productSet: string) =>
+      qb.clients.unlinkRelation(customer, productSet) as Promise<ApiResult<CustomerInfo>>,
+  },
+  invoices: {
+    list: (filter?: InvoiceListFilter) =>
+      qb.invoices.list(filter as any) as Promise<ApiResult<InvoiceRecord[]>>,
+    checkNumber: (number: string, excludeNumber?: string | null) =>
+      qb.invoices.checkNumber(number, excludeNumber ?? null) as Promise<ApiResult<InvoiceRecord | null>>,
+    create: (req: InvoiceCreateRequest) =>
+      qb.invoices.create(req as any) as Promise<ApiResult<InvoiceRecord>>,
+    update: (req: InvoiceUpdateRequest) =>
+      qb.invoices.update(req as any) as Promise<ApiResult<InvoiceRecord>>,
+    setStatus: (number: string, status: InvoiceStatus) =>
+      qb.invoices.setStatus(number, status) as Promise<ApiResult<InvoiceRecord>>,
+    remove: (number: string, opts?: { deleteFile?: boolean }) =>
+      qb.invoices.remove(number, opts ?? null) as Promise<ApiResult<boolean>>,
+    archiveFile: (sourcePath: string, date: string) =>
+      qb.invoices.archiveFile(sourcePath, date) as Promise<ApiResult<string>>,
+    exportXlsx: (filePath: string, records: InvoiceRecord[]) =>
+      qb.invoices.exportXlsx(filePath, records as any) as Promise<ApiResult<boolean>>,
+  },
+  inbound: {
+    list: () => qb.inbound.list() as Promise<ApiResult<InboundRecord[]>>,
+    checkId: (id: string, excludeId?: string | null) =>
+      qb.inbound.checkId(id, excludeId ?? null) as Promise<ApiResult<InboundRecord | null>>,
+    create: (req: InboundCreateRequest) =>
+      qb.inbound.create(req as any) as Promise<ApiResult<InboundRecord>>,
+    update: (id: string, req: InboundUpdateRequest) =>
+      qb.inbound.update(id, req as any) as Promise<ApiResult<InboundRecord>>,
+    remove: (id: string, opts?: { deleteFile?: boolean }) =>
+      qb.inbound.remove(id, opts ?? null) as Promise<ApiResult<boolean>>,
+    archiveFile: (sourcePath: string, date: string) =>
+      qb.inbound.archiveFile(sourcePath, date) as Promise<ApiResult<string>>,
   },
   files: {
     list: (req: FileListRequest) => qb.files.list(req as any) as Promise<ApiResult<FileEntry[]>>,
@@ -118,6 +176,7 @@ export const api = {
   dashboard: {
     stats: () => qb.dashboard.stats() as Promise<ApiResult<DashboardStatsType>>,
     expiringCerts: () => qb.dashboard.expiringCerts() as Promise<ApiResult<[string, string, string][]>>,
+    invoiceTodos: () => qb.dashboard.invoiceTodos() as Promise<ApiResult<InvoiceRecord[]>>,
   },
   search: (query: string) => qb.search(query) as Promise<ApiResult<SearchResult>>,
   csvTemplate: () => qb.csvTemplate() as Promise<ApiResult<string>>,

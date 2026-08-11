@@ -167,4 +167,23 @@ describe('工作区全链路（对照原 app_test.go）', () => {
     const cfg2 = await box.workspace.renameSubfolder('cert', '3C', 'CCC')
     expect(cfg2.cert_subfolders).toContain('CCC')
   })
+
+  it('v2.4.7：工作区根目录保留名拦截（产品集新建/重命名，不区分大小写）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+
+    // 新建拦截：保留名一律拒绝（中文保留名 + 大小写变体）
+    for (const bad of ['客户', '发票', '入库', '交换区', '产品集', '图包', '证书', '导出']) {
+      await expect(box.workspace.productSetCreate({ name: bad })).rejects.toThrow('保留')
+    }
+    await expect(box.workspace.productSetCreate({ name: '客户' })).rejects.toThrow('保留')
+    // 重命名拦截：既有产品集不可改名为保留名
+    await expect(box.workspace.renameProductSet('系列A', '发票')).rejects.toThrow('保留')
+    // 非保留名照常可用
+    const ok = await box.workspace.productSetCreate({ name: '正常集' })
+    expect(ok.name).toBe('正常集')
+  })
 })

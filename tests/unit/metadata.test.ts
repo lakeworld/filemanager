@@ -2,6 +2,8 @@
  * 文件元数据单测（v2.4.0）：读写回读、损坏 JSON 自动备份降级、key 组合、清理。
  * v2.4.2（D3+D4）：key 改为按文件路径推导（产品集/图包|证书/子文件夹/文件名，固定 / 分隔符）——
  * 子文件夹同名文件隔离、旧格式 key 读取回退 + 写入懒迁移。
+ * v2.4.7（§4.1）：key 泛化——工作区内任意文件可打标（key = 产品集相对路径或工作区相对路径）；
+ * 工作区外文件进入失败清单（文案「不在工作区」）。
  */
 import { describe, expect, it } from 'vitest'
 import { buildTestBox } from './helpers'
@@ -259,11 +261,12 @@ describe('批量打标（v2.4.4 T4）', () => {
     expect(r.updated).toBe(1)
     expect((await box.metadata.get(p1)).tags).toEqual(['重点'])
 
-    // 非产品集内文件 → 失败清单，不中断整体
-    const outside = path.join(ws, '导出', 'x.txt')
+    // 工作区外文件 → 失败清单，不中断整体（v2.4.7 §4.1：key 泛化后工作区内任意文件可打标）
+    const outside = path.join(os.tmpdir(), 'outside.txt')
+    await fsp.writeFile(outside, 'x')
     r = await box.metadata.setTagsBatch({ paths: [p2, outside], add: ['新'] })
     expect(r.updated).toBe(1)
     expect(r.failed).toHaveLength(1)
-    expect(r.failed[0].error).toContain('不在产品集')
+    expect(r.failed[0].error).toContain('不在工作区')
   })
 })

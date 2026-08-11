@@ -30,6 +30,34 @@ interface QiheboxApi {
     rename: (oldName: string, newName: string) => Promise<unknown>
     updateInfo: (req: unknown) => Promise<unknown>
   }
+  // v2.4.7：客户 / 发票 / 入库（纯透传，通道 qihebox:clients:* / qihebox:invoices:* / qihebox:inbound:*）
+  clients: {
+    list: () => Promise<unknown>
+    create: (req: unknown) => Promise<unknown>
+    update: (req: unknown) => Promise<unknown>
+    rename: (oldName: string, newName: string) => Promise<unknown>
+    delete: (name: string) => Promise<unknown>
+    linkRelation: (customer: string, productSet: string) => Promise<unknown>
+    unlinkRelation: (customer: string, productSet: string) => Promise<unknown>
+  }
+  invoices: {
+    list: (filter?: unknown) => Promise<unknown>
+    checkNumber: (number: string, excludeNumber?: string | null) => Promise<unknown>
+    create: (req: unknown) => Promise<unknown>
+    update: (req: unknown) => Promise<unknown>
+    setStatus: (number: string, status: string) => Promise<unknown>
+    remove: (number: string, opts?: unknown) => Promise<unknown>
+    archiveFile: (sourcePath: string, date: string) => Promise<unknown>
+    exportXlsx: (filePath: string, records: unknown) => Promise<unknown>
+  }
+  inbound: {
+    list: () => Promise<unknown>
+    checkId: (id: string, excludeId?: string | null) => Promise<unknown>
+    create: (req: unknown) => Promise<unknown>
+    update: (id: string, req: unknown) => Promise<unknown>
+    remove: (id: string, opts?: unknown) => Promise<unknown>
+    archiveFile: (sourcePath: string, date: string) => Promise<unknown>
+  }
   files: {
     list: (req: unknown) => Promise<unknown>
     import: (req: unknown) => Promise<unknown>
@@ -66,6 +94,8 @@ interface QiheboxApi {
   dashboard: {
     stats: () => Promise<unknown>
     expiringCerts: () => Promise<unknown>
+    // v2.4.7：30 天内 due_date 且状态 ≠ 已入账的发票（due_date 升序）
+    invoiceTodos: () => Promise<unknown>
   }
   search: (query: string) => Promise<unknown>
   csvTemplate: () => Promise<unknown>

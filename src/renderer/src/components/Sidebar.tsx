@@ -33,6 +33,9 @@ export default function Sidebar() {
         { icon: "📁", label: "产品集", path: "/product-sets" },
         { icon: "🖼️", label: "图包库", path: "/images" },
         { icon: "📜", label: "证书库", path: "/certs" },
+        // v2.4.7：客户 + 发票入口（PLAN §5.2 / §6.5）
+        { icon: "🤝", label: "客户", path: "/clients" },
+        { icon: "🧾", label: "发票", path: "/invoices" },
       ],
     },
     {

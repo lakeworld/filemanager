@@ -3,7 +3,7 @@ import { useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { isInternalDragActive, clearInternalDrag, getInternalDragPaths } from "~/utils/dragout";
 import { currentWorkspace, productSets, loadProductSets, workspaceConfig, setFileBrowserRefreshTrigger } from "~/stores/workspace";
-import type { ApiResult, FileEntry } from "~/types";
+import type { ApiResult, CustomerInfo, FileEntry } from "~/types";
 
 export default function GlobalDropOverlay() {
   const params = useParams();
@@ -11,22 +11,35 @@ export default function GlobalDropOverlay() {
   const [showDialog, setShowDialog] = createSignal(false);
   const [paths, setPaths] = createSignal<string[]>([]);
   const [selectedProductSet, setSelectedProductSet] = createSignal("");
-  const [targetType, setTargetType] = createSignal<"image" | "cert">("image");
+  // v2.4.7：导入目标分组加「客户」（PLAN §5.2）
+  const [targetType, setTargetType] = createSignal<"image" | "cert" | "customer">("image");
   const [subFolder, setSubFolder] = createSignal("");
   const [importStatus, setImportStatus] = createSignal<"idle" | "importing" | "done" | "error" | "cancelled">("idle");
   const [importError, setImportError] = createSignal("");
   // v2.3.0：批量导入进度 + 取消
   const [importProgress, setImportProgress] = createSignal<{ done: number; total: number } | null>(null);
   const [cancelToken, setCancelToken] = createSignal<string | null>(null);
+  // v2.4.7：客户列表（导入目标选择器「客户」分组用；api.clients 门面由并行 IPC 代理产出）
+  const [customers, setCustomers] = createSignal<CustomerInfo[]>([]);
+
+  const loadCustomers = async () => {
+    const result = await api.clients.list();
+    if (result.success && result.data) {
+      setCustomers(result.data);
+    }
+  };
 
   createEffect(() => {
     if (currentWorkspace()) {
       loadProductSets();
+      loadCustomers();
     }
   });
 
   const imageFolders = () => workspaceConfig()?.image_subfolders || ["主图", "详情页", "白底图", "素材"];
   const certFolders = () => workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"];
+  // v2.4.7：客户子文件夹默认集（config.customer_subfolders，旧 config 缺省合并默认值）
+  const customerFolders = () => workspaceConfig()?.customer_subfolders || ["报价", "合同", "沟通", "其他"];
 
   const decodedProductSet = () => {
     try { return decodeURIComponent(params.productSet || ""); } catch { return params.productSet || ""; }
@@ -49,12 +62,14 @@ export default function GlobalDropOverlay() {
     setCancelToken(token);
 
     try {
+      // v2.4.7：客户分组导入走 scope='customer'（target_product_set 槽位承载客户名，file_type 忽略）
       const result = await api.files.import({
         source_paths: paths(),
         target_product_set: ps,
         target_folder: folder,
         target_type: type,
         sub_folder: folder,
+        scope: type === "customer" ? "customer" : "productSet",
         cancelToken: token,
       });
       if (!result.success) {
@@ -247,6 +262,8 @@ export default function GlobalDropOverlay() {
         } else {
           console.log("[GlobalDropOverlay] taking dialog path");
           setPaths(dropPaths);
+          // v2.4.7：弹窗打开时刷新客户列表（拖入前可能新建过客户）
+          void loadCustomers();
           setShowDialog(true);
         }
       }, 0);
@@ -337,7 +354,9 @@ export default function GlobalDropOverlay() {
 
             <div class="space-y-4">
               <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">产品集</label>
+                <label class="block text-sm font-medium text-surface-700 mb-1">
+                  {targetType() === "customer" ? "客户" : "产品集"}
+                </label>
                 <select
                   class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   value={selectedProductSet()}
@@ -345,10 +364,16 @@ export default function GlobalDropOverlay() {
                     setSelectedProductSet(e.currentTarget.value);
                   }}
                 >
-                  <option value="">选择产品集</option>
-                  <For each={productSets()}>
-                    {(ps) => <option value={ps.name}>{ps.name}</option>}
-                  </For>
+                  <option value="">{targetType() === "customer" ? "选择客户" : "选择产品集"}</option>
+                  <Show when={targetType() === "customer"} fallback={
+                    <For each={productSets()}>
+                      {(ps) => <option value={ps.name}>{ps.name}</option>}
+                    </For>
+                  }>
+                    <For each={customers()}>
+                      {(c) => <option value={c.name}>{c.name}</option>}
+                    </For>
+                  </Show>
                 </select>
               </div>
 
@@ -373,13 +398,24 @@ export default function GlobalDropOverlay() {
                   >
                     📜 证书
                   </button>
+                  {/* v2.4.7：客户导入分组（客户 → 子文件夹两级） */}
+                  <button
+                    class={`flex-1 py-2 text-sm rounded-md transition-colors ${targetType() === "customer" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}
+                    onClick={() => {
+                      setTargetType("customer");
+                      setSelectedProductSet("");
+                      setSubFolder(customerFolders()[0]);
+                    }}
+                  >
+                    🤝 客户
+                  </button>
                 </div>
               </div>
 
               <div>
                 <label class="block text-sm font-medium text-surface-700 mb-1">子文件夹</label>
                 <div class="flex bg-surface-100 rounded-lg p-1 flex-wrap gap-1">
-                  <For each={targetType() === "image" ? imageFolders() : certFolders()}>
+                  <For each={targetType() === "image" ? imageFolders() : targetType() === "cert" ? certFolders() : customerFolders()}>
                     {(folder) => (
                       <button
                         class={`px-4 py-2 text-sm rounded-md transition-colors ${subFolder() === folder ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}

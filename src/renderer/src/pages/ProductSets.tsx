@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createEffect } from "solid-js";
+import { Show, For, createSignal, createEffect, onCleanup } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { tagList } from "~/stores/tags";
@@ -14,7 +14,7 @@ import {
   setSelectedProductSet,
   workspaceConfig,
 } from "~/stores/workspace";
-import type { ProductSetInfo, ProductSetCreateRequest } from "~/types";
+import type { ApiResult, CustomerInfo, ProductSetInfo, ProductSetCreateRequest } from "~/types";
 
 export default function ProductSets() {
   const navigate = useNavigate();
@@ -33,6 +33,10 @@ export default function ProductSets() {
 
   const [psSearch, setPsSearch] = createSignal("");
   const [tagFilter, setTagFilter] = createSignal<string>("");
+
+  // v2.4.7（§5.2）：详情态「关联客户」只读区块——customers.json 反查 related_product_sets 含本集的客户
+  // （写操作只在客户侧，单一写点，无双向同步；点击跳客户详情）
+  const [relatedCustomers, setRelatedCustomers] = createSignal<CustomerInfo[]>([]);
 
   const contextMenu = useContextMenu<ProductSetInfo>();
 
@@ -58,6 +62,23 @@ export default function ProductSets() {
     if (psName()) {
       setSelectedProductSet(psName());
     }
+  });
+
+  // v2.4.7（§5.2）：关联客户反查加载（目录扫描为实；api.clients 门面由并行 IPC 代理产出，见报告交接点）
+  createEffect(() => {
+    const name = psName();
+    if (!name) {
+      setRelatedCustomers([]);
+      return;
+    }
+    let cancelled = false;
+    onCleanup(() => {
+      cancelled = true;
+    });
+    api.clients.list().then((result: ApiResult<CustomerInfo[]>) => {
+      if (cancelled || !result.success || !result.data) return;
+      setRelatedCustomers(result.data.filter((c) => (c.related_product_sets ?? []).includes(name)));
+    });
   });
 
   const allTags = () => {
@@ -387,6 +408,35 @@ export default function ProductSets() {
                 </For>
               </div>
             </div>
+          </div>
+
+          {/* v2.4.7（§5.2）：关联客户只读区块（customers.json 反查 related_product_sets；写操作只在客户侧） */}
+          <div class="card p-5">
+            <div class="flex items-center justify-between mb-3">
+              <h2 class="text-lg font-semibold">关联客户</h2>
+              <span class="text-sm text-surface-400">在客户详情页维护关联</span>
+            </div>
+            <Show when={relatedCustomers().length > 0} fallback={
+              <EmptyState icon="🤝" title="暂无关联客户" desc="可在客户详情页的关联产品集区域添加" />
+            }>
+              <div class="flex flex-wrap gap-2">
+                <For each={relatedCustomers()}>
+                  {(c) => (
+                    <button
+                      class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors text-sm"
+                      onClick={() => navigate(`/clients/${encodeURIComponent(c.name)}`)}
+                      title={`查看客户「${c.name}」`}
+                    >
+                      <span>🤝</span>
+                      <span class="font-medium">{c.name}</span>
+                      <Show when={c.file_count > 0}>
+                        <span class="text-xs text-emerald-500">{c.file_count} 文件</span>
+                      </Show>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
           </div>
         </Show>
       </Show>

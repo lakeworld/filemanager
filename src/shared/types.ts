@@ -33,6 +33,8 @@ export interface WorkspaceConfig {
   naming_template: NamingTemplate
   image_subfolders: string[]
   cert_subfolders: string[]
+  /** v2.4.7：客户子文件夹默认集（旧 config 缺省时由 loadConfig 合并默认值，向后兼容零迁移） */
+  customer_subfolders?: string[]
 }
 
 export interface ProductSetInfo {
@@ -88,6 +90,12 @@ export interface FileListRequest {
   file_type: string
   sub_folder: string
   /**
+   * v2.4.7：实体区域作用域，缺省 'productSet'（旧调用方零改动，PLAN §4.6）。
+   * - 'productSet'：product_set 槽位 = 产品集名（现行为）
+   * - 'customer'：product_set 槽位 = 客户名，file_type 忽略，sub_folder 为客户子文件夹
+   */
+  scope?: 'productSet' | 'customer'
+  /**
    * v2.4.4：媒体类型过滤（图包库「图片/视频」筛选用）。
    * 仅在图包目录（file_type='image'/'video'）语义下生效：传入后按条目实际类型过滤；
    * 不传则列出目录内全部文件（FileBrowser 文件管理视图依赖此行为）。
@@ -101,6 +109,8 @@ export interface ImportFileRequest {
   target_folder: string
   target_type: string
   sub_folder: string
+  /** v2.4.7：scope 语义同 FileListRequest；'customer' 时 target_product_set 槽位承载客户名、file_type 忽略 */
+  scope?: 'productSet' | 'customer'
   /** v2.3.0：批量导入取消标记（GlobalDropOverlay 生成，主进程轮询检测） */
   cancelToken?: string
 }
@@ -120,18 +130,24 @@ export interface MoveFilesRequest {
   target_type?: string
   /** 结构化目标：子文件夹 */
   sub_folder?: string
+  /** v2.4.7：scope 语义同 FileListRequest；'customer' 时结构化目标路径 = 客户/<名>/<sub_folder> */
+  scope?: 'productSet' | 'customer'
 }
 
 export interface SubfolderCreateRequest {
   product_set: string
   file_type: string
   name: string
+  /** v2.4.7：scope 语义同 FileListRequest；'customer' 时 config 写入 customer_subfolders */
+  scope?: 'productSet' | 'customer'
 }
 
 export interface DeleteSubfolderRequest {
   product_set: string
   file_type: string
   name: string
+  /** v2.4.7：scope 语义同 FileListRequest；'customer' 时 config 从 customer_subfolders 移除 */
+  scope?: 'productSet' | 'customer'
 }
 
 export interface MetadataUpdateRequest {
@@ -173,11 +189,15 @@ export interface DashboardStats {
   total_certs: number
   expiring_certs: number
   recent_files: FileEntry[]
+  /** v2.4.7：客户数（客户/ 一级目录数） */
+  total_customers?: number
 }
 
 export interface SearchResult {
   files: FileEntry[]
   product_sets: ProductSetInfo[]
+  /** v2.4.7：客户实体命中（客户名/别名/标签命中，对齐产品集结果形态） */
+  customers?: CustomerInfo[]
 }
 
 // —— 标签 / 回收站 ——
@@ -195,7 +215,7 @@ export interface TagInfo {
   defined?: boolean
 }
 
-export type TrashKind = 'file' | 'subfolder' | 'productSet'
+export type TrashKind = 'file' | 'subfolder' | 'productSet' | 'customer'
 
 export interface TrashEntry {
   id: string
@@ -257,4 +277,122 @@ export interface BatchTagRequest {
 export interface BatchTagResult {
   updated: number
   failed: FailedItem[]
+}
+
+// —— v2.4.7：客户 / 发票 / 入库 / 交换区 ——
+
+/** 客户（对外展示，对齐 ProductSetInfo 形态：name/file_count/tags/notes/created_at/updated_at 必填，其余可选） */
+export interface CustomerInfo {
+  name: string
+  /** 文件数统计（客户目录递归计数） */
+  file_count: number
+  alias?: string
+  country?: string
+  contact?: string
+  source?: string
+  tags: string[]
+  notes: string
+  /** 关联产品集名数组（唯一写点在客户侧，产品集侧只读反查） */
+  related_product_sets?: string[]
+  /** 预留命名空间（v2.6 erp-bridge 写回；本体只读不校验、API 面不含入参） */
+  erp_ext?: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+/** customers.json 单条档案（客户名 = 目录名 = JSON key，不重复存于档案内；读取侧宽松容错） */
+export interface CustomerExtraInfo {
+  alias?: string
+  country?: string
+  contact?: string
+  source?: string
+  tags?: string[]
+  notes?: string
+  related_product_sets?: string[]
+  /** 预留命名空间（本体不校验其结构） */
+  erp_ext?: Record<string, unknown>
+  created_at?: string
+  updated_at?: string
+}
+
+export interface CustomerCreateRequest {
+  name: string
+  alias?: string
+  country?: string
+  contact?: string
+  source?: string
+  tags?: string[]
+  notes?: string
+  related_product_sets?: string[]
+}
+
+/** 客户档案更新：不含 erp_ext 字段（本体物理不可写，v2.6 erp-bridge 才写回） */
+export interface CustomerUpdateRequest {
+  name: string
+  alias?: string
+  country?: string
+  contact?: string
+  source?: string
+  tags?: string[]
+  notes?: string
+  related_product_sets?: string[]
+}
+
+/** 发票台账记录（invoices.json: { invoices: Record<发票号码, InvoiceRecord> }；号码 = 查重主键 = key） */
+export interface InvoiceRecord {
+  /** 发票号码 */
+  number: string
+  /** 发票代码（数电票可空） */
+  code?: string
+  /** 开票日期（写入归一化 YYYY-MM-DD） */
+  date: string
+  /** 金额（价税合计，元）；仅展示与页内合计，不进任何计算 */
+  amount: number
+  /** 开票方名称 */
+  seller: string
+  /** 购买方抬头 */
+  buyer: string
+  /** 状态枚举，自由流转（允许纠正误操作） */
+  status: '待报销' | '已报销' | '已入账'
+  /** 关联客户名（客户被删时保留字面值，UI 灰显） */
+  customer?: string
+  /** 待办日期（30 天内且状态 ≠ 已入账 → 待办提醒，语义用户自定） */
+  due_date?: string
+  /** 归档主体：工作区相对路径（/ 分隔），指向 发票/<YYYY>/ 下原件 */
+  file_path: string
+  tags?: string[]
+  notes?: string
+  /** 预留命名空间（v2.6 OCR 插件写回），本体不校验 */
+  ocr_ext?: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+/** 入库单记录（inbound.json: { records: Record<单据编号, InboundRecord> }；编号 = 查重主键 = key） */
+export interface InboundRecord {
+  /** 单据编号 */
+  id: string
+  /** 入库日期（归一化 YYYY-MM-DD） */
+  date: string
+  /** 供应商（自由文本，不建供应商表） */
+  supplier: string
+  /** 关联产品集名（chip 跳转，打通「产品 → 入库凭证」下钻） */
+  product_set?: string
+  /** 归档主体：入库/<YYYY>/ 下文件相对路径 */
+  file_path: string
+  /** 金额合计（仅展示） */
+  amount?: number
+  notes?: string
+  created_at: string
+  updated_at: string
+}
+
+/** 交换区投递回执（交换区/已处理/<id>.receipt.json） */
+export interface ExchangeReceipt {
+  id: string
+  status: 'ok' | 'error' | 'duplicate'
+  /** 归集后的目标相对路径（ok 时非空） */
+  target_paths: string[]
+  error?: string
+  processed_at: string
 }
