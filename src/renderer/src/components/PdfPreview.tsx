@@ -26,8 +26,6 @@ import pdfWorkerRaw from "pdfjs-dist/build/pdf.worker.min.mjs?raw";
 interface PdfPreviewProps {
   url: string;
   onError?: (msg: string) => void;
-  /** 加载完成后提供文本提取函数（供 AI 证书抽取；只取文本不上传图片） */
-  onTextExtract?: (extract: () => Promise<string>) => void;
 }
 
 // worker blob URL 模块级单例（只建一次，dev/prod 共用；单例 blob 与应用同生命周期，不 revoke）
@@ -77,27 +75,6 @@ export default function PdfPreview(props: PdfPreviewProps) {
     loadingTask = null;
   };
 
-  // 惰性文本提取（前 5 页，2 万字符上限），供 AI 证书抽取
-  const extractText = async (): Promise<string> => {
-    if (!pdfDoc) return "";
-    try {
-      const parts: string[] = [];
-      const maxPages = Math.min(pdfDoc.numPages, 5);
-      for (let i = 1; i <= maxPages; i++) {
-        const page = await pdfDoc.getPage(i);
-        const tc = await page.getTextContent();
-        const str = (tc.items as { str?: string }[])
-          .map((it) => (typeof it.str === "string" ? it.str : ""))
-          .join(" ");
-        parts.push(str);
-        if (parts.join("\n").length > 12000) break;
-      }
-      return parts.join("\n").slice(0, 20000);
-    } catch {
-      return "";
-    }
-  };
-
   onMount(async () => {
     try {
       setLoading(true);
@@ -145,7 +122,6 @@ export default function PdfPreview(props: PdfPreviewProps) {
       // 默认适配页面宽度
       viewer.currentScaleValue = "page-fit";
       setZoom(Math.round(viewer.currentScale * 100));
-      props.onTextExtract?.(extractText);
     } catch (e) {
       if (disposed) {
         destroyAll();

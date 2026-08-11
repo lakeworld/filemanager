@@ -211,7 +211,7 @@ describe('标签体系（v2.0.2 / v2.3.2 迁移）', () => {
     const ws = await tmp()
     const box = buildTestBox(home)
     await box.workspace.create(ws)
-    // 历史自由输入 / AI 打标引入的未定义标签
+    // 历史自由输入引入的未定义标签
     await box.workspace.productSetCreate({ name: '系列A', tags: ['野生标'], notes: '' })
     await box.metadata.update({ file_path: metaPath(ws), tags: ['野生标', '另一个野生'] })
 
@@ -268,7 +268,7 @@ describe('标签引用源注册机制（v2.4.4 T7）', () => {
     const box = buildTestBox(home)
     await box.workspace.create(ws)
 
-    // 模拟未来实体（v2.6 客户 / v2.7 发票）：独立 JSON 存储，注册为引用源
+    // 模拟实体（客户/发票 v2.4.7 已接入，本用例验证注册机制的通用性）：独立 JSON 存储，注册为引用源
     const storeFile = path.join(ws, '.qihefilemanager', 'mock_sources.json')
     const mock: Record<string, { tags: string[] }> = {
       客户甲: { tags: ['大客户', '待跟进'] },

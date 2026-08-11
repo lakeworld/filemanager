@@ -1,9 +1,9 @@
 /**
- * 账号服务（v2.2.0）：可选登录（复用 ERP PocketBase 账号）+ AI 智能整理调用 + 活跃心跳。
+ * 账号服务（v2.2.0）：可选登录（复用 ERP PocketBase 账号）+ 活跃心跳。
  *
  * 设计：
- * - 登录价值 = AI（50 次试用额度绑定账号）；统计是心跳副产品
- * - 隐私边界：仅上传文件名 / PDF 文本 / 模板 / 标签，图片与文件本体永不出本机
+ * - 登录为可选；登录态供后续插件能力复用（host.account，见 PLUGIN.md）；统计是心跳副产品
+ * - 隐私边界：心跳仅上报设备标识 / 平台 / 版本，文件与目录内容永不上传
  * - token 优先 safeStorage 加密落盘，Linux 无 keyring 时降级明文（本地单用户，JWT 过期即失效）
  * - 依赖注入（fetch / 加解密 / 版本 / 日志），主进程装配，vitest 可独立单测
  */
@@ -13,8 +13,6 @@ import path from 'node:path'
 
 const BASE_URL = 'https://api.example.invalid'
 const HEARTBEAT_INTERVAL_MS = 60 * 60 * 1000
-
-export type AiAction = 'rename' | 'tag' | 'cert' | 'search'
 
 export interface AccountDeps {
   /** account.json 绝对路径（userData 下） */
@@ -35,8 +33,6 @@ export interface AccountStatus {
   loggedIn: boolean
   email: string
   sessionExpired: boolean
-  /** AI 剩余试用额度；null = 尚未调用过 AI（界面显示满额） */
-  remaining: number | null
 }
 
 interface StoredAccount {
@@ -44,12 +40,7 @@ interface StoredAccount {
   userId: string
   email: string
   deviceId: string
-  remaining: number | null
 }
-
-export type AiCallResult =
-  | { ok: true; data: unknown; remaining: number | null }
-  | { ok: false; error: string; code?: string }
 
 const log = (deps: AccountDeps, level: 'info' | 'warn' | 'error', msg: string): void => {
   try {
@@ -77,7 +68,6 @@ export class AccountService {
         userId: parsed.userId,
         email: parsed.email ?? '',
         deviceId: parsed.deviceId,
-        remaining: typeof parsed.remaining === 'number' ? parsed.remaining : null,
       }
     } catch {
       return null
@@ -107,7 +97,7 @@ export class AccountService {
   async login(
     email: string,
     password: string,
-  ): Promise<{ ok: true; remaining: number | null } | { ok: false; error: string }> {
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
     const fetchImpl = this.deps.fetchImpl ?? fetch
     let res: Response
     try {
@@ -140,14 +130,13 @@ export class AccountService {
     }
     const existing = this.load()
     const deviceId = existing?.deviceId ?? randomUUID()
-    const remaining = existing?.remaining ?? null
     this.sessionExpired = false
-    this.save({ token, userId, email: body.record?.email ?? email, deviceId, remaining })
+    this.save({ token, userId, email: body.record?.email ?? email, deviceId })
     log(this.deps, 'info', `登录成功 user=${userId}`)
     // 登录即启动心跳（统计活跃），并立即上报一次
     this.startHeartbeat()
     void this.beat()
-    return { ok: true, remaining }
+    return { ok: true }
   }
 
   async logout(): Promise<void> {
@@ -159,58 +148,9 @@ export class AccountService {
   status(): AccountStatus {
     const acc = this.load()
     if (!acc) {
-      return { loggedIn: false, email: '', sessionExpired: false, remaining: null }
+      return { loggedIn: false, email: '', sessionExpired: false }
     }
-    return { loggedIn: true, email: acc.email, sessionExpired: this.sessionExpired, remaining: acc.remaining }
-  }
-
-  // —— AI 调用 ——
-
-  async aiCall(action: AiAction, payload: unknown): Promise<AiCallResult> {
-    const acc = this.load()
-    if (!acc) {
-      return { ok: false, error: '请先登录后使用 AI 功能', code: 'AUTH_REQUIRED' }
-    }
-    const fetchImpl = this.deps.fetchImpl ?? fetch
-    let res: Response
-    try {
-      res = await fetchImpl(`${BASE_URL}/box/ai`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${acc.token}` },
-        body: JSON.stringify({ action, payload }),
-      })
-    } catch {
-      return { ok: false, error: '网络异常，AI 调用失败' }
-    }
-    if (res.status === 401) {
-      this.sessionExpired = true
-      log(this.deps, 'warn', 'AI 调用 401，会话已失效')
-      return { ok: false, error: '登录已过期，请重新登录', code: 'AUTH_REQUIRED' }
-    }
-    if (!res.ok) {
-      let message = 'AI 调用失败，请稍后重试'
-      let code: string | undefined
-      try {
-        const j = (await res.json()) as { message?: string; code?: string }
-        if (j?.message) message = j.message
-        if (j?.code) code = j.code
-      } catch {
-        // 保留默认文案
-      }
-      return { ok: false, error: message, code }
-    }
-    let body: { data?: { remaining?: number } }
-    try {
-      body = await res.json()
-    } catch {
-      return { ok: false, error: 'AI 响应异常，请稍后重试' }
-    }
-    const data = body?.data
-    if (data && typeof data.remaining === 'number') {
-      const updated: StoredAccount = { ...acc, remaining: data.remaining }
-      this.save(updated)
-    }
-    return { ok: true, data, remaining: data?.remaining ?? acc.remaining }
+    return { loggedIn: true, email: acc.email, sessionExpired: this.sessionExpired }
   }
 
   // —— 心跳（活跃统计，失败静默）——

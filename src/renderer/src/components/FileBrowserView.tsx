@@ -3,9 +3,7 @@ import { useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { workspaceConfig, loadWorkspaceConfig, currentWorkspace, fileBrowserRefreshTrigger } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
-import { requireLogin } from "~/stores/account";
 import { showToast } from "~/stores/notifyBanner";
-import { FEATURE_AI } from "~/features";
 import { loadTagDefs, tagLabel, tagList } from "~/stores/tags";
 import FileThumbnail from "~/components/FileThumbnail";
 import TagChips from "~/components/TagChips";
@@ -18,7 +16,6 @@ import BatchTagDialog from "~/components/BatchTagDialog";
 import ArchiveProgressDialog from "~/components/ArchiveProgressDialog";
 import EmptyState from "~/components/EmptyState";
 import Loading from "~/components/Loading";
-import AiSuggestionPanel, { AiPanelItem } from "~/components/AiSuggestionPanel";
 import { handleDragOut } from "~/utils/dragout";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import { useContextMenu } from "~/hooks/useContextMenu";
@@ -82,8 +79,6 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   const [batchTagState, setBatchTagState] = createSignal<{ paths: string[]; commonTags: string[] } | null>(null);
   const [archiveState, setArchiveState] = createSignal<{ token: string; phase: "compress" | "extract" } | null>(null);
   const [actionMessage, setActionMessage] = createSignal("");
-  const [aiPanel, setAiPanel] = createSignal<{ mode: "rename" | "tag"; items: AiPanelItem[] } | null>(null);
-  const [aiBusy, setAiBusy] = createSignal(false);
   // v2.4.7（UI 反馈统一）：删除确认弹窗状态（替代 window.confirm）——kind=files 批量删文件 / kind=subfolder 删子文件夹
   const [confirmDelete, setConfirmDelete] = createSignal<{ kind: "files"; paths: string[] } | { kind: "subfolder"; folder: string } | null>(null);
 
@@ -363,139 +358,6 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       : { productSet: props.entity, editMetadata: true, onDelete: loadFiles });
   };
 
-  // —— v2.2.0：AI 智能整理（命名 / 打标）——
-
-  const aiSelectedNames = () => {
-    const paths = selectedFilePaths().length > 0 ? selectedFilePaths() : (contextMenu.payload() ?? []);
-    const byPath = new Map(files().map((f) => [f.path, f]));
-    const names: string[] = [];
-    for (const p of paths) {
-      const f = byPath.get(p);
-      if (f) names.push(f.name);
-    }
-    return names;
-  };
-
-  const handleAiRename = async () => {
-    if (!requireLogin()) return;
-    const names = aiSelectedNames();
-    if (names.length === 0) return;
-    setAiBusy(true);
-    const r = await api.ai.call("rename", {
-      files: names,
-      template: workspaceConfig()?.naming_template ?? {},
-      product_set: props.entity,
-    });
-    setAiBusy(false);
-    if (!r.success || !r.data) {
-      showToast("error", "AI 命名失败", r.error || "请稍后重试");
-      return;
-    }
-    const suggestions = (r.data as { suggestions?: { original: string; suggested: string; note?: string }[] })?.suggestions ?? [];
-    if (suggestions.length === 0) {
-      showToast("info", "AI 命名", "AI 没有返回命名建议，请重试");
-      return;
-    }
-    setAiPanel({ mode: "rename", items: suggestions });
-  };
-
-  const handleAiTag = async () => {
-    if (!requireLogin()) return;
-    const names = aiSelectedNames();
-    if (names.length === 0) return;
-    await loadTagDefs();
-    setAiBusy(true);
-    const r = await api.ai.call("tag", {
-      files: names,
-      existing_tags: tagList().map((t) => t.name),
-    });
-    setAiBusy(false);
-    if (!r.success || !r.data) {
-      showToast("error", "AI 打标失败", r.error || "请稍后重试");
-      return;
-    }
-    const suggestions = (r.data as { suggestions?: { file: string; tags: string[] }[] })?.suggestions ?? [];
-    if (suggestions.length === 0) {
-      showToast("info", "AI 打标", "AI 没有返回标签建议，请重试");
-      return;
-    }
-    setAiPanel({
-      mode: "tag",
-      items: suggestions.map((s) => ({ original: s.file, tags: s.tags })),
-    });
-  };
-
-  const applyAiRename = async (selected: number[]) => {
-    const panel = aiPanel();
-    if (!panel) return;
-    let applied = 0;
-    let failed = 0;
-    for (const i of selected) {
-      const item = panel.items[i];
-      if (!item.suggested || item.suggested === item.original) continue;
-      const file = files().find((f) => f.name === item.original);
-      if (!file) continue;
-      const r = await api.files.rename({ path: file.path, newName: item.suggested });
-      if (r.success) {
-        applied++;
-      } else {
-        failed++;
-        showToast("error", "重命名失败", `「${item.original}」：${r.error ?? "未知错误"}`);
-      }
-    }
-    setAiPanel(null);
-    setSelectedFilePaths([]);
-    loadFiles();
-    showActionMessage(
-      applied > 0 ? `AI 命名完成：成功 ${applied} 项${failed ? `，失败 ${failed} 项` : ""}` : "没有可应用的命名建议",
-    );
-  };
-
-  const applyAiTag = async (selected: number[]) => {
-    const panel = aiPanel();
-    if (!panel) return;
-    let applied = 0;
-    let failed = 0;
-    let skipped = 0;
-    // v2.3.0：AI 建议仅应用已定义标签，未定义者忽略（避免引入孤儿标签）
-    const definedNames = new Set(tagList().flatMap((t) => [t.name, ...(t.children ?? [])]));
-    for (const i of selected) {
-      const item = panel.items[i];
-      if (!item.tags || item.tags.length === 0) continue;
-      const file = files().find((f) => f.name === item.original);
-      if (!file) continue;
-      const valid = item.tags.filter((t) => definedNames.has(t));
-      if (valid.length === 0) {
-        skipped++;
-        continue;
-      }
-      // v2.4.2：主进程按文件绝对路径推导元数据 key（含子文件夹）
-      const meta = await api.metadata.get(file.path);
-      const current = meta.success && meta.data ? meta.data : { cert_type: "", expiry_date: "", tags: [] as string[], notes: "" };
-      const merged = Array.from(new Set([...(current.tags ?? []), ...valid]));
-      const r = await api.metadata.update({
-        file_path: file.path,
-        cert_type: current.cert_type ?? "",
-        expiry_date: current.expiry_date ?? "",
-        tags: merged,
-        notes: current.notes ?? "",
-      });
-      if (r.success) {
-        applied++;
-      } else {
-        failed++;
-        showToast("error", "打标失败", `「${item.original}」：${r.error ?? "未知错误"}`);
-      }
-    }
-    setAiPanel(null);
-    loadFiles();
-    showActionMessage(
-      applied > 0
-        ? `AI 打标完成：成功 ${applied} 项${failed ? `，失败 ${failed} 项` : ""}${skipped ? `，忽略未定义标签 ${skipped} 项` : ""}`
-        : (skipped > 0 ? "AI 建议的标签均未在设置中定义，未应用" : "没有可应用的标签建议"),
-    );
-  };
-
   /** 删除确认弹窗（v2.4.7 UI 反馈统一，替代 window.confirm；state 由 Show 保证非空） */
   const DeleteConfirm = (props: {
     state: { kind: "files"; paths: string[] } | { kind: "subfolder"; folder: string };
@@ -745,19 +607,6 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
               onExtract: (file, mode) => void handleExtract(file, mode),
               onDelete: handleDelete,
             }),
-            // AI 命名 / AI 打标（FEATURE_AI 开启后展示）
-            {
-              label: "AI 命名",
-              icon: "🤖",
-              show: FEATURE_AI && (contextMenu.payload()?.length ?? 0) >= 1,
-              action: () => void handleAiRename(),
-            },
-            {
-              label: "AI 打标",
-              icon: "🏷️",
-              show: FEATURE_AI && (contextMenu.payload()?.length ?? 0) >= 1,
-              action: () => void handleAiTag(),
-            },
           ]}
         />
       </Show>
@@ -802,17 +651,6 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       {/* 压缩分享 / 解压 进度（v2.4.4） */}
       <Show when={archiveState()}>
         <ArchiveProgressDialog token={archiveState()!.token} onClose={() => setArchiveState(null)} />
-      </Show>
-
-      {/* AI 建议面板（v2.2.0） */}
-      <Show when={aiPanel()}>
-        <AiSuggestionPanel
-          title={aiPanel()!.mode === "rename" ? "AI 批量命名" : "AI 标签建议"}
-          mode={aiPanel()!.mode}
-          items={aiPanel()!.items}
-          onApply={aiPanel()!.mode === "rename" ? applyAiRename : applyAiTag}
-          onClose={() => setAiPanel(null)}
-        />
       </Show>
 
       {/* 删除确认弹窗（v2.4.7 UI 反馈统一，替代 window.confirm） */}

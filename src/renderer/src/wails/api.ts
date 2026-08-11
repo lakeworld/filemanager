@@ -26,7 +26,6 @@ import type {
   TrashEntry,
   ApiResult,
   AccountStatus,
-  AiAction,
   DeleteResult,
   BatchMoveResult,
   // —— v2.4.7：客户 / 发票 / 入库 ——
@@ -53,12 +52,8 @@ export const api = {
   account: {
     status: () => qb.account.status() as Promise<ApiResult<AccountStatus>>,
     login: (email: string, password: string) =>
-      qb.account.login(email, password) as Promise<ApiResult<{ ok: boolean; error?: string; remaining?: number | null }>>,
+      qb.account.login(email, password) as Promise<ApiResult<{ ok: boolean; error?: string }>>,
     logout: () => qb.account.logout() as Promise<ApiResult<boolean>>,
-  },
-  ai: {
-    call: (action: AiAction, payload: unknown) =>
-      qb.ai.call(action, payload) as Promise<ApiResult<unknown>>,
   },
   workspace: {
     list: () => qb.workspace.list() as Promise<ApiResult<WorkspaceInfo[]>>,

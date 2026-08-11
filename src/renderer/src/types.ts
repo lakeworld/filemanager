@@ -149,40 +149,4 @@ export interface AccountStatus {
   loggedIn: boolean;
   email: string;
   sessionExpired: boolean;
-  remaining: number | null;
-}
-
-export type AiAction = "rename" | "tag" | "cert" | "search";
-
-export interface AiRenameSuggestion {
-  original: string;
-  suggested: string;
-  note?: string;
-}
-
-export interface AiTagSuggestion {
-  file: string;
-  tags: string[];
-}
-
-export interface AiCertInfo {
-  name: string;
-  number: string;
-  issuer: string;
-  valid_from: string;
-  valid_to: string;
-}
-
-export interface AiSearchFilters {
-  type?: string;
-  recent_days?: number;
-  product_set?: string;
-  tags?: string[];
-  subfolder?: string;
-  file_type_ext?: string;
-}
-
-export interface AiSearchResult {
-  keywords: string[];
-  filters: AiSearchFilters;
 }
