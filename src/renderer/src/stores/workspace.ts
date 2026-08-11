@@ -105,5 +105,7 @@ export function defaultWorkspaceConfig(): WorkspaceConfig {
     naming_template: defaultNamingTemplate(),
     image_subfolders: ["主图", "详情页", "白底图", "素材"],
     cert_subfolders: ["3C", "质检", "专利"],
+    // v2.4.7：客户子文件夹默认集（与主进程 loadConfig 兜底默认值对齐，PLAN §3.6）
+    customer_subfolders: ["报价", "合同", "沟通", "其他"],
   };
 }

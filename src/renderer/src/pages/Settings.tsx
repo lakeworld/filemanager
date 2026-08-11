@@ -23,6 +23,8 @@ export default function Settings() {
   const [config, setConfig] = createSignal<WorkspaceConfig>(defaultWorkspaceConfig());
   const [newImageFolder, setNewImageFolder] = createSignal("");
   const [newCertFolder, setNewCertFolder] = createSignal("");
+  // v2.4.7：客户子文件夹管理（对齐 image/cert 段；旧 config 无字段时缺省为空数组，loadConfig 后端兜底默认值）
+  const [newCustomerFolder, setNewCustomerFolder] = createSignal("");
   const [saved, setSaved] = createSignal(false);
 
   createEffect(() => {
@@ -80,12 +82,30 @@ export default function Settings() {
     }));
   };
 
+  // v2.4.7：客户子文件夹（config.customer_subfolders）
+  const addCustomerFolder = () => {
+    const name = newCustomerFolder().trim();
+    if (!name) return;
+    setConfig((prev) => ({
+      ...prev,
+      customer_subfolders: [...(prev.customer_subfolders ?? []), name],
+    }));
+    setNewCustomerFolder("");
+  };
+
+  const removeCustomerFolder = (index: number) => {
+    setConfig((prev) => ({
+      ...prev,
+      customer_subfolders: (prev.customer_subfolders ?? []).filter((_, i) => i !== index),
+    }));
+  };
+
   // —— v2.2.1：子文件夹重命名（立即生效并同步迁移所有已有产品集）——
-  const [renamingFolder, setRenamingFolder] = createSignal<{ type: "image" | "cert"; oldName: string } | null>(null);
+  const [renamingFolder, setRenamingFolder] = createSignal<{ type: "image" | "cert" | "customer"; oldName: string } | null>(null);
   const [subfolderRenameValue, setSubfolderRenameValue] = createSignal("");
   const [renameError, setRenameError] = createSignal("");
 
-  const startRename = (type: "image" | "cert", oldName: string) => {
+  const startRename = (type: "image" | "cert" | "customer", oldName: string) => {
     setRenamingFolder({ type, oldName });
     setSubfolderRenameValue(oldName);
     setRenameError("");
@@ -115,10 +135,10 @@ export default function Settings() {
     }
   };
 
-  /** 子文件夹 chip（图包/证书通用）：名称 + ✎重命名 + ✕删除；重命名中变输入框 */
+  /** 子文件夹 chip（图包/证书/客户通用）：名称 + ✎重命名 + ✕删除；重命名中变输入框 */
   const SubfolderChip = (props: {
     name: string;
-    type: "image" | "cert";
+    type: "image" | "cert" | "customer";
     onRemove: (index: number) => void;
     index: number;
   }) => {
@@ -713,6 +733,34 @@ export default function Settings() {
               <For each={config().cert_subfolders}>
                 {(folder, index) => (
                   <SubfolderChip name={folder} type="cert" index={index()} onRemove={removeCertFolder} />
+                )}
+              </For>
+            </div>
+            <Show when={renameError()}>
+              <div class="mt-2 text-sm text-red-600">{renameError()}</div>
+            </Show>
+          </div>
+
+          {/* v2.4.7：客户子文件夹（对齐 image/cert 段；重命名同步迁移所有客户目录） */}
+          <div class="card p-6">
+            <h2 class="text-lg font-semibold mb-4">客户子文件夹</h2>
+            <div class="flex gap-2 mb-4">
+              <input
+                type="text"
+                class="flex-1 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="新增客户子文件夹名称"
+                value={newCustomerFolder()}
+                onInput={(e) => setNewCustomerFolder(e.currentTarget.value)}
+                onKeyDown={(e) => e.key === "Enter" && addCustomerFolder()}
+              />
+              <button class="btn-primary" onClick={addCustomerFolder}>
+                添加
+              </button>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <For each={config().customer_subfolders ?? []}>
+                {(folder, index) => (
+                  <SubfolderChip name={folder} type="customer" index={index()} onRemove={removeCustomerFolder} />
                 )}
               </For>
             </div>

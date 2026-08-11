@@ -19,7 +19,12 @@ import { registerQiheboxProtocol } from './protocol'
 import { AccountService } from './account'
 import { log, initLogger } from './log'
 import { checkUpdate } from './updater'
-import { computeNotifiable, type NotifyState } from './notify'
+import {
+  computeNotifiable,
+  composeDailyNotification,
+  type NotifyState,
+  type InvoiceTodoItem,
+} from './notify'
 import { readJsonFile, writeJsonAtomic } from './core/paths'
 import {
   createMainWindow,
@@ -171,6 +176,7 @@ app.on('before-quit', () => {
   setQuitting(true)
 })
 
+
 // v2.3.0 分层休眠：窗口被休眠销毁（close → 托盘 → 30 秒无活跃 → destroy，v2.4.5 T3 提速）时，
 // 必须监听 window-all-closed 阻止 Electron 默认退出（Windows/Linux 无监听时全窗口关闭即退出）。
 // 空监听即视为自定义处理：主进程 + 托盘图标常驻，等待托盘点击 / 二次启动重建窗口。
@@ -250,7 +256,7 @@ function sendSystemNotification(title: string, body: string): boolean {
   }
 }
 
-/** 证书到期通知：30 天内到期证书逐条通知；每日去重（userData/notified.json）；失败仅 log */
+/** 证书到期 + 发票待办通知：合并为一条系统通知，每日去重（userData/notified.json）；失败仅 log */
 async function runCertNotify(box: BoxService): Promise<void> {
   let expiring: [string, string, string][]
   try {
@@ -259,19 +265,22 @@ async function runCertNotify(box: BoxService): Promise<void> {
     void log('warn', `证书到期检查失败: ${String(err)}`)
     return
   }
-  if (expiring.length === 0) return
+  // v2.4.7（§6.4）：发票待办并入同一每日去重通道（computeNotifiable 内 key 前缀 发票待办/ 防与证书 key 冲突）
+  let invoiceTodos: InvoiceTodoItem[] = []
+  try {
+    const todos = await box.dashboard.invoiceTodos()
+    invoiceTodos = todos.map((r) => ({ number: r.number, due_date: r.due_date ?? '', customer: r.customer }))
+  } catch (err) {
+    void log('warn', `发票待办检查失败: ${String(err)}`)
+  }
+  if (expiring.length === 0 && invoiceTodos.length === 0) return
   const notifiedFile = path.join(app.getPath('userData'), 'notified.json')
   const state = await readJsonFile<NotifyState>(notifiedFile)
-  const { toNotify, nextState } = computeNotifiable(expiring, state)
-  if (toNotify.length === 0) return
-  // v2.4.2（批次二）：聚合为一条摘要通知（toNotify 按到期日升序，取最早一条），不再逐条轰炸
-  const [firstPs, firstFile, firstExpiry] = toNotify[0]
-  const summary = `${toNotify.length} 张证书即将到期`
-  const body =
-    toNotify.length === 1
-      ? `产品集「${firstPs}」中 ${firstFile} 将于 ${firstExpiry} 到期，请及时处理`
-      : `最早 ${firstPs}/${firstFile} 于 ${firstExpiry} 到期，另有 ${toNotify.length - 1} 张将在 30 天内到期`
-  const sent = sendSystemNotification('证书到期提醒', body)
+  const { toNotify, invoiceToNotify, nextState } = computeNotifiable(expiring, state, new Date(), invoiceTodos)
+  const msg = composeDailyNotification(toNotify, invoiceToNotify)
+  if (!msg) return
+  // v2.4.2（批次二）：聚合为一条摘要通知（证书部分取最早到期一条），发票部分「N 张发票待办，最近 <日期>」
+  const sent = sendSystemNotification(msg.title, msg.body)
   // v2.4.2（C3）：只有系统通知真实发出才落盘去重——通知不可用（无守护进程/权限被拒）时
   // 不误记「已提醒」，改为应用内事件兜底（下次启动/次日仍会再提醒）
   if (sent) {
@@ -279,13 +288,16 @@ async function runCertNotify(box: BoxService): Promise<void> {
       void log('warn', `通知去重记录写入失败: ${String(err)}`),
     )
   } else {
-    void log('warn', `有 ${toNotify.length} 张证书待提醒，但系统通知不可用，已转应用内提醒`)
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) {
-        try {
-          win.webContents.send('qihebox:event:cert:expiring', toNotify)
-        } catch {
-          // 窗口销毁竞态兜底
+    // v2.4.7（§6.4）：应用内横幅不扩——发票待办不进横幅（仪表盘 + 系统通知足够），兜底事件仅证书
+    if (toNotify.length > 0) {
+      void log('warn', `有 ${toNotify.length} 张证书待提醒，但系统通知不可用，已转应用内提醒`)
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          try {
+            win.webContents.send('qihebox:event:cert:expiring', toNotify)
+          } catch {
+            // 窗口销毁竞态兜底
+          }
         }
       }
     }
@@ -400,8 +412,14 @@ app.whenReady().then(() => {
   })
   const box = new BoxService(thumbs, workspace)
 
+  // v2.4.7：交换区投递服务（PLAN §8）——ledger sink 已在 BoxService 构造器内接入发票/入库台账
+  // （查重等账务规则单点落在台账服务，§6.2「三入口同函数」）；此处只做生命周期装配：
+  // 工作区打开/切换时 stop + start（watch 句柄与防抖定时器成对释放重建）+ 启动补扫
+  const exchange = box.exchange
+
   registerIpc(box, account)
   registerQiheboxProtocol(box, () => thumbs.currentThumbsRoot())
+
 
   // 启动恢复/创建默认工作区（有最近工作区则恢复，无则自动创建）；
   // 恢复成功后初始化工作区索引（load/build + 文件监听，异步不阻塞）；随后跑后台任务（均静默）
@@ -418,7 +436,12 @@ app.whenReady().then(() => {
       // v2.4.x：注册工作区切换钩子（含恢复失败路径）——setCurrentWorkspace 后重建索引与文件监听
       workspace.onWorkspaceChanged(() => {
         void setupWorkspaceIndex(box).catch((err) => void log('warn', `文件索引重建失败: ${String(err)}`))
+        // v2.4.7：交换区监听随工作区切换关闭重建（watch 句柄与防抖定时器成对释放）+ 立即补扫
+        exchange.stop()
+        void exchange.start().catch((err) => void log('warn', `交换区补扫失败: ${String(err)}`))
       })
+      // v2.4.7：启动补扫推迟到后台任务阶段异步执行（不进 app ready → 窗口可交互关键路径，PLAN §一.3）
+      void exchange.start().catch((err) => void log('warn', `交换区启动补扫失败: ${String(err)}`))
       return runStartupTasks(box)
     })
 

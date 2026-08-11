@@ -45,6 +45,8 @@ const KIND_META: Record<TrashEntry["kind"], { icon: string; label: string }> = {
   file: { icon: "📄", label: "文件" },
   subfolder: { icon: "🗂️", label: "子文件夹" },
   productSet: { icon: "📦", label: "产品集" },
+  // v2.4.7：客户目录 kind（§4.4；图标对齐侧边栏「客户 🤝」）
+  customer: { icon: "🤝", label: "客户" },
 };
 
 export default function Trash() {

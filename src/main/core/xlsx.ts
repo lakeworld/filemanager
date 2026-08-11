@@ -64,6 +64,39 @@ export class XlsxService {
     await wb.xlsx.writeFile(filePath)
   }
 
+  /**
+   * v2.4.7：通用表格导出（发票台账 / 入库单导出复用，PLAN §9 xlsx.ts）。
+   * 第 1 行为蓝底白字居中表头，数据从第 2 行起；列宽缺省按表头长度估算。
+   * exceljs 懒加载（首次导出才加载，主进程启动零成本）。
+   */
+  async exportRows(
+    filePath: string,
+    opts: { sheetName: string; headers: string[]; rows: (string | number)[][]; widths?: number[] },
+  ): Promise<void> {
+    if (!filePath.trim()) throw new Error('路径不能为空')
+    if (!opts.sheetName.trim()) throw new Error('工作表名称不能为空')
+    const XLSX = await loadExcelJS()
+    const wb = new XLSX.Workbook()
+    const ws = wb.addWorksheet(opts.sheetName)
+    opts.headers.forEach((h, i) => {
+      const cell = ws.getCell(1, i + 1)
+      cell.value = h
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF3B82F6' } }
+      cell.alignment = { horizontal: 'center', vertical: 'middle' }
+    })
+    opts.rows.forEach((row, r) => {
+      row.forEach((v, c) => {
+        ws.getCell(r + 2, c + 1).value = v
+      })
+    })
+    const maxHeader = opts.headers.length > 0 ? Math.max(...opts.headers.map((h) => h.length)) : 0
+    for (let i = 0; i < opts.headers.length; i++) {
+      ws.getColumn(i + 1).width = opts.widths?.[i] ?? Math.min(40, maxHeader + 2)
+    }
+    await wb.xlsx.writeFile(filePath)
+  }
+
   /** 从 xlsx 批量创建产品集（对照 ImportProductSetsFromXlsx） */
   async importProductSets(filePath: string): Promise<ProductSetInfo[]> {
     const ws0 = this.workspace.currentWorkspacePath()

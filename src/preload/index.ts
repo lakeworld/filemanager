@@ -39,6 +39,40 @@ const api = {
       invoke('qihebox:productSets:rename', oldName, newName),
     updateInfo: (req: unknown) => invoke('qihebox:productSets:updateInfo', req),
   },
+  // v2.4.7：客户 / 发票台账 / 入库单（纯透传，业务在主进程 core/）
+  clients: {
+    list: () => invoke('qihebox:clients:list'),
+    create: (req: unknown) => invoke('qihebox:clients:create', req),
+    update: (req: unknown) => invoke('qihebox:clients:update', req),
+    rename: (oldName: string, newName: string) => invoke('qihebox:clients:rename', oldName, newName),
+    delete: (name: string) => invoke('qihebox:clients:delete', name),
+    linkRelation: (customer: string, productSet: string) =>
+      invoke('qihebox:clients:linkRelation', customer, productSet),
+    unlinkRelation: (customer: string, productSet: string) =>
+      invoke('qihebox:clients:unlinkRelation', customer, productSet),
+  },
+  invoices: {
+    list: (filter?: unknown) => invoke('qihebox:invoices:list', filter),
+    checkNumber: (number: string, excludeNumber?: string) =>
+      invoke('qihebox:invoices:checkNumber', number, excludeNumber),
+    create: (req: unknown) => invoke('qihebox:invoices:create', req),
+    update: (req: unknown) => invoke('qihebox:invoices:update', req),
+    setStatus: (number: string, status: string) => invoke('qihebox:invoices:setStatus', number, status),
+    remove: (number: string, opts?: unknown) => invoke('qihebox:invoices:remove', number, opts),
+    archiveFile: (sourcePath: string, date: string) =>
+      invoke('qihebox:invoices:archiveFile', sourcePath, date),
+    exportXlsx: (filePath: string, records: unknown[]) =>
+      invoke('qihebox:invoices:exportXlsx', filePath, records),
+  },
+  inbound: {
+    list: () => invoke('qihebox:inbound:list'),
+    checkId: (id: string, excludeId?: string) => invoke('qihebox:inbound:checkId', id, excludeId),
+    create: (req: unknown) => invoke('qihebox:inbound:create', req),
+    update: (id: string, req: unknown) => invoke('qihebox:inbound:update', id, req),
+    remove: (id: string, opts?: unknown) => invoke('qihebox:inbound:remove', id, opts),
+    archiveFile: (sourcePath: string, date: string) =>
+      invoke('qihebox:inbound:archiveFile', sourcePath, date),
+  },
   files: {
     list: (req: unknown) => invoke('qihebox:files:list', req),
     import: (req: unknown) => invoke('qihebox:files:import', req),
@@ -82,6 +116,8 @@ const api = {
   dashboard: {
     stats: () => invoke('qihebox:dashboard:stats'),
     expiringCerts: () => invoke('qihebox:dashboard:expiringCerts'),
+    // v2.4.7：发票待办（30 天内 due_date 且状态 ≠ 已入账，due_date 升序）
+    invoiceTodos: () => invoke('qihebox:dashboard:invoiceTodos'),
   },
   search: (query: string) => invoke('qihebox:search', query),
   csvTemplate: () => invoke('qihebox:csvTemplate'),

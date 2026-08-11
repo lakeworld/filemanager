@@ -125,6 +125,57 @@ export function registerIpc(box: BoxService, account: AccountService): void {
   )
   ipcMain.handle('qihebox:productSets:updateInfo', (_e, req) => handle(() => box.workspace.updateProductSetInfo(req)))
 
+  // —— v2.4.7：客户（客户/ 目录 + customers.json 档案，PLAN §5）——
+  ipcMain.handle('qihebox:clients:list', () => handle(() => box.clients.list()))
+  ipcMain.handle('qihebox:clients:create', (_e, req) => handle(() => box.clients.create(req)))
+  ipcMain.handle('qihebox:clients:update', (_e, req) => handle(() => box.clients.update(req)))
+  ipcMain.handle('qihebox:clients:rename', (_e, oldName: string, newName: string) =>
+    handle(() => box.clients.rename(oldName, newName)),
+  )
+  ipcMain.handle('qihebox:clients:delete', (_e, name: string) => handle(() => box.deleteCustomer(name)))
+  ipcMain.handle('qihebox:clients:linkRelation', (_e, customer: string, productSet: string) =>
+    handle(() => box.clients.linkRelation(customer, productSet)),
+  )
+  ipcMain.handle('qihebox:clients:unlinkRelation', (_e, customer: string, productSet: string) =>
+    handle(() => box.clients.unlinkRelation(customer, productSet)),
+  )
+
+  // —— v2.4.7：发票台账（invoices.json，PLAN §6）——
+  ipcMain.handle('qihebox:invoices:list', (_e, filter) => handle(() => box.invoices.list(filter)))
+  ipcMain.handle('qihebox:invoices:checkNumber', (_e, number: string, excludeNumber?: string) =>
+    handle(() => box.invoices.checkNumber(number, excludeNumber)),
+  )
+  ipcMain.handle('qihebox:invoices:create', (_e, req) => handle(() => box.invoices.create(req)))
+  ipcMain.handle('qihebox:invoices:update', (_e, req) => handle(() => box.invoices.update(req)))
+  ipcMain.handle('qihebox:invoices:setStatus', (_e, number: string, status: '待报销' | '已报销' | '已入账') =>
+    handle(() => box.invoices.setStatus(number, status)),
+  )
+  ipcMain.handle('qihebox:invoices:remove', (_e, number: string, opts) =>
+    handle(() => box.invoices.remove(number, opts)),
+  )
+  ipcMain.handle('qihebox:invoices:archiveFile', (_e, sourcePath: string, date: string) =>
+    handle(() => box.invoices.archiveFile(sourcePath, date)),
+  )
+  ipcMain.handle('qihebox:invoices:exportXlsx', (_e, filePath: string, records) =>
+    handle(() => box.invoices.exportXlsx(filePath, records)),
+  )
+
+  // —— v2.4.7：入库单（inbound.json，PLAN §7）——
+  ipcMain.handle('qihebox:inbound:list', () => handle(() => box.inbound.list()))
+  ipcMain.handle('qihebox:inbound:checkId', (_e, id: string, excludeId?: string) =>
+    handle(() => box.inbound.checkId(id, excludeId)),
+  )
+  ipcMain.handle('qihebox:inbound:create', (_e, req) => handle(() => box.inbound.create(req)))
+  ipcMain.handle('qihebox:inbound:update', (_e, id: string, req) =>
+    handle(() => box.inbound.update(id, req)),
+  )
+  ipcMain.handle('qihebox:inbound:remove', (_e, id: string, opts) =>
+    handle(() => box.inbound.remove(id, opts)),
+  )
+  ipcMain.handle('qihebox:inbound:archiveFile', (_e, sourcePath: string, date: string) =>
+    handle(() => box.inbound.archiveFile(sourcePath, date)),
+  )
+
   // —— 文件 ——
   ipcMain.handle('qihebox:files:list', (_e, req) =>
     handle(async () => {
@@ -390,6 +441,8 @@ export function registerIpc(box: BoxService, account: AccountService): void {
   // —— 仪表盘 / 搜索 ——
   ipcMain.handle('qihebox:dashboard:stats', () => handle(() => box.dashboard.dashboardStats()))
   ipcMain.handle('qihebox:dashboard:expiringCerts', () => handle(() => box.dashboard.checkExpiringCerts()))
+  // v2.4.7（§4.3）：发票待办（30 天内 due_date 且状态 ≠ 已入账，due_date 升序）——对齐 R1 契约
+  ipcMain.handle('qihebox:dashboard:invoiceTodos', () => handle(() => box.dashboard.invoiceTodos()))
   ipcMain.handle('qihebox:search', (_e, query: string) => handle(() => box.search.search(query)))
   ipcMain.handle('qihebox:csvTemplate', () => handle(() => csvTemplate()))
 
