@@ -30,6 +30,12 @@ const THUMB_SIZE = 256
 const PREVIEW_SIZE = 2048
 const JPEG_QUALITY = 85
 
+// 收尾轮（候选 3）：磁盘缩略图缓存 GC 阈值
+// 缓存名是 relative(ws, file) 的单向 sha256，无法反推源路径做精确孤儿校验——
+// 超龄 + 超量双策略不需要源校验（最坏重新生成，安全）；删除/重命名联动已有（files.ts/trash.ts）
+const THUMBS_GC_MAX_BYTES = 200 * 1024 * 1024 // 总量阈值：超过按 mtime 清理最旧
+const THUMBS_GC_MAX_AGE_DAYS = 30 // 超龄阈值：超过该天数未修改的缓存文件直接清理
+
 // v2.4.x 生成端内存上界：
 // - fastShrinkOnLoad（sharp 0.33 起默认 true）：JPEG/WebP 按输出尺寸分载解码，超大原图不再全量进内存
 // - limitInputPixels 兜底上限：实测该值按原始尺寸校验，因此取 250MP（≈15800×15800）——
@@ -233,6 +239,67 @@ export class SharpThumbnailService implements ThumbnailProvider {
   /** v2.4.2（修复 2）：作废所有排队中的浏览任务（切文件夹入口调用） */
   cancelPendingBrowse(): void {
     this.genQueue.cancelPendingBrowse()
+  }
+
+  /**
+   * 收尾轮（候选 3）：磁盘缓存惰性 GC——清理 userData/thumbs 下超龄/超量缓存。
+   * 1. 超龄：超过 THUMBS_GC_MAX_AGE_DAYS 未修改的 *.thumb.jpg 直接删除（源长期未动大概率不再浏览）
+   * 2. 超量：总量超 THUMBS_GC_MAX_BYTES 时按 mtime 从旧到新清理直至达标
+   * 覆盖缩略图与 preview 预览副本（同为 .thumb.jpg 命名）；不校验源存在（命名是单向 hash），
+   * 最坏重新生成，安全。返回清理统计；调用方在窗口可交互后后台低优先执行，不阻塞启动。
+   */
+  async collectGarbage(): Promise<{ removed: number; freedBytes: number }> {
+    const root = this.opts.userDataThumbsDir
+    if (!root) return { removed: 0, freedBytes: 0 }
+
+    const files: { p: string; mtimeMs: number; size: number }[] = []
+    const walk = async (dir: string): Promise<void> => {
+      let entries: import('node:fs').Dirent[]
+      try {
+        entries = await fsp.readdir(dir, { withFileTypes: true })
+      } catch {
+        return // 目录不存在/无权限：跳过
+      }
+      for (const e of entries) {
+        const full = path.join(dir, e.name)
+        if (e.isDirectory()) {
+          await walk(full)
+        } else if (e.isFile() && e.name.endsWith('.thumb.jpg')) {
+          try {
+            const st = await fsp.stat(full)
+            files.push({ p: full, mtimeMs: st.mtimeMs, size: st.size })
+          } catch {
+            // 竞态删除，忽略
+          }
+        }
+      }
+    }
+    await walk(root)
+
+    const removed = new Set<string>()
+    let freedBytes = 0
+    const drop = async (f: { p: string; size: number }): Promise<void> => {
+      await fsp.rm(f.p, { force: true }).catch(() => {})
+      removed.add(f.p)
+      freedBytes += f.size
+    }
+
+    // 1. 超龄
+    const now = Date.now()
+    for (const f of files) {
+      if (now - f.mtimeMs > THUMBS_GC_MAX_AGE_DAYS * 86_400_000) {
+        await drop(f)
+      }
+    }
+    // 2. 超量：按 mtime 升序清理最旧，直至总量低于阈值
+    const alive = files.filter((f) => !removed.has(f.p)).sort((a, b) => a.mtimeMs - b.mtimeMs)
+    let total = alive.reduce((s, f) => s + f.size, 0)
+    for (const f of alive) {
+      if (total <= THUMBS_GC_MAX_BYTES) break
+      await drop(f)
+      total -= f.size
+    }
+    return { removed: removed.size, freedBytes }
   }
 
   /** 缩略图比源图新（mtime 命中）则复用，否则需重新生成 */

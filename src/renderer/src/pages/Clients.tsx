@@ -4,10 +4,12 @@ import { api } from "~/wails/api";
 import { tagList, loadTagDefs } from "~/stores/tags";
 import { currentWorkspace, workspaceConfig, productSets, loadProductSets } from "~/stores/workspace";
 import { customers, loadCustomers } from "~/stores/clients";
+import { showToast } from "~/stores/notifyBanner";
 import TagChip from "~/components/TagChip";
 import TagInput from "~/components/TagInput";
 import EmptyState from "~/components/EmptyState";
 import ContextMenu from "~/components/ContextMenu";
+import ConfirmDialog from "~/components/ConfirmDialog";
 // v2.4.7（§5.2）：客户详情文件区——FileBrowser 抽取的共用组件，自含面包屑/子文件夹 Tab/文件区，
 // 与 /files/customer/:name/:subFolder 路由页共用（tab 点击经组件内 navigate 直达完整文件管理页）
 import FileBrowserView from "~/components/FileBrowserView";
@@ -54,6 +56,9 @@ export default function Clients() {
 
   // 详情：关联产品集下拉
   const [linkSelect, setLinkSelect] = createSignal("");
+
+  // v2.4.7：删除客户确认弹窗状态（替代 window.confirm；fromDetail 区分详情页/卡片删除，成功后的处理不同）
+  const [confirmDelete, setConfirmDelete] = createSignal<{ name: string; fromDetail: boolean } | null>(null);
 
   const contextMenu = useContextMenu<CustomerInfo>();
 
@@ -127,7 +132,7 @@ export default function Clients() {
       setNewNotes("");
       loadCustomers();
     } else {
-      window.alert(result.error || "创建失败");
+      showToast("error", "创建失败", result.error || "未知错误");
     }
   };
 
@@ -145,35 +150,43 @@ export default function Clients() {
       loadCustomers();
       navigate(`/clients/${encodeURIComponent(editingNameValue())}`);
     } else {
-      window.alert(result.error || "重命名失败");
+      showToast("error", "重命名失败", result.error || "未知错误");
       setEditingNameValue(oldName);
     }
   };
 
   // —— 删除（进回收站，kind='customer'；customers.json 条目保留，恢复即复原）——
 
-  const handleDeleteCustomer = async () => {
+  const handleDeleteCustomer = () => {
     const name = customerName();
     if (!name) return;
-    if (!window.confirm(`确定删除客户 "${name}" 吗？将移入回收站，可在回收站恢复。`)) return;
+    setConfirmDelete({ name, fromDetail: true });
+  };
+
+  /** 确认后的删除执行（详情页删除：成功跳回客户列表） */
+  const doDeleteCustomer = async (name: string) => {
     const result = await api.clients.delete(name);
     if (result.success) {
       navigate("/clients");
       loadCustomers();
     } else {
-      window.alert(result.error || "删除客户失败");
+      showToast("error", "删除客户失败", result.error || "未知错误");
     }
   };
 
-  const handleCardDelete = async (c: CustomerInfo, e?: MouseEvent) => {
+  const handleCardDelete = (c: CustomerInfo, e?: MouseEvent) => {
     e?.stopPropagation();
     contextMenu.close();
-    if (!window.confirm(`确定删除客户 "${c.name}" 吗？将移入回收站，可在回收站恢复。`)) return;
-    const result = await api.clients.delete(c.name);
+    setConfirmDelete({ name: c.name, fromDetail: false });
+  };
+
+  /** 确认后的删除执行（卡片删除：留在列表页） */
+  const doCardDelete = async (name: string) => {
+    const result = await api.clients.delete(name);
     if (result.success) {
       loadCustomers();
     } else {
-      window.alert(result.error || "删除客户失败");
+      showToast("error", "删除客户失败", result.error || "未知错误");
     }
   };
 
@@ -206,7 +219,7 @@ export default function Clients() {
       setEditingInfoCustomer(null);
       loadCustomers();
     } else {
-      window.alert(result.error || "保存失败");
+      showToast("error", "保存失败", result.error || "未知错误");
     }
   };
 
@@ -228,7 +241,7 @@ export default function Clients() {
       setLinkSelect("");
       loadCustomers();
     } else {
-      window.alert(result.error || "关联失败");
+      showToast("error", "关联失败", result.error || "未知错误");
     }
   };
 
@@ -239,7 +252,7 @@ export default function Clients() {
     if (result.success) {
       loadCustomers();
     } else {
-      window.alert(result.error || "解除关联失败");
+      showToast("error", "解除关联失败", result.error || "未知错误");
     }
   };
 
@@ -663,6 +676,23 @@ export default function Clients() {
             ]}
           />
         )}
+      </Show>
+
+      {/* 删除客户确认弹窗（v2.4.7 替代 window.confirm） */}
+      <Show when={confirmDelete()}>
+        <ConfirmDialog
+          title="删除客户"
+          message={`确定删除客户 "${confirmDelete()!.name}" 吗？将移入回收站，可在回收站恢复。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={() => {
+            const target = confirmDelete()!;
+            setConfirmDelete(null);
+            if (target.fromDetail) void doDeleteCustomer(target.name);
+            else void doCardDelete(target.name);
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
       </Show>
     </div>
   );

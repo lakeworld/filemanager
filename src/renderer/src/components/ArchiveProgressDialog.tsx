@@ -30,6 +30,14 @@ export default function ArchiveProgressDialog(props: { token: string; onClose: (
   const [cancelling, setCancelling] = createSignal(false);
 
   onMount(() => {
+    // 收尾轮：Esc 关闭——进行中不允许（只能走取消，与遮罩点击规则一致）
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (status() === "success") props.onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
+
     const unsubProgress = window.qihebox.events.on("archive:progress", (data) => {
       const p = data as ArchiveProgress;
       if (!p || typeof p !== "object") return;

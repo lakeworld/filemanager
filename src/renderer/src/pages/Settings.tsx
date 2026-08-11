@@ -45,12 +45,18 @@ export default function Settings() {
     if (success) {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } else {
+      showToast("error", "保存失败", "设置未能保存到工作区，请重试");
     }
   };
 
   const addImageFolder = () => {
     const name = newImageFolder().trim();
     if (!name) return;
+    if (config().image_subfolders.includes(name)) {
+      showToast("error", "添加失败", `子文件夹「${name}」已存在`);
+      return;
+    }
     setConfig((prev) => ({
       ...prev,
       image_subfolders: [...prev.image_subfolders, name],
@@ -68,6 +74,10 @@ export default function Settings() {
   const addCertFolder = () => {
     const name = newCertFolder().trim();
     if (!name) return;
+    if (config().cert_subfolders.includes(name)) {
+      showToast("error", "添加失败", `子文件夹「${name}」已存在`);
+      return;
+    }
     setConfig((prev) => ({
       ...prev,
       cert_subfolders: [...prev.cert_subfolders, name],
@@ -86,6 +96,10 @@ export default function Settings() {
   const addCustomerFolder = () => {
     const name = newCustomerFolder().trim();
     if (!name) return;
+    if ((config().customer_subfolders ?? []).includes(name)) {
+      showToast("error", "添加失败", `子文件夹「${name}」已存在`);
+      return;
+    }
     setConfig((prev) => ({
       ...prev,
       customer_subfolders: [...(prev.customer_subfolders ?? []), name],
@@ -196,6 +210,13 @@ export default function Settings() {
   const [renameValue, setRenameValue] = createSignal("");
   const [movingTag, setMovingTag] = createSignal<string | null>(null); // 顶层标签「移至…」展开的标签
   const [confirmDelete, setConfirmDelete] = createSignal<{ name: string; orphan: boolean } | null>(null); // 删除/清引用确认弹窗
+  // v2.4.7（F8）：标签树折叠——有子标签的顶层标签默认收起，点箭头展开；新建/移入子标签后自动展开
+  const [expandedTopTags, setExpandedTopTags] = createSignal<string[]>([]);
+
+  const toggleTopTag = (name: string) =>
+    setExpandedTopTags((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
+    );
 
   /** 顶层标签（供新建时选父级） */
   const topLevelTags = () => tags().filter((t) => !t.parent);
@@ -220,8 +241,14 @@ export default function Settings() {
       showToast("error", "创建标签失败", r.error || "未知错误");
       return;
     }
+    // 先取父级再重置（评审 P1：此前先 setNewTagParent(null) 后取值，parent 恒为 null，展开逻辑成死代码）
+    const parent = newTagParent();
     setNewTagName("");
     setNewTagParent(null);
+    if (parent) {
+      // 新建的是子标签 → 展开父级让新标签立即可见
+      setExpandedTopTags((prev) => (prev.includes(parent) ? prev : [...prev, parent]));
+    }
     await loadTags();
     refreshTags();
   };
@@ -244,6 +271,8 @@ export default function Settings() {
     if (r.success) {
       setRenaming(null);
       setRenameValue("");
+      // 重命名后同步展开状态 key（评审 P2：否则旧名残留、该标签回收起态）
+      setExpandedTopTags((prev) => prev.map((n) => (n === oldName ? newName : n)));
       await loadTags();
       refreshTags();
     } else {
@@ -286,6 +315,8 @@ export default function Settings() {
       showToast("error", "移动失败", r.error || "未知错误");
       return;
     }
+    // 移入的标签成为 target 的子标签 → 展开 target 让结果可见
+    setExpandedTopTags((prev) => (prev.includes(target) ? prev : [...prev, target]));
     await loadTags();
     refreshTags();
   };
@@ -421,6 +452,19 @@ export default function Settings() {
                   {(tag) => (
                     <>
                       <div class="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-surface-100 transition-colors">
+                        {/* v2.4.7（F8）：折叠箭头——有子标签才显示，点击展开/收起 */}
+                        <Show
+                          when={tag.children.length > 0}
+                          fallback={<span class="w-4 shrink-0" />}
+                        >
+                          <button
+                            class="w-4 shrink-0 text-surface-400 hover:text-surface-700 cursor-pointer text-[10px] leading-none"
+                            title={expandedTopTags().includes(tag.name) ? "收起子标签" : "展开子标签"}
+                            onClick={() => toggleTopTag(tag.name)}
+                          >
+                            {expandedTopTags().includes(tag.name) ? "▼" : "▶"}
+                          </button>
+                        </Show>
                         <button
                           class="w-5 h-5 rounded-full shrink-0 cursor-pointer"
                           style={{ "background-color": tag.color }}
@@ -501,8 +545,8 @@ export default function Settings() {
                         </button>
                       </div>
 
-                      {/* 子标签（缩进） */}
-                      <Show when={tag.children.length > 0}>
+                      {/* 子标签（缩进；v2.4.7 默认收起，点顶层标签箭头展开） */}
+                      <Show when={tag.children.length > 0 && expandedTopTags().includes(tag.name)}>
                         <div class="ml-8 border-l-2 border-surface-100 pl-3 space-y-1">
                           <For each={tag.children}>
                             {(childName) => {
@@ -711,6 +755,9 @@ export default function Settings() {
                 )}
               </For>
             </div>
+            <Show when={renameError()}>
+              <div class="mt-2 text-sm text-red-600">{renameError()}</div>
+            </Show>
           </div>
 
           {/* Cert Subfolders */}

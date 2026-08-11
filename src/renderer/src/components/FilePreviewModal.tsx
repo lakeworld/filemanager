@@ -1,4 +1,4 @@
-import { Show, Switch, Match, createSignal } from "solid-js";
+import { Show, Switch, Match, createSignal, onMount, onCleanup } from "solid-js";
 import { api } from "~/wails/api";
 import { tagList } from "~/stores/tags";
 import { requireLogin } from "~/stores/account";
@@ -6,6 +6,7 @@ import { showToast } from "~/stores/notifyBanner";
 import { FEATURE_AI } from "~/features";
 import PdfPreview from "~/components/PdfPreview";
 import ContextMenu from "~/components/ContextMenu";
+import ConfirmDialog from "~/components/ConfirmDialog";
 import TagInput from "~/components/TagInput";
 import DatePicker from "~/components/DatePicker";
 import type { AiCertInfo } from "~/types";
@@ -49,6 +50,17 @@ export default function FilePreviewModal() {
   });
 
   const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
+
+  // 收尾轮：Esc 关闭预览（右键菜单打开时由 ContextMenu 自身的 Esc 监听先关菜单，不抢关）
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (contextMenu().show) return;
+      closePreview();
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
+  });
 
   // —— v2.4.3（F9）：保存元数据反馈——saving 态防连点 + 成功/失败 toast ——
   const [saving, setSaving] = createSignal(false);
@@ -117,6 +129,24 @@ export default function FilePreviewModal() {
     }
   };
 
+  // v2.4.7：预览内删除补确认（此前是全应用唯一无确认删除入口）+ 失败提示——
+  // 与 FileBrowserView 一致，删除即移入回收站，可在回收站恢复
+  // v2.4.7（统一改造）：原生 confirm → ConfirmDialog（confirmDelete=待确认删除的文件名）
+  const [confirmDelete, setConfirmDelete] = createSignal<string | null>(null);
+
+  const handleDeleteFile = () => {
+    const file = previewFile();
+    if (!file) return;
+    setConfirmDelete(file.name);
+  };
+
+  const doDeleteFile = async () => {
+    const res = await deleteCurrentFile();
+    if (!res.ok) {
+      setPreviewError(res.error || "删除失败，请重试");
+    }
+  };
+
   const onContextMenu = (e: MouseEvent) => {
     e.preventDefault();
     setContextMenu({ show: true, x: e.clientX, y: e.clientY });
@@ -152,7 +182,7 @@ export default function FilePreviewModal() {
               <button class="btn-secondary text-sm" onClick={openCurrentWithSystem}>
                 🗂 用系统程序打开
               </button>
-              <button class="btn-secondary text-sm" onClick={deleteCurrentFile}>
+              <button class="btn-secondary text-sm" onClick={handleDeleteFile}>
                 🗑️ 删除
               </button>
               <button class="text-surface-400 hover:text-surface-600 text-xl" onClick={closePreview}>
@@ -228,6 +258,16 @@ export default function FilePreviewModal() {
                           onTextExtract={(fn) => setExtractText(() => fn)}
                         />
                       </Show>
+                    </Match>
+                    {/* v2.4.7：不支持内嵌预览的类型（docx/zip 等 file_type=other）补占位，不再空白 */}
+                    <Match when={true}>
+                      <div class="flex flex-col items-center gap-3 p-6 text-center text-sm text-surface-500">
+                        <span class="text-5xl">📎</span>
+                        <span>此类型暂不支持预览，可用系统程序打开</span>
+                        <button class="btn-primary" onClick={openCurrentWithSystem}>
+                          用系统程序打开
+                        </button>
+                      </div>
                     </Match>
                   </Switch>
                 </Show>
@@ -333,6 +373,21 @@ export default function FilePreviewModal() {
           </div>
         </div>
       </div>
+
+      {/* 删除确认弹窗（v2.4.7 统一改造：原生 confirm → ConfirmDialog）；置于遮罩容器外，避免遮罩 onClick 误关预览 */}
+      <Show when={confirmDelete()}>
+        <ConfirmDialog
+          title="删除文件"
+          message={`确定删除 "${confirmDelete()!}" 吗？将移入回收站，可在回收站恢复。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={() => {
+            setConfirmDelete(null);
+            void doDeleteFile();
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      </Show>
     </Show>
   );
 }

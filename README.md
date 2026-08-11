@@ -88,9 +88,9 @@ src/
 npm install          # 安装依赖（.npmrc 已配置国内镜像加速）
 
 npm run dev          # 开发模式（热更新 + 应用窗口）
-npm test             # 单元测试（vitest，仅 tests/unit，96 用例）
-npm run test:e2e     # 端到端测试（Playwright，19 用例，e2e 模式 QIHEBOX_E2E=1）
-npm run bench        # 性能基准（数据记录在本地内部文档，不进公开仓库）
+npm test             # 单元测试（vitest，仅 tests/unit，227 用例）
+npm run test:e2e     # 端到端测试（Playwright，36 用例，e2e 模式 QIHEBOX_E2E=1）
+npm run bench        # 性能基准（结果追加 docs/PERF.md，公开维护）
 npm run build        # 构建三段产物到 out/
 npm run build:linux  # 打包 Linux（AppImage + deb）
 npm run build:win    # 打包 Windows（NSIS，需在 Windows/CI 构建）
@@ -100,8 +100,8 @@ npm run build:win    # 打包 Windows（NSIS，需在 Windows/CI 构建）
 
 | 平台 | 产物 | 目标体积 |
 |---|---|---|
-| Linux | `release/启禾文件管理-2.4.2.AppImage` / `.deb` | ≤ 140MB |
-| Windows | `release/启禾文件管理-2.4.2-win-x64.zip`（便携） / `Setup 2.4.2.exe`（NSIS） | ≤ 195MB |
+| Linux | `release/启禾文件管理-2.4.7.AppImage` / `qihe-box_2.4.7_amd64.deb` | ≤ 140MB |
+| Windows | `release/启禾文件管理-2.4.7-win-x64.zip`（便携） / `Setup 2.4.7.exe`（NSIS） | ≤ 195MB |
 
 ## Windows 安装提示（SmartScreen）
 

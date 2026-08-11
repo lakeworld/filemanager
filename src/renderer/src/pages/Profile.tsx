@@ -32,14 +32,13 @@ const menuItems: { key: SectionKey; label: string; desc: string }[] = [
 ];
 
 export default function Profile() {
-  const [active, setActive] = createSignal<SectionKey>("update");
+  // v2.4.7（评审 P4）：默认激活 Section 改为 account（更新页是低频入口，首屏先看到账号）
+  const [active, setActive] = createSignal<SectionKey>("account");
   const [version, setVersion] = createSignal("");
   const [updatePhase, setUpdatePhase] = createSignal<
-    "idle" | "checking" | "latest" | "available" | "downloading" | "ready" | "error"
+    "idle" | "checking" | "latest" | "available" | "error"
   >("idle");
   const [latestVersion, setLatestVersion] = createSignal<UpdateInfo | null>(null);
-  const [downloadProgress, setDownloadProgress] = createSignal(0);
-  const [installerPath, setInstallerPath] = createSignal("");
   const [updateError, setUpdateError] = createSignal("");
 
   onMount(async () => {
@@ -50,22 +49,26 @@ export default function Profile() {
       setVersion("");
     }
 
-    const unsubscribe = window.qihebox.events.on("update:progress", (payload: any) => {
-      setDownloadProgress(payload?.percent ?? 0);
-    });
-
-    // v2.4.0：后台定时/启动时发现新版 → 主进程推送 update:available 事件，
-    // 直接切入可更新态并点亮菜单徽标（手动检查中/下载中/已就绪不受打扰）
+    // v2.4.0：后台定时/启动时发现新版 → 主进程推送 update:available 事件，直接切入可更新态并点亮菜单徽标
     const unsubscribeAvailable = window.qihebox.events.on("update:available", (payload: any) => {
       if (!payload?.version) return;
       setLatestVersion(payload as UpdateInfo);
-      setUpdatePhase((prev) => (prev === "downloading" || prev === "ready" ? prev : "available"));
+      setUpdatePhase("available");
     });
 
-    onCleanup(() => {
-      if (typeof unsubscribe === "function") {
-        unsubscribe();
+    // v2.4.7（评审 P1）：主进程缓存更新可用状态——Profile 懒加载可能错过启动时的 update:available 事件，
+    // onMount 主动查一次兜底（缓存有值即切入可更新态）
+    try {
+      const cached = await api.updater.state();
+      if (cached.success && cached.data?.version) {
+        setLatestVersion(cached.data);
+        setUpdatePhase("available");
       }
+    } catch {
+      // 查询失败静默（事件订阅与手动检查仍兜底）
+    }
+
+    onCleanup(() => {
       if (typeof unsubscribeAvailable === "function") {
         unsubscribeAvailable();
       }
@@ -94,44 +97,6 @@ export default function Profile() {
     }
   };
 
-  const downloadUpdate = async () => {
-    const info = latestVersion();
-    if (!info) return;
-    setUpdateError("");
-    setUpdatePhase("downloading");
-    setDownloadProgress(0);
-    try {
-      const result = await api.updater.download(info);
-      if (!result.success || !result.data) {
-        throw new Error(result.error || "下载更新失败");
-      }
-      setInstallerPath(result.data);
-      setUpdatePhase("ready");
-    } catch (err) {
-      setUpdateError(err instanceof Error ? err.message : String(err));
-      setUpdatePhase("available");
-    }
-  };
-
-  const applyUpdate = async () => {
-    const path = installerPath();
-    const info = latestVersion();
-    if (!path || !info) return;
-    if (!confirm("即将关闭应用并安装新版本，请保存好工作区数据。是否继续？")) {
-      return;
-    }
-    setUpdateError("");
-    try {
-      const result = await api.updater.apply(path, info.checksum);
-      if (!result.success) {
-        throw new Error(result.error || "启动更新失败");
-      }
-    } catch (err) {
-      setUpdateError(err instanceof Error ? err.message : String(err));
-      setUpdatePhase("ready");
-    }
-  };
-
   const openDownloadPage = () => {
     // 触发主进程 setWindowOpenHandler → 系统浏览器打开官网文件管理页
     window.open("https://www.qihebook.cloud/file-manager", "_blank");
@@ -140,7 +105,9 @@ export default function Profile() {
   const helpHtml = () => simpleMarkdownToHtml(helpMarkdown);
   const privacyHtml = () => simpleMarkdownToHtml(privacyMarkdown);
 
-  const displayVersion = () => version() || "1.2.4";
+  // v2.4.7（评审 P4）：应用内下载安装通道未就绪，不再展示下载/安装入口；
+  // 版本号获取失败时不编造历史版本号，显示「--」
+  const displayVersion = () => version() || "--";
 
   return (
     <div class="h-full overflow-y-auto bg-surface-50 p-6 lg:p-8">
@@ -246,7 +213,7 @@ export default function Profile() {
                   <button
                     class="shrink-0 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-700 disabled:opacity-50"
                     onClick={() => checkUpdate()}
-                    disabled={updatePhase() === "checking" || updatePhase() === "downloading"}
+                    disabled={updatePhase() === "checking"}
                   >
                     {updatePhase() === "checking" ? "检查中..." : "检查更新"}
                   </button>
@@ -273,47 +240,12 @@ export default function Profile() {
                     <Show when={latestVersion()?.release_notes}>
                       <div class="mt-1 text-primary-600">{latestVersion()?.release_notes}</div>
                     </Show>
-                    <div class="mt-3 flex items-center gap-3">
-                      <button
-                        class="rounded-md bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-primary-700"
-                        onClick={downloadUpdate}
-                      >
-                        下载更新
-                      </button>
-                      <button
-                        class="rounded-md border border-primary-200 bg-white px-3 py-1.5 text-xs font-semibold text-primary-600 transition hover:bg-primary-50"
-                        onClick={openDownloadPage}
-                      >
-                        前往官网
-                      </button>
-                    </div>
-                  </div>
-                </Show>
-
-                <Show when={updatePhase() === "downloading"}>
-                  <div class="rounded-xl bg-primary-50 px-4 py-3 text-sm text-primary-700">
-                    <div class="mb-2 flex items-center justify-between">
-                      <span class="font-semibold">正在下载新版本...</span>
-                      <span class="text-xs font-medium">{downloadProgress()}%</span>
-                    </div>
-                    <div class="h-2 w-full overflow-hidden rounded-full bg-primary-100">
-                      <div
-                        class="h-full bg-primary-600 transition-all duration-200"
-                        style={{ width: `${downloadProgress()}%` }}
-                      />
-                    </div>
-                  </div>
-                </Show>
-
-                <Show when={updatePhase() === "ready" && latestVersion()}>
-                  <div class="rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700">
-                    <div class="font-semibold">v{latestVersion()?.version} 已下载完成</div>
-                    <p class="mt-1 text-xs text-green-600">校验通过，点击按钮后将关闭应用并安装新版。</p>
+                    {/* v2.4.7（评审 P4）：应用内下载通道未就绪，统一引导前往官网下载全新安装包 */}
                     <button
-                      class="mt-3 rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-green-700"
-                      onClick={applyUpdate}
+                      class="mt-3 inline-flex items-center gap-1 rounded-md bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-primary-700"
+                      onClick={openDownloadPage}
                     >
-                      立即更新并重启
+                      前往官网下载
                     </button>
                   </div>
                 </Show>

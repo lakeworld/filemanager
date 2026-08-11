@@ -18,7 +18,7 @@ import { registerIpc } from './ipc'
 import { registerQiheboxProtocol } from './protocol'
 import { AccountService } from './account'
 import { log, initLogger } from './log'
-import { checkUpdate } from './updater'
+import { checkUpdate, setCachedUpdate } from './updater'
 import {
   computeNotifiable,
   composeDailyNotification,
@@ -37,6 +37,7 @@ import {
   scheduleDestroy,
   setQuitting,
   isQuitting,
+  setupWakeRecovery,
 } from './window'
 
 // —— 自定义协议特权注册（必须在 app ready 前）——
@@ -89,12 +90,16 @@ let tray: Tray | null = null
 const CRASH_WINDOW_MS = 10 * 60 * 1000
 const CRASH_MAX = 3
 const crashTimes: number[] = []
+/** v2.4.7（评审 P1）：渲染崩溃自动 reload 延迟（默认 500ms）；e2e 用大值使 F10 resume 自愈成为唯一恢复源 */
+const CRASH_RECOVER_MS = Number(process.env.QIHEBOX_CRASH_RECOVER_MS) || 500
 /** v2.4.3（F5）：GPU 崩溃恢复的 app 级监听只注册一次（窗口重建不重复挂，避免重复 reload） */
 let gpuRecoveryRegistered = false
 
 function setupTray(): void {
   const iconPath = path.join(app.getAppPath(), 'build/trayicon.png')
   const icon = nativeImage.createFromPath(iconPath)
+  // v2.4.7（评审 P6）：托盘图标缺失时不再静默——空图标托盘在部分 Linux 桌面不可见，需明确告警便于排查打包路径问题
+  if (icon.isEmpty()) void log('warn', `托盘图标加载失败（空图标）: ${iconPath}`)
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon)
   tray.setToolTip('启禾文件管理 - 常驻后台运行中')
   const menu = Menu.buildFromTemplate([
@@ -130,7 +135,9 @@ function setupCrashRecovery(win: BrowserWindow): void {
     }
     setTimeout(() => {
       if (!win.isDestroyed()) win.reload()
-    }, 500)
+      // v2.4.7（评审 P1）：reload 延迟可被 env 覆盖——e2e 用大值（如 10000ms）让
+      // wake-recovery 测试的「resume 自愈」成为唯一恢复源，真正判别 F10 而非本路径兜底
+    }, CRASH_RECOVER_MS)
   })
   // v2.4.3（F5）：GPU 进程崩溃 → 1 秒后 reload 主窗口一次，纳入崩溃时间窗计数（10 分钟 ≥3 次退出，防循环）
   // 注意：app 级监听只在首次注册，窗口重建（setupCrashRecovery 再次调用）不重复挂，避免重复 reload
@@ -224,14 +231,27 @@ const account = new AccountService({
 
 // —— v2.4.0 后台任务：更新检查 / 证书到期通知 / 回收站过期清理 ——
 
+/** 已通知过的新版号（收尾轮：更新通知按版本去重，避免每日检查重复打扰） */
+let notifiedUpdateVersion = ''
+
 /** 静默更新检查：发现新版推送给所有窗口（无窗口则忽略，下次启动/次日再查）；失败仅 log */
 async function runUpdateCheck(): Promise<void> {
   try {
     const info = await checkUpdate(app.getVersion())
     if (!info) return
     void log('info', `发现新版本 v${info.version}（当前 v${app.getVersion()}）`)
+    // v2.4.7（评审 P1）：写入缓存——Profile 懒加载错过事件时通过 updater:state 查询兜底
+    setCachedUpdate(info)
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send('qihebox:event:update:available', info)
+    }
+    // 收尾轮：发现新版补一条系统通知兜底（用户不在 Profile 页也能感知）；按版本去重
+    if (notifiedUpdateVersion !== info.version) {
+      notifiedUpdateVersion = info.version
+      sendSystemNotification(
+        `发现新版本 v${info.version}`,
+        '点击查看更新说明并前往官网下载',
+      )
     }
   } catch (err) {
     void log('warn', `更新检查失败: ${String(err)}`)
@@ -420,6 +440,10 @@ app.whenReady().then(() => {
   registerIpc(box, account)
   registerQiheboxProtocol(box, () => thumbs.currentThumbsRoot())
 
+  // v2.4.7（评审 P5）：重启后恢复已登录账号的心跳——登录态由 account.json 持久化，
+  // 此前只有 login() 内启动心跳，重启后心跳静默丢失（startHeartbeat 幂等，登录路径仍会重复调用无害）
+  if (account.status().loggedIn) account.startHeartbeat()
+
 
   // 启动恢复/创建默认工作区（有最近工作区则恢复，无则自动创建）；
   // 恢复成功后初始化工作区索引（load/build + 文件监听，异步不阻塞）；随后跑后台任务（均静默）
@@ -442,6 +466,17 @@ app.whenReady().then(() => {
       })
       // v2.4.7：启动补扫推迟到后台任务阶段异步执行（不进 app ready → 窗口可交互关键路径，PLAN §一.3）
       void exchange.start().catch((err) => void log('warn', `交换区启动补扫失败: ${String(err)}`))
+      // 收尾轮（候选 3）：缩略图磁盘缓存惰性 GC——再延迟 30s 避开启动高峰，后台低优先执行
+      setTimeout(() => {
+        void thumbs
+          .collectGarbage()
+          .then((r) => {
+            if (r.removed > 0) {
+              void log('info', `缩略图缓存 GC：清理 ${r.removed} 个文件，释放 ${(r.freedBytes / 1024 / 1024).toFixed(1)}MB`)
+            }
+          })
+          .catch((err) => void log('warn', `缩略图缓存 GC 失败: ${String(err)}`))
+      }, 30_000).unref?.()
       return runStartupTasks(box)
     })
 
@@ -458,6 +493,8 @@ app.whenReady().then(() => {
   setupTray()
   setupCrashRecovery(win)
   setupCloseToTray(win)
+  // v2.4.7（F10）：系统休眠唤醒自愈——resume 后分层检查，白屏自动 reload（含画面像素检测）
+  setupWakeRecovery()
 
   // v2.4.0：每日定时任务（24h）——更新检查 + 证书到期通知；应用常驻托盘期间持续生效
   setInterval(() => {
@@ -476,15 +513,10 @@ app.on('activate', () => {
 })
 
 // 二次启动：聚焦已有窗口（替代原 FindWindow/SetForegroundWindow）；窗口被休眠销毁则重建
+// v2.4.7（评审 P3）：统一复用 windowShow()——不再直接 show/focus 绕过 ready-to-show 守卫
+// （v2.4.3 F2 黑屏修复：加载中的窗口提前 show 会露出深色空窗，二次启动同样适用）
 app.on('second-instance', () => {
-  const win = getMainWindow()
-  if (win && !win.isDestroyed()) {
-    if (win.isMinimized()) win.restore()
-    win.show()
-    win.focus()
-  } else {
-    ensureMainWindow()
-  }
+  windowShow()
 })
 
 // 主进程未捕获异常 → 日志落盘

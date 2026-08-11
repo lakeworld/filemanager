@@ -185,6 +185,8 @@ const api = {
   },
   updater: {
     check: () => invoke('qihebox:updater:check'),
+    // v2.4.7（评审 P1）：查询主进程缓存的更新可用状态（懒加载错过事件时兜底）
+    state: () => invoke('qihebox:updater:state'),
     download: (info: unknown) => invoke('qihebox:updater:download', info),
     apply: (installerPath: string, checksum: string) =>
       invoke('qihebox:updater:apply', installerPath, checksum),

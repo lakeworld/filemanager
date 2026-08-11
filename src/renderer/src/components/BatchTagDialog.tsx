@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createEffect, onMount } from "solid-js";
+import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { api } from "~/wails/api";
 import { showToast } from "~/stores/notifyBanner";
 import { loadTagDefs, tagList } from "~/stores/tags";
@@ -40,6 +40,19 @@ export default function BatchTagDialog(props: {
   // 确保 TagInput 候选可用（如 Images 页未预加载标签定义）
   onMount(() => {
     void loadTagDefs();
+  });
+
+  // 收尾轮：Esc 关闭（请求在途时不允许，避免列表刷新抢在打标落盘前）
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (!busy()) {
+        props.onDone();
+        props.onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
   });
 
   const showTagToast = (r: ApiResult<BatchTagResult>) => {

@@ -104,17 +104,18 @@ export const saveCurrentMetadata = async (): Promise<{ ok: boolean; error?: stri
   return { ok: false, error: result.error || "保存失败，请重试" };
 };
 
-export const deleteCurrentFile = async () => {
+export const deleteCurrentFile = async (): Promise<{ ok: boolean; error?: string }> => {
   const file = previewFile();
-  if (!file) return false;
+  if (!file) return { ok: false, error: "缺少文件上下文，无法删除" };
 
   const result = await api.files.delete([file.path]);
   if (result.success) {
     previewContext().onDelete?.();
     closePreview();
-    return true;
+    return { ok: true };
   }
-  return false;
+  // v2.4.7：删除失败不再静默——返回错误信息，由调用方（FilePreviewModal）提示
+  return { ok: false, error: result.error || "删除失败，请重试" };
 };
 
 export const openCurrentWithSystem = async () => {

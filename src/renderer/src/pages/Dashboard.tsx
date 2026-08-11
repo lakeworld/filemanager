@@ -1,6 +1,7 @@
 import { Show, For, createResource, createSignal, createEffect } from "solid-js";
 import { A } from "@solidjs/router";
 import { api } from "~/wails/api";
+import { currentWorkspace } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
 import EmptyState from "~/components/EmptyState";
 import type { ApiResult, DashboardStats, FileEntry, InvoiceRecord } from "~/types";
@@ -14,12 +15,19 @@ function formatBytes(bytes: number): string {
 }
 
 export default function Dashboard() {
-  const [stats] = createResource(() => api.dashboard.stats() as Promise<{ success: boolean; data: DashboardStats | null; error: string }>);
+  // v2.4.7 修复：统计卡随工作区切换刷新——resource 源键 = 当前工作区路径，切区即重新拉取
+  const [stats] = createResource(
+    () => currentWorkspace()?.path,
+    () => api.dashboard.stats() as Promise<{ success: boolean; data: DashboardStats | null; error: string }>
+  );
   const [expiringCerts, setExpiringCerts] = createSignal<[string, string, string][]>([]);
   // v2.4.7：发票待办（§4.3）——30 天内 due_date 且状态 ≠ 已入账，due_date 升序
   const [invoiceTodos, setInvoiceTodos] = createSignal<InvoiceRecord[]>([]);
 
+  // v2.4.7 修复：到期提醒/发票待办 effect 显式依赖 currentWorkspace()（对齐 Clients/Invoices 范式），
+  // 无工作区时不请求；切换工作区时 effect 重跑，数据随新工作区刷新
   createEffect(() => {
+    if (!currentWorkspace()) return;
     api.dashboard.expiringCerts().then((result: ApiResult<[string, string, string][]>) => {
       if (result.success && result.data) {
         setExpiringCerts(result.data);

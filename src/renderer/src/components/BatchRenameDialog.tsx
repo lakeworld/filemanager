@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createMemo } from "solid-js";
+import { Show, For, createSignal, createMemo, onMount, onCleanup } from "solid-js";
 import { api } from "~/wails/api";
 import { baseOf, batchRenameTargets } from "~/utils/batchRename";
 import type { FileEntry } from "~/types";
@@ -30,6 +30,16 @@ export default function BatchRenameDialog(props: {
   const targetNames = createMemo<string[]>(() =>
     batchRenameTargets(props.files, prefix(), startNum()),
   );
+
+  // 收尾轮：Esc 关闭（重命名进行中不允许，只能等待完成）
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (status() !== "renaming") props.onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
+  });
 
   const handleApply = async () => {
     const files = props.files;

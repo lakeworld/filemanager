@@ -16,7 +16,7 @@ import { AccountService } from './account'
 import { copyFilesToClipboard } from './clipboard'
 import { showFilesInExplorer } from './explorer'
 import { workspaceFileUrl, thumbnailFileUrl } from './protocol'
-import { checkUpdate, downloadUpdate, applyUpdate, UpdateInfo } from './updater'
+import { checkUpdate, downloadUpdate, applyUpdate, getCachedUpdate, UpdateInfo } from './updater'
 import { isPathInsideWorkspaceReal, classifyFileType } from './core/paths'
 import { FilesService, ImportCancelledError } from './core/files'
 import { ZipCancelledError } from './core/archive'
@@ -554,6 +554,8 @@ export function registerIpc(box: BoxService, account: AccountService): void {
 
   // —— 更新（占位）——
   ipcMain.handle('qihebox:updater:check', () => handle(() => checkUpdate(app.getVersion())))
+  // v2.4.7（评审 P1）：查询主进程缓存的更新可用状态（Profile 懒加载错过 update:available 事件时兜底）
+  ipcMain.handle('qihebox:updater:state', () => ok(getCachedUpdate()))
   ipcMain.handle('qihebox:updater:download', (_e, info: UpdateInfo) => handle(() => downloadUpdate(info)))
   ipcMain.handle('qihebox:updater:apply', (_e, installerPath: string, checksum: string) =>
     handle(() => applyUpdate(installerPath, checksum)),

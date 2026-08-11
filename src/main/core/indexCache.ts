@@ -29,6 +29,8 @@ const INDEX_VERSION = 1
 // v2.4.6：4096 → 512。单工作区工具 4096 目录快照过大（理论上限 60-120MB）；
 // 512 足够覆盖单工作区目录规模，理论上限降到 ~8-15MB
 const DEFAULT_MAX = 512
+// 收尾轮（候选 3）：脏目录标记上限——fs.watch 事件洪水时防 Set 无界增长（见 invalidate）
+const DIRTY_DIRS_MAX = 1024
 
 export class WorkspaceIndex {
   private snapshots = new Map<string, DirSnapshot>()
@@ -191,6 +193,9 @@ export class WorkspaceIndex {
    * 覆盖签名盲区——同目录 mtime 下的文件内容覆盖等变化。
    */
   invalidate(dir: string): void {
+    // 收尾轮（候选 3）：脏标记有界——fs.watch 事件洪水（大目录批量操作）时防 Set 无界增长；
+    // 超限清空旧标（洪水时旧标已无增量意义），query 按快照返回、全量 build 兜底
+    if (this.dirtyDirs.size >= DIRTY_DIRS_MAX) this.dirtyDirs.clear()
     this.dirtyDirs.add(dir)
   }
 

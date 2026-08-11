@@ -12,6 +12,18 @@ export interface UpdateInfo {
   release_notes: string
 }
 
+// v2.4.7（评审 P1）：更新可用状态缓存——runUpdateCheck 发现新版时写入；
+// Profile 页懒加载可能错过启动时的 update:available 事件，渲染层通过 updater:state 主动查询兜底
+let cachedUpdate: UpdateInfo | null = null
+
+export function setCachedUpdate(info: UpdateInfo | null): void {
+  cachedUpdate = info
+}
+
+export function getCachedUpdate(): UpdateInfo | null {
+  return cachedUpdate
+}
+
 const VERSION_URL = 'https://www.qihebook.cloud/version.json'
 const REQUEST_TIMEOUT_MS = 10_000
 

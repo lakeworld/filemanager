@@ -30,16 +30,16 @@ interface PdfPreviewProps {
   onTextExtract?: (extract: () => Promise<string>) => void;
 }
 
-// worker blob URL 模块级单例（只建一次）
+// worker blob URL 模块级单例（只建一次，dev/prod 共用；单例 blob 与应用同生命周期，不 revoke）
 let workerUrlPromise: Promise<string> | null = null;
 function getWorkerUrl(): Promise<string> {
-  if (import.meta.env.DEV) {
-    // dev：用 ?raw 原始源码打 blob（无 vite 注入，实测唯一可用方式）
-    const workerBlob = new Blob([pdfWorkerRaw], { type: "text/javascript" });
-    return Promise.resolve(URL.createObjectURL(workerBlob));
-  }
   if (!workerUrlPromise) {
     workerUrlPromise = (async () => {
+      if (import.meta.env.DEV) {
+        // dev：用 ?raw 原始源码打 blob（无 vite 注入，实测唯一可用方式）
+        const workerBlob = new Blob([pdfWorkerRaw], { type: "text/javascript" });
+        return URL.createObjectURL(workerBlob);
+      }
       const workerResp = await fetch(pdfWorkerUrl);
       const workerBlob = await workerResp.blob();
       return URL.createObjectURL(workerBlob);
