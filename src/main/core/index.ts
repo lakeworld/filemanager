@@ -22,6 +22,7 @@ import { InboundService } from './inbound'
 import { ExchangeService } from './exchange'
 import { ClientsService } from './clients'
 import { SuppliersService } from './suppliers'
+import { QuotesService } from './quotes'
 import type { Logger } from './logger'
 import path from 'node:path'
 import fsp from 'node:fs/promises'
@@ -42,6 +43,8 @@ export class BoxService {
   clients: ClientsService
   /** v2.4.9 S2：供应商维度（供应商/ 目录 + suppliers.json 档案，镜像客户范式） */
   suppliers: SuppliersService
+  /** v2.4.9 S3：报价单台账（报价.json + 报价/<YYYY>/ 归档，对齐客迹 keji Quotation） */
+  quotes: QuotesService
   /** v2.4.7：入库单（PLAN §7） */
   inbound: InboundService
   /** v2.4.7：交换区投递（PLAN §8）——文件归集内置；发票/入库台账经 ledger sink 接入（见构造器） */
@@ -54,6 +57,8 @@ export class BoxService {
     this.clients = new ClientsService(this.workspace)
     // v2.4.9 S2：供应商服务注入 Logger（S6 core 接口；测试传 MemoryLogger 断言）
     this.suppliers = new SuppliersService(this.workspace, logger)
+    // v2.4.9 S3：报价服务注入 Logger（S6 core 接口；测试传 MemoryLogger 断言）
+    this.quotes = new QuotesService(this.workspace, logger)
     this.trash = new TrashService(this.workspace, this.metadata, thumbs, this.clients, this.suppliers)
     this.files = new FilesService(this.workspace, this.metadata, thumbs, this.trash)
     this.dashboard = new DashboardService(this.workspace, this.metadata, this.files)
@@ -173,6 +178,16 @@ export class BoxService {
   async renameSupplier(oldName: string, newName: string): Promise<void> {
     await this.suppliers.rename(oldName, newName)
     await this.inbound.renameSupplierId(oldName.trim(), newName.trim())
+  }
+
+  /**
+   * 重命名客户（v2.4.9 S3 编排）：目录迁移 + 档案 key 迁移（clients.rename），
+   * 随后级联更新报价台账 customer 名字引用（quotes.renameCustomer；幂等，不校验存在性）。
+   * ipc.ts 的 qihebox:clients:rename 改调本包装在 S3b 做（本任务只加 core 编排）。
+   */
+  async renameCustomer(oldName: string, newName: string): Promise<void> {
+    await this.clients.rename(oldName, newName)
+    await this.quotes.renameCustomer(oldName.trim(), newName.trim())
   }
 
   /** 确保图片/PDF 缩略图存在（缺失自动生成，mtime 命中直接返回），返回缩略图路径 */
