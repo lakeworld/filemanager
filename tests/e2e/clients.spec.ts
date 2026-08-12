@@ -17,12 +17,16 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 test.describe('客户维度 e2e（v2.4.7）', () => {
   let app: ElectronApplication
   let page: Page
+  /** 应用初始入口 URL（file:// index.html）；既有测试 pushState 会改 history URL，
+   *  后续 reload() 会加载假 URL（file:///clients/...）→ ERR_FILE_NOT_FOUND，故统一 goto 回初始入口 */
+  let baseUrl: string
 
   test.beforeAll(async () => {
     app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT, env: { ...process.env, QIHEBOX_E2E: '1' } })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
+    baseUrl = page.url()
   })
 
   test.afterAll(async () => {
@@ -156,6 +160,67 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
 
     const list = await page.evaluate(async () => (window as any).qihebox.clients.list())
     expect(list.data.some((c: any) => c.name === '回收客户丙')).toBe(true)
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('编辑档案填 type/phone/email/address → 保存 → 详情可见（v2.4.9 S1）', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-clients-e2e-s1-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    await page.evaluate(async () => (window as any).qihebox.clients.create({ name: 'S1编辑客户' }))
+
+    // 回初始入口重跑应用启动流（同步 currentWorkspace）；不能 page.reload()——history URL 可能被既有测试 pushState 污染
+    await page.goto(baseUrl)
+    await page.waitForLoadState('domcontentloaded')
+    await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
+    await page.evaluate(async (name) => {
+      window.history.pushState({}, '', `/clients/${encodeURIComponent(name)}`)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }, 'S1编辑客户')
+    await expect(page.getByRole('heading', { name: 'S1编辑客户' })).toBeVisible({ timeout: 15000 })
+
+    // 打开编辑档案弹窗（弹窗内唯一 select = 客户类型下拉；placeholder 区分三个输入框）
+    await page.getByRole('button', { name: /编辑档案/ }).click()
+    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '编辑客户档案' }) })
+    await expect(modal).toBeVisible()
+
+    await modal.locator('select').selectOption('企业')
+    await modal.getByPlaceholder('如：13800138000').fill('13800138000')
+    await modal.getByPlaceholder('如：name@example.com').fill('s1@example.com')
+    await modal.getByPlaceholder('如：浙江省义乌市…').fill('浙江省义乌市')
+    await modal.getByRole('button', { name: '保存' }).click()
+    await expect(modal).not.toBeVisible()
+
+    // 详情页档案卡新字段可见
+    await expect(page.getByText('企业', { exact: true })).toBeVisible()
+    await expect(page.getByText('13800138000', { exact: true })).toBeVisible()
+    await expect(page.getByText('s1@example.com', { exact: true })).toBeVisible()
+    await expect(page.getByText('浙江省义乌市', { exact: true })).toBeVisible()
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('旧客户（无新字段）详情：新字段灰显占位（v2.4.9 S1）', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-clients-e2e-s1old-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    await page.evaluate(async () => (window as any).qihebox.clients.create({ name: 'S1旧客户' }))
+
+    // 同 A：回初始入口重跑应用启动流
+    await page.goto(baseUrl)
+    await page.waitForLoadState('domcontentloaded')
+    await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
+    await page.evaluate(async (name) => {
+      window.history.pushState({}, '', `/clients/${encodeURIComponent(name)}`)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }, 'S1旧客户')
+    await expect(page.getByRole('heading', { name: 'S1旧客户' })).toBeVisible({ timeout: 15000 })
+
+    // 新字段 InfoRow：值灰显占位「—」+ text-surface-300（旧档案无新字段 → undefined 占位）
+    for (const label of ['客户类型', '电话', '邮箱', '地址']) {
+      const value = page.getByText(label, { exact: true }).locator('xpath=following-sibling::span')
+      await expect(value).toHaveText('—')
+      await expect(value).toHaveClass(/text-surface-300/)
+    }
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })

@@ -48,6 +48,11 @@ export default function Clients() {
   const [editCountry, setEditCountry] = createSignal("");
   const [editContact, setEditContact] = createSignal("");
   const [editSource, setEditSource] = createSignal("");
+  // v2.4.9 S1：客户对齐字段（type 下拉默认空=未分类）
+  const [editType, setEditType] = createSignal<"" | "企业" | "个人">("");
+  const [editPhone, setEditPhone] = createSignal("");
+  const [editEmail, setEditEmail] = createSignal("");
+  const [editAddress, setEditAddress] = createSignal("");
   const [editTags, setEditTags] = createSignal<string[]>([]);
   const [editNotes, setEditNotes] = createSignal("");
 
@@ -198,6 +203,10 @@ export default function Clients() {
     setEditCountry(c.country || "");
     setEditContact(c.contact || "");
     setEditSource(c.source || "");
+    setEditType(c.type || "");
+    setEditPhone(c.phone || "");
+    setEditEmail(c.email || "");
+    setEditAddress(c.address || "");
     setEditTags(c.tags ?? []);
     setEditNotes(c.notes || "");
   };
@@ -211,6 +220,10 @@ export default function Clients() {
       country: editCountry().trim() || undefined,
       contact: editContact().trim() || undefined,
       source: editSource().trim() || undefined,
+      type: editType() || undefined,
+      phone: editPhone().trim() || undefined,
+      email: editEmail().trim() || undefined,
+      address: editAddress().trim() || undefined,
       tags: editTags(),
       notes: editNotes().trim() || undefined,
     };
@@ -409,7 +422,11 @@ export default function Clients() {
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
                   <InfoRow label="别名" value={detailCustomer()!.alias} />
                   <InfoRow label="国家" value={detailCustomer()!.country} />
+                  <InfoRow label="客户类型" value={detailCustomer()!.type} />
                   <InfoRow label="联系方式" value={detailCustomer()!.contact} />
+                  <InfoRow label="电话" value={detailCustomer()!.phone} />
+                  <InfoRow label="邮箱" value={detailCustomer()!.email} />
+                  <InfoRow label="地址" value={detailCustomer()!.address} />
                   <InfoRow label="客户来源" value={detailCustomer()!.source} />
                 </div>
                 <Show when={(detailCustomer()!.tags || []).length > 0}>
@@ -626,6 +643,48 @@ export default function Clients() {
                   class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   value={editSource()}
                   onInput={(e) => setEditSource(e.currentTarget.value)}
+                />
+              </div>
+              <div class="mb-4">
+                <label class="block text-sm font-medium text-surface-700 mb-1">客户类型</label>
+                <select
+                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
+                  value={editType()}
+                  onChange={(e) => setEditType(e.currentTarget.value as "" | "企业" | "个人")}
+                >
+                  <option value="">未分类</option>
+                  <option value="企业">企业</option>
+                  <option value="个人">个人</option>
+                </select>
+              </div>
+              <div class="mb-4">
+                <label class="block text-sm font-medium text-surface-700 mb-1">电话</label>
+                <input
+                  type="text"
+                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="如：13800138000"
+                  value={editPhone()}
+                  onInput={(e) => setEditPhone(e.currentTarget.value)}
+                />
+              </div>
+              <div class="mb-4">
+                <label class="block text-sm font-medium text-surface-700 mb-1">邮箱</label>
+                <input
+                  type="text"
+                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="如：name@example.com"
+                  value={editEmail()}
+                  onInput={(e) => setEditEmail(e.currentTarget.value)}
+                />
+              </div>
+              <div class="mb-4">
+                <label class="block text-sm font-medium text-surface-700 mb-1">地址</label>
+                <input
+                  type="text"
+                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="如：浙江省义乌市…"
+                  value={editAddress()}
+                  onInput={(e) => setEditAddress(e.currentTarget.value)}
                 />
               </div>
             </div>
