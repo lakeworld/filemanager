@@ -208,9 +208,8 @@ export const api = {
   exports: {
     list: () => qb.exports.list() as Promise<ApiResult<ExportEntry[]>>,
   },
-  // v2.4.9（S6-2）：日志（「我的」页日志卡片）——打开日志目录 / 导出 zip
+  // v2.4.9（S6-2）：日志（「我的」页日志卡片）——导出 zip（2026-08-12 用户反馈不再需要打开日志目录）
   log: {
-    openDir: () => qb.log.openDir() as Promise<ApiResult<{ path: string }>>,
     exportZip: () =>
       qb.log.exportZip() as Promise<ApiResult<{ path: string; count: number; size: number }>>,
   },

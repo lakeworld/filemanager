@@ -134,9 +134,8 @@ const api = {
   exports: {
     list: () => invoke('qihebox:exports:list'),
   },
-  // v2.4.9（S6-2）：日志（「我的」页日志卡片）——打开日志目录 / 导出 zip（薄透传）
+  // v2.4.9（S6-2）：日志（「我的」页日志卡片）——导出 zip（薄透传；2026-08-12 用户反馈不再需要打开日志目录）
   log: {
-    openDir: () => invoke('qihebox:log:openDir'),
     exportZip: () => invoke('qihebox:log:exportZip'),
   },
   dashboard: {
