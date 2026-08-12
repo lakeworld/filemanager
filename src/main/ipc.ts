@@ -160,6 +160,13 @@ export function registerIpc(
     handle(() => box.renameSupplier(oldName, newName)),
   )
   ipcMain.handle('qihebox:suppliers:delete', (_e, name: string) => handle(() => box.deleteSupplier(name)))
+  // v2.4.9 打磨 M8：供应商关联产品集（镜像客户 linkRelation/unlinkRelation 通道）
+  ipcMain.handle('qihebox:suppliers:linkRelation', (_e, supplier: string, productSet: string) =>
+    handle(() => box.suppliers.linkRelation(supplier, productSet)),
+  )
+  ipcMain.handle('qihebox:suppliers:unlinkRelation', (_e, supplier: string, productSet: string) =>
+    handle(() => box.suppliers.unlinkRelation(supplier, productSet)),
+  )
 
   // —— v2.4.9 S3：报价单台账（报价.json + 报价/<YYYY>/ 归档；delete = removeEntry 账物分离不删文件）——
   ipcMain.handle('qihebox:quotes:list', () => handle(() => box.quotes.list()))

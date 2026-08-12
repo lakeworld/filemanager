@@ -14,6 +14,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
  * 3. 删除：ConfirmDialog 确认 → trash.list 含 kind='supplier' 条目（目录移入回收站不真删）
  * 4. 重命名联动：列表重命名 → 入库单新建表单下拉选项联动（新名可见、旧名消失）
  * 5. 入库单下拉：新建入库单 → 下拉含供应商名 → 选择后保存 → 单据带 supplier_id
+ * 6. 标签：新建带标签（TagInput）→ 保存 → 卡片/详情标签可见
+ * 7. 关联产品集（v2.4.9 打磨 M8）：详情关联 → 重进详情仍显示（UI 形态）→ 解除关联
  * 基建参照 clients.spec.ts（QIHEBOX_E2E=1 独立 userData；app.evaluate 打桩系统对话框同 logs.spec.ts）。
  */
 test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
@@ -260,6 +262,46 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     await expect(page.getByRole('heading', { name: '标签供应商' })).toBeVisible({ timeout: 15000 })
     await expect(page.getByRole('heading', { name: '供应商档案' })).toBeVisible()
     await expect(page.getByText('E2E重点供应商', { exact: true })).toBeVisible()
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('关联产品集：详情关联 → 重进详情仍显示；解除关联（v2.4.9 打磨 M8）', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-suppliers-m8-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '关联供应商' }))
+    await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: 'M8关联集' }))
+
+    await gotoRoute(`/suppliers/${encodeURIComponent('关联供应商')}`)
+    await expect(page.getByRole('heading', { name: '关联供应商' })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole('heading', { name: '关联产品集' })).toBeVisible()
+    const card = page.locator('.card', { has: page.getByRole('heading', { name: '关联产品集' }) })
+    // 初始「暂未关联」
+    await expect(card.getByText('暂未关联产品集')).toBeVisible()
+
+    // 下拉选产品集 → 添加 → chip 可见（option 收起态 hidden，先做存在性断言；
+    // chip span 内含 ✕ 按钮致文本非纯「M8关联集」，用 title 定位）
+    await expect(card.locator('option', { hasText: 'M8关联集' })).toHaveCount(1)
+    await card.locator('select').selectOption('M8关联集')
+    await card.getByRole('button', { name: '添加' }).click()
+    await expect(card.getByTitle('打开产品集 M8关联集')).toBeVisible()
+
+    // 重进详情 → 关联 chip 仍显示（UI 形态断言；持久化由单测覆盖，r3 措辞）
+    await gotoRoute(`/suppliers/${encodeURIComponent('关联供应商')}`)
+    await expect(page.getByRole('heading', { name: '关联供应商' })).toBeVisible({ timeout: 15000 })
+    const card2 = page.locator('.card', { has: page.getByRole('heading', { name: '关联产品集' }) })
+    await expect(card2.getByTitle('打开产品集 M8关联集')).toBeVisible()
+
+    // 解除关联 → 回「暂未关联」
+    await card2.getByTitle('解除关联').click()
+    await expect(card2.getByText('暂未关联产品集')).toBeVisible()
+
+    // 数据核对：related_product_sets 已清空（core buildInfo 输出 []）
+    const list = await page.evaluate(async () => (window as any).qihebox.suppliers.list())
+    expect(list.success).toBe(true)
+    const s = list.data.find((x: { name: string }) => x.name === '关联供应商')
+    expect(s).toBeTruthy()
+    expect(s.related_product_sets).toEqual([])
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })

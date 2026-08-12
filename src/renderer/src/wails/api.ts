@@ -114,6 +114,11 @@ export const api = {
     rename: (oldName: string, newName: string) =>
       qb.suppliers.rename(oldName, newName) as Promise<ApiResult<boolean>>,
     delete: (name: string) => qb.suppliers.delete(name) as Promise<ApiResult<boolean>>,
+    // v2.4.9 打磨 M8：供应商关联产品集（镜像客户门面）
+    linkRelation: (supplier: string, productSet: string) =>
+      qb.suppliers.linkRelation(supplier, productSet) as Promise<ApiResult<SupplierInfo>>,
+    unlinkRelation: (supplier: string, productSet: string) =>
+      qb.suppliers.unlinkRelation(supplier, productSet) as Promise<ApiResult<SupplierInfo>>,
   },
   // v2.4.9 S3：报价单（对齐 main core 服务契约；delete = removeEntry 账物分离不删文件）
   quotes: {

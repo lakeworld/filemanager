@@ -3,6 +3,8 @@
  * - 完整参照客户（v2.4.7 §5.1）范式：目录扫描为实，JSON 为档案（与 product_sets.json 同哲学）；
  *   供应商名 = 目录名 = JSON key；目录不存在 = 供应商不存在；删除走回收站时 JSON 条目保留（恢复即复原）
  * - 子文件夹固定集 SUPPLIER_SUBFOLDERS（决策 1：r3 拍板不做 config 键，最小改动；create/restore 建齐）
+ * - related_product_sets 关联产品集（v2.4.9 打磨 M8，镜像客户）：linkRelation/unlinkRelation 唯一写点，
+ *   create/update 校验产品集存在 + 去重，拒绝孤儿关联；产品集侧只读反查本版不做（留 v2.7）
  * - erp_ext 为 v2.7 仓迹同步预留命名空间：本体只读不校验、API 面不含入参
  *   （SupplierCreateRequest/SupplierUpdateRequest 无此字段 → 物理不可写；读写档案时原样保留）
  * - Logger（S6 core 接口）构造注入：create/rename 写 info 日志；未注入（可选）时静默跳过
@@ -20,6 +22,7 @@ import {
   writeJsonAtomic,
   readJsonFile,
   assertSafeFolderName,
+  productSetRootPath,
 } from './paths'
 import { WorkspaceService, countFiles } from './workspace'
 import { currentTimeString } from './metadata'
@@ -89,6 +92,10 @@ export class SuppliersService {
     // 既有档案重名也拒绝（目录被删但档案残留的防御：目录扫描为实、JSON 为档案，重名必冲突）
     const store = await this.loadSuppliersInfo()
     if (store[name]) throw new Error('供应商已存在')
+    // 关联产品集校验（镜像客户 create：拒绝不存在的产品集孤儿关联，v2.4.9 打磨 M8）
+    if (req.related_product_sets) {
+      for (const ps of req.related_product_sets) await this.assertProductSetExists(ps)
+    }
     await fsp.mkdir(dir, { recursive: true })
     for (const sub of SUPPLIER_SUBFOLDERS) {
       await fsp.mkdir(path.join(dir, sub), { recursive: true })
@@ -103,6 +110,7 @@ export class SuppliersService {
       address: req.address?.trim(),
       notes: (req.notes ?? '').trim(),
       tags: req.tags ?? [],
+      related_product_sets: req.related_product_sets ?? [],
       created_at: now,
       updated_at: now,
     }
@@ -133,6 +141,12 @@ export class SuppliersService {
     if (req.address !== undefined) entry.address = req.address.trim()
     if (req.notes !== undefined) entry.notes = req.notes.trim()
     if (req.tags !== undefined) entry.tags = req.tags
+    // 关联产品集：去重 + 校验产品集存在（镜像客户 update，拒绝孤儿关联，v2.4.9 打磨 M8）
+    if (req.related_product_sets !== undefined) {
+      const list = [...new Set(req.related_product_sets)]
+      for (const ps of list) await this.assertProductSetExists(ps)
+      entry.related_product_sets = list
+    }
     entry.created_at = entry.created_at ?? now
     entry.updated_at = now
     store[name] = entry
@@ -181,6 +195,46 @@ export class SuppliersService {
     this.logger?.info(`供应商重命名: ${oldName} → ${newName}`)
   }
 
+  /** 关联产品集（related_product_sets 增；校验产品集存在，去重）——供应商侧是唯一写点，产品集侧只读反查留 v2.7（镜像客户 clients.ts:201） */
+  async linkRelation(supplier: string, productSet: string): Promise<SupplierInfo> {
+    const ws = this.requireWS()
+    const name = supplier.trim()
+    const dir = supplierRootPath(ws, name)
+    await fsp.stat(dir).catch(() => {
+      throw new Error('供应商不存在')
+    })
+    await this.assertProductSetExists(productSet)
+    const store = await this.loadSuppliersInfo()
+    const entry = store[name] ?? {}
+    const ps = productSet.trim()
+    const list = [...new Set([...(entry.related_product_sets ?? []), ps])]
+    entry.related_product_sets = list
+    entry.created_at = entry.created_at ?? currentTimeString()
+    entry.updated_at = currentTimeString()
+    store[name] = entry
+    await this.saveSuppliersInfo(ws, store)
+    return this.buildInfo(ws, name, await countFiles(dir), entry)
+  }
+
+  /** 解除关联（related_product_sets 删；无档案条目/无关联时静默幂等，镜像客户 clients.ts:222） */
+  async unlinkRelation(supplier: string, productSet: string): Promise<SupplierInfo> {
+    const ws = this.requireWS()
+    const name = supplier.trim()
+    const dir = supplierRootPath(ws, name)
+    await fsp.stat(dir).catch(() => {
+      throw new Error('供应商不存在')
+    })
+    const store = await this.loadSuppliersInfo()
+    const entry = store[name]
+    if (entry) {
+      entry.related_product_sets = (entry.related_product_sets ?? []).filter((ps) => ps !== productSet.trim())
+      entry.updated_at = currentTimeString()
+      store[name] = entry
+      await this.saveSuppliersInfo(ws, store)
+    }
+    return this.buildInfo(ws, name, await countFiles(dir), entry)
+  }
+
   /**
    * 彻底删除（purge）编排专用：移除 suppliers.json 条目。
    * 删除进回收站 / 恢复流程**不**调用——条目保留是「恢复即复原」的前提（目录扫描为实，JSON 为档案）。
@@ -211,10 +265,19 @@ export class SuppliersService {
       address: info.address,
       notes: info.notes ?? '',
       tags: info.tags ?? [],
+      related_product_sets: info.related_product_sets ?? [],
       erp_ext: info.erp_ext,
       created_at: info.created_at ?? fallback,
       updated_at: info.updated_at ?? fallback,
     }
+  }
+
+  private async assertProductSetExists(productSet: string): Promise<void> {
+    const ws = this.requireWS()
+    const ps = productSet.trim()
+    if (!ps) throw new Error('产品集不能为空')
+    const ok = await fsp.stat(productSetRootPath(ws, ps)).then(() => true).catch(() => false)
+    if (!ok) throw new Error(`产品集「${ps}」不存在`)
   }
 
   private async dirContainsFile(dir: string): Promise<boolean> {

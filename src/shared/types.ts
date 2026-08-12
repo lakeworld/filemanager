@@ -385,6 +385,8 @@ export interface SupplierInfo {
   notes?: string
   /** 标签（沿用标签体系） */
   tags?: string[]
+  /** 关联产品集名数组（唯一写点在供应商侧，产品集侧只读反查留 v2.7，v2.4.9 打磨 M8） */
+  related_product_sets?: string[]
   /** 文件数统计（供应商目录递归计数，同客户） */
   file_count: number
   /** 预留命名空间（v2.7 仓迹同步，本体只读不校验、API 面不含入参） */
@@ -401,6 +403,7 @@ export interface SupplierExtraInfo {
   address?: string
   notes?: string
   tags?: string[]
+  related_product_sets?: string[]
   /** 预留命名空间（本体不校验其结构） */
   erp_ext?: Record<string, unknown>
   created_at?: string
@@ -415,6 +418,8 @@ export interface SupplierCreateRequest {
   address?: string
   notes?: string
   tags?: string[]
+  /** 关联产品集名数组（透传 create；校验产品集存在，拒绝孤儿关联，v2.4.9 打磨 M8） */
+  related_product_sets?: string[]
 }
 
 /** 供应商档案更新：不含 erp_ext 字段（本体物理不可写，同 CustomerUpdateRequest 口径） */
@@ -426,6 +431,8 @@ export interface SupplierUpdateRequest {
   address?: string
   notes?: string
   tags?: string[]
+  /** 关联产品集名数组（未传保留原值；校验产品集存在 + 去重，v2.4.9 打磨 M8） */
+  related_product_sets?: string[]
 }
 
 /** 发票台账记录（invoices.json: { invoices: Record<发票号码, InvoiceRecord> }；号码 = 查重主键 = key） */
