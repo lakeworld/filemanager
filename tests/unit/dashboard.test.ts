@@ -109,4 +109,51 @@ describe('仪表盘（DashboardService）', () => {
     expect(names).not.toContain('无期限.jpg')
     expect(names).not.toContain('格式坏.jpg')
   })
+
+  it('M5 统计：供应商目录扫描口径（回收站中供应商不计）+ 报价.json 缺失按 0', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    // 建 2 个供应商，删除 1 个进回收站（目录移出 供应商/，suppliers.json 条目保留——恢复即复原）
+    await box.suppliers.create({ name: '供应商甲' })
+    await box.suppliers.create({ name: '供应商乙' })
+    await box.deleteSupplier('供应商乙')
+
+    // 列表（目录扫描为实）只剩 1 个；档案仍保留 2 条 → 按 JSON 计数会把已回收供应商计入、与列表页矛盾
+    const list = await box.suppliers.list()
+    expect(list.map((s) => s.name)).toEqual(['供应商甲'])
+    const info = await box.suppliers.loadSuppliersInfo()
+    expect(Object.keys(info)).toContain('供应商乙')
+
+    const stats = await box.dashboard.dashboardStats()
+    expect(stats.total_suppliers).toBe(1)
+    // 未建报价 → 报价.json 缺失按 0（仿 invoiceTodos 容错）
+    expect(stats.total_quotes).toBe(0)
+    expect(stats.draft_quotes).toBe(0)
+  })
+
+  it('M5 统计：报价数与草稿报价数（报价.json 台账 status 计数）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    await box.quotes.create({
+      quotation_no: 'QT-M5-001',
+      date: '2026-08-01',
+      lines: [{ product: '品1', qty: 1, unit_price: 10, amount: 10 }],
+    })
+    await box.quotes.create({
+      quotation_no: 'QT-M5-002',
+      date: '2026-08-02',
+      lines: [{ product: '品2', qty: 2, unit_price: 5, amount: 10 }],
+    })
+    await box.quotes.setStatus('QT-M5-002', '已确认')
+
+    const stats = await box.dashboard.dashboardStats()
+    expect(stats.total_quotes).toBe(2)
+    expect(stats.draft_quotes).toBe(1)
+  })
 })

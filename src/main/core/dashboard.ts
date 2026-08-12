@@ -15,16 +15,18 @@ import {
   IMAGES_DIR,
   CERTS_DIR,
   CUSTOMERS_DIR,
+  SUPPLIERS_DIR,
   INVOICES_DIR,
   INBOUND_DIR,
   EXCHANGE_DIR,
   invoicesPath,
+  quotesPath,
   readJsonFile,
 } from './paths'
 import { WorkspaceService, countFiles, formatTime } from './workspace'
 import { MetadataService, parseExpiryDate } from './metadata'
 import { FilesService, FileEntry } from './files'
-import type { DashboardStats, InvoiceRecord } from '../../shared/types'
+import type { DashboardStats, InvoiceRecord, QuoteRecord } from '../../shared/types'
 
 export type { DashboardStats } from '../../shared/types'
 
@@ -168,6 +170,25 @@ export class DashboardService {
     const customersDir = path.join(ws, CUSTOMERS_DIR)
     const customerEntries = await fsp.readdir(customersDir, { withFileTypes: true }).catch(() => [])
     stats.total_customers = customerEntries.filter((e) => e.isDirectory()).length
+
+    // v2.4.9 打磨 M5：供应商/ 一级目录数（目录扫描为实，同 total_customers 口径——
+    // 删除进回收站时目录移出 供应商/，仅按 suppliers.json 计数会把已回收供应商计入、与列表页矛盾）
+    const suppliersDir = path.join(ws, SUPPLIERS_DIR)
+    const supplierEntries = await fsp.readdir(suppliersDir, { withFileTypes: true }).catch(() => [])
+    stats.total_suppliers = supplierEntries.filter((e) => e.isDirectory()).length
+
+    // v2.4.9 打磨 M5：报价数 + 草稿报价数（报价.json 台账条目数；台账缺失/损坏按 0，仿 invoiceTodos 容错）
+    const quotesStore = await readJsonFile<{ quotes?: Record<string, QuoteRecord> }>(quotesPath(ws))
+    let totalQuotes = 0
+    let draftQuotes = 0
+    if (quotesStore && quotesStore.quotes && typeof quotesStore.quotes === 'object') {
+      for (const rec of Object.values(quotesStore.quotes)) {
+        totalQuotes++
+        if (rec.status === '草稿') draftQuotes++
+      }
+    }
+    stats.total_quotes = totalQuotes
+    stats.draft_quotes = draftQuotes
 
     const allFiles: FileEntry[] = []
     for (const e of entries) {
