@@ -5,7 +5,7 @@
  * - 子文件夹固定集 SUPPLIER_SUBFOLDERS（决策 1：r3 拍板不做 config 键，最小改动；create/restore 建齐）
  * - related_product_sets 关联产品集（v2.4.9 打磨 M8，镜像客户）：linkRelation/unlinkRelation 唯一写点，
  *   create/update 校验产品集存在 + 去重，拒绝孤儿关联；产品集侧只读反查本版不做（留 v2.7）
- * - erp_ext 为 v2.7 仓迹同步预留命名空间：本体只读不校验、API 面不含入参
+ * - erp_ext 为 v2.7 启禾 OS同步预留命名空间：本体只读不校验、API 面不含入参
  *   （SupplierCreateRequest/SupplierUpdateRequest 无此字段 → 物理不可写；读写档案时原样保留）
  * - Logger（S6 core 接口）构造注入：create/rename 写 info 日志；未注入（可选）时静默跳过
  * 纯 TS：不 import electron，可在 node 环境直接测试。
@@ -122,7 +122,7 @@ export class SuppliersService {
 
   /**
    * 更新档案：contact/phone/email/address/notes/tags（未传字段保留原值）；updated_at 刷新。
-   * API 面不含 erp_ext（本体物理不可写，v2.7 仓迹才写回）；读写时原样保留。
+   * API 面不含 erp_ext（本体物理不可写，v2.7 启禾 OS才写回）；读写时原样保留。
    */
   async update(req: SupplierUpdateRequest): Promise<SupplierInfo> {
     const ws = this.requireWS()

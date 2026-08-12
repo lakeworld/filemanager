@@ -214,10 +214,10 @@ export default function SupplierDetail() {
             <Show when={detailSupplier()!.notes}>
               <p class="text-sm text-surface-600 mt-4 whitespace-pre-wrap">{detailSupplier()!.notes}</p>
             </Show>
-            {/* erp_ext 只读区（v2.7 仓迹同步预留；无内容时不渲染） */}
+            {/* erp_ext 只读区（v2.7 启禾 OS同步预留；无内容时不渲染） */}
             <Show when={detailSupplier()!.erp_ext && Object.keys(detailSupplier()!.erp_ext!).length > 0}>
               <div class="mt-4 pt-4 border-t border-surface-100">
-                <p class="text-xs font-medium text-surface-400 mb-2">ERP 扩展信息（只读，由仓迹写回）</p>
+                <p class="text-xs font-medium text-surface-400 mb-2">ERP 扩展信息（只读，由启禾 OS写回）</p>
                 <div class="flex flex-wrap gap-2">
                   <For each={Object.entries(detailSupplier()!.erp_ext!)}>
                     {([k, v]) => (

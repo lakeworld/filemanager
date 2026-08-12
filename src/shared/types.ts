@@ -311,7 +311,7 @@ export interface CustomerInfo {
   country?: string
   contact?: string
   source?: string
-  /** 客户类型（客迹/仓迹 company/individual 中文枚举；缺省=未分类，v2.4.9 S1） */
+  /** 客户类型（启禾 OS company/individual 中文枚举；缺省=未分类，v2.4.9 S1） */
   type?: '企业' | '个人'
   phone?: string
   email?: string
@@ -332,7 +332,7 @@ export interface CustomerExtraInfo {
   country?: string
   contact?: string
   source?: string
-  /** 客户类型（客迹/仓迹 company/individual 中文枚举；缺省=未分类，旧档案宽松读取，v2.4.9 S1） */
+  /** 客户类型（启禾 OS company/individual 中文枚举；缺省=未分类，旧档案宽松读取，v2.4.9 S1） */
   type?: '企业' | '个人'
   phone?: string
   email?: string
@@ -395,7 +395,7 @@ export interface SupplierInfo {
   related_product_sets?: string[]
   /** 文件数统计（供应商目录递归计数，同客户） */
   file_count: number
-  /** 预留命名空间（v2.7 仓迹同步，本体只读不校验、API 面不含入参） */
+  /** 预留命名空间（v2.7 启禾 OS 同步，本体只读不校验、API 面不含入参） */
   erp_ext?: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -502,7 +502,7 @@ export interface ExchangeReceipt {
   processed_at: string
 }
 
-// —— v2.4.9 S3：报价单（对齐客迹 keji Quotation；明细行 + 三态状态机；台账 报价.json: { quotes: Record<报价单号, QuoteRecord> }）——
+// —— v2.4.9 S3：报价单（对齐启禾 OS 报价单 Quotation；明细行 + 三态状态机；台账 报价.json: { quotes: Record<报价单号, QuoteRecord> }）——
 
 /** 报价明细行（金额写入时计算：amount = round2(qty × unit_price)，外部注入不一致拒绝） */
 export interface QuoteLine {

@@ -1,5 +1,5 @@
 /**
- * 报价单台账（v2.4.9 S3，对齐客迹 keji Quotation）：报价.json 台账 + 单号自动生成 + 三态状态机 + 金额计算 + 文件归档
+ * 报价单台账（v2.4.9 S3，对齐启禾 OS 报价单 Quotation）：报价.json 台账 + 单号自动生成 + 三态状态机 + 金额计算 + 文件归档
  * 纯 TS 业务层：不 import electron，可在 node 环境直接测试。
  *
  * 数据：<ws>/.qihefilemanager/报价.json

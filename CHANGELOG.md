@@ -2,14 +2,14 @@
 
 ## v2.4.9 — 2026-08-12（供应商 / 报价 / 开机自启 / 客户对齐 / 命名模板编号槽位 / 日志系统）
 
-> v2.5（插件宿主）之后的下一本体功能版本：供应商台账+目录、报价单（对齐客迹 Quotation）、开机自启（`--autostart` 托盘常驻）、客户字段对齐客迹/仓迹（为 v2.7 erp-bridge 铺路）、命名模板编号槽位、日志系统。设计见 `docs/INTERNAL/PLAN-v2.4.9.md`（v0.5，三轮 4 视角审查通过）。
+> v2.5（插件宿主）之后的下一本体功能版本：供应商台账+目录、报价单（对齐启禾 OS 报价单 Quotation）、开机自启（`--autostart` 托盘常驻）、客户字段对齐启禾 OS（为 v2.7 erp-bridge 铺路）、命名模板编号槽位、日志系统。设计见 `docs/INTERNAL/PLAN-v2.4.9.md`（v0.5，三轮 4 视角审查通过）。
 
 ### 新功能
 
 - **供应商管理**：台账 + `供应商/<名>/` 目录（固定子文件夹：合同/对账单/往来文件）+ 列表/详情页 + 文件区；入库单表单「供应商」下拉关联（`supplier_id`，兼容自由文本）；供应商删除进回收站（`kind='supplier'`，purge 四清理：目录+元数据+缩略图+档案，入库单留字面值不级联删）；重命名级联更新入库单引用
-- **报价单**：台账（对齐客迹 Quotation：明细行 + 汇总 + 三态状态机）+ `报价/<YYYY>/` 原件归档 + 报价单号自动生成（`QT-YYYYMMDD-序号`，可手输覆盖查重）+ 客户详情报价联动（改名级联/删除灰显）；状态机：草稿→已确认→修订中→草稿，已确认→草稿拒绝，已确认明细锁定
+- **报价单**：台账（对齐启禾 OS 报价单 Quotation：明细行 + 汇总 + 三态状态机）+ `报价/<YYYY>/` 原件归档 + 报价单号自动生成（`QT-YYYYMMDD-序号`，可手输覆盖查重）+ 客户详情报价联动（改名级联/删除灰显）；状态机：草稿→已确认→修订中→草稿，已确认→草稿拒绝，已确认明细锁定
 - **开机自启**：设置页「通用」card 开关；`--autostart` 启动延迟建窗、托盘常驻（不占渲染进程内存）；Linux `.desktop`（Exec 含全量生产参数 + `--autostart`，参数三处同步由单测锚定）；自启态诊断日志
-- **客户对齐客迹/仓迹**：`CustomerInfo` 新增 `type/phone/email/address`（type 枚举「企业/个人」）；`erp_ext` schema 定稿（code/status/level/follow_status/last_order/ai_profile）+ 归属规则修订（erp-bridge 可写对齐字段与 erp_ext，box 专属字段 ERP 只读，记录级 `updated_at` 冲突裁决）——为 v2.7 erp-bridge 铺路
+- **客户对齐启禾 OS**：`CustomerInfo` 新增 `type/phone/email/address`（type 枚举「企业/个人」）；`erp_ext` schema 定稿（code/status/level/follow_status/last_order/ai_profile）+ 归属规则修订（erp-bridge 可写对齐字段与 erp_ext，box 专属字段 ERP 只读，记录级 `updated_at` 冲突裁决）——为 v2.7 erp-bridge 铺路
 - **命名模板编号槽位**：命名模板引擎新增 `sequence` 槽位（新工作区默认 产品集_子文件夹_原文件名_序号，导入按批次顺序补零）；批量重命名对话框复用命名模板（删前缀输入框、留起始序号）；设置页命名模板 card 可勾选 4 字段
 - **日志系统**：主进程日志核心迁入 core（解耦 electron，node 直测）+ 容量上限 20MB 自动清理（删最旧）+ 14 天保留双保险；渲染进程 console.error/warn 转发落盘（`[renderer]` 前缀）；「我的」页日志卡片（打开日志目录 / 导出日志 zip，手动发送）
 
@@ -101,7 +101,7 @@
 
 ### 交换区投递
 
-- **`工作区/交换区/` 投递协议**（对仓迹 / 手工投递公开）：文件本体 + `<id>.json` 描述（kind：invoice / inbound / customer / productSet）→ 校验 → 文件归集（命名模板 + 冲突序号）→ 台账写入 → 回执 `已处理/<id>.receipt.json`（ok / error / duplicate）→ 描述移入 已处理/，投递区归零
+- **`工作区/交换区/` 投递协议**（对启禾 OS / 手工投递公开）：文件本体 + `<id>.json` 描述（kind：invoice / inbound / customer / productSet）→ 校验 → 文件归集（命名模板 + 冲突序号）→ 台账写入 → 回执 `已处理/<id>.receipt.json`（ok / error / duplicate）→ 描述移入 已处理/，投递区归零
 - 发票/入库台账经 ledger sink 接入台账服务（查重等账务规则单点落台账，三入口同函数）；客户/子文件夹不存在 → error 回执不自动建客户
 - **幂等与崩溃安全**：`exchange_state.json` 已处理 id 簿记（滚动 500 条）；重复 id → duplicate 回执不重复归集；启动补扫推迟到窗口可交互后异步执行 + 交换区 fs.watch（500ms 防抖）即时处理；工作区切换 watch 随切换关闭重建
 - 即使 erp-bridge 插件（v2.7）未启用也可手工投递全链路使用

@@ -43,7 +43,7 @@ export class BoxService {
   clients: ClientsService
   /** v2.4.9 S2：供应商维度（供应商/ 目录 + suppliers.json 档案，镜像客户范式） */
   suppliers: SuppliersService
-  /** v2.4.9 S3：报价单台账（报价.json + 报价/<YYYY>/ 归档，对齐客迹 keji Quotation） */
+  /** v2.4.9 S3：报价单台账（报价.json + 报价/<YYYY>/ 归档，对齐启禾 OS 报价单 Quotation） */
   quotes: QuotesService
   /** v2.4.7：入库单（PLAN §7） */
   inbound: InboundService

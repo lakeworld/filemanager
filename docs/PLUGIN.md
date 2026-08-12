@@ -241,7 +241,7 @@ window.qihebox.plugins = {
 
 **字段归属规则**（v2.4.9 定稿，替换 v2.4.7「ERP 不可写本体字段」表述）：
 
-- erp-bridge（经 `customer.syncProfile`）可写：**本体对齐字段**（type/contact/phone/email/address/notes，即与客迹/仓迹共有的基础字段）与 `erp_ext`
+- erp-bridge（经 `customer.syncProfile`）可写：**本体对齐字段**（type/contact/phone/email/address/notes，即与启禾 OS共有的基础字段）与 `erp_ext`
 - box 权威（ERP 只读）：alias/country/source/related_product_sets
 - `erp_ext` 仅 ERP 写（本体只读不校验、API 面不含入参）
 
@@ -249,13 +249,13 @@ window.qihebox.plugins = {
 
 ```ts
 erp_ext?: {
-  code?: string             // 客户编码（仓迹权威）
-  status?: string           // 客户状态：正常/停用/黑名单（仓迹权威，active/inactive/blacklisted）
-  level?: string            // 客户等级（客迹/仓迹）
-  follow_status?: string    // 跟进状态（客迹）
-  last_order?: string       // 最近订单号/时间（仓迹）
-  ai_profile?: unknown      // 客迹 AI 画像（只读展示）
-  // 后续按客迹/仓迹扩展追加，命名空间规则不变
+  code?: string             // 客户编码（启禾 OS权威）
+  status?: string           // 客户状态：正常/停用/黑名单（启禾 OS权威，active/inactive/blacklisted）
+  level?: string            // 客户等级（启禾 OS）
+  follow_status?: string    // 跟进状态（启禾 OS）
+  last_order?: string       // 最近订单号/时间（启禾 OS）
+  ai_profile?: unknown      // 启禾 OS AI 画像（只读展示）
+  // 后续按启禾 OS扩展追加，命名空间规则不变
 }
 ```
 
