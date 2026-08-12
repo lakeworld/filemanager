@@ -37,6 +37,10 @@ import type {
   SupplierExtraInfo,
   SupplierCreateRequest,
   SupplierUpdateRequest,
+  // —— v2.4.9 S3：报价单 ——
+  QuoteRecord,
+  QuoteCreateRequest,
+  QuoteUpdateRequest,
   InvoiceRecord,
   InboundRecord,
   InvoiceStatus,
@@ -110,6 +114,21 @@ export const api = {
     rename: (oldName: string, newName: string) =>
       qb.suppliers.rename(oldName, newName) as Promise<ApiResult<boolean>>,
     delete: (name: string) => qb.suppliers.delete(name) as Promise<ApiResult<boolean>>,
+  },
+  // v2.4.9 S3：报价单（对齐 main core 服务契约；delete = removeEntry 账物分离不删文件）
+  quotes: {
+    list: () => qb.quotes.list() as Promise<ApiResult<QuoteRecord[]>>,
+    get: (quotationNo: string) =>
+      qb.quotes.get(quotationNo) as Promise<ApiResult<QuoteRecord | null>>,
+    create: (req: QuoteCreateRequest) =>
+      qb.quotes.create(req as any) as Promise<ApiResult<QuoteRecord>>,
+    update: (req: QuoteUpdateRequest) =>
+      qb.quotes.update(req as any) as Promise<ApiResult<QuoteRecord>>,
+    setStatus: (quotationNo: string, status: QuoteRecord["status"]) =>
+      qb.quotes.setStatus(quotationNo, status) as Promise<ApiResult<QuoteRecord>>,
+    delete: (quotationNo: string) => qb.quotes.delete(quotationNo) as Promise<ApiResult<boolean>>,
+    archiveFile: (sourcePath: string, date: string) =>
+      qb.quotes.archiveFile(sourcePath, date) as Promise<ApiResult<string>>,
   },
   invoices: {
     list: (filter?: InvoiceListFilter) =>

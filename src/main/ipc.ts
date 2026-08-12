@@ -140,8 +140,9 @@ export function registerIpc(
   ipcMain.handle('qihebox:clients:list', () => handle(() => box.clients.list()))
   ipcMain.handle('qihebox:clients:create', (_e, req) => handle(() => box.clients.create(req)))
   ipcMain.handle('qihebox:clients:update', (_e, req) => handle(() => box.clients.update(req)))
+  // v2.4.9（S3b r3 P1-5）：客户改名编排——clients.rename（目录/档案）+ quotes.renameCustomer（报价台账 customer 级联）
   ipcMain.handle('qihebox:clients:rename', (_e, oldName: string, newName: string) =>
-    handle(() => box.clients.rename(oldName, newName)),
+    handle(() => box.renameCustomer(oldName, newName)),
   )
   ipcMain.handle('qihebox:clients:delete', (_e, name: string) => handle(() => box.deleteCustomer(name)))
   ipcMain.handle('qihebox:clients:linkRelation', (_e, customer: string, productSet: string) =>
@@ -159,6 +160,19 @@ export function registerIpc(
     handle(() => box.renameSupplier(oldName, newName)),
   )
   ipcMain.handle('qihebox:suppliers:delete', (_e, name: string) => handle(() => box.deleteSupplier(name)))
+
+  // —— v2.4.9 S3：报价单台账（报价.json + 报价/<YYYY>/ 归档；delete = removeEntry 账物分离不删文件）——
+  ipcMain.handle('qihebox:quotes:list', () => handle(() => box.quotes.list()))
+  ipcMain.handle('qihebox:quotes:get', (_e, quotationNo: string) => handle(() => box.quotes.get(quotationNo)))
+  ipcMain.handle('qihebox:quotes:create', (_e, req) => handle(() => box.quotes.create(req)))
+  ipcMain.handle('qihebox:quotes:update', (_e, req) => handle(() => box.quotes.update(req)))
+  ipcMain.handle('qihebox:quotes:setStatus', (_e, quotationNo: string, status: '草稿' | '已确认' | '修订中') =>
+    handle(() => box.quotes.setStatus(quotationNo, status)),
+  )
+  ipcMain.handle('qihebox:quotes:delete', (_e, quotationNo: string) => handle(() => box.quotes.removeEntry(quotationNo)))
+  ipcMain.handle('qihebox:quotes:archiveFile', (_e, sourcePath: string, date: string) =>
+    handle(() => box.quotes.archiveFile(sourcePath, date)),
+  )
 
   // —— v2.4.7：发票台账（invoices.json，PLAN §6）——
   ipcMain.handle('qihebox:invoices:list', (_e, filter) => handle(() => box.invoices.list(filter)))

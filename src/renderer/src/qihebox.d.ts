@@ -48,6 +48,16 @@ interface QiheboxApi {
     rename: (oldName: string, newName: string) => Promise<unknown>
     delete: (name: string) => Promise<unknown>
   }
+  // v2.4.9 S3：报价单（纯透传，通道 qihebox:quotes:*；delete = removeEntry 账物分离不删文件）
+  quotes: {
+    list: () => Promise<unknown>
+    get: (quotationNo: string) => Promise<unknown>
+    create: (req: unknown) => Promise<unknown>
+    update: (req: unknown) => Promise<unknown>
+    setStatus: (quotationNo: string, status: string) => Promise<unknown>
+    delete: (quotationNo: string) => Promise<unknown>
+    archiveFile: (sourcePath: string, date: string) => Promise<unknown>
+  }
   invoices: {
     list: (filter?: unknown) => Promise<unknown>
     checkNumber: (number: string, excludeNumber?: string | null) => Promise<unknown>

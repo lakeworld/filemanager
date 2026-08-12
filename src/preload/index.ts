@@ -56,6 +56,18 @@ const api = {
     rename: (oldName: string, newName: string) => invoke('qihebox:suppliers:rename', oldName, newName),
     delete: (name: string) => invoke('qihebox:suppliers:delete', name),
   },
+  // v2.4.9 S3：报价单（纯透传，业务在主进程 core/；delete = removeEntry 账物分离不删文件）
+  quotes: {
+    list: () => invoke('qihebox:quotes:list'),
+    get: (quotationNo: string) => invoke('qihebox:quotes:get', quotationNo),
+    create: (req: unknown) => invoke('qihebox:quotes:create', req),
+    update: (req: unknown) => invoke('qihebox:quotes:update', req),
+    setStatus: (quotationNo: string, status: string) =>
+      invoke('qihebox:quotes:setStatus', quotationNo, status),
+    delete: (quotationNo: string) => invoke('qihebox:quotes:delete', quotationNo),
+    archiveFile: (sourcePath: string, date: string) =>
+      invoke('qihebox:quotes:archiveFile', sourcePath, date),
+  },
   invoices: {
     list: (filter?: unknown) => invoke('qihebox:invoices:list', filter),
     checkNumber: (number: string, excludeNumber?: string) =>

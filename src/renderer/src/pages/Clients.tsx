@@ -13,8 +13,10 @@ import ConfirmDialog from "~/components/ConfirmDialog";
 // v2.4.7（§5.2）：客户详情文件区——FileBrowser 抽取的共用组件，自含面包屑/子文件夹 Tab/文件区，
 // 与 /files/customer/:name/:subFolder 路由页共用（tab 点击经组件内 navigate 直达完整文件管理页）
 import FileBrowserView from "~/components/FileBrowserView";
+// v2.4.9 S3b：客户详情报价联动——报价状态徽标色复用列表页同款
+import { statusChipClass } from "~/components/QuoteStatusActions";
 import { useContextMenu } from "~/hooks/useContextMenu";
-import type { CustomerInfo, CustomerCreateRequest, CustomerUpdateRequest } from "~/types";
+import type { CustomerInfo, CustomerCreateRequest, CustomerUpdateRequest, QuoteRecord } from "~/types";
 
 /** 档案字段展示行（值为空时显示灰占位符） */
 function InfoRow(props: { label: string; value?: string }) {
@@ -26,6 +28,13 @@ function InfoRow(props: { label: string; value?: string }) {
       </span>
     </div>
   );
+}
+
+/** 金额展示（v2.4.9 S3b：客户详情报价联动小计；仅展示） */
+function fmtMoney(n: number): string {
+  return Number.isFinite(n)
+    ? n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : "-";
 }
 
 export default function Clients() {
@@ -62,6 +71,10 @@ export default function Clients() {
   // 详情：关联产品集下拉
   const [linkSelect, setLinkSelect] = createSignal("");
 
+  // v2.4.9 S3b：该客户报价（quotes.list 按 customer 名字引用过滤；改名级联由 core renameCustomer 编排）
+  const [customerQuotes, setCustomerQuotes] = createSignal<QuoteRecord[]>([]);
+  let quoteSeq = 0;
+
   // v2.4.7：删除客户确认弹窗状态（替代 window.confirm；fromDetail 区分详情页/卡片删除，成功后的处理不同）
   const [confirmDelete, setConfirmDelete] = createSignal<{ name: string; fromDetail: boolean } | null>(null);
 
@@ -88,8 +101,19 @@ export default function Clients() {
       loadCustomers();
       loadProductSets();
       loadTagDefs();
+      loadCustomerQuotes();
     }
   });
+
+  /** 该客户报价列表（名字引用过滤；改名成功后须重载——filter 依据跟随新名） */
+  const loadCustomerQuotes = async () => {
+    const s = ++quoteSeq;
+    const name = customerName();
+    if (!name) return;
+    const r = await api.quotes.list();
+    if (s !== quoteSeq) return;
+    if (r.success && r.data) setCustomerQuotes(r.data.filter((q) => q.customer === name));
+  };
 
   const allTags = () => {
     const set = new Set<string>();
@@ -153,6 +177,8 @@ export default function Clients() {
     if (result.success) {
       setEditingName(false);
       loadCustomers();
+      // v2.4.9 S3b：改名级联报价台账（core renameCustomer 编排），详情联动按新名重载
+      loadCustomerQuotes();
       navigate(`/clients/${encodeURIComponent(editingNameValue())}`);
     } else {
       showToast("error", "重命名失败", result.error || "未知错误");
@@ -505,6 +531,46 @@ export default function Clients() {
                   </select>
                   <button class="btn-primary text-sm" onClick={handleLink} disabled={!linkSelect()}>添加</button>
                 </div>
+              </div>
+
+              {/* ④ 报价单（v2.4.9 S3b：该客户报价数 + 列表，点击跳报价详情；改名级联由 core 编排） */}
+              <div class="card p-6">
+                <div class="flex items-center justify-between mb-1">
+                  <h3 class="text-lg font-semibold text-surface-900">报价单</h3>
+                  <button
+                    class="text-xs text-primary-600 hover:text-primary-700 shrink-0"
+                    onClick={() => navigate("/quotes")}
+                  >
+                    去报价台账 →
+                  </button>
+                </div>
+                <p class="text-xs text-surface-400 mb-3">共 {customerQuotes().length} 张报价单</p>
+                <Show when={customerQuotes().length > 0} fallback={
+                  <p class="text-sm text-surface-400">暂无报价单</p>
+                }>
+                  <div class="flex flex-col -mx-2">
+                    <For each={customerQuotes()}>
+                      {(q) => (
+                        <button
+                          class="px-2 py-2 rounded-lg hover:bg-surface-50 text-left transition-colors w-full"
+                          title="打开报价详情"
+                          onClick={() => navigate(`/quotes/${encodeURIComponent(q.quotation_no)}`)}
+                        >
+                          <div class="flex items-center gap-2">
+                            <span class="flex-1 min-w-0 truncate font-medium text-primary-700 text-sm">{q.quotation_no}</span>
+                            <span class="tabular-nums text-surface-900 text-sm shrink-0">¥{fmtMoney(q.total_amount)}</span>
+                          </div>
+                          <div class="flex items-center gap-2 mt-0.5">
+                            <span class="text-surface-500 text-xs shrink-0">{q.date}</span>
+                            <span class={`text-xs px-1.5 py-0.5 rounded-full shrink-0 ${statusChipClass(q.status)}`}>
+                              {q.status}
+                            </span>
+                          </div>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
               </div>
             </div>
 
