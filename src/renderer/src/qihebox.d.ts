@@ -146,6 +146,10 @@ interface QiheboxApi {
   }
   app: {
     version: () => Promise<unknown>
+    // v2.4.9（S4）：开机自启 / 托盘状态
+    setAutoLaunch: (enabled: boolean) => Promise<unknown>
+    isAutoLaunch: () => Promise<unknown>
+    isTrayReady: () => Promise<unknown>
   }
   events: {
     on: (channel: string, callback: (data: unknown) => void) => () => void

@@ -18,6 +18,8 @@ import { registerIpc } from './ipc'
 import { registerQiheboxProtocol } from './protocol'
 import { AccountService } from './account'
 import { log, initLogger } from './log'
+import { isAutoLaunchMode } from './core/autoLaunch'
+import { isMacAutostartLaunch } from './autoLaunchMain'
 import { checkUpdate, setCachedUpdate } from './updater'
 import {
   computeNotifiable,
@@ -89,6 +91,8 @@ if (!gotLock) {
 Menu.setApplicationMenu(null)
 
 let tray: Tray | null = null
+/** v2.4.9（S4）：当前实例是否自启态（决定 --autostart 延迟建窗与自启态诊断日志） */
+let autostartMode = false
 /** v2.4.2（R1）：崩溃计数改为时间窗——10 分钟内 ≥3 次才退出；`clean-exit`（休眠销毁窗口）不计 */
 const CRASH_WINDOW_MS = 10 * 60 * 1000
 const CRASH_MAX = 3
@@ -106,7 +110,14 @@ function setupTray(): void {
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon)
   tray.setToolTip('启禾文件管理 - 常驻后台运行中')
   const menu = Menu.buildFromTemplate([
-    { label: '显示主界面', click: () => windowShow() },
+    {
+      label: '显示主界面',
+      click: () => {
+        // v2.4.9（S4）：自启态诊断日志——ensureMainWindow 触发点（含来源标识）
+        if (autostartMode) void log('info', 'autostart: 托盘菜单触发建窗（ensureMainWindow）')
+        windowShow()
+      },
+    },
     { label: '隐藏到托盘', click: () => windowHideToTray() },
     { type: 'separator' },
     {
@@ -118,7 +129,11 @@ function setupTray(): void {
     },
   ])
   tray.setContextMenu(menu)
-  tray.on('click', () => windowShow())
+  tray.on('click', () => {
+    // v2.4.9（S4）：自启态诊断日志——ensureMainWindow 触发点（含来源标识）
+    if (autostartMode) void log('info', 'autostart: 托盘图标点击触发建窗（ensureMainWindow）')
+    windowShow()
+  })
 }
 
 function setupCrashRecovery(win: BrowserWindow): void {
@@ -453,7 +468,7 @@ app.whenReady().then(() => {
   // 工作区打开/切换时 stop + start（watch 句柄与防抖定时器成对释放重建）+ 启动补扫
   const exchange = box.exchange
 
-  registerIpc(box, account)
+  registerIpc(box, account, { isTrayReady: () => tray !== null })
   registerQiheboxProtocol(box, () => thumbs.currentThumbsRoot())
 
   // v2.4.7（评审 P5）：重启后恢复已登录账号的心跳——登录态由 account.json 持久化，
@@ -506,11 +521,29 @@ app.whenReady().then(() => {
     })
   })
 
-  const win = createMainWindow()
-  setupTray()
-  setupCrashRecovery(win)
-  setupRendererConsoleForward(win)
-  setupCloseToTray(win)
+  // v2.4.9（S4）：开机自启分支（决策 5/11/15）——自启态不建窗：托盘常驻 + 后台任务照常
+  // （索引构建 + fs.watch 监听 / 交换区补扫 / 30s 缩略图 GC / runStartupTasks 均在下方链上
+  // 无条件执行，与托盘态同口径，不跳过）；等待托盘点击 / second-instance / activate 经
+  // ensureMainWindow() 兜底建窗（决策 15）。
+  autostartMode = isAutoLaunchMode(process.argv, process.env) || isMacAutostartLaunch()
+  if (autostartMode) {
+    // 自启态诊断日志（§3.6.2）：命中来源 / 托盘初始化 / 延迟建窗
+    const src = process.argv.includes('--autostart')
+      ? 'argv'
+      : process.env.QIHEBOX_AUTOSTART === '1'
+        ? 'env'
+        : 'mac wasOpenedAtLogin'
+    void log('info', `autostart 模式命中（来源: ${src}）`)
+    setupTray()
+    void log('info', 'autostart: 托盘初始化完成')
+    void log('info', 'autostart: 延迟建窗，等待托盘/激活触发')
+  } else {
+    const win = createMainWindow()
+    setupTray()
+    setupCrashRecovery(win)
+    setupRendererConsoleForward(win)
+    setupCloseToTray(win)
+  }
   // v2.4.7（F10）：系统休眠唤醒自愈——resume 后分层检查，白屏自动 reload（含画面像素检测）
   setupWakeRecovery()
 
@@ -524,6 +557,8 @@ app.whenReady().then(() => {
 app.on('activate', () => {
   // 休眠销毁窗口后，激活（macOS dock / Linux）即重建
   if (BrowserWindow.getAllWindows().length === 0) {
+    // v2.4.9（S4）：自启态诊断日志——ensureMainWindow 触发点（含来源标识）
+    if (autostartMode) void log('info', 'autostart: activate 触发建窗（ensureMainWindow）')
     ensureMainWindow()
   } else {
     windowShow()
@@ -534,6 +569,8 @@ app.on('activate', () => {
 // v2.4.7（评审 P3）：统一复用 windowShow()——不再直接 show/focus 绕过 ready-to-show 守卫
 // （v2.4.3 F2 黑屏修复：加载中的窗口提前 show 会露出深色空窗，二次启动同样适用）
 app.on('second-instance', () => {
+  // v2.4.9（S4）：自启态诊断日志——ensureMainWindow 触发点（含来源标识）
+  if (autostartMode) void log('info', 'autostart: second-instance 触发建窗（ensureMainWindow）')
   windowShow()
 })
 

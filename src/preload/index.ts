@@ -178,6 +178,10 @@ const api = {
   },
   app: {
     version: () => invoke('qihebox:app:version'),
+    // v2.4.9（S4）：开机自启 / 托盘状态（薄透传）
+    setAutoLaunch: (enabled: boolean) => invoke('qihebox:app:setAutoLaunch', enabled),
+    isAutoLaunch: () => invoke('qihebox:app:isAutoLaunch'),
+    isTrayReady: () => invoke('qihebox:app:isTrayReady'),
   },
   events: {
     /** 订阅主进程事件，返回取消订阅函数 */

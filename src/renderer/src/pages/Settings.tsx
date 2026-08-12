@@ -27,6 +27,22 @@ export default function Settings() {
   const [newCustomerFolder, setNewCustomerFolder] = createSignal("");
   const [saved, setSaved] = createSignal(false);
 
+  // —— v2.4.9（S4）：开机自启（应用级设置，不依赖工作区；门控内与既有 card 结构一致）——
+  const [autoLaunch, setAutoLaunchState] = createSignal(false);
+  const loadAutoLaunch = async () => {
+    const r = await api.app.isAutoLaunch();
+    if (r.success && r.data) setAutoLaunchState(r.data);
+  };
+  const toggleAutoLaunch = async (checked: boolean) => {
+    const r = await api.app.setAutoLaunch(checked);
+    if (!r.success) {
+      setAutoLaunchState(!checked); // 失败回滚，避免 UI 与真实状态漂移
+      showToast("error", "设置失败", r.error || "开机自启设置失败，请重试");
+      return;
+    }
+    setAutoLaunchState(checked);
+  };
+
   createEffect(() => {
     if (currentWorkspace()) {
       loadWorkspaceConfig();
@@ -362,6 +378,11 @@ export default function Settings() {
     onCleanup(() => window.removeEventListener("mousedown", onDown));
   });
 
+  // v2.4.9（S4）：挂载回填开机自启开关状态（应用级，无需工作区）
+  onMount(() => {
+    void loadAutoLaunch();
+  });
+
   /** 删除/清除引用确认弹窗内容（target 由 Show 保证非空） */
   const DeleteConfirm = (props: { name: string; orphan: boolean; onDone: () => void }) => {
     const count = () => tags().find((t) => t.name === props.name)?.count ?? 0;
@@ -402,6 +423,24 @@ export default function Settings() {
         }
       >
         <div class="space-y-6">
+          {/* v2.4.9（S4）：通用——开机自启（应用级设置，Linux .desktop / Win·mac 系统登录项） */}
+          <div class="card p-6">
+            <h2 class="text-lg font-semibold mb-2">通用</h2>
+            <p class="text-sm text-surface-500 mb-4">应用级通用设置</p>
+            <label class="flex items-center justify-between gap-4 cursor-pointer">
+              <div>
+                <div class="text-sm font-medium text-surface-700">开机自启</div>
+                <div class="text-xs text-surface-400 mt-0.5">登录系统后自动启动，驻留托盘后台运行，不弹出主窗口</div>
+              </div>
+              <input
+                type="checkbox"
+                class="w-5 h-5 accent-primary-600 cursor-pointer"
+                checked={autoLaunch()}
+                onChange={(e) => void toggleAutoLaunch(e.currentTarget.checked)}
+              />
+            </label>
+          </div>
+
           {/* 标签管理 */}
           <div class="card p-6">
             <h2 class="text-lg font-semibold mb-2">标签管理</h2>
