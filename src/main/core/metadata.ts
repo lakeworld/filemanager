@@ -21,6 +21,7 @@ import {
   INVOICES_DIR,
   INBOUND_DIR,
   EXCHANGE_DIR,
+  SUPPLIERS_DIR,
   productSetFromFilePath,
 } from './paths'
 import { WorkspaceService } from './workspace'
@@ -68,18 +69,24 @@ export function normalizeExpiryDate(s: string): string | null {
   return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`
 }
 
-/** v2.4.7（§4.1）：元数据 key 首段所属区域（结构化解析 key 的统一判读出口） */
-export type MetadataKeyRegion = 'productSet' | 'customer' | 'invoice' | 'inbound' | 'exchange'
+/** v2.4.7（§4.1）：元数据 key 首段所属区域（结构化解析 key 的统一判读出口）；v2.4.9 S2 追加 'supplier' */
+export type MetadataKeyRegion = 'productSet' | 'customer' | 'invoice' | 'inbound' | 'exchange' | 'supplier'
 
 /**
  * v2.4.7（§4.1）：元数据 key 区域判读——所有结构化解析 key 的位置统一走此函数。
- * 判读规则：key 首段 ∈ {客户, 发票, 入库, 交换区} 且该首段不是实存产品集目录 → 按对应区域解读；
+ * 判读规则：key 首段 ∈ {客户, 发票, 入库, 交换区, 供应商} 且该首段不是实存产品集目录 → 按对应区域解读；
  * 否则按产品集 key 解读（存量同名产品集兼容优先，§3.7 保留名使新数据无歧义）。
  * ws：工作区路径（未打开工作区时传入空串会返回 'productSet'，由调用方自行决定语义）。
  */
 export async function interpretMetadataKeyRegion(ws: string, key: string): Promise<MetadataKeyRegion> {
   const first = key.replace(/\\/g, '/').split('/')[0] ?? ''
-  if (first !== CUSTOMERS_DIR && first !== INVOICES_DIR && first !== INBOUND_DIR && first !== EXCHANGE_DIR) {
+  if (
+    first !== CUSTOMERS_DIR &&
+    first !== INVOICES_DIR &&
+    first !== INBOUND_DIR &&
+    first !== EXCHANGE_DIR &&
+    first !== SUPPLIERS_DIR
+  ) {
     return 'productSet'
   }
   // 首段为保留名但存在同名产品集目录 → 产品集优先（存量兼容）
@@ -90,6 +97,7 @@ export async function interpretMetadataKeyRegion(ws: string, key: string): Promi
     if (first === CUSTOMERS_DIR) return 'customer'
     if (first === INVOICES_DIR) return 'invoice'
     if (first === INBOUND_DIR) return 'inbound'
+    if (first === SUPPLIERS_DIR) return 'supplier'
     return 'exchange'
   }
 }

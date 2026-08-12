@@ -1,0 +1,236 @@
+/**
+ * 供应商维度（v2.4.9 S2）：供应商/ 目录 + suppliers.json 档案
+ * - 完整参照客户（v2.4.7 §5.1）范式：目录扫描为实，JSON 为档案（与 product_sets.json 同哲学）；
+ *   供应商名 = 目录名 = JSON key；目录不存在 = 供应商不存在；删除走回收站时 JSON 条目保留（恢复即复原）
+ * - 子文件夹固定集 SUPPLIER_SUBFOLDERS（决策 1：r3 拍板不做 config 键，最小改动；create/restore 建齐）
+ * - erp_ext 为 v2.7 仓迹同步预留命名空间：本体只读不校验、API 面不含入参
+ *   （SupplierCreateRequest/SupplierUpdateRequest 无此字段 → 物理不可写；读写档案时原样保留）
+ * - Logger（S6 core 接口）构造注入：create/rename 写 info 日志；未注入（可选）时静默跳过
+ * 纯 TS：不 import electron，可在 node 环境直接测试。
+ */
+import fs from 'node:fs'
+import path from 'node:path'
+import fsp from 'node:fs/promises'
+import {
+  suppliersInfoPath,
+  supplierRootPath,
+  SUPPLIERS_DIR,
+  SUPPLIER_SUBFOLDERS,
+  ensureWorkspaceDirs,
+  writeJsonAtomic,
+  readJsonFile,
+  assertSafeFolderName,
+} from './paths'
+import { WorkspaceService, countFiles } from './workspace'
+import { currentTimeString } from './metadata'
+import { globalWorkspaceIndex } from './indexCache'
+import type { Logger } from './logger'
+import type { SupplierInfo, SupplierExtraInfo, SupplierCreateRequest, SupplierUpdateRequest } from '../../shared/types'
+
+export type { SupplierInfo, SupplierExtraInfo, SupplierCreateRequest, SupplierUpdateRequest } from '../../shared/types'
+
+export class SuppliersService {
+  constructor(
+    private workspace: WorkspaceService,
+    private logger?: Logger,
+  ) {}
+
+  private requireWS(): string {
+    const ws = this.workspace.currentWorkspacePath()
+    if (!ws) throw new Error('未打开工作区')
+    return ws
+  }
+
+  // —— 供应商档案（suppliers.json）读写 ——
+
+  /** 读取供应商档案；文件缺失/损坏 → 空对象（与 loadCustomersInfo 同法） */
+  async loadSuppliersInfo(ws?: string): Promise<Record<string, SupplierExtraInfo>> {
+    const w = ws ?? this.requireWS()
+    const store = await readJsonFile<Record<string, SupplierExtraInfo>>(suppliersInfoPath(w))
+    return store ?? {}
+  }
+
+  async saveSuppliersInfo(ws: string, store: Record<string, SupplierExtraInfo>): Promise<void> {
+    ensureWorkspaceDirs(ws)
+    await writeJsonAtomic(suppliersInfoPath(ws), store)
+  }
+
+  // —— 供应商 API（镜像 ClientsService，对照 workspace.ts 产品集段）——
+
+  /** 供应商列表：目录扫描 供应商/<名> × suppliers.json 合并（文件数递归计数；按名称排序） */
+  async list(): Promise<SupplierInfo[]> {
+    const ws = this.requireWS()
+    const dir = path.join(ws, SUPPLIERS_DIR)
+    const extra = await this.loadSuppliersInfo()
+    const entries = await fsp.readdir(dir, { withFileTypes: true }).catch(() => [] as fs.Dirent[])
+    const suppliers: SupplierInfo[] = []
+    for (const e of entries) {
+      if (!e.isDirectory()) continue
+      const name = e.name
+      const fileCount = await countFiles(path.join(dir, name))
+      suppliers.push(await this.buildInfo(ws, name, fileCount, extra[name]))
+    }
+    suppliers.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    return suppliers
+  }
+
+  /** 新建供应商：名称校验 → 同名查重（既有目录或既有档案均拒绝）→ 建目录 + 固定子文件夹集 → suppliers.json 条目 */
+  async create(req: SupplierCreateRequest): Promise<SupplierInfo> {
+    const ws = this.requireWS()
+    const name = assertSafeFolderName(req.name, '供应商名称')
+    if (!name) throw new Error('名称不能为空')
+    const dir = supplierRootPath(ws, name)
+    try {
+      await fsp.stat(dir)
+      throw new Error('供应商已存在')
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === '供应商已存在') throw err
+    }
+    // 既有档案重名也拒绝（目录被删但档案残留的防御：目录扫描为实、JSON 为档案，重名必冲突）
+    const store = await this.loadSuppliersInfo()
+    if (store[name]) throw new Error('供应商已存在')
+    await fsp.mkdir(dir, { recursive: true })
+    for (const sub of SUPPLIER_SUBFOLDERS) {
+      await fsp.mkdir(path.join(dir, sub), { recursive: true })
+    }
+    // v2.4.x：写目录操作失效索引快照（新建目录查询时按需重建，遵循失效约定）
+    globalWorkspaceIndex.invalidate(dir)
+    const now = currentTimeString()
+    const entry: SupplierExtraInfo = {
+      contact: req.contact?.trim(),
+      phone: req.phone?.trim(),
+      email: req.email?.trim(),
+      address: req.address?.trim(),
+      notes: (req.notes ?? '').trim(),
+      tags: req.tags ?? [],
+      created_at: now,
+      updated_at: now,
+    }
+    store[name] = entry
+    await this.saveSuppliersInfo(ws, store)
+    this.logger?.info(`供应商创建: ${name}`)
+    return this.buildInfo(ws, name, 0, entry)
+  }
+
+  /**
+   * 更新档案：contact/phone/email/address/notes/tags（未传字段保留原值）；updated_at 刷新。
+   * API 面不含 erp_ext（本体物理不可写，v2.7 仓迹才写回）；读写时原样保留。
+   */
+  async update(req: SupplierUpdateRequest): Promise<SupplierInfo> {
+    const ws = this.requireWS()
+    const name = req.name.trim()
+    if (!name) throw new Error('名称不能为空')
+    const dir = supplierRootPath(ws, name)
+    await fsp.stat(dir).catch(() => {
+      throw new Error('供应商不存在')
+    })
+    const store = await this.loadSuppliersInfo()
+    const entry = store[name] ?? {}
+    const now = currentTimeString()
+    if (req.contact !== undefined) entry.contact = req.contact.trim()
+    if (req.phone !== undefined) entry.phone = req.phone.trim()
+    if (req.email !== undefined) entry.email = req.email.trim()
+    if (req.address !== undefined) entry.address = req.address.trim()
+    if (req.notes !== undefined) entry.notes = req.notes.trim()
+    if (req.tags !== undefined) entry.tags = req.tags
+    entry.created_at = entry.created_at ?? now
+    entry.updated_at = now
+    store[name] = entry
+    await this.saveSuppliersInfo(ws, store)
+    return this.buildInfo(ws, name, await countFiles(dir), entry)
+  }
+
+  /**
+   * 重命名供应商：目录迁移后 suppliers.json 条目键同步迁移（同客户 rename 先例 clients.ts:167）。
+   * 有文件不可重命名（同 renameProductSet/renameCustomer 规则——metadata key 路径推导的代价，文案对齐）；
+   * 新名与既有档案/目录冲突 → 拒绝。inbound.supplier_id 级联由 BoxService.renameSupplier 编排（本类不依赖 inbound）。
+   */
+  async rename(oldName: string, newName: string): Promise<void> {
+    const ws = this.requireWS()
+    oldName = oldName.trim()
+    newName = assertSafeFolderName(newName, '供应商名称')
+    if (!oldName || !newName) throw new Error('名称不能为空')
+    if (oldName === newName) return
+    const oldDir = supplierRootPath(ws, oldName)
+    const newDir = supplierRootPath(ws, newName)
+    await fsp.stat(oldDir).catch(() => {
+      throw new Error('供应商不存在')
+    })
+    try {
+      await fsp.stat(newDir)
+      throw new Error('新供应商已存在')
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === '新供应商已存在') throw err
+    }
+    const store = await this.loadSuppliersInfo()
+    // 档案残留重名防御（目录已删但档案残留时新名同样拒绝）
+    if (store[newName]) throw new Error('新供应商已存在')
+    const hasFiles = await this.dirContainsFile(oldDir)
+    if (hasFiles) {
+      throw new Error('该供应商下已有文件，无法重命名。如需修改名称，请先删除文件或新建空供应商。')
+    }
+    await fsp.rename(oldDir, newDir)
+    globalWorkspaceIndex.invalidate(oldDir)
+    globalWorkspaceIndex.invalidate(newDir)
+    // 档案键迁移（tags/notes/erp_ext 随条目整体移动）
+    if (store[oldName]) {
+      store[newName] = store[oldName]
+      delete store[oldName]
+      await this.saveSuppliersInfo(ws, store)
+    }
+    this.logger?.info(`供应商重命名: ${oldName} → ${newName}`)
+  }
+
+  /**
+   * 彻底删除（purge）编排专用：移除 suppliers.json 条目。
+   * 删除进回收站 / 恢复流程**不**调用——条目保留是「恢复即复原」的前提（目录扫描为实，JSON 为档案）。
+   */
+  async removeEntry(name: string): Promise<void> {
+    const ws = this.requireWS()
+    const store = await this.loadSuppliersInfo()
+    if (!store[name]) return
+    delete store[name]
+    await this.saveSuppliersInfo(ws, store)
+  }
+
+  /** 合并目录扫描与 JSON 档案，构造对外 SupplierInfo（created_at/updated_at 优先档案 ISO，缺省回退目录 mtime） */
+  private async buildInfo(ws: string, name: string, fileCount: number, ex?: SupplierExtraInfo): Promise<SupplierInfo> {
+    const info = ex ?? {}
+    let fallback = ''
+    try {
+      fallback = new Date((await fsp.stat(supplierRootPath(ws, name))).mtime).toISOString()
+    } catch {
+      fallback = currentTimeString()
+    }
+    return {
+      name,
+      file_count: fileCount,
+      contact: info.contact,
+      phone: info.phone,
+      email: info.email,
+      address: info.address,
+      notes: info.notes ?? '',
+      tags: info.tags ?? [],
+      erp_ext: info.erp_ext,
+      created_at: info.created_at ?? fallback,
+      updated_at: info.updated_at ?? fallback,
+    }
+  }
+
+  private async dirContainsFile(dir: string): Promise<boolean> {
+    try {
+      const entries = await fsp.readdir(dir, { withFileTypes: true })
+      for (const e of entries) {
+        if (e.name.startsWith('.')) continue
+        if (e.isDirectory()) {
+          if (await this.dirContainsFile(path.join(dir, e.name))) return true
+        } else {
+          return true
+        }
+      }
+    } catch {
+      // 忽略
+    }
+    return false
+  }
+}

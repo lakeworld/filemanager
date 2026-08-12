@@ -17,7 +17,7 @@ import { SharpThumbnailService } from './thumbnail'
 import { registerIpc } from './ipc'
 import { registerQiheboxProtocol } from './protocol'
 import { AccountService } from './account'
-import { log, initLogger } from './log'
+import { log, initLogger, getLogger } from './log'
 import { isAutoLaunchMode } from './core/autoLaunch'
 import { isMacAutostartLaunch } from './autoLaunchMain'
 import { checkUpdate, setCachedUpdate } from './updater'
@@ -461,7 +461,7 @@ app.whenReady().then(() => {
   const thumbs = new SharpThumbnailService(workspace, {
     userDataThumbsDir: path.join(app.getPath('userData'), 'thumbs'),
   })
-  const box = new BoxService(thumbs, workspace)
+  const box = new BoxService(thumbs, workspace, getLogger() ?? undefined)
 
   // v2.4.7：交换区投递服务（PLAN §8）——ledger sink 已在 BoxService 构造器内接入发票/入库台账
   // （查重等账务规则单点落在台账服务，§6.2「三入口同函数」）；此处只做生命周期装配：

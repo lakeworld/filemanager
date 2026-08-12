@@ -215,7 +215,7 @@ export interface TagInfo {
   defined?: boolean
 }
 
-export type TrashKind = 'file' | 'subfolder' | 'productSet' | 'customer'
+export type TrashKind = 'file' | 'subfolder' | 'productSet' | 'customer' | 'supplier'
 
 export interface TrashEntry {
   id: string
@@ -367,6 +367,63 @@ export interface CustomerUpdateRequest {
   related_product_sets?: string[]
 }
 
+// —— v2.4.9 S2：供应商（对齐客户范式：name = 目录名 = JSON key；目录扫描为实，suppliers.json 为档案）——
+
+/** 供应商（对外展示，对齐 CustomerInfo 形态；name = 目录名 = suppliers.json key） */
+export interface SupplierInfo {
+  /** 主键 = 目录名 */
+  name: string
+  /** 联系人 */
+  contact?: string
+  phone?: string
+  email?: string
+  address?: string
+  notes?: string
+  /** 标签（沿用标签体系） */
+  tags?: string[]
+  /** 文件数统计（供应商目录递归计数，同客户） */
+  file_count: number
+  /** 预留命名空间（v2.7 仓迹同步，本体只读不校验、API 面不含入参） */
+  erp_ext?: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+/** suppliers.json 单条档案（同上但全可选；读取侧宽松容错同 customers.json） */
+export interface SupplierExtraInfo {
+  contact?: string
+  phone?: string
+  email?: string
+  address?: string
+  notes?: string
+  tags?: string[]
+  /** 预留命名空间（本体不校验其结构） */
+  erp_ext?: Record<string, unknown>
+  created_at?: string
+  updated_at?: string
+}
+
+export interface SupplierCreateRequest {
+  name: string
+  contact?: string
+  phone?: string
+  email?: string
+  address?: string
+  notes?: string
+  tags?: string[]
+}
+
+/** 供应商档案更新：不含 erp_ext 字段（本体物理不可写，同 CustomerUpdateRequest 口径） */
+export interface SupplierUpdateRequest {
+  name: string
+  contact?: string
+  phone?: string
+  email?: string
+  address?: string
+  notes?: string
+  tags?: string[]
+}
+
 /** 发票台账记录（invoices.json: { invoices: Record<发票号码, InvoiceRecord> }；号码 = 查重主键 = key） */
 export interface InvoiceRecord {
   /** 发票号码 */
@@ -403,8 +460,10 @@ export interface InboundRecord {
   id: string
   /** 入库日期（归一化 YYYY-MM-DD） */
   date: string
-  /** 供应商（自由文本，不建供应商表） */
+  /** 供应商（自由文本，不建供应商表；旧数据兼容不迁移） */
   supplier: string
+  /** 关联供应商名（名字引用；供应商删除/重命名时保留字面值或由 BoxService.renameSupplier 级联，不校验存在性） */
+  supplier_id?: string
   /** 关联产品集名（chip 跳转，打通「产品 → 入库凭证」下钻） */
   product_set?: string
   /** 归档主体：入库/<YYYY>/ 下文件相对路径 */

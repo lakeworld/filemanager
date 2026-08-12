@@ -24,17 +24,23 @@ export const CUSTOMERS_DIR = '客户'
 export const INVOICES_DIR = '发票'
 export const INBOUND_DIR = '入库'
 export const EXCHANGE_DIR = '交换区'
+// v2.4.9 S2：供应商 根目录与档案文件（与 customers.json 同区）
+export const SUPPLIERS_DIR = '供应商'
 export const EXCHANGE_DONE_DIR = '已处理'
 export const CUSTOMERS_INFO_FILE = 'customers.json'
 export const INVOICES_FILE = 'invoices.json'
 export const INBOUND_FILE = 'inbound.json'
 export const EXCHANGE_STATE_FILE = 'exchange_state.json'
+export const SUPPLIERS_INFO_FILE = 'suppliers.json'
 export const RECENT_FILE = '.qihefilemanager_recent.json'
 export const TAGS_FILE = 'tags.json'
 export const THUMBNAIL_DIR = '.thumbnails'
 
+// —— v2.4.9 S2：供应商固定子文件夹集（决策 1：r3 拍板不做 config 键，create/restore 建齐）——
+export const SUPPLIER_SUBFOLDERS = ['合同', '对账单', '往来文件']
+
 // —— v2.4.7：工作区根目录保留名（metadata key 泛化后首段承担区域判别，§3.7；产品集新建/重命名禁止使用）——
-export const RESERVED_ROOT_NAMES = ['产品集', '图包', '证书', '导出', '客户', '发票', '入库', '交换区']
+export const RESERVED_ROOT_NAMES = ['产品集', '图包', '证书', '导出', '客户', '发票', '入库', '交换区', '供应商']
 
 /** 名称是否命中工作区根目录保留名（不区分大小写比对，Windows 兼容） */
 export function isReservedRootName(name: string): boolean {
@@ -108,6 +114,15 @@ export function customerRootPath(workspace: string, name: string): string {
   return path.join(workspace, CUSTOMERS_DIR, name)
 }
 
+// —— v2.4.9 S2：供应商路径 ——
+export function suppliersInfoPath(workspace: string): string {
+  return path.join(cmDir(workspace), SUPPLIERS_INFO_FILE)
+}
+
+export function supplierRootPath(workspace: string, name: string): string {
+  return path.join(workspace, SUPPLIERS_DIR, name)
+}
+
 export function invoiceRootPath(workspace: string): string {
   return path.join(workspace, INVOICES_DIR)
 }
@@ -120,7 +135,7 @@ export function exchangeDir(workspace: string): string {
   return path.join(workspace, EXCHANGE_DIR)
 }
 
-/** 确保工作区标准目录结构存在（.qihefilemanager/ 产品集/ 图包/ 证书/ 导出/ 客户/ 发票/ 入库/ 交换区/） */
+/** 确保工作区标准目录结构存在（.qihefilemanager/ 产品集/ 图包/ 证书/ 导出/ 客户/ 发票/ 入库/ 交换区/ 供应商/） */
 export function ensureWorkspaceDirs(workspace: string): void {
   const dirs = [
     cmDir(workspace),
@@ -133,6 +148,8 @@ export function ensureWorkspaceDirs(workspace: string): void {
     path.join(workspace, INVOICES_DIR),
     path.join(workspace, INBOUND_DIR),
     path.join(workspace, EXCHANGE_DIR),
+    // v2.4.9 S2：供应商 根（同 客户/ 处理，旧工作区打开自动补齐）
+    path.join(workspace, SUPPLIERS_DIR),
   ]
   for (const d of dirs) {
     fs.mkdirSync(d, { recursive: true })
