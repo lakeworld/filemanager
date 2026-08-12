@@ -15,6 +15,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
  * 4. 状态流转：草稿→已确认（confirmed_at 写入）→修订中→草稿→已确认；已确认时「转草稿」禁用断言；明细只读
  * 5. 删除账物分离：删除记录 → 台账无该单、归档文件仍在（fsp.stat）
  * 6. 客户详情报价联动：客户详情显示报价数/列表；点击跳报价页；客户改名 → 报价 customer 跟随
+ * 7. 筛选（打磨 M4，PLAN §3.4）：建 草稿+已确认 各 1（不同日期、不同客户）→ 状态/客户/日期筛选；
+ *    URL 预选 ?status=草稿（select 显示草稿 + 列表仅草稿）；非法 status（?status=xxx）→ 回退「全部」+ 列表全显
  * 基建参照 suppliers.spec.ts（QIHEBOX_E2E=1 独立 userData；app.evaluate 打桩系统对话框）。
  */
 test.describe('报价单 e2e（v2.4.9 S3）', () => {
@@ -295,6 +297,91 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
 
     const rec = await page.evaluate(async () => (window as any).qihebox.quotes.get('QT-CUST-001'))
     expect(rec.data.customer).toBe('联动客户新名')
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('筛选（M4）：状态/客户/日期 + URL 预选（含非法 status 回退全部）', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-quotes-e2e7-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+
+    // 建 草稿+已确认 各 1（不同日期、不同客户，防状态/客户/日期断言空转）
+    await page.evaluate(async () => (window as any).qihebox.clients.create({ name: '筛选客户' }))
+    await page.evaluate(async () => (window as any).qihebox.clients.create({ name: '筛选客户乙' }))
+    await page.evaluate(async () =>
+      (window as any).qihebox.quotes.create({
+        quotation_no: 'QT-FLT-001',
+        date: '2026-08-01',
+        customer: '筛选客户',
+        lines: [{ product: '草稿品', qty: 1, unit_price: 10, amount: 10 }],
+      }),
+    )
+    await page.evaluate(async () =>
+      (window as any).qihebox.quotes.create({
+        quotation_no: 'QT-FLT-002',
+        date: '2026-08-10',
+        customer: '筛选客户乙',
+        lines: [{ product: '确认品', qty: 1, unit_price: 20, amount: 20 }],
+      }),
+    )
+    await page.evaluate(async () => (window as any).qihebox.quotes.setStatus('QT-FLT-002', '已确认'))
+
+    await gotoRoute('/quotes')
+    await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible({ timeout: 15000 })
+    const statusSelect = page.getByLabel('状态筛选')
+    const customerSelect = page.getByLabel('客户筛选')
+
+    // —— 状态筛选 ——
+    await statusSelect.selectOption({ label: '草稿' })
+    await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
+    await expect(page.getByText('QT-FLT-002', { exact: true })).toHaveCount(0)
+    await statusSelect.selectOption({ label: '已确认' })
+    await expect(page.getByText('QT-FLT-002', { exact: true })).toBeVisible()
+    await expect(page.getByText('QT-FLT-001', { exact: true })).toHaveCount(0)
+    await statusSelect.selectOption({ label: '全部状态' })
+    await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
+    await expect(page.getByText('QT-FLT-002', { exact: true })).toBeVisible()
+
+    // —— 客户筛选（下拉只列现存客户）——
+    await customerSelect.selectOption({ label: '筛选客户' })
+    await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
+    await expect(page.getByText('QT-FLT-002', { exact: true })).toHaveCount(0)
+    await customerSelect.selectOption({ label: '筛选客户乙' })
+    await expect(page.getByText('QT-FLT-002', { exact: true })).toBeVisible()
+    await expect(page.getByText('QT-FLT-001', { exact: true })).toHaveCount(0)
+    await customerSelect.selectOption({ label: '全部客户' })
+
+    // —— 日期范围（"YYYY-MM-DD" 字符串区间比较、含两端）——
+    const from = page.getByLabel('起始日期')
+    const to = page.getByLabel('结束日期')
+    await from.fill('2026-08-05')
+    await expect(page.getByText('QT-FLT-001', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('QT-FLT-002', { exact: true })).toBeVisible()
+    await from.fill('')
+    await to.fill('2026-08-05')
+    await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
+    await expect(page.getByText('QT-FLT-002', { exact: true })).toHaveCount(0)
+    // 含两端：起=001 日期 止=002 日期 → 两张都显示
+    await to.fill('')
+    await from.fill('2026-08-01')
+    await to.fill('2026-08-10')
+    await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
+    await expect(page.getByText('QT-FLT-002', { exact: true })).toBeVisible()
+
+    // —— URL 预选：?status=草稿 → select 显示草稿 + 列表仅草稿（单向，筛选不回写 URL）——
+    await gotoRoute(`/quotes?status=${encodeURIComponent('草稿')}`)
+    await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByLabel('状态筛选')).toHaveValue('草稿')
+    await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
+    await expect(page.getByText('QT-FLT-002', { exact: true })).toHaveCount(0)
+
+    // —— 非法 status → 回退「全部」+ 列表全显（必选断言，r3）——
+    await gotoRoute('/quotes?status=xxx')
+    await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByLabel('状态筛选')).toHaveValue('')
+    await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
+    await expect(page.getByText('QT-FLT-002', { exact: true })).toBeVisible()
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
