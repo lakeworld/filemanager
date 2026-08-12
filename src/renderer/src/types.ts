@@ -36,6 +36,11 @@ export type {
   CustomerExtraInfo,
   CustomerCreateRequest,
   CustomerUpdateRequest,
+  // —— v2.4.9 S2：供应商 ——
+  SupplierInfo,
+  SupplierExtraInfo,
+  SupplierCreateRequest,
+  SupplierUpdateRequest,
   InvoiceRecord,
   InboundRecord,
   ExchangeReceipt,
@@ -102,6 +107,8 @@ export interface InboundCreateRequest {
   date: string;
   /** 供应商（自由文本，不建供应商表） */
   supplier: string;
+  /** 关联供应商名（名字引用；不校验存在性——供应商删除后编辑旧入库单放行；rename 由 BoxService.renameSupplier 级联） */
+  supplier_id?: string;
   /** 关联产品集名 */
   product_set?: string;
   /** 归档主体：已归档文件的绝对路径或工作区相对路径（统一存相对路径，/ 分隔） */

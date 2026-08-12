@@ -32,6 +32,11 @@ import type {
   CustomerInfo,
   CustomerCreateRequest,
   CustomerUpdateRequest,
+  // —— v2.4.9 S2：供应商 ——
+  SupplierInfo,
+  SupplierExtraInfo,
+  SupplierCreateRequest,
+  SupplierUpdateRequest,
   InvoiceRecord,
   InboundRecord,
   InvoiceStatus,
@@ -94,6 +99,17 @@ export const api = {
       qb.clients.linkRelation(customer, productSet) as Promise<ApiResult<CustomerInfo>>,
     unlinkRelation: (customer: string, productSet: string) =>
       qb.clients.unlinkRelation(customer, productSet) as Promise<ApiResult<CustomerInfo>>,
+  },
+  // v2.4.9 S2：供应商（对齐 main core 服务契约；preload 命名空间纯透传，list 已含全量故无 get，与客户同形态）
+  suppliers: {
+    list: () => qb.suppliers.list() as Promise<ApiResult<SupplierInfo[]>>,
+    create: (req: SupplierCreateRequest) =>
+      qb.suppliers.create(req as any) as Promise<ApiResult<SupplierInfo>>,
+    update: (req: SupplierUpdateRequest) =>
+      qb.suppliers.update(req as any) as Promise<ApiResult<SupplierInfo>>,
+    rename: (oldName: string, newName: string) =>
+      qb.suppliers.rename(oldName, newName) as Promise<ApiResult<boolean>>,
+    delete: (name: string) => qb.suppliers.delete(name) as Promise<ApiResult<boolean>>,
   },
   invoices: {
     list: (filter?: InvoiceListFilter) =>

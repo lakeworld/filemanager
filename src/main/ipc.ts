@@ -151,6 +151,15 @@ export function registerIpc(
     handle(() => box.clients.unlinkRelation(customer, productSet)),
   )
 
+  // —— v2.4.9 S2：供应商（供应商/ 目录 + suppliers.json 档案，镜像客户；get 省略——list 已含全量，与客户同形态）——
+  ipcMain.handle('qihebox:suppliers:list', () => handle(() => box.suppliers.list()))
+  ipcMain.handle('qihebox:suppliers:create', (_e, req) => handle(() => box.suppliers.create(req)))
+  ipcMain.handle('qihebox:suppliers:update', (_e, req) => handle(() => box.suppliers.update(req)))
+  ipcMain.handle('qihebox:suppliers:rename', (_e, oldName: string, newName: string) =>
+    handle(() => box.renameSupplier(oldName, newName)),
+  )
+  ipcMain.handle('qihebox:suppliers:delete', (_e, name: string) => handle(() => box.deleteSupplier(name)))
+
   // —— v2.4.7：发票台账（invoices.json，PLAN §6）——
   ipcMain.handle('qihebox:invoices:list', (_e, filter) => handle(() => box.invoices.list(filter)))
   ipcMain.handle('qihebox:invoices:checkNumber', (_e, number: string, excludeNumber?: string) =>

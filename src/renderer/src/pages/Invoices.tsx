@@ -32,6 +32,8 @@ import { api } from "~/wails/api";
 import { currentWorkspace, productSets, loadProductSets } from "~/stores/workspace";
 // v2.4.7：关联客户下拉消费 clients store（单一数据源，与 Clients 页同源；PLAN §6.5）
 import { customers, loadCustomers } from "~/stores/clients";
+// v2.4.9 S2：供应商下拉（入库单供应商选择，选项来自 suppliers store）
+import { suppliers, loadSuppliers } from "~/stores/suppliers";
 import { openPreview } from "~/stores/preview";
 import { loadTagDefs, tagList } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
@@ -91,6 +93,8 @@ interface InboundCreateRequest {
   id: string;
   date: string;
   supplier: string;
+  /** 关联供应商名（名字引用；不校验存在性——供应商删除后编辑旧入库单放行；rename 由 BoxService.renameSupplier 级联） */
+  supplier_id?: string;
   product_set?: string;
   file_path: string;
   amount?: number;
@@ -116,6 +120,8 @@ interface InboundFormState {
   id: string;
   date: string;
   supplier: string;
+  /** 关联供应商名（选择已有供应商下拉时填入；手输清空；供应商已删除旧单显示灰显占位） */
+  supplier_id: string;
   product_set: string;
   amount: string;
   notes: string;
@@ -266,7 +272,7 @@ export default function Invoices() {
   });
   const [inboundEditor, setInboundEditor] = createSignal<{ mode: "create" } | { mode: "edit"; record: InboundRecord } | null>(null);
   const [inboundForm, setInboundForm] = createSignal<InboundFormState>({
-    id: "", date: "", supplier: "", product_set: "", amount: "", notes: "", file_path: "",
+    id: "", date: "", supplier: "", supplier_id: "", product_set: "", amount: "", notes: "", file_path: "",
   });
   const [deleteTarget, setDeleteTarget] = createSignal<{ kind: "invoice" | "inbound"; key: string; name: string; withFile: boolean } | null>(null);
   // v2.4.7（评审 P2）：本次弹窗内已归档但尚未保存的文件（工作区相对路径）——archiveFile 立即落盘，
@@ -320,6 +326,7 @@ export default function Invoices() {
       loadProductSets();
       loadTagDefs();
       loadCustomers();
+      loadSuppliers(); // v2.4.9 S2：入库单供应商下拉选项
       loadInvoices();
       loadInbound();
     }
@@ -525,7 +532,7 @@ export default function Invoices() {
   // —— 入库单 新建/编辑 ——
   const openInboundCreate = () => {
     setInboundForm({
-      id: "", date: toDateKey(new Date()), supplier: "", product_set: "",
+      id: "", date: toDateKey(new Date()), supplier: "", supplier_id: "", product_set: "",
       amount: "", notes: "", file_path: "",
     });
     setInboundEditor({ mode: "create" });
@@ -535,6 +542,7 @@ export default function Invoices() {
       id: rec.id,
       date: rec.date,
       supplier: rec.supplier,
+      supplier_id: rec.supplier_id ?? "",
       product_set: rec.product_set ?? "",
       amount: rec.amount !== undefined ? String(rec.amount) : "",
       notes: rec.notes ?? "",
@@ -597,6 +605,7 @@ export default function Invoices() {
       id: f.id.trim(),
       date: f.date,
       supplier: f.supplier.trim(),
+      supplier_id: f.supplier_id.trim() || undefined,
       product_set: f.product_set.trim() || undefined,
       file_path: f.file_path,
       amount: f.amount.trim() !== "" ? Number(f.amount) : undefined,
@@ -867,7 +876,12 @@ export default function Invoices() {
                     >
                       <span class="font-medium text-surface-900 truncate min-w-0" title={rec.file_path}>{rec.id}</span>
                       <span class="text-surface-500 truncate min-w-0">{rec.date}</span>
-                      <span class="truncate min-w-0">{rec.supplier}</span>
+                      {/* v2.4.9 S2：供应商已删除 → 灰显占位（字面值保留，不可选但显示名称，同客户删除后灰显范式） */}
+                      <Show when={rec.supplier_id && !suppliers().some((s) => s.name === rec.supplier_id)} fallback={<span class="truncate min-w-0">{rec.supplier}</span>}>
+                        <span class="truncate min-w-0 text-surface-300" title="供应商已删除，名称仅作记录保留">
+                          {rec.supplier}
+                        </span>
+                      </Show>
                       <div class="min-w-0">
                         <Show when={rec.product_set} fallback={<span class="text-surface-300">-</span>}>
                           {(name) => (
@@ -1079,12 +1093,38 @@ export default function Invoices() {
               </div>
               <div>
                 <label class="block text-sm font-medium text-surface-700 mb-1">供应商 *</label>
+                {/* v2.4.9 S2：供应商下拉（选项来自 suppliers store；选择时填 supplier 为名 + supplier_id 为名）。
+                    兼容手输：下方自由文本输入保留；手输时清空 supplier_id 关联。 */}
+                <select
+                  class="w-full px-3 py-2 border border-surface-200 rounded-lg bg-white text-sm mb-2"
+                  value={inboundForm().supplier_id}
+                  onChange={(e) => {
+                    const name = e.currentTarget.value;
+                    setInboundField("supplier", name);
+                    setInboundField("supplier_id", name);
+                  }}
+                >
+                  <option value="">手输 / 不关联已有供应商</option>
+                  <For each={suppliers()}>
+                    {(s) => <option value={s.name}>{s.name}</option>}
+                  </For>
+                  {/* 供应商已删除的旧单：supplier_id 字面值保留，灰显占位（不可选） */}
+                  <Show when={inboundForm().supplier_id && !suppliers().some((s) => s.name === inboundForm().supplier_id)}>
+                    <option value={inboundForm().supplier_id} disabled class="text-surface-400">
+                      {inboundForm().supplier_id}（已删除）
+                    </option>
+                  </Show>
+                </select>
                 <input
                   type="text"
                   class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                   placeholder="供应商名称"
                   value={inboundForm().supplier}
-                  onInput={(e) => setInboundField("supplier", e.currentTarget.value)}
+                  onInput={(e) => {
+                    setInboundField("supplier", e.currentTarget.value);
+                    // 手输时清空 supplier_id（仅下拉选择建立关联；重命名/删除旧值不再误绑）
+                    setInboundField("supplier_id", "");
+                  }}
                 />
               </div>
               <div>

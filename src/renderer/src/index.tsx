@@ -21,6 +21,9 @@ const Exports = lazy(() => import("./pages/Exports"));
 // v2.4.7：客户 / 发票（PLAN §5.2 / §6.5）
 const Clients = lazy(() => import("./pages/Clients"));
 const Invoices = lazy(() => import("./pages/Invoices"));
+// v2.4.9 S2：供应商（列表 + 详情，均为独立懒加载页面）
+const Suppliers = lazy(() => import("./pages/Suppliers"));
+const SupplierDetail = lazy(() => import("./pages/SupplierDetail"));
 
 function RootApp(props: RouteSectionProps) {
   return <App {...props} />;
@@ -43,8 +46,12 @@ render(
       {/* v2.4.7：客户 / 发票 / 客户文件区路由（静态段 customer 优先于通用 :type 通配，参数槽位 :name = 客户名） */}
       <Route path="/clients" component={Clients} />
       <Route path="/clients/:name" component={Clients} />
+      {/* v2.4.9 S2：供应商列表 / 详情 / 供应商文件区路由（静态段 supplier 同 customer 优先于 :type 通配） */}
+      <Route path="/suppliers" component={Suppliers} />
+      <Route path="/suppliers/:name" component={SupplierDetail} />
       <Route path="/invoices" component={Invoices} />
       <Route path="/files/customer/:name/:subFolder" component={FileBrowser} />
+      <Route path="/files/supplier/:name/:subFolder" component={FileBrowser} />
       <Route path="/files/:type/:productSet/:subFolder" component={FileBrowser} />
     </Router>
   ),

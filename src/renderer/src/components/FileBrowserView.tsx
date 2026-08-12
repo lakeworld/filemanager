@@ -21,11 +21,14 @@ import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import { useContextMenu } from "~/hooks/useContextMenu";
 import type { FileEntry } from "~/types";
 
-/** v2.4.7（PLAN §4.6）：文件区作用域——productSet = 产品集文件区；customer = 客户文件区 */
-export type FileBrowserScope = "productSet" | "customer";
+/** v2.4.7（PLAN §4.6）：文件区作用域——productSet = 产品集文件区；customer = 客户文件区；v2.4.9 S2：supplier = 供应商文件区 */
+export type FileBrowserScope = "productSet" | "customer" | "supplier";
 
 /** 客户子文件夹默认集（config.customer_subfolders 缺省时兜底，与 PLAN §3.6 对齐） */
 const CUSTOMER_DEFAULT_SUBFOLDERS = ["报价", "合同", "沟通", "其他"];
+
+/** 供应商子文件夹固定集（core SUPPLIER_SUBFOLDERS 镜像；决策 1：固定集不做 config 键，create/restore 建齐） */
+const SUPPLIER_DEFAULT_SUBFOLDERS = ["合同", "对账单", "往来文件"];
 
 export interface FileBrowserViewProps {
   scope: FileBrowserScope;
@@ -47,10 +50,11 @@ function formatBytes(bytes: number): string {
 
 /**
  * 文件管理视图（v2.4.7 从 FileBrowser 抽取，PLAN §5.2）：
- * 产品集路由页 /files/:type/:productSet/:subFolder 与客户文件路由页 /files/customer/:name/:subFolder
- * （以及客户详情页文件区）共用。scope=customer 时：
- * - fileList / createSubfolder / deleteSubfolder 走 scope='customer'（PLAN §4.6，路径 = 客户/<名>/<子文件夹>，
- *   子文件夹配置读写 customer_subfolders）
+ * 产品集路由页 /files/:type/:productSet/:subFolder、客户文件路由页 /files/customer/:name/:subFolder
+ * （以及客户详情页文件区）与供应商文件路由页 /files/supplier/:name/:subFolder（以及供应商详情页文件区，v2.4.9 S2）共用。
+ * scope=customer/supplier 时：
+ * - fileList / createSubfolder / deleteSubfolder 走 scope='customer'/'supplier'（PLAN §4.6 / §3.1，
+ *   路径 = 客户|供应商/<名>/<子文件夹>；supplier 子文件夹为固定集，不做新建/删除）
  * - 预览不展示元数据面板（证书字段语义不适用），标签走批量打标/右键
  */
 export default function FileBrowserView(props: FileBrowserViewProps) {
@@ -98,20 +102,29 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   });
 
   const isCustomer = () => props.scope === "customer";
+  const isSupplier = () => props.scope === "supplier";
+  /** 客户/供应商文件区共用行为：file_type 忽略、路径 = <区根>/<名>/<子文件夹>、无产品集元数据面板 */
+  const isEntityScope = () => isCustomer() || isSupplier();
+  const scopeLabel = () => (isCustomer() ? "客户" : isSupplier() ? "供应商" : "");
   const fileType = () => props.fileType ?? "image";
-  const typeLabel = () => (isCustomer() ? "客户文件" : fileType() === "image" ? "图包" : "证书");
+  const typeLabel = () =>
+    isCustomer() ? "客户文件" : isSupplier() ? "供应商文件" : fileType() === "image" ? "图包" : "证书";
   const subFolders = () =>
     isCustomer()
       ? workspaceConfig()?.customer_subfolders || CUSTOMER_DEFAULT_SUBFOLDERS
-      : fileType() === "image"
-        ? workspaceConfig()?.image_subfolders || ["主图", "详情页", "白底图", "素材"]
-        : workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"];
+      : isSupplier()
+        ? SUPPLIER_DEFAULT_SUBFOLDERS
+        : fileType() === "image"
+          ? workspaceConfig()?.image_subfolders || ["主图", "详情页", "白底图", "素材"]
+          : workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"];
 
-  // v2.4.7：子文件夹路由路径按 scope 生成（customer → /files/customer/:name/:subFolder）
+  // v2.4.7：子文件夹路由路径按 scope 生成（customer → /files/customer/:name/:subFolder；v2.4.9 S2：supplier 同构）
   const folderPath = (sub: string) =>
     isCustomer()
       ? `/files/customer/${encodeURIComponent(props.entity)}/${encodeURIComponent(sub)}`
-      : `/files/${fileType()}/${encodeURIComponent(props.entity)}/${encodeURIComponent(sub)}`;
+      : isSupplier()
+        ? `/files/supplier/${encodeURIComponent(props.entity)}/${encodeURIComponent(sub)}`
+        : `/files/${fileType()}/${encodeURIComponent(props.entity)}/${encodeURIComponent(sub)}`;
 
   // v2.4.x：请求序号守卫——快速连点切换文件夹时，丢弃过期请求的返回，保证最终显示正确文件夹
   let loadSeq = 0;
@@ -122,7 +135,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     try {
       const result = await api.files.list({
         product_set: props.entity,
-        file_type: isCustomer() ? "" : fileType(),
+        file_type: isEntityScope() ? "" : fileType(),
         sub_folder: props.subFolder,
         scope: props.scope,
       });
@@ -306,13 +319,21 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   const doDeleteSubfolder = async (folder: string) => {
     const result = await api.files.deleteSubfolder({
       product_set: props.entity,
-      file_type: isCustomer() ? "" : fileType(),
+      file_type: isEntityScope() ? "" : fileType(),
       name: folder,
       scope: props.scope,
     });
     if (result.success) {
       const folders = subFolders().filter((f) => f !== folder);
-      const next = folders[0] || (isCustomer() ? CUSTOMER_DEFAULT_SUBFOLDERS[0] : fileType() === "image" ? "主图" : "3C");
+      const next =
+        folders[0] ||
+        (isCustomer()
+          ? CUSTOMER_DEFAULT_SUBFOLDERS[0]
+          : isSupplier()
+            ? SUPPLIER_DEFAULT_SUBFOLDERS[0]
+            : fileType() === "image"
+              ? "主图"
+              : "3C");
       navigate(folderPath(next));
       loadWorkspaceConfig();
     } else {
@@ -328,7 +349,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     try {
       const result = await api.files.createSubfolder({
         product_set: props.entity,
-        file_type: isCustomer() ? "" : fileType(),
+        file_type: isEntityScope() ? "" : fileType(),
         name,
         scope: props.scope,
       });
@@ -346,14 +367,14 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   };
 
   const handleOpenPreview = (file: FileEntry) => {
-    // v2.4.7：customer 区不传 productSet（元数据面板为产品集证书字段语义，不适用）
-    openPreview(file, isCustomer()
+    // v2.4.7：customer/supplier 区不传 productSet（元数据面板为产品集证书字段语义，不适用）
+    openPreview(file, isEntityScope()
       ? { editMetadata: false, onDelete: loadFiles }
       : { productSet: props.entity, editMetadata: false, onDelete: loadFiles });
   };
 
   const handleEditMetadata = (file: FileEntry) => {
-    openPreview(file, isCustomer()
+    openPreview(file, isEntityScope()
       ? { editMetadata: false, onDelete: loadFiles }
       : { productSet: props.entity, editMetadata: true, onDelete: loadFiles });
   };
@@ -386,13 +407,22 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     <div class="p-6 max-w-7xl mx-auto flex flex-col h-full">
       <div class="flex items-center gap-2 mb-2 text-sm text-surface-500 shrink-0">
         <Show when={isCustomer()} fallback={
-          <>
-            <button class="hover:text-primary-600" onClick={() => navigate("/product-sets")}>产品集</button>
+          <Show when={isSupplier()} fallback={
+            <>
+              <button class="hover:text-primary-600" onClick={() => navigate("/product-sets")}>产品集</button>
+              <span>/</span>
+              <button class="hover:text-primary-600" onClick={() => navigate(`/product-sets/${encodeURIComponent(props.entity)}`)}>{props.entity}</button>
+              <span>/</span>
+              <span class="text-surface-900 font-medium">{typeLabel()} - {props.subFolder}</span>
+            </>
+          }>
+            {/* v2.4.9 S2：供应商文件区面包屑（供应商 → 供应商详情） */}
+            <button class="hover:text-primary-600" onClick={() => navigate("/suppliers")}>供应商</button>
             <span>/</span>
-            <button class="hover:text-primary-600" onClick={() => navigate(`/product-sets/${encodeURIComponent(props.entity)}`)}>{props.entity}</button>
+            <button class="hover:text-primary-600" onClick={() => navigate(`/suppliers/${encodeURIComponent(props.entity)}`)}>{props.entity}</button>
             <span>/</span>
-            <span class="text-surface-900 font-medium">{typeLabel()} - {props.subFolder}</span>
-          </>
+            <span class="text-surface-900 font-medium">{props.subFolder}</span>
+          </Show>
         }>
           <button class="hover:text-primary-600" onClick={() => navigate("/clients")}>客户</button>
           <span>/</span>
@@ -416,18 +446,21 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
           </For>
         </div>
         <div class="flex gap-2">
-          <button
-            class="btn-secondary text-sm text-red-600 hover:bg-red-50 hover:border-red-200"
-            onClick={handleDeleteSubfolder}
-          >
-            🗑️ 删除当前{isCustomer() ? "子文件夹" : `${typeLabel()}类型`}
-          </button>
-          <button
-            class="btn-secondary text-sm"
-            onClick={() => setShowNewFolder(true)}
-          >
-            ➕ 新建{isCustomer() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : "证书类型"}
-          </button>
+          {/* v2.4.9 S2：supplier 子文件夹为固定集（决策 1），隐藏新建/删除按钮保持不变式 */}
+          <Show when={!isSupplier()}>
+            <button
+              class="btn-secondary text-sm text-red-600 hover:bg-red-50 hover:border-red-200"
+              onClick={handleDeleteSubfolder}
+            >
+              🗑️ 删除当前{isCustomer() ? "子文件夹" : `${typeLabel()}类型`}
+            </button>
+            <button
+              class="btn-secondary text-sm"
+              onClick={() => setShowNewFolder(true)}
+            >
+              ➕ 新建{isCustomer() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : "证书类型"}
+            </button>
+          </Show>
         </div>
       </div>
 

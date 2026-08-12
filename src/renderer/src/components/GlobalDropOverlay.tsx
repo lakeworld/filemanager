@@ -3,7 +3,7 @@ import { useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { isInternalDragActive, clearInternalDrag, getInternalDragPaths } from "~/utils/dragout";
 import { currentWorkspace, productSets, loadProductSets, workspaceConfig, setFileBrowserRefreshTrigger } from "~/stores/workspace";
-import type { ApiResult, CustomerInfo, FileEntry } from "~/types";
+import type { ApiResult, CustomerInfo, SupplierInfo, FileEntry } from "~/types";
 
 export default function GlobalDropOverlay() {
   const params = useParams();
@@ -11,8 +11,8 @@ export default function GlobalDropOverlay() {
   const [showDialog, setShowDialog] = createSignal(false);
   const [paths, setPaths] = createSignal<string[]>([]);
   const [selectedProductSet, setSelectedProductSet] = createSignal("");
-  // v2.4.7：导入目标分组加「客户」（PLAN §5.2）
-  const [targetType, setTargetType] = createSignal<"image" | "cert" | "customer">("image");
+  // v2.4.7：导入目标分组加「客户」（PLAN §5.2）；v2.4.9 S2：加「供应商」（固定子文件夹集）
+  const [targetType, setTargetType] = createSignal<"image" | "cert" | "customer" | "supplier">("image");
   const [subFolder, setSubFolder] = createSignal("");
   const [importStatus, setImportStatus] = createSignal<"idle" | "importing" | "done" | "error" | "cancelled">("idle");
   const [importError, setImportError] = createSignal("");
@@ -21,6 +21,8 @@ export default function GlobalDropOverlay() {
   const [cancelToken, setCancelToken] = createSignal<string | null>(null);
   // v2.4.7：客户列表（导入目标选择器「客户」分组用；api.clients 门面由并行 IPC 代理产出）
   const [customers, setCustomers] = createSignal<CustomerInfo[]>([]);
+  // v2.4.9 S2：供应商列表（导入目标选择器「供应商」分组用）
+  const [suppliers, setSuppliers] = createSignal<SupplierInfo[]>([]);
 
   const loadCustomers = async () => {
     const result = await api.clients.list();
@@ -29,10 +31,18 @@ export default function GlobalDropOverlay() {
     }
   };
 
+  const loadSuppliers = async () => {
+    const result = await api.suppliers.list();
+    if (result.success && result.data) {
+      setSuppliers(result.data);
+    }
+  };
+
   createEffect(() => {
     if (currentWorkspace()) {
       loadProductSets();
       loadCustomers();
+      loadSuppliers();
     }
   });
 
@@ -40,6 +50,8 @@ export default function GlobalDropOverlay() {
   const certFolders = () => workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"];
   // v2.4.7：客户子文件夹默认集（config.customer_subfolders，旧 config 缺省合并默认值）
   const customerFolders = () => workspaceConfig()?.customer_subfolders || ["报价", "合同", "沟通", "其他"];
+  // v2.4.9 S2：供应商子文件夹固定集（core SUPPLIER_SUBFOLDERS 镜像，决策 1 不做 config 键）
+  const supplierFolders = () => ["合同", "对账单", "往来文件"];
 
   const decodedProductSet = () => {
     try { return decodeURIComponent(params.productSet || ""); } catch { return params.productSet || ""; }
@@ -62,14 +74,15 @@ export default function GlobalDropOverlay() {
     setCancelToken(token);
 
     try {
-      // v2.4.7：客户分组导入走 scope='customer'（target_product_set 槽位承载客户名，file_type 忽略）
+      // v2.4.7：客户分组导入走 scope='customer'；v2.4.9 S2：供应商分组走 scope='supplier'
+      // （target_product_set 槽位承载实体名，file_type 忽略）
       const result = await api.files.import({
         source_paths: paths(),
         target_product_set: ps,
         target_folder: folder,
         target_type: type,
         sub_folder: folder,
-        scope: type === "customer" ? "customer" : "productSet",
+        scope: type === "customer" ? "customer" : type === "supplier" ? "supplier" : "productSet",
         cancelToken: token,
       });
       if (!result.success) {
@@ -369,7 +382,7 @@ export default function GlobalDropOverlay() {
             <div class="space-y-4">
               <div>
                 <label class="block text-sm font-medium text-surface-700 mb-1">
-                  {targetType() === "customer" ? "客户" : "产品集"}
+                  {targetType() === "customer" ? "客户" : targetType() === "supplier" ? "供应商" : "产品集"}
                 </label>
                 <select
                   class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
@@ -378,11 +391,20 @@ export default function GlobalDropOverlay() {
                     setSelectedProductSet(e.currentTarget.value);
                   }}
                 >
-                  <option value="">{targetType() === "customer" ? "选择客户" : "选择产品集"}</option>
+                  <option value="">
+                    {targetType() === "customer" ? "选择客户" : targetType() === "supplier" ? "选择供应商" : "选择产品集"}
+                  </option>
                   <Show when={targetType() === "customer"} fallback={
-                    <For each={productSets()}>
-                      {(ps) => <option value={ps.name}>{ps.name}</option>}
-                    </For>
+                    <Show when={targetType() === "supplier"} fallback={
+                      <For each={productSets()}>
+                        {(ps) => <option value={ps.name}>{ps.name}</option>}
+                      </For>
+                    }>
+                      {/* v2.4.9 S2：供应商分组（供应商/ 根目录 × suppliers.json 档案） */}
+                      <For each={suppliers()}>
+                        {(s) => <option value={s.name}>{s.name}</option>}
+                      </For>
+                    </Show>
                   }>
                     <For each={customers()}>
                       {(c) => <option value={c.name}>{c.name}</option>}
@@ -427,13 +449,29 @@ export default function GlobalDropOverlay() {
                   >
                     🤝 客户
                   </button>
+                  {/* v2.4.9 S2：供应商导入分组（固定子文件夹集） */}
+                  <button
+                    class={`flex-1 py-2 text-sm rounded-md transition-colors ${targetType() === "supplier" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}
+                    onClick={() => {
+                      setTargetType("supplier");
+                      setSelectedProductSet("");
+                      setSubFolder(supplierFolders()[0]);
+                    }}
+                  >
+                    🏭 供应商
+                  </button>
                 </div>
               </div>
 
               <div>
                 <label class="block text-sm font-medium text-surface-700 mb-1">子文件夹</label>
                 <div class="flex bg-surface-100 rounded-lg p-1 flex-wrap gap-1">
-                  <For each={targetType() === "image" ? imageFolders() : targetType() === "cert" ? certFolders() : customerFolders()}>
+                  <For each={
+                    targetType() === "image" ? imageFolders()
+                      : targetType() === "cert" ? certFolders()
+                      : targetType() === "supplier" ? supplierFolders()
+                      : customerFolders()
+                  }>
                     {(folder) => (
                       <button
                         class={`px-4 py-2 text-sm rounded-md transition-colors ${subFolder() === folder ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}

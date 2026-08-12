@@ -48,6 +48,14 @@ const api = {
     unlinkRelation: (customer: string, productSet: string) =>
       invoke('qihebox:clients:unlinkRelation', customer, productSet),
   },
+  // v2.4.9 S2：供应商（纯透传，业务在主进程 core/）
+  suppliers: {
+    list: () => invoke('qihebox:suppliers:list'),
+    create: (req: unknown) => invoke('qihebox:suppliers:create', req),
+    update: (req: unknown) => invoke('qihebox:suppliers:update', req),
+    rename: (oldName: string, newName: string) => invoke('qihebox:suppliers:rename', oldName, newName),
+    delete: (name: string) => invoke('qihebox:suppliers:delete', name),
+  },
   invoices: {
     list: (filter?: unknown) => invoke('qihebox:invoices:list', filter),
     checkNumber: (number: string, excludeNumber?: string) =>

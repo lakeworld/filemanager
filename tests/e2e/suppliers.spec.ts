@@ -1,0 +1,226 @@
+import { test, expect, _electron as electron } from '@playwright/test'
+import type { ElectronApplication, Page } from '@playwright/test'
+import fsp from 'node:fs/promises'
+import path from 'node:path'
+import os from 'node:os'
+import { fileURLToPath } from 'node:url'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+/**
+ * 供应商维度 e2e（v2.4.9 S2，PLAN §七）：
+ * 1. 列表 + 新建：填档案字段（名称/联系人/电话/邮箱/地址）→ 保存 → 列表可见
+ * 2. 详情文件区：进详情 → FileBrowserView 渲染（固定子文件夹 合同/对账单/往来文件 可见）
+ * 3. 删除：ConfirmDialog 确认 → trash.list 含 kind='supplier' 条目（目录移入回收站不真删）
+ * 4. 重命名联动：列表重命名 → 入库单新建表单下拉选项联动（新名可见、旧名消失）
+ * 5. 入库单下拉：新建入库单 → 下拉含供应商名 → 选择后保存 → 单据带 supplier_id
+ * 基建参照 clients.spec.ts（QIHEBOX_E2E=1 独立 userData；app.evaluate 打桩系统对话框同 logs.spec.ts）。
+ */
+test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
+  let app: ElectronApplication
+  let page: Page
+  /** 应用初始入口 URL（file:// index.html）；既有测试 pushState 会改 history URL，
+   *  后续 reload() 会加载假 URL → ERR_FILE_NOT_FOUND，故统一 goto 回初始入口 */
+  let baseUrl: string
+
+  test.beforeAll(async () => {
+    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT, env: { ...process.env, QIHEBOX_E2E: '1' } })
+    page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
+    baseUrl = page.url()
+  })
+
+  test.afterAll(async () => {
+    // e2e 模式：SIGKILL 终止主进程（零依赖优雅退出），随后 close() 加 5s 超时保护
+    if (app) {
+      try {
+        process.kill(-app.process().pid!, 'SIGKILL')
+      } catch {
+        try {
+          process.kill(app.process().pid!, 'SIGKILL')
+        } catch { /* 已退出 */ }
+      }
+      await Promise.race([app.close(), new Promise((r) => setTimeout(r, 5000))]).catch(() => {})
+    }
+  })
+
+  /** 回初始入口重跑应用启动流（同步 currentWorkspace），再导航到指定路由（pushState + popstate） */
+  const gotoRoute = async (route: string) => {
+    await page.goto(baseUrl)
+    await page.waitForLoadState('domcontentloaded')
+    await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
+    await page.evaluate((r) => {
+      window.history.pushState({}, '', r)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }, route)
+  }
+
+  test('列表 + 新建：填档案字段 → 保存 → 列表可见 + 固定子文件夹建齐', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-suppliers-e2e1-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+
+    await gotoRoute('/suppliers')
+    await expect(page.getByRole('heading', { name: '供应商', exact: true })).toBeVisible({ timeout: 15000 })
+
+    // 新建弹窗（字段：名称/联系人/电话/邮箱/地址/备注）——header 按钮（带 ➕；EmptyState 内同名按钮同时存在）
+    await page.getByRole('button', { name: '➕ 新建供应商' }).click()
+    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '新建供应商' }) })
+    await expect(modal).toBeVisible()
+    await modal.getByPlaceholder('如：义乌恒通供应链').fill('E2E供应商甲')
+    await modal.getByPlaceholder('如：王经理').fill('王经理')
+    await modal.getByPlaceholder('如：13800138000').fill('13800138000')
+    await modal.getByPlaceholder('如：supplier@example.com').fill('sup@example.com')
+    await modal.getByPlaceholder('如：浙江省义乌市…').fill('浙江省义乌市')
+    await modal.getByRole('button', { name: '确认创建' }).click()
+    await expect(modal).not.toBeVisible()
+
+    // 列表卡片可见（名称/联系人）
+    await expect(page.getByText('E2E供应商甲', { exact: true })).toBeVisible()
+    await expect(page.getByText('王经理', { exact: true })).toBeVisible()
+
+    // 数据核对：档案字段 + 固定子文件夹集真实创建（core create 建齐）
+    const list = await page.evaluate(async () => (window as any).qihebox.suppliers.list())
+    expect(list.success).toBe(true)
+    const s = list.data.find((x: { name: string }) => x.name === 'E2E供应商甲')
+    expect(s).toBeTruthy()
+    expect(s.contact).toBe('王经理')
+    expect(s.phone).toBe('13800138000')
+    expect(s.email).toBe('sup@example.com')
+    expect(s.address).toBe('浙江省义乌市')
+    for (const sub of ['合同', '对账单', '往来文件']) {
+      const st = await fsp.stat(path.join(wsDir, '供应商', 'E2E供应商甲', sub))
+      expect(st.isDirectory()).toBe(true)
+    }
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('详情文件区：进详情 → FileBrowserView 渲染（固定子文件夹可见）', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-suppliers-e2e2-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '详情供应商', contact: '李工' }))
+
+    await gotoRoute(`/suppliers/${encodeURIComponent('详情供应商')}`)
+    await expect(page.getByRole('heading', { name: '详情供应商' })).toBeVisible({ timeout: 15000 })
+    // 档案卡
+    await expect(page.getByRole('heading', { name: '供应商档案' })).toBeVisible()
+    await expect(page.getByText('李工', { exact: true })).toBeVisible()
+    // 文件区：FileBrowserView scope="supplier" 渲染——固定子文件夹 Tab（合同/对账单/往来文件）
+    await expect(page.getByRole('button', { name: '合同', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '对账单', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: '往来文件', exact: true })).toBeVisible()
+    // 文件列表经 scope='supplier' 正常返回（空区 → 拖放提示）
+    await expect(page.getByText('拖放文件到此处')).toBeVisible({ timeout: 15000 })
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('删除：ConfirmDialog 确认 → trash.list 含 kind=supplier（目录移入回收站不真删）', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-suppliers-e2e3-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '回收供应商' }))
+
+    await gotoRoute(`/suppliers/${encodeURIComponent('回收供应商')}`)
+    await expect(page.getByRole('heading', { name: '回收供应商' })).toBeVisible({ timeout: 15000 })
+
+    // 详情页删除 → ConfirmDialog 确认（文案「移入回收站」）
+    await page.getByRole('button', { name: /删除供应商/ }).click()
+    const dialog = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '删除供应商' }) })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText(/将移入回收站/)).toBeVisible()
+    await dialog.getByRole('button', { name: '删除', exact: true }).click()
+
+    // 删除成功 → 跳回供应商列表
+    await expect(page.getByRole('heading', { name: '供应商', exact: true })).toBeVisible({ timeout: 15000 })
+
+    // 目录已移入回收站（不真删）；trash.list 含 kind='supplier' 条目
+    await expect(fsp.stat(path.join(wsDir, '供应商', '回收供应商'))).rejects.toThrow()
+    const trash = await page.evaluate(async () => (window as any).qihebox.trash.list())
+    const entry = trash.data.find((t: any) => t.kind === 'supplier' && t.name === '回收供应商')
+    expect(entry).toBeTruthy()
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('重命名联动：列表重命名 → 入库单新建表单下拉选项联动', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-suppliers-e2e4-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '旧名供应商' }))
+
+    await gotoRoute('/suppliers')
+    await expect(page.getByRole('heading', { name: '供应商', exact: true })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText('旧名供应商', { exact: true })).toBeVisible()
+
+    // 卡片右键 → 重命名弹窗 → 新名称
+    await page.getByText('旧名供应商', { exact: true }).click({ button: 'right' })
+    await page.getByRole('button', { name: /重命名/ }).click()
+    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '重命名供应商' }) })
+    await expect(modal).toBeVisible()
+    await modal.getByRole('textbox').fill('新名供应商')
+    await modal.getByRole('button', { name: '确认重命名' }).click()
+    await expect(modal).not.toBeVisible()
+    await expect(page.getByText('新名供应商', { exact: true })).toBeVisible()
+
+    // 入库单新建表单下拉联动（选项来自 suppliers store 刷新）
+    await gotoRoute('/invoices')
+    await expect(page.getByRole('heading', { name: '发票管理' })).toBeVisible({ timeout: 15000 })
+    // Tab 按钮文本含 emoji（「📥 入库单」），exact 匹配不到，用子串
+    await page.getByRole('button', { name: /入库单/ }).click()
+    await page.getByRole('button', { name: /新建入库单/ }).click()
+    const ibModal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '新建入库单' }) })
+    await expect(ibModal).toBeVisible()
+    const supplierSelect = ibModal.locator('select').first()
+    // option 在收起 select 内为 hidden，用存在性断言（toHaveCount）代替可见性
+    await expect(supplierSelect.locator('option', { hasText: '新名供应商' })).toHaveCount(1)
+    await expect(supplierSelect.locator('option', { hasText: '旧名供应商' })).toHaveCount(0)
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('入库单下拉：新建入库单 → 下拉含供应商名 → 选择后保存 → 单据带 supplier_id', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-suppliers-e2e5-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '入库供应商' }))
+
+    // 归档源文件（打桩系统打开对话框返回此路径；logs.spec.ts 同款 app.evaluate 约定）
+    const src = path.join(os.tmpdir(), `qihebox-inbound-src-${Date.now()}.pdf`)
+    await fsp.writeFile(src, '%PDF-1.4')
+    await app.evaluate(async (electron, p) => {
+      ;(electron.dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [p] })
+    }, src)
+
+    await gotoRoute('/invoices')
+    await expect(page.getByRole('heading', { name: '发票管理' })).toBeVisible({ timeout: 15000 })
+    // Tab 按钮文本含 emoji（「📥 入库单」），exact 匹配不到，用子串
+    await page.getByRole('button', { name: /入库单/ }).click()
+    await page.getByRole('button', { name: /新建入库单/ }).click()
+    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '新建入库单' }) })
+    await expect(modal).toBeVisible()
+
+    // 下拉含供应商名 → 选择 → 供应商自由文本联动填入（option 收起态 hidden，用存在性断言）
+    const supplierSelect = modal.locator('select').first()
+    await expect(supplierSelect.locator('option', { hasText: '入库供应商' })).toHaveCount(1)
+    await supplierSelect.selectOption('入库供应商')
+    await expect(modal.getByPlaceholder('供应商名称')).toHaveValue('入库供应商')
+
+    // 其余必填：单据编号 + 归档文件（打桩对话框 → archiveFile 复制入库）
+    await modal.getByPlaceholder('如：RK-2026-001').fill('RK-E2E-001')
+    await modal.getByRole('button', { name: /选择本地文件并归档/ }).click()
+    await expect(modal.getByText(/qihebox-inbound-src/)).toBeVisible({ timeout: 10000 })
+
+    // 保存 → 单据带 supplier_id（core 透传不硬校验；名字引用 = 供应商名）
+    await modal.getByRole('button', { name: '确认登记' }).click()
+    await expect(modal).not.toBeVisible()
+
+    const list = await page.evaluate(async () => (window as any).qihebox.inbound.list())
+    expect(list.success).toBe(true)
+    const rec = list.data.find((r: { id: string }) => r.id === 'RK-E2E-001')
+    expect(rec).toBeTruthy()
+    expect(rec.supplier).toBe('入库供应商')
+    expect(rec.supplier_id).toBe('入库供应商')
+
+    await fsp.rm(src, { force: true }).catch(() => {})
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+})
