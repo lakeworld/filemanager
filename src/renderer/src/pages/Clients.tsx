@@ -46,6 +46,11 @@ export default function Clients() {
   const [newCountry, setNewCountry] = createSignal("");
   const [newContact, setNewContact] = createSignal("");
   const [newSource, setNewSource] = createSignal("");
+  // v2.4.9 打磨 M2：新建弹窗补 type/phone/email/address（对齐编辑弹窗 S1 字段；type 默认空=未分类）
+  const [newType, setNewType] = createSignal<"" | "企业" | "个人">("");
+  const [newPhone, setNewPhone] = createSignal("");
+  const [newEmail, setNewEmail] = createSignal("");
+  const [newAddress, setNewAddress] = createSignal("");
   const [newTags, setNewTags] = createSignal<string[]>([]);
   const [newNotes, setNewNotes] = createSignal("");
 
@@ -67,6 +72,8 @@ export default function Clients() {
 
   const [cSearch, setCSearch] = createSignal("");
   const [tagFilter, setTagFilter] = createSignal("");
+  // v2.4.9 打磨 M3：客户类型筛选；「未分类」用哨兵 "__none__" 映射 c.type === undefined（默认 ""=全部）
+  const [typeFilter, setTypeFilter] = createSignal("");
 
   // 详情：关联产品集下拉
   const [linkSelect, setLinkSelect] = createSignal("");
@@ -128,9 +135,12 @@ export default function Clients() {
   const filteredCustomers = () => {
     const term = cSearch().trim().toLowerCase();
     const tag = tagFilter();
+    const type = typeFilter();
     return customers().filter((c) => {
       if (term && !c.name.toLowerCase().includes(term) && !(c.alias || "").toLowerCase().includes(term)) return false;
       if (tag && !(c.tags || []).includes(tag)) return false;
+      // M3：类型筛选与搜索/标签叠加；哨兵 "__none__" 命中 type 为 undefined（未分类）的客户
+      if (type === "__none__" ? c.type !== undefined : type && c.type !== type) return false;
       return true;
     });
   };
@@ -146,6 +156,11 @@ export default function Clients() {
       country: newCountry().trim() || undefined,
       contact: newContact().trim() || undefined,
       source: newSource().trim() || undefined,
+      // M2：type 空=未分类 → 提交 undefined（assertCustomerType 白名单仅 企业/个人/undefined）
+      type: newType() || undefined,
+      phone: newPhone().trim() || undefined,
+      email: newEmail().trim() || undefined,
+      address: newAddress().trim() || undefined,
       tags: newTags(),
       notes: newNotes().trim() || undefined,
     };
@@ -157,6 +172,10 @@ export default function Clients() {
       setNewCountry("");
       setNewContact("");
       setNewSource("");
+      setNewType("");
+      setNewPhone("");
+      setNewEmail("");
+      setNewAddress("");
       setNewTags([]);
       setNewNotes("");
       loadCustomers();
@@ -338,6 +357,18 @@ export default function Clients() {
               <For each={allTags()}>
                 {(tag) => <option value={tag}>{tag}</option>}
               </For>
+            </select>
+            {/* v2.4.9 打磨 M3：客户类型筛选（r3 拍板：新 select 必补 aria-label 供 e2e 定位） */}
+            <select
+              aria-label="客户类型"
+              class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+              value={typeFilter()}
+              onChange={(e) => setTypeFilter(e.currentTarget.value)}
+            >
+              <option value="">全部类型</option>
+              <option value="__none__">未分类</option>
+              <option value="企业">企业</option>
+              <option value="个人">个人</option>
             </select>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -626,7 +657,6 @@ export default function Clients() {
                 <input
                   type="text"
                   class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="如：13800138000"
                   value={newContact()}
                   onInput={(e) => setNewContact(e.currentTarget.value)}
                 />
@@ -639,6 +669,49 @@ export default function Clients() {
                   placeholder="如：展会、老客户"
                   value={newSource()}
                   onInput={(e) => setNewSource(e.currentTarget.value)}
+                />
+              </div>
+              {/* v2.4.9 打磨 M2：新建弹窗补 type/电话/邮箱/地址（对齐编辑弹窗；type 默认空=未分类） */}
+              <div class="mb-4">
+                <label class="block text-sm font-medium text-surface-700 mb-1">客户类型</label>
+                <select
+                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
+                  value={newType()}
+                  onChange={(e) => setNewType(e.currentTarget.value as "" | "企业" | "个人")}
+                >
+                  <option value="">未分类</option>
+                  <option value="企业">企业</option>
+                  <option value="个人">个人</option>
+                </select>
+              </div>
+              <div class="mb-4">
+                <label class="block text-sm font-medium text-surface-700 mb-1">电话</label>
+                <input
+                  type="text"
+                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="如：13800138000"
+                  value={newPhone()}
+                  onInput={(e) => setNewPhone(e.currentTarget.value)}
+                />
+              </div>
+              <div class="mb-4">
+                <label class="block text-sm font-medium text-surface-700 mb-1">邮箱</label>
+                <input
+                  type="text"
+                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="如：name@example.com"
+                  value={newEmail()}
+                  onInput={(e) => setNewEmail(e.currentTarget.value)}
+                />
+              </div>
+              <div class="mb-4">
+                <label class="block text-sm font-medium text-surface-700 mb-1">地址</label>
+                <input
+                  type="text"
+                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="如：浙江省义乌市…"
+                  value={newAddress()}
+                  onInput={(e) => setNewAddress(e.currentTarget.value)}
                 />
               </div>
             </div>
