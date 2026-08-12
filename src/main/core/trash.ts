@@ -23,12 +23,15 @@ import {
   IMAGES_DIR,
   CERTS_DIR,
   CUSTOMERS_DIR,
+  SUPPLIERS_DIR,
+  SUPPLIER_SUBFOLDERS,
 } from './paths'
 import { WorkspaceService } from './workspace'
-import { MetadataService } from './metadata'
+import { MetadataService, currentTimeString } from './metadata'
 import { globalWorkspaceIndex } from './indexCache'
 import type { ThumbnailProvider } from './files'
 import type { ClientsService } from './clients'
+import type { SuppliersService } from './suppliers'
 import type { TrashEntry, TrashKind } from '../../shared/types'
 
 export type { TrashEntry, TrashKind } from '../../shared/types'
@@ -41,12 +44,15 @@ export class TrashService {
   /**
    * v2.4.7：clients 注入用于 kind='customer' 的 purge 时清理 customers.json 条目
    * （可选——未注入（旧调用方）时跳过条目清理，其余行为不变）。
+   * v2.4.9 S2：suppliers 注入同样式——kind='supplier' 的 purge 时清理 suppliers.json 条目、
+   * restore 时回填固定子文件夹与缺失档案条目。
    */
   constructor(
     private workspace: WorkspaceService,
     private metadata: MetadataService,
     private thumbs: ThumbnailProvider,
     private clients?: ClientsService,
+    private suppliers?: SuppliersService,
   ) {}
 
   private requireWS(): string {
@@ -175,6 +181,22 @@ export class TrashService {
         }
       }
     }
+    // v2.4.9 S2：供应商恢复——回填固定子文件夹结构（合同/对账单/往来文件 必须存在）；
+    // 档案条目在删除时保留（恢复即复原），若缺失（如目录为外部手工创建）则补回最小条目（参照客户对 customers.json 的处理）
+    if (meta.kind === 'supplier') {
+      for (const sub of SUPPLIER_SUBFOLDERS) {
+        await fsp.mkdir(path.join(target, sub), { recursive: true })
+      }
+      if (this.suppliers) {
+        const name = meta.name
+        const store = await this.suppliers.loadSuppliersInfo().catch(() => null)
+        if (store && !store[name]) {
+          const now = currentTimeString()
+          store[name] = { created_at: now, updated_at: now }
+          await this.suppliers.saveSuppliersInfo(ws, store).catch(() => {})
+        }
+      }
+    }
   }
 
   /** 彻底删除：清理 data + 对应元数据与缩略图缓存 */
@@ -231,6 +253,22 @@ export class TrashService {
         if (changed) await this.metadata.saveMetadataStore(store)
         // customers.json 条目清理（账物分离：invoices/inbound 中 customer 字段保留字面值，本处不动）
         await this.clients?.removeEntry(name).catch(() => {})
+      } else if (meta.kind === 'supplier') {
+        // v2.4.9 S2：供应商四清理——①目录（dataDir 已在回收站内，随本条 rm）②metadata 前缀 供应商/<名>/ 清理
+        // ③缩略图（下方统一 removeThumbnails）④suppliers.json 条目删除。
+        // inbound.supplier_id 留字面值不级联删入库单（账物分离同发票 customer 字段，S2 §五）
+        const name = path.basename(meta.originalPath)
+        const store = await this.metadata.loadMetadataStore()
+        const prefixes = [`${SUPPLIERS_DIR}/${name}/`, `${SUPPLIERS_DIR}\\${name}\\`]
+        let changed = false
+        for (const key of Object.keys(store.files)) {
+          if (prefixes.some((p) => key.startsWith(p))) {
+            delete store.files[key]
+            changed = true
+          }
+        }
+        if (changed) await this.metadata.saveMetadataStore(store)
+        await this.suppliers?.removeEntry(name).catch(() => {})
       }
       await this.thumbs.removeThumbnails(originalFiles).catch(() => {})
     }

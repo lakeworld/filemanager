@@ -40,6 +40,8 @@ export interface InboundCreateRequest {
   date: string
   /** 供应商（自由文本，不建供应商表） */
   supplier: string
+  /** 关联供应商名（名字引用；不校验存在性——供应商删除后编辑旧入库单放行；rename 由 BoxService.renameSupplierId 级联） */
+  supplier_id?: string
   /** 关联产品集名（chip 跳转，打通「产品 → 入库凭证」下钻） */
   product_set?: string
   /** 归档主体：已归档文件的绝对路径或工作区相对路径（统一存相对路径，/ 分隔） */
@@ -178,6 +180,7 @@ export class InboundService {
       id,
       date,
       supplier,
+      supplier_id: req.supplier_id?.trim() || undefined,
       product_set: req.product_set?.trim() || undefined,
       file_path: filePath,
       amount: req.amount,
@@ -207,6 +210,7 @@ export class InboundService {
       id: newId,
       date,
       supplier,
+      supplier_id: req.supplier_id?.trim() || undefined,
       product_set: req.product_set?.trim() || undefined,
       file_path: filePath,
       amount: req.amount,
@@ -248,6 +252,23 @@ export class InboundService {
     }
     delete store.records[key]
     await this.saveStore(ws, store)
+  }
+
+  /**
+   * v2.4.9（S2）：供应商重命名级联——扫描全部单据，supplier_id === 旧名 的更新为新名。
+   * 名字引用语义：不校验供应商存在；无命中或台账缺失时幂等不报错（账物分离，同发票 customer 字段保留字面值）。
+   */
+  async renameSupplierId(oldName: string, newName: string): Promise<void> {
+    const ws = this.requireWS()
+    const store = await this.loadStore(ws)
+    let changed = false
+    for (const rec of Object.values(store.records)) {
+      if (rec.supplier_id === oldName) {
+        rec.supplier_id = newName
+        changed = true
+      }
+    }
+    if (changed) await this.saveStore(ws, store)
   }
 
   /**

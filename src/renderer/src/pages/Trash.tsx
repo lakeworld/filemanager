@@ -60,6 +60,8 @@ const KIND_META: Record<TrashEntry["kind"], { icon: string; label: string }> = {
   productSet: { icon: "📦", label: "产品集" },
   // v2.4.7：客户目录 kind（§4.4；图标对齐侧边栏「客户 🤝」）
   customer: { icon: "🤝", label: "客户" },
+  // v2.4.9 S2：供应商目录 kind（完整供应商 UI 属 S2b；此处仅补闭合枚举所需条目）
+  supplier: { icon: "🏭", label: "供应商" },
 };
 
 // v2.4.7（评审 P2，PERF-SOP §四）：回收站无上限——条目数超阈值改走 VirtualGrid 虚拟滚动（固定行高）

@@ -13,7 +13,7 @@ import { FilesService, ThumbnailProvider } from './files'
 import { DashboardService } from './dashboard'
 import { SearchService } from './search'
 import { XlsxService } from './xlsx'
-import { PRODUCT_SETS_DIR, CUSTOMERS_DIR, isPathInsideWorkspaceReal, classifyFileType } from './paths'
+import { PRODUCT_SETS_DIR, CUSTOMERS_DIR, SUPPLIERS_DIR, isPathInsideWorkspaceReal, classifyFileType } from './paths'
 import { TagService } from './tags'
 import { TrashService } from './trash'
 import { ArchiveService } from './archive'
@@ -21,6 +21,8 @@ import { InvoicesService } from './invoices'
 import { InboundService } from './inbound'
 import { ExchangeService } from './exchange'
 import { ClientsService } from './clients'
+import { SuppliersService } from './suppliers'
+import type { Logger } from './logger'
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 
@@ -38,17 +40,21 @@ export class BoxService {
   invoices: InvoicesService
   /** v2.4.7：客户维度（客户/ 目录 + customers.json 档案，PLAN §5） */
   clients: ClientsService
+  /** v2.4.9 S2：供应商维度（供应商/ 目录 + suppliers.json 档案，镜像客户范式） */
+  suppliers: SuppliersService
   /** v2.4.7：入库单（PLAN §7） */
   inbound: InboundService
   /** v2.4.7：交换区投递（PLAN §8）——文件归集内置；发票/入库台账经 ledger sink 接入（见构造器） */
   exchange: ExchangeService
   private thumbs: ThumbnailProvider
 
-  constructor(thumbs: ThumbnailProvider, workspace?: WorkspaceService) {
+  constructor(thumbs: ThumbnailProvider, workspace?: WorkspaceService, logger?: Logger) {
     this.workspace = workspace ?? new WorkspaceService()
     this.metadata = new MetadataService(this.workspace)
     this.clients = new ClientsService(this.workspace)
-    this.trash = new TrashService(this.workspace, this.metadata, thumbs, this.clients)
+    // v2.4.9 S2：供应商服务注入 Logger（S6 core 接口；测试传 MemoryLogger 断言）
+    this.suppliers = new SuppliersService(this.workspace, logger)
+    this.trash = new TrashService(this.workspace, this.metadata, thumbs, this.clients, this.suppliers)
     this.files = new FilesService(this.workspace, this.metadata, thumbs, this.trash)
     this.dashboard = new DashboardService(this.workspace, this.metadata, this.files)
     this.search = new SearchService(this.workspace, this.files, this.metadata)
@@ -145,6 +151,28 @@ export class BoxService {
     const dir = path.join(ws, CUSTOMERS_DIR, name.trim())
     await fsp.stat(dir)
     await this.trash.trashItem(ws, dir, 'customer')
+  }
+
+  /**
+   * 删除供应商（v2.4.9 S2：移入回收站，kind='supplier'，仿 deleteCustomer 编排）。
+   * suppliers.json 条目保留（恢复即复原）；彻底删除（purge）时由 TrashService 四清理
+   * （目录 + metadata 前缀 + 缩略图 + 条目；inbound.supplier_id 留字面值不级联）。
+   */
+  async deleteSupplier(name: string): Promise<void> {
+    const ws = this.workspace.currentWorkspacePath()
+    if (!ws) throw new Error('未打开工作区')
+    const dir = path.join(ws, SUPPLIERS_DIR, name.trim())
+    await fsp.stat(dir)
+    await this.trash.trashItem(ws, dir, 'supplier')
+  }
+
+  /**
+   * 重命名供应商（v2.4.9 S2 编排）：目录迁移 + 档案 key 迁移（suppliers.rename），
+   * 随后级联更新 inbound.supplier_id 名字引用（inbound.renameSupplierId；不校验存在性）。
+   */
+  async renameSupplier(oldName: string, newName: string): Promise<void> {
+    await this.suppliers.rename(oldName, newName)
+    await this.inbound.renameSupplierId(oldName.trim(), newName.trim())
   }
 
   /** 确保图片/PDF 缩略图存在（缺失自动生成，mtime 命中直接返回），返回缩略图路径 */
