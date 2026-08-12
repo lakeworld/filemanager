@@ -8,6 +8,8 @@
  * - result.files 纳入 客户/、发票/、入库/ 目录文件（文件名/标签命中；FileEntry.path 自明来源区域）
  * - 实体记录（发票台账/入库单条目）不进全局搜索——台账检索由页内筛选/搜索承担（§6.5）
  * - 产品集扫描逻辑不动（存量兼容优先，§4.1 判读规则）
+ * v2.4.9（§6.2）：result.files 再纳入 供应商/、报价/ 目录原件（供应商/<名>/<子文件夹>、报价/<YYYY>/，
+ * 同发票/入库先例；供应商/报价台账记录同发票不进全局搜索）
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
@@ -16,6 +18,8 @@ import {
   IMAGES_DIR,
   CERTS_DIR,
   CUSTOMERS_DIR,
+  SUPPLIERS_DIR,
+  QUOTES_DIR,
   customersInfoPath,
   customerRootPath,
   invoiceRootPath,
@@ -141,7 +145,8 @@ export class SearchService {
     }
 
     // 发票/入库区：直接递归扫描（台账记录不进全局搜索，文件本体纳入）
-    for (const root of [invoiceRootPath(ws), inboundRootPath(ws)]) {
+    // v2.4.9（§6.2）：供应商/报价区同法纳入（供应商/<名>/<子文件夹> 与 报价/<YYYY>/ 原件）
+    for (const root of [invoiceRootPath(ws), inboundRootPath(ws), path.join(ws, SUPPLIERS_DIR), path.join(ws, QUOTES_DIR)]) {
       const regionFiles = await this.files.listDirFilesRecursive(root)
       for (const f of regionFiles) {
         const tags = this.fileTags(f, tagsByKey)
