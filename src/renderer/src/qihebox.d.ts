@@ -95,6 +95,11 @@ interface QiheboxApi {
   exports: {
     list: () => Promise<unknown>
   }
+  // v2.4.9（S6-2）：日志（「我的」页日志卡片）
+  log: {
+    openDir: () => Promise<unknown>
+    exportZip: () => Promise<unknown>
+  }
   dashboard: {
     stats: () => Promise<unknown>
     expiringCerts: () => Promise<unknown>

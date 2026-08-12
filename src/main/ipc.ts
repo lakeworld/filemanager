@@ -11,6 +11,7 @@
  */
 import { ipcMain, dialog, app, BrowserWindow, clipboard as electronClipboard, nativeImage } from 'electron'
 import path from 'node:path'
+import fsp from 'node:fs/promises'
 import { BoxService } from './core'
 import { AccountService } from './account'
 import { copyFilesToClipboard } from './clipboard'
@@ -19,7 +20,7 @@ import { workspaceFileUrl, thumbnailFileUrl } from './protocol'
 import { checkUpdate, downloadUpdate, applyUpdate, getCachedUpdate, UpdateInfo } from './updater'
 import { isPathInsideWorkspaceReal, classifyFileType } from './core/paths'
 import { FilesService, ImportCancelledError } from './core/files'
-import { ZipCancelledError } from './core/archive'
+import { ZipCancelledError, compressToZip } from './core/archive'
 import { openFileWithDefaultApp } from './open'
 import {
   getMainWindow,
@@ -512,6 +513,46 @@ export function registerIpc(box: BoxService, account: AccountService): void {
       // v2.4.2（S2）：记录用户显式选出的保存路径（saveTextFile 白名单）
       rememberSavePath(r.filePath)
       return r.filePath
+    }),
+  )
+
+  // —— v2.4.9（S6-2）：日志（「我的」页日志卡片；打开日志目录 / 导出 zip）——
+  // 只收集 main-YYYY-MM-DD.log（与 core FileLogger 同口径，不碰目录内其他文件）
+  const LOG_FILE_RE = /^main-(\d{4}-\d{2}-\d{2})\.log$/
+  ipcMain.handle('qihebox:log:openDir', () =>
+    handle(async () => {
+      const logDir = app.getPath('logs')
+      // open.ts 已含 Linux xdg-open 5s 超时 + e2e 短路，不挂起 IPC
+      await openFileWithDefaultApp(logDir)
+      return { path: logDir }
+    }),
+  )
+  ipcMain.handle('qihebox:log:exportZip', () =>
+    handle(async () => {
+      const logDir = app.getPath('logs')
+      let names: string[]
+      try {
+        names = await fsp.readdir(logDir)
+      } catch {
+        throw new Error('没有可导出的日志')
+      }
+      const logs = names.filter((n) => LOG_FILE_RE.test(n)).map((n) => path.join(logDir, n))
+      if (logs.length === 0) throw new Error('没有可导出的日志')
+      // 本地日期命名默认包名（如 qihebox-logs-2026-08-12.zip）
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const now = new Date()
+      const defaultName = `qihebox-logs-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.zip`
+      const opts: Electron.SaveDialogOptions = {
+        title: '导出日志',
+        defaultPath: defaultName,
+        filters: [{ name: 'ZIP', extensions: ['zip'] }],
+      }
+      const win = getMainWindow()
+      const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
+      if (r.canceled || !r.filePath) return { path: '', count: 0, size: 0 } // 用户取消：渲染层不提示错误
+      // 复用 core archive.compressToZip（v2.4.4 先例，node zlib 打包，零新增依赖）
+      const { count, size } = await compressToZip(logs, r.filePath)
+      return { path: r.filePath, count, size }
     }),
   )
 

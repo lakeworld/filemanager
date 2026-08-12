@@ -173,6 +173,12 @@ export const api = {
   exports: {
     list: () => qb.exports.list() as Promise<ApiResult<ExportEntry[]>>,
   },
+  // v2.4.9（S6-2）：日志（「我的」页日志卡片）——打开日志目录 / 导出 zip
+  log: {
+    openDir: () => qb.log.openDir() as Promise<ApiResult<{ path: string }>>,
+    exportZip: () =>
+      qb.log.exportZip() as Promise<ApiResult<{ path: string; count: number; size: number }>>,
+  },
   dashboard: {
     stats: () => qb.dashboard.stats() as Promise<ApiResult<DashboardStatsType>>,
     expiringCerts: () => qb.dashboard.expiringCerts() as Promise<ApiResult<[string, string, string][]>>,
