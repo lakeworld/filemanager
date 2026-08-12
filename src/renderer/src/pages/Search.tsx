@@ -262,8 +262,22 @@ export default function Search() {
         </div>
       </Show>
 
+      {/* v2.4.9 打磨 M6：未输入 → 空状态引导（可搜索范围 + 可命中示例）。
+          可命中范围对齐 core/search.ts 索引：产品集名/客户名/别名/标签/文件名/标签 + 客户、供应商、发票、入库、报价区文件本体；
+          供应商名/报价单号不参与匹配，示例不能用它们（审查 P1） */}
+      <Show when={!loading() && !query()}>
+        <EmptyState
+          icon="🔍"
+          title="搜索产品集、客户和文件"
+          desc="可搜索：产品集名、客户名/别名/标签、文件名/标签，以及客户、供应商、发票、入库、报价区中的文件本体"
+        >
+          <p class="text-sm text-surface-400">试试搜：夏季T恤 / 客户名 / 产品文件名</p>
+        </EmptyState>
+      </Show>
+
+      {/* v2.4.9 打磨 M6：零结果（有搜索词但无匹配）→ 「无匹配」提示换词，与未输入引导区分两种文案 */}
       <Show when={!loading() && query() && results().files.length === 0 && results().product_sets.length === 0 && (results().customers ?? []).length === 0}>
-        <EmptyState icon="🔍" title={`未找到与 "${query()}" 相关的结果`} />
+        <EmptyState icon="🔍" title={`无匹配：未找到与 "${query()}" 相关的结果`} desc="试试换个关键词——可搜产品集名、客户名或文件名" />
       </Show>
 
       {/* Context Menu（统一组件，v2.3.x 由 builder 生成） */}
