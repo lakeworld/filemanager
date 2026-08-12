@@ -1,0 +1,365 @@
+/**
+ * 报价单台账（v2.4.9 S3，对齐客迹 keji Quotation）：报价.json 台账 + 单号自动生成 + 三态状态机 + 金额计算 + 文件归档
+ * 纯 TS 业务层：不 import electron，可在 node 环境直接测试。
+ *
+ * 数据：<ws>/.qihefilemanager/报价.json
+ *   { "quotes": Record<报价单号, QuoteRecord> }——报价单号 = 查重主键 = key
+ *
+ * 参照发票台账（invoices.ts，v2.4.7）同构，差异点（PLAN §3.4）：
+ * - 状态机：发票自由流转；报价按矩阵（草稿→已确认→修订中→草稿/已确认；已确认→草稿 拒绝）
+ * - 单号：发票手输查重；报价自动生成 QT-YYYYMMDD-序号（同日自增 max+1，999 进位 4 位；手输覆盖查重）
+ * - 金额：发票仅展示；报价 amount/total_amount 写入时 round2 统一计算，拒绝外部注入不一致
+ * - 明细锁定：status='已确认' 时 update 拒绝改 lines（须先 setStatus 转修订中）
+ * - file_path 可空（报价可不附原件；发票必填）
+ *
+ * 账物分离（同发票）：删除记录不删文件，文件留在 报价/<YYYY>/；文件被删/被回收时记录保留，
+ * file_path 校验失效由 UI 灰显，不级联删记录。报价原件统一落 报价/<YYYY>/ 归档；
+ * 供应商/<名>/ 目录只放合同/对账单/往来文件——两处物理归属不重叠（审查执行 P1-8）。
+ * 内存纪律：台账量级（千内）页内内存过滤，不建索引、不引缓存、无常驻定时器。
+ */
+import path from 'node:path'
+import fsp from 'node:fs/promises'
+import {
+  QUOTES_DIR,
+  quotesPath,
+  quoteRootPath,
+  QUOTE_STATUSES,
+  ensureWorkspaceDirs,
+  writeJsonAtomic,
+  readJsonFile,
+  isPathInsideWorkspaceReal,
+} from './paths'
+import { WorkspaceService } from './workspace'
+import { parseExpiryDate, currentTimeString } from './metadata'
+import { sanitizeName, resolveConflictName, composeTargetName } from './naming'
+import { globalWorkspaceIndex } from './indexCache'
+import type { ImportContext } from './naming'
+import type { Logger } from './logger'
+import type { QuoteLine, QuoteRecord, QuoteCreateRequest, QuoteUpdateRequest } from '../../shared/types'
+
+export type { QuoteRecord, QuoteCreateRequest, QuoteUpdateRequest } from '../../shared/types'
+
+export type QuoteStatus = (typeof QUOTE_STATUSES)[number]
+
+/** 金额两位小数（写入时统一计算；单测断言用 round2 后相等，不用浮点直接相等） */
+export function round2(x: number): number {
+  return Math.round(x * 100) / 100
+}
+
+export interface QuotesStore {
+  quotes: Record<string, QuoteRecord>
+}
+
+/**
+ * 状态机转移矩阵（与发票自由流转分叉，PLAN §3.4）：[from][to] 是否允许。
+ * 草稿→已确认（写 confirmed_at）/已确认→修订中（回退纠错）/修订中→草稿（重新草稿）/修订中→已确认（重确认，刷新 confirmed_at）；
+ * 已确认→草稿 拒绝（须先转修订中）；同状态流转不在矩阵内（拒绝）。
+ */
+const STATUS_TRANSITIONS: Record<QuoteStatus, Partial<Record<QuoteStatus, boolean>>> = {
+  草稿: { 已确认: true },
+  已确认: { 修订中: true },
+  修订中: { 草稿: true, 已确认: true },
+}
+
+/**
+ * 报价单号自动生成（纯函数，node 直测）：QT-YYYYMMDD-<序号>。
+ * 序号按日期分组自增：读台账当日已有序号（数字后缀）取 max + 1；同日序号达 999 后进位 4 位继续
+ * （1000 不截断不拒绝）；生成结果若仍被占用（手输覆盖残留/并发陈旧快照的防御）则继续 +1 直至可用（冲突 +1）。
+ */
+export function nextQuotationNo(store: QuotesStore, date: string): string {
+  const yyyymmdd = date.replace(/-/g, '')
+  const prefix = `QT-${yyyymmdd}-`
+  let max = 0
+  for (const key of Object.keys(store.quotes)) {
+    if (key.startsWith(prefix)) {
+      const n = Number(key.slice(prefix.length))
+      if (Number.isFinite(n) && n > max) max = n
+    }
+  }
+  let seq = max + 1
+  let candidate = `${prefix}${String(seq).padStart(3, '0')}`
+  while (store.quotes[candidate]) {
+    seq += 1
+    candidate = `${prefix}${String(seq).padStart(3, '0')}`
+  }
+  return candidate
+}
+
+export class QuotesService {
+  constructor(
+    private workspace: WorkspaceService,
+    private logger?: Logger,
+  ) {}
+
+  private requireWS(): string {
+    const ws = this.workspace.currentWorkspacePath()
+    if (!ws) throw new Error('未打开工作区')
+    return ws
+  }
+
+  /** 读取台账；文件缺失/损坏（结构非法）视为空台账，宽容处理（同发票 loadStore） */
+  async loadStore(ws?: string): Promise<QuotesStore> {
+    const w = ws ?? this.requireWS()
+    const data = await readJsonFile<QuotesStore>(quotesPath(w))
+    return data && data.quotes && typeof data.quotes === 'object' ? data : { quotes: {} }
+  }
+
+  async saveStore(ws: string, store: QuotesStore): Promise<void> {
+    ensureWorkspaceDirs(ws)
+    await writeJsonAtomic(quotesPath(ws), store)
+  }
+
+  private assertStatus(status: unknown): asserts status is QuoteStatus {
+    if (!QUOTE_STATUSES.includes(status as QuoteStatus)) {
+      throw new Error('状态无效（应为 草稿 / 已确认 / 修订中）')
+    }
+  }
+
+  /** 查重命中摘要（同发票 duplicateError 口径：提示已有记录概要） */
+  private duplicateError(existing: QuoteRecord): Error {
+    return new Error(
+      `报价单号 ${existing.quotation_no} 已存在（状态：${existing.status}，日期：${existing.date}，文件：${existing.file_path}）`,
+    )
+  }
+
+  /**
+   * 查重（创建手输 / 编辑共用同函数，同发票 checkNumber 口径）：命中返回已有记录（供摘要提示），未命中返回 null。
+   * excludeNo：编辑换号时排除自身号码。
+   */
+  async checkNumber(quotationNo: string, excludeNo?: string): Promise<QuoteRecord | null> {
+    const n = (quotationNo ?? '').trim()
+    if (!n) throw new Error('报价单号不能为空')
+    if (excludeNo && n === (excludeNo ?? '').trim()) return null
+    const store = await this.loadStore()
+    return store.quotes[n] ?? null
+  }
+
+  /** 明细行校验：非空、品名非空、qty≥1、unit_price≥0、amount 与 round2(qty×unit_price) 一致（写入时计算，外部注入不一致拒绝） */
+  private assertLines(lines: unknown): QuoteLine[] {
+    if (!Array.isArray(lines) || lines.length === 0) throw new Error('报价明细不能为空')
+    return lines.map((raw, i) => {
+      const line = raw as QuoteLine
+      if (!line || typeof line !== 'object') throw new Error(`明细第 ${i + 1} 行无效`)
+      const product = String(line.product ?? '').trim()
+      if (!product) throw new Error(`明细第 ${i + 1} 行缺少品名`)
+      if (typeof line.qty !== 'number' || !Number.isFinite(line.qty) || line.qty < 1) {
+        throw new Error(`明细第 ${i + 1} 行数量无效（应 ≥1）`)
+      }
+      if (typeof line.unit_price !== 'number' || !Number.isFinite(line.unit_price) || line.unit_price < 0) {
+        throw new Error(`明细第 ${i + 1} 行单价无效（应 ≥0）`)
+      }
+      const expected = round2(line.qty * line.unit_price)
+      if (typeof line.amount !== 'number' || !Number.isFinite(line.amount) || round2(line.amount) !== expected) {
+        throw new Error(`明细第 ${i + 1} 行金额与计算值不一致（应为 ${expected}）`)
+      }
+      const out: QuoteLine = { product, qty: line.qty, unit_price: line.unit_price, amount: expected }
+      if ((line.sku ?? '').trim()) out.sku = (line.sku ?? '').trim()
+      return out
+    })
+  }
+
+  /** 日期校验：严格 YYYY-MM-DD 格式 + 日历合法性（2026-02-30 拒绝；归档年份基准） */
+  private assertDate(raw: string): string {
+    const d = (raw ?? '').trim()
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error('报价日期无效（应为 YYYY-MM-DD）')
+    const t = parseExpiryDate(d)
+    if (Number.isNaN(t.getTime())) throw new Error('报价日期无效（应为 YYYY-MM-DD）')
+    return d
+  }
+
+  /** quote_ext 为 v2.7 keji 预留命名空间：本体只读不校验、API 面不含入参（类型层面保证），运行时传入拒绝 */
+  private assertNoExtField(req: QuoteCreateRequest | QuoteUpdateRequest): void {
+    const ext = (req as unknown as Record<string, unknown>).quote_ext
+    if (ext !== undefined) throw new Error('quote_ext 为 v2.7 keji 预留命名空间，不接受外部写入')
+  }
+
+  /**
+   * 归档文件解析（同发票 resolveArchivedFilePath）：接受工作区绝对路径或 报价/<YYYY>/ 相对路径（/ 分隔）。
+   * 账物一致：台账 file_path 必须指向 报价/ 区且文件真实存在。返回规范化相对路径（/ 分隔）。
+   */
+  private async resolveArchivedFilePath(ws: string, filePath: string): Promise<string> {
+    const normalized = filePath.replace(/\\/g, '/')
+    if (!normalized) throw new Error('请选择报价文件')
+    const abs = path.isAbsolute(normalized)
+      ? path.resolve(normalized)
+      : path.join(ws, ...normalized.split('/').filter(Boolean))
+    if (!(await isPathInsideWorkspaceReal(ws, abs))) throw new Error('报价文件必须位于工作区内')
+    const rel = path.relative(path.resolve(ws), path.resolve(abs))
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('报价文件必须位于工作区内')
+    const norm = rel.split(path.sep).join('/')
+    if (!norm.startsWith(`${QUOTES_DIR}/`)) throw new Error('报价文件必须归档在 报价/ 目录下')
+    if (!(await fsp.stat(abs).then((s) => s.isFile()).catch(() => false))) throw new Error('报价文件不存在')
+    return norm
+  }
+
+  /** 台账列表：按报价日期降序（同日按单号升序）；返回记录副本，防调用方污染 store */
+  async list(): Promise<QuoteRecord[]> {
+    const store = await this.loadStore()
+    const out = Object.values(store.quotes).map((r) => ({ ...r, lines: r.lines.map((l) => ({ ...l })) }))
+    out.sort((a, b) =>
+      a.date < b.date ? 1 : a.date > b.date ? -1 : a.quotation_no < b.quotation_no ? -1 : a.quotation_no > b.quotation_no ? 1 : 0,
+    )
+    return out
+  }
+
+  /** 单条（不存在返回 undefined，由调用方处理；同发票 checkNumber 宽松形态） */
+  async get(quotationNo: string): Promise<QuoteRecord | undefined> {
+    const store = await this.loadStore()
+    const rec = store.quotes[(quotationNo ?? '').trim()]
+    return rec ? { ...rec, lines: rec.lines.map((l) => ({ ...l })) } : undefined
+  }
+
+  /** 新建报价：明细/日期校验 + 金额写入时计算 + 单号（自动生成或手输查重）+ 可选归档文件校验；初始状态 草稿 */
+  async create(req: QuoteCreateRequest): Promise<QuoteRecord> {
+    const ws = this.requireWS()
+    this.assertNoExtField(req)
+    const lines = this.assertLines(req.lines)
+    const date = this.assertDate(req.date)
+    const totalAmount = round2(lines.reduce((s, l) => s + l.amount, 0))
+    const store = await this.loadStore(ws)
+
+    const manual = (req.quotation_no ?? '').trim()
+    const quotationNo = manual ? manual : nextQuotationNo(store, date)
+    if (manual) {
+      const conflict = store.quotes[quotationNo]
+      if (conflict) throw this.duplicateError(conflict)
+    }
+
+    let filePath = ''
+    if ((req.file_path ?? '').trim()) filePath = await this.resolveArchivedFilePath(ws, req.file_path ?? '')
+
+    const now = currentTimeString()
+    const rec: QuoteRecord = {
+      quotation_no: quotationNo,
+      date,
+      lines,
+      total_amount: totalAmount,
+      status: '草稿',
+      file_path: filePath,
+      created_at: now,
+      updated_at: now,
+    }
+    if ((req.customer ?? '').trim()) rec.customer = (req.customer ?? '').trim()
+    if ((req.notes ?? '').trim()) rec.notes = (req.notes ?? '').trim()
+
+    store.quotes[quotationNo] = rec
+    await this.saveStore(ws, store)
+    this.logger?.info(`报价单创建: ${quotationNo}`)
+    return { ...rec, lines: rec.lines.map((l) => ({ ...l })) }
+  }
+
+  /**
+   * 编辑：按 quotation_no 定位记录（须存在）。status='已确认' 时拒绝改 lines（明细锁定，须先 setStatus 转修订中）；
+   * 金额重算；updated_at 刷新。报价单号生成后不可改（自动生成或建单时手输定稿，API 面无换号字段，查重同函数防御）。
+   */
+  async update(req: QuoteUpdateRequest): Promise<QuoteRecord> {
+    const ws = this.requireWS()
+    this.assertNoExtField(req)
+    const no = (req.quotation_no ?? '').trim()
+    if (!no) throw new Error('报价单号不能为空')
+    const store = await this.loadStore(ws)
+    const existing = store.quotes[no]
+    if (!existing) throw new Error('报价单不存在')
+
+    const rec: QuoteRecord = { ...existing }
+    if (req.date !== undefined) rec.date = this.assertDate(req.date)
+    if (req.lines !== undefined) {
+      if (rec.status === '已确认') throw new Error('报价单已确认，明细已锁定。如需修改请先转为修订中')
+      rec.lines = this.assertLines(req.lines)
+      rec.total_amount = round2(rec.lines.reduce((s, l) => s + l.amount, 0))
+    }
+    if (req.customer !== undefined) {
+      const v = (req.customer ?? '').trim()
+      if (v) rec.customer = v
+      else delete rec.customer
+    }
+    if (req.notes !== undefined) {
+      const v = (req.notes ?? '').trim()
+      if (v) rec.notes = v
+      else delete rec.notes
+    }
+    if (req.file_path !== undefined && (req.file_path ?? '').trim()) {
+      rec.file_path = await this.resolveArchivedFilePath(ws, req.file_path ?? '')
+    }
+    rec.updated_at = currentTimeString()
+
+    store.quotes[no] = rec
+    await this.saveStore(ws, store)
+    return { ...rec, lines: rec.lines.map((l) => ({ ...l })) }
+  }
+
+  /** 状态流转（矩阵单入口）：非法跳转拒绝；→已确认 写入/刷新 confirmed_at；updated_at 刷新 */
+  async setStatus(quotationNo: string, status: QuoteStatus): Promise<QuoteRecord> {
+    const ws = this.requireWS()
+    this.assertStatus(status)
+    const no = (quotationNo ?? '').trim()
+    if (!no) throw new Error('报价单号不能为空')
+    const store = await this.loadStore(ws)
+    const rec = store.quotes[no]
+    if (!rec) throw new Error('报价单不存在')
+    if (!STATUS_TRANSITIONS[rec.status]?.[status]) {
+      throw new Error(`状态不允许从「${rec.status}」流转到「${status}」`)
+    }
+    rec.status = status
+    if (status === '已确认') rec.confirmed_at = currentTimeString()
+    rec.updated_at = currentTimeString()
+    await this.saveStore(ws, store)
+    this.logger?.info(`报价单状态流转: ${no} → ${status}`)
+    return { ...rec, lines: rec.lines.map((l) => ({ ...l })) }
+  }
+
+  /**
+   * 客户改名级联：扫描全部单据，customer === oldName → newName（幂等；不校验客户存在，
+   * 名字引用语义同 inbound.renameSupplierId——客户被删后编辑旧单据放行）。
+   */
+  async renameCustomer(oldName: string, newName: string): Promise<void> {
+    const ws = this.requireWS()
+    const store = await this.loadStore(ws)
+    let changed = false
+    for (const rec of Object.values(store.quotes)) {
+      if (rec.customer === oldName) {
+        rec.customer = newName
+        changed = true
+      }
+    }
+    if (changed) await this.saveStore(ws, store)
+  }
+
+  /** 删除台账记录（账物分离同发票）：只删记录，文件留在 报价/<YYYY>/ */
+  async removeEntry(quotationNo: string): Promise<void> {
+    const ws = this.requireWS()
+    const no = (quotationNo ?? '').trim()
+    if (!no) throw new Error('报价单号不能为空')
+    const store = await this.loadStore(ws)
+    if (!store.quotes[no]) throw new Error('报价单不存在')
+    delete store.quotes[no]
+    await this.saveStore(ws, store)
+  }
+
+  /**
+   * 归档原件到 报价/<YYYY>/（YYYY = 报价日期年份；源文件可在工作区外，UI 对话框选本地文件）。
+   * 命名：套用命名模板（报价无产品集/子文件夹槽位 → 均空，等价原文件名 + 用户配置 prefix/suffix），
+   * 冲突按 conflict_suffix 加 _{n} 递增序号（resolveConflictName，同发票 archiveFile 实现）。
+   * 返回归档后的工作区相对路径（/ 分隔），供 create/update 作为 file_path。
+   */
+  async archiveFile(sourcePath: string, date: string): Promise<string> {
+    const ws = this.requireWS()
+    if (!sourcePath || !sourcePath.trim()) throw new Error('请选择报价文件')
+    const d = this.assertDate(date)
+    const srcInfo = await fsp.stat(sourcePath).catch(() => null)
+    if (!srcInfo || !srcInfo.isFile()) throw new Error('归档源文件不存在或不是文件')
+    const year = d.slice(0, 4)
+    const targetDir = path.join(quoteRootPath(ws), year)
+    await fsp.mkdir(targetDir, { recursive: true })
+    const ext = path.extname(sourcePath)
+    const base = sanitizeName(path.basename(sourcePath, ext))
+    const cfg = await this.workspace.loadConfig(ws)
+    const ctx: ImportContext = { targetProductSet: '', subFolder: '' }
+    const candidate = composeTargetName(cfg, base, ext, ctx)
+    const name = await resolveConflictName(targetDir, candidate, cfg.naming_template.conflict_suffix, ext)
+    await fsp.copyFile(sourcePath, path.join(targetDir, name))
+    // v2.4.x：归档改变 报价/ 区目录内容 → 失效该目录的索引快照（查询时重建）
+    globalWorkspaceIndex.invalidate(targetDir)
+    return path.join(QUOTES_DIR, year, name).split(path.sep).join('/')
+  }
+}

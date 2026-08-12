@@ -485,3 +485,70 @@ export interface ExchangeReceipt {
   error?: string
   processed_at: string
 }
+
+// —— v2.4.9 S3：报价单（对齐客迹 keji Quotation；明细行 + 三态状态机；台账 报价.json: { quotes: Record<报价单号, QuoteRecord> }）——
+
+/** 报价明细行（金额写入时计算：amount = round2(qty × unit_price)，外部注入不一致拒绝） */
+export interface QuoteLine {
+  /** 品名 */
+  product: string
+  /** 货号 */
+  sku?: string
+  /** 数量（≥1） */
+  qty: number
+  /** 单价（元，两位小数） */
+  unit_price: number
+  /** 小计 = round2(qty × unit_price)（写入时计算） */
+  amount: number
+}
+
+/** 报价单记录（报价单号 = 查重主键 = key） */
+export interface QuoteRecord {
+  /** 报价单号（查重主键，自动生成或手输覆盖） */
+  quotation_no: string
+  /** 报价日期 YYYY-MM-DD（归档年份基准） */
+  date: string
+  /** 关联客户名（改名级联更新；删除保留字面值 UI 灰显） */
+  customer?: string
+  /** 明细行（≥1 行） */
+  lines: QuoteLine[]
+  /** 汇总 = round2(Σ lines.amount)（写入时计算） */
+  total_amount: number
+  /** 状态枚举（对齐 keji draft/confirmed/revising） */
+  status: '草稿' | '已确认' | '修订中'
+  /** 确认时间 ISO（状态→已确认时写入；修订中→已确认 刷新） */
+  confirmed_at?: string
+  notes?: string
+  /** 归档主体：报价/<YYYY>/ 下原件（PDF/图片），可空 */
+  file_path: string
+  /** 预留命名空间（v2.7 keji 同步写回：confirmed_by/expand/keji_lines），本体只读不校验、API 面不含入参 */
+  quote_ext?: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+/** 新建请求：quotation_no 可选（不传自动生成 QT-YYYYMMDD-序号；传了查重覆盖）；total_amount/quote_ext 不在 API 面（内部计算/只读保留） */
+export interface QuoteCreateRequest {
+  quotation_no?: string
+  /** 报价日期（严格 YYYY-MM-DD） */
+  date: string
+  /** 关联客户名（名字引用，不校验存在性） */
+  customer?: string
+  /** 明细行（≥1 行） */
+  lines: QuoteLine[]
+  notes?: string
+  /** 归档主体：工作区绝对路径或 报价/<YYYY>/ 相对路径（/ 分隔），须位于 报价/ 区且真实存在；可空 */
+  file_path?: string
+}
+
+/** 编辑请求：quotation_no = 记录单号（查重主键，必填）；total_amount/quote_ext 不在 API 面 */
+export interface QuoteUpdateRequest {
+  quotation_no: string
+  /** 未传保留原值 */
+  date?: string
+  customer?: string
+  /** 明细行变更（status='已确认' 时拒绝——明细锁定，须先转修订中） */
+  lines?: QuoteLine[]
+  notes?: string
+  file_path?: string
+}

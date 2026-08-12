@@ -22,6 +22,7 @@ import {
   INBOUND_DIR,
   EXCHANGE_DIR,
   SUPPLIERS_DIR,
+  QUOTES_DIR,
   productSetFromFilePath,
 } from './paths'
 import { WorkspaceService } from './workspace'
@@ -69,12 +70,12 @@ export function normalizeExpiryDate(s: string): string | null {
   return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`
 }
 
-/** v2.4.7（§4.1）：元数据 key 首段所属区域（结构化解析 key 的统一判读出口）；v2.4.9 S2 追加 'supplier' */
-export type MetadataKeyRegion = 'productSet' | 'customer' | 'invoice' | 'inbound' | 'exchange' | 'supplier'
+/** v2.4.7（§4.1）：元数据 key 首段所属区域（结构化解析 key 的统一判读出口）；v2.4.9 S2 追加 'supplier'、S3 追加 'quote' */
+export type MetadataKeyRegion = 'productSet' | 'customer' | 'invoice' | 'inbound' | 'exchange' | 'supplier' | 'quote'
 
 /**
  * v2.4.7（§4.1）：元数据 key 区域判读——所有结构化解析 key 的位置统一走此函数。
- * 判读规则：key 首段 ∈ {客户, 发票, 入库, 交换区, 供应商} 且该首段不是实存产品集目录 → 按对应区域解读；
+ * 判读规则：key 首段 ∈ {客户, 发票, 入库, 交换区, 供应商, 报价} 且该首段不是实存产品集目录 → 按对应区域解读；
  * 否则按产品集 key 解读（存量同名产品集兼容优先，§3.7 保留名使新数据无歧义）。
  * ws：工作区路径（未打开工作区时传入空串会返回 'productSet'，由调用方自行决定语义）。
  */
@@ -85,7 +86,8 @@ export async function interpretMetadataKeyRegion(ws: string, key: string): Promi
     first !== INVOICES_DIR &&
     first !== INBOUND_DIR &&
     first !== EXCHANGE_DIR &&
-    first !== SUPPLIERS_DIR
+    first !== SUPPLIERS_DIR &&
+    first !== QUOTES_DIR
   ) {
     return 'productSet'
   }
@@ -98,6 +100,7 @@ export async function interpretMetadataKeyRegion(ws: string, key: string): Promi
     if (first === INVOICES_DIR) return 'invoice'
     if (first === INBOUND_DIR) return 'inbound'
     if (first === SUPPLIERS_DIR) return 'supplier'
+    if (first === QUOTES_DIR) return 'quote'
     return 'exchange'
   }
 }
