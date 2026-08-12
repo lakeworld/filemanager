@@ -227,6 +227,40 @@ window.qihebox.plugins = {
 | `qihebox:plugins:list / setEnabled / call / catalog / install / uninstall` | 宿主通用通道 |
 | `qihebox:plugin:<ipcPrefix>:<action>` | 插件通道，前缀登记时校验全局唯一 |
 
+### 5.5 customers 能力域与 `erp_ext` 契约（v2.4.9 定稿，v2.7 实装）
+
+**customers 能力域**（插件协议 `PluginHost` 白名单，供桥接插件使用；白名单收窄，不给通用文件读写）：
+
+| 能力 | 方向 | 说明 |
+|---|---|---|
+| `customer.list` / `customer.get` | ERP 读 | 客户档案全量/增量 |
+| `customer.writeErpExt` | ERP 写 | 仅写 `erp_ext` 命名空间 |
+| `customer.syncProfile` | ERP 写 | 双向同步：写本体对齐字段（type/contact/phone/email/address/notes）+ `erp_ext`（v2.7 实装，本版本只定稿协议与类型） |
+| `relation.link` / `relation.unlink` | ERP 写 | 建立/解除客户↔产品集关联 |
+| 事件 `customerCreated` / `customerUpdated` / `fileArchived` | box → ERP | 复用 `host.events` 总线，增量同步不靠轮询 |
+
+**字段归属规则**（v2.4.9 定稿，替换 v2.4.7「ERP 不可写本体字段」表述）：
+
+- erp-bridge（经 `customer.syncProfile`）可写：**本体对齐字段**（type/contact/phone/email/address/notes，即与客迹/仓迹共有的基础字段）与 `erp_ext`
+- box 权威（ERP 只读）：alias/country/source/related_product_sets
+- `erp_ext` 仅 ERP 写（本体只读不校验、API 面不含入参）
+
+**`erp_ext` schema**（v2.7 erp-bridge 写入目标，本体不校验但文档定稿）：
+
+```ts
+erp_ext?: {
+  code?: string             // 客户编码（仓迹权威）
+  status?: string           // 客户状态：正常/停用/黑名单（仓迹权威，active/inactive/blacklisted）
+  level?: string            // 客户等级（客迹/仓迹）
+  follow_status?: string    // 跟进状态（客迹）
+  last_order?: string       // 最近订单号/时间（仓迹）
+  ai_profile?: unknown      // 客迹 AI 画像（只读展示）
+  // 后续按客迹/仓迹扩展追加，命名空间规则不变
+}
+```
+
+**冲突规则（记录级裁决）**：同步以整条档案 `updated_at` 较新者为准，方向确定后仅写对方能力域白名单内的差异字段；box 专属字段（alias/country/source/related_product_sets）不在 ERP 写白名单、永不被覆盖；`erp_ext` 仅 ERP 写。已知取舍：记录级时间戳粒度下，同记录内 box 与 ERP 对不同字段的并发改动存在互覆盖可能（v2.7 实装按此实现；字段级时间戳列为后续细化候选，不在本版本承诺）。
+
 ---
 
 ## 六、安全与信任分级

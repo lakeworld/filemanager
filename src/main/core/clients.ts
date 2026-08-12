@@ -38,6 +38,13 @@ export class ClientsService {
 
   // —— 客户档案（customers.json）读写 ——
 
+  /** type 枚举校验：缺省合法；非「企业/个人」拒绝（create/update 两入口共用，v2.4.9 S1） */
+  private assertCustomerType(type: '企业' | '个人' | undefined): void {
+    if (type !== undefined && type !== '企业' && type !== '个人') {
+      throw new Error('客户类型只能是「企业」或「个人」')
+    }
+  }
+
   /** 读取客户档案；文件缺失/损坏 → 空对象（与 loadProductSetsInfo 同法） */
   async loadCustomersInfo(ws?: string): Promise<Record<string, CustomerExtraInfo>> {
     const w = ws ?? this.requireWS()
@@ -84,6 +91,7 @@ export class ClientsService {
     if (req.related_product_sets) {
       for (const ps of req.related_product_sets) await this.assertProductSetExists(ps)
     }
+    this.assertCustomerType(req.type)
     const cfg = await this.workspace.loadConfig()
     await fsp.mkdir(dir, { recursive: true })
     for (const sub of cfg.customer_subfolders ?? []) {
@@ -97,6 +105,10 @@ export class ClientsService {
       country: req.country?.trim(),
       contact: req.contact?.trim(),
       source: req.source?.trim(),
+      type: req.type,
+      phone: req.phone?.trim(),
+      email: req.email?.trim(),
+      address: req.address?.trim(),
       tags: req.tags ?? [],
       notes: (req.notes ?? '').trim(),
       related_product_sets: req.related_product_sets ?? [],
@@ -110,7 +122,8 @@ export class ClientsService {
   }
 
   /**
-   * 更新档案：alias/country/contact/source + tags/notes + related_product_sets（未传字段保留原值）。
+   * 更新档案：alias/country/contact/source + type/phone/email/address + tags/notes + related_product_sets
+   * （未传字段保留原值；type 枚举校验，非「企业/个人」拒绝，v2.4.9 S1）。
    * API 面不含 erp_ext（本体物理不可写，v2.7 erp-bridge 才写回）；读写时原样保留；updated_at 刷新。
    */
   async update(req: CustomerUpdateRequest): Promise<CustomerInfo> {
@@ -123,11 +136,16 @@ export class ClientsService {
     })
     const store = await this.loadCustomersInfo()
     const entry = store[name] ?? {}
+    this.assertCustomerType(req.type)
     const now = currentTimeString()
     if (req.alias !== undefined) entry.alias = req.alias.trim()
     if (req.country !== undefined) entry.country = req.country.trim()
     if (req.contact !== undefined) entry.contact = req.contact.trim()
     if (req.source !== undefined) entry.source = req.source.trim()
+    if (req.type !== undefined) entry.type = req.type
+    if (req.phone !== undefined) entry.phone = req.phone.trim()
+    if (req.email !== undefined) entry.email = req.email.trim()
+    if (req.address !== undefined) entry.address = req.address.trim()
     if (req.tags !== undefined) entry.tags = req.tags
     if (req.notes !== undefined) entry.notes = req.notes.trim()
     if (req.related_product_sets !== undefined) {
@@ -247,6 +265,10 @@ export class ClientsService {
       country: info.country,
       contact: info.contact,
       source: info.source,
+      type: info.type,
+      phone: info.phone,
+      email: info.email,
+      address: info.address,
       tags: info.tags ?? [],
       notes: info.notes ?? '',
       related_product_sets: info.related_product_sets ?? [],

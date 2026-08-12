@@ -274,4 +274,139 @@ describe('客户服务（v2.4.7 §5）', () => {
     expect(t?.defined).toBe(true)
     expect(t?.count).toBe(1)
   })
+
+  // —— v2.4.9 S1：客户对齐客迹/仓迹（type/phone/email/address + erp_ext 只读面）——
+
+  it('create/update：type/phone/email/address 透传持久化，list() 返回一致', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    const created = await box.clients.create({
+      name: '张三',
+      type: '企业',
+      phone: '13800138000',
+      email: 'zs@example.com',
+      address: '浙江省义乌市',
+    })
+    expect(created.type).toBe('企业')
+    expect(created.phone).toBe('13800138000')
+    expect(created.email).toBe('zs@example.com')
+    expect(created.address).toBe('浙江省义乌市')
+
+    // 档案持久化（customers.json）
+    const store = await readCustomersStore(ws)
+    expect((store['张三'] as { type: string }).type).toBe('企业')
+    expect((store['张三'] as { phone: string }).phone).toBe('13800138000')
+    expect((store['张三'] as { email: string }).email).toBe('zs@example.com')
+    expect((store['张三'] as { address: string }).address).toBe('浙江省义乌市')
+
+    // update 全字段更新
+    const updated = await box.clients.update({
+      name: '张三',
+      type: '个人',
+      phone: '13900000000',
+      email: 'new@example.com',
+      address: '广东省深圳市',
+    })
+    expect(updated.type).toBe('个人')
+    expect(updated.phone).toBe('13900000000')
+    expect(updated.email).toBe('new@example.com')
+    expect(updated.address).toBe('广东省深圳市')
+
+    // update 未传字段保留原值
+    const partial = await box.clients.update({ name: '张三', phone: '13700000000' })
+    expect(partial.type).toBe('个人')
+    expect(partial.email).toBe('new@example.com')
+    expect(partial.address).toBe('广东省深圳市')
+
+    // list() 返回与档案一致
+    const list = await box.clients.list()
+    const c = list.find((x) => x.name === '张三')
+    expect(c?.type).toBe('个人')
+    expect(c?.phone).toBe('13700000000')
+    expect(c?.email).toBe('new@example.com')
+    expect(c?.address).toBe('广东省深圳市')
+  })
+
+  it('type 枚举校验：非「企业/个人」拒绝（create/update 两入口），缺省合法', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    // create：非法枚举拒绝（校验在建目录前，无残留目录）
+    await expect(
+      box.clients.create({ name: '张三', type: '供应商' as unknown as '企业' | '个人' }),
+    ).rejects.toThrow('客户类型只能是「企业」或「个人」')
+    expect(await box.clients.list()).toHaveLength(0)
+
+    // 缺省合法
+    await box.clients.create({ name: '张三' })
+
+    // update：非法枚举拒绝，且不落盘
+    await expect(
+      box.clients.update({ name: '张三', type: '其他' as unknown as '企业' | '个人' }),
+    ).rejects.toThrow('客户类型只能是「企业」或「个人」')
+    const store = await readCustomersStore(ws)
+    expect((store['张三'] as { type?: string }).type).toBeUndefined()
+
+    // update 缺省合法（不传 type 保留原值）
+    const c = await box.clients.update({ name: '张三', phone: '138' })
+    expect(c.type).toBeUndefined()
+    expect(c.phone).toBe('138')
+  })
+
+  it('旧档案（无新字段）读取宽松：type/phone/email/address 输出 undefined 而非抛错', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.clients.create({ name: '张三' })
+
+    // 模拟 v2.4.8 旧档案：删除新字段（create 序列化后本就不含 undefined 键，此处显式清理模拟旧数据）
+    const store = await readCustomersStore(ws)
+    const old = store['张三'] as Record<string, unknown>
+    delete old.type
+    delete old.phone
+    delete old.email
+    delete old.address
+    await fsp.writeFile(path.join(ws, '.qihefilemanager', 'customers.json'), JSON.stringify(store, null, 2))
+
+    // buildInfo 输出 undefined 而非抛错；既有字段不受影响
+    const list = await box.clients.list()
+    const c = list.find((x) => x.name === '张三')
+    expect(c?.type).toBeUndefined()
+    expect(c?.phone).toBeUndefined()
+    expect(c?.email).toBeUndefined()
+    expect(c?.address).toBeUndefined()
+    expect(c?.name).toBe('张三')
+    expect(c?.tags).toEqual([])
+  })
+
+  it('erp_ext 传入仍被忽略：API 面不含入参（类型层面保证），透传路径被拒', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    // CustomerCreateRequest/CustomerUpdateRequest 无 erp_ext 字段（类型层面保证）；
+    // 运行时即使多传也不会落盘（本体物理不可写，v2.7 erp-bridge 才写回）
+    await box.clients.create({ name: '张三', erp_ext: { level: 'VIP' } } as unknown as {
+      name: string
+      erp_ext: unknown
+    })
+    let store = await readCustomersStore(ws)
+    expect((store['张三'] as { erp_ext?: unknown }).erp_ext).toBeUndefined()
+    const created = await box.clients.list()
+    expect(created.find((x) => x.name === '张三')?.erp_ext).toBeUndefined()
+
+    await box.clients.update({ name: '张三', erp_ext: { level: 'SVIP' } } as unknown as {
+      name: string
+      erp_ext: unknown
+    })
+    store = await readCustomersStore(ws)
+    expect((store['张三'] as { erp_ext?: unknown }).erp_ext).toBeUndefined()
+  })
 })

@@ -301,6 +301,11 @@ export interface CustomerInfo {
   country?: string
   contact?: string
   source?: string
+  /** 客户类型（客迹/仓迹 company/individual 中文枚举；缺省=未分类，v2.4.9 S1） */
+  type?: '企业' | '个人'
+  phone?: string
+  email?: string
+  address?: string
   tags: string[]
   notes: string
   /** 关联产品集名数组（唯一写点在客户侧，产品集侧只读反查） */
@@ -317,6 +322,11 @@ export interface CustomerExtraInfo {
   country?: string
   contact?: string
   source?: string
+  /** 客户类型（客迹/仓迹 company/individual 中文枚举；缺省=未分类，旧档案宽松读取，v2.4.9 S1） */
+  type?: '企业' | '个人'
+  phone?: string
+  email?: string
+  address?: string
   tags?: string[]
   notes?: string
   related_product_sets?: string[]
@@ -332,6 +342,10 @@ export interface CustomerCreateRequest {
   country?: string
   contact?: string
   source?: string
+  type?: '企业' | '个人'
+  phone?: string
+  email?: string
+  address?: string
   tags?: string[]
   notes?: string
   related_product_sets?: string[]
@@ -344,6 +358,10 @@ export interface CustomerUpdateRequest {
   country?: string
   contact?: string
   source?: string
+  type?: '企业' | '个人'
+  phone?: string
+  email?: string
+  address?: string
   tags?: string[]
   notes?: string
   related_product_sets?: string[]
