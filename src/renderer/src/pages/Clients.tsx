@@ -505,7 +505,7 @@ export default function Clients() {
                 {/* erp_ext 只读区：本体只读不校验（v2.7 erp-bridge 写回），无内容时不渲染 */}
                 <Show when={erpExtEntries().length > 0}>
                   <div class="mt-4 pt-4 border-t border-surface-100">
-                    <p class="text-xs font-medium text-surface-400 mb-2">ERP 扩展信息（只读，由仓迹写回）</p>
+                    <p class="text-xs font-medium text-surface-400 mb-2">ERP 扩展信息（只读，由启禾 OS写回）</p>
                     <div class="flex flex-wrap gap-2">
                       <For each={erpExtEntries()}>
                         {(e) => (

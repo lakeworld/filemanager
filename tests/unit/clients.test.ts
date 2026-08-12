@@ -275,7 +275,7 @@ describe('客户服务（v2.4.7 §5）', () => {
     expect(t?.count).toBe(1)
   })
 
-  // —— v2.4.9 S1：客户对齐客迹/仓迹（type/phone/email/address + erp_ext 只读面）——
+  // —— v2.4.9 S1：客户对齐启禾 OS（type/phone/email/address + erp_ext 只读面）——
 
   it('create/update：type/phone/email/address 透传持久化，list() 返回一致', async () => {
     const home = await tmp()

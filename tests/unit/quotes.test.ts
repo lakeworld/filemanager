@@ -1,5 +1,5 @@
 /**
- * 报价单服务单测（v2.4.9 S3，对齐客迹 keji Quotation）
+ * 报价单服务单测（v2.4.9 S3，对齐启禾 OS 报价单 Quotation）
  * 覆盖（brief §八 11 组）：
  * 1. quotation_no 自动生成：QT-YYYYMMDD-序号 同日自增（001→002）、max+1、999 进位 4 位、冲突跳过（注入 store 测边界）
  * 2. 手输覆盖：合法 → 保存；与既有重名 → 拒绝；checkNumber 同发票口径
