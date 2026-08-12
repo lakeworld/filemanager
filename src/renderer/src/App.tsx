@@ -157,6 +157,7 @@ function FramelessResizer() {
 export default function App(props: RouteSectionProps) {
   let unsubImport: (() => void) | null = null;
   let unsubCertReminder: (() => void) | null = null;
+  let unsubRestored: (() => void) | null = null;
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -208,6 +209,16 @@ export default function App(props: RouteSectionProps) {
       if (Array.isArray(data) && data.length > 0) showCertReminder(data);
     });
 
+    // v2.4.9（打磨）：托盘/激活恢复 → 回仪表盘（主进程 windowShow 后发 window:restored；
+    // 用户反馈：托盘打开固定看首页，而非上次停留页面）。
+    // 注意：navigate('/') 会触发下方 createEffect 把 lastRoute 写成 '/',污染 v2.3.0 的
+    // 「冷启动恢复上次页面」——先记住旧路径，导航后写回，托盘恢复只改显示不改持久化。
+    unsubRestored = window.qihebox.events.on("window:restored", () => {
+      const prev = localStorage.getItem("qihebox:lastRoute");
+      navigate("/", { replace: true });
+      if (prev && prev !== "/") localStorage.setItem("qihebox:lastRoute", prev);
+    });
+
     onCleanup(() => {
       window.clearTimeout(blurTimer);
       window.removeEventListener("blur", onBlur);
@@ -215,6 +226,7 @@ export default function App(props: RouteSectionProps) {
       document.removeEventListener("visibilitychange", onVisibility);
       unsubImport?.();
       unsubCertReminder?.();
+      unsubRestored?.();
     });
   });
 

@@ -203,7 +203,8 @@ export class DashboardService {
       allFiles.push(...imgFiles, ...certFiles)
     }
     allFiles.sort((a, b) => (a.modified > b.modified ? -1 : a.modified < b.modified ? 1 : 0))
-    stats.recent_files = allFiles.slice(0, 10)
+    // v2.4.9（打磨）：最近文件 10 → 5 条——用户反馈列表太长，仪表盘只保留近期热点，完整列表走「查看全部」
+    stats.recent_files = allFiles.slice(0, 5)
 
     const expiring = await this.checkExpiringCerts()
     stats.expiring_certs = expiring.length

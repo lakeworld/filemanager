@@ -435,6 +435,35 @@ export default function ProductSets() {
             </div>
           </div>
 
+          {/* v2.4.9（打磨）：详情页概览条——标签 + 备注（从列表卡迁移到详情头部，与入口卡/关系区同屏） */}
+          <Show when={(() => productSets().find((p) => p.name === psName()))()}>
+            {(detailPs) => (
+              <div class="card p-4 mb-6 flex flex-wrap items-center gap-x-6 gap-y-2">
+                <Show when={detailPs().tags && detailPs().tags.length > 0}>
+                  <div class="flex items-center flex-wrap gap-2">
+                    <span class="text-xs text-surface-400">标签</span>
+                    <For each={detailPs().tags}>
+                      {(tag) => (
+                        <span
+                          class="text-xs px-3 py-1.5 rounded-full bg-surface-100 text-surface-700"
+                          title={definedTagNames().has(tag) ? undefined : "未在设置中定义，可在设置中转为正式标签"}
+                        >
+                          #{tag}
+                        </span>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+                <Show when={detailPs().notes}>
+                  <div class="flex items-center gap-2 min-w-0 flex-1">
+                    <span class="text-xs text-surface-400 shrink-0">备注</span>
+                    <p class="text-sm text-surface-600 line-clamp-2">{detailPs().notes}</p>
+                  </div>
+                </Show>
+              </div>
+            )}
+          </Show>
+
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Image entry card */}
             <div
@@ -485,6 +514,8 @@ export default function ProductSets() {
             </div>
           </div>
 
+          {/* v2.4.9（打磨）：关系区并排——关联客户 / 关联供应商（只读反查，写操作在客户/供应商侧） */}
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
           {/* v2.4.7（§5.2）：关联客户只读区块（customers.json 反查 related_product_sets；写操作只在客户侧） */}
           <div class="card p-5">
             <div class="flex items-center justify-between mb-3">
@@ -515,7 +546,7 @@ export default function ProductSets() {
           </div>
 
           {/* v2.4.9（打磨）：关联供应商只读区块（suppliers.json 反查 related_product_sets；写操作只在供应商侧） */}
-          <div class="card p-5 mt-4">
+          <div class="card p-5">
             <div class="flex items-center justify-between mb-3">
               <h2 class="text-lg font-semibold">关联供应商</h2>
               <span class="text-sm text-surface-400">在供应商详情页维护关联</span>
@@ -541,6 +572,7 @@ export default function ProductSets() {
                 </For>
               </div>
             </Show>
+          </div>
           </div>
         </Show>
       </Show>
