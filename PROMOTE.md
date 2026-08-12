@@ -53,6 +53,8 @@
 2. **生态**：开发者可基于源码扩展，反哺产品
 3. **官网引流**：安装包统一从官网下载，保证版本更新与安全分发渠道，也让我们知道谁在用它
 
+> 开源与收费承诺详见 [HELP.md](HELP.md) 十八（本体开源免费，进阶能力如有增值另行公示）。
+
 **下载安装包**：👉 [https://www.qihebook.cloud/file-manager](https://www.qihebook.cloud/file-manager)
 
 ### 开源仓库
