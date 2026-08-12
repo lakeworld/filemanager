@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
+import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -84,6 +85,39 @@ test.describe('休眠唤醒自愈', () => {
     expect(marker).toBe('alive')
     const hasApi = await page.evaluate(() => typeof (window as any).qihebox?.app?.version === 'function')
     expect(hasApi).toBe(true)
+  })
+
+  test('托盘恢复（关窗→托盘→点开）触发画面自愈且不丢页面状态（v2.4.9 修复）', async () => {
+    // v2.4.9 修复回归：用户实测「关窗→托盘→恢复显示」白屏——windowShow 路径此前只做 JS 活性
+    // 检查（pingRenderer），隐藏期间 GPU 合成表面失效时画面空白、JS 活着，白屏无自愈入口。
+    // 修复：windowShow 恢复显示后追加 recoverAfterWake（画面自愈链）。本用例验证：
+    // 1) 托盘恢复路径触发画面自愈（日志出现 L1 重绘，正常画面仅一次无害 invalidate）
+    // 2) 正常画面不被误 reload（页面状态 marker 保留）
+    await page.evaluate(() => {
+      ;(window as any).__wakeMarker = 'alive'
+    })
+    // 主进程日志探针：记录 windowShow 路径自愈链是否被触发（L1 调度即证明 recoverAfterWake 已挂上）
+    const userData = await app.evaluate(({ app }) => app.getPath('userData'))
+    const logPath = path.join(userData, 'logs', `main-${new Date().toISOString().slice(0, 10)}.log`)
+    const before = (await fsp.readFile(logPath, 'utf8')).length
+
+    // 关窗→托盘（隐藏窗口 + 30s 销毁倒计时）
+    await page.evaluate(() => (window as any).qihebox.window.hideToTray())
+    await page.waitForTimeout(300)
+
+    // 点托盘恢复显示（windowShow：ensureMainWindow + show + pingRenderer + recoverAfterWake）
+    await page.evaluate(() => (window as any).qihebox.window.show())
+    // 等 L1 invalidate + 2s 复检（正常画面 L1 即通过，不 reload）
+    await page.waitForTimeout(4500)
+
+    // 页面状态保留（未被误 reload）
+    const marker = await page.evaluate(() => (window as any).__wakeMarker ?? null)
+    expect(marker).toBe('alive')
+    const hasApi = await page.evaluate(() => typeof (window as any).qihebox?.app?.version === 'function')
+    expect(hasApi).toBe(true)
+    // 画面自愈链确实在 windowShow 路径触发（新增日志：L1 已调度 / 画面正常）
+    const after = (await fsp.readFile(logPath, 'utf8')).slice(before)
+    expect(after).toMatch(/\[wake\] L1 已调度全量重绘|\[wake\] 画面正常（L1 复检通过）/)
   })
 
   test('渲染进程崩溃后 resume → 自动 reload 恢复', async () => {
