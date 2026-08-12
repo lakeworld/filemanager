@@ -41,6 +41,11 @@ export type {
   SupplierExtraInfo,
   SupplierCreateRequest,
   SupplierUpdateRequest,
+  // —— v2.4.9 S3：报价单 ——
+  QuoteRecord,
+  QuoteLine,
+  QuoteCreateRequest,
+  QuoteUpdateRequest,
   InvoiceRecord,
   InboundRecord,
   ExchangeReceipt,

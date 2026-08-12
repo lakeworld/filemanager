@@ -123,8 +123,9 @@ export class QuotesService {
   }
 
   /**
-   * 查重（创建手输 / 编辑共用同函数，同发票 checkNumber 口径）：命中返回已有记录（供摘要提示），未命中返回 null。
-   * excludeNo：编辑换号时排除自身号码。
+   * 查重（创建手输命中即拒绝，同发票 checkNumber 口径）：命中返回已有记录（供摘要提示），未命中返回 null。
+   * excludeNo：防御性排除参数——报价单号生成后不可改（update 无换号字段），编辑不换号，
+   * 保留与发票同签名仅供测试/未来换号场景复用（S3a 疑虑 3 定稿）。
    */
   async checkNumber(quotationNo: string, excludeNo?: string): Promise<QuoteRecord | null> {
     const n = (quotationNo ?? '').trim()

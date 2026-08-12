@@ -31,6 +31,8 @@ export default function Sidebar() {
         { icon: "🤝", label: "客户", path: "/clients" },
         // v2.4.9 S2：供应商入口
         { icon: "🏭", label: "供应商", path: "/suppliers" },
+        // v2.4.9 S3：报价单入口
+        { icon: "📄", label: "报价", path: "/quotes" },
         { icon: "🧾", label: "发票", path: "/invoices" },
       ],
     },
