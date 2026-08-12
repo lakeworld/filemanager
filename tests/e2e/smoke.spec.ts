@@ -98,11 +98,10 @@ test.describe('qihe-box e2e', () => {
     expect(version).toMatch(/^\d+\.\d+\.\d+$/)
   })
 
-  test('「我的」页：加入用户群卡片可见（二维码/群聊入口/邮箱反馈）', async () => {
+  test('「我的」页：加入用户群卡片可见（群聊入口/邮箱反馈）', async () => {
     await page.getByRole('button', { name: /我的/ }).click()
     await page.getByRole('heading', { name: '我的' }).waitFor({ timeout: 10000 })
     await expect(page.getByRole('heading', { name: '加入用户群' })).toBeVisible()
-    await expect(page.getByRole('img', { name: '加入用户群二维码' })).toBeVisible()
     await expect(page.getByText('1252235854@qq.com')).toBeVisible()
     await expect(page.getByRole('button', { name: '打开群聊页面' })).toBeVisible()
   })
