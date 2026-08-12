@@ -47,6 +47,9 @@ interface QiheboxApi {
     update: (req: unknown) => Promise<unknown>
     rename: (oldName: string, newName: string) => Promise<unknown>
     delete: (name: string) => Promise<unknown>
+    // v2.4.9 打磨 M8：供应商关联产品集（镜像客户通道 qihebox:clients:linkRelation/unlinkRelation）
+    linkRelation: (supplier: string, productSet: string) => Promise<unknown>
+    unlinkRelation: (supplier: string, productSet: string) => Promise<unknown>
   }
   // v2.4.9 S3：报价单（纯透传，通道 qihebox:quotes:*；delete = removeEntry 账物分离不删文件）
   quotes: {

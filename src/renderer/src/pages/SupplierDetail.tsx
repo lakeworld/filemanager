@@ -2,7 +2,7 @@ import { Show, For, createSignal, createEffect } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { tagList, loadTagDefs } from "~/stores/tags";
-import { currentWorkspace } from "~/stores/workspace";
+import { currentWorkspace, productSets, loadProductSets } from "~/stores/workspace";
 import { suppliers, loadSuppliers } from "~/stores/suppliers";
 import { showToast } from "~/stores/notifyBanner";
 import TagChip from "~/components/TagChip";
@@ -47,6 +47,9 @@ export default function SupplierDetail() {
 
   const [confirmDelete, setConfirmDelete] = createSignal<{ name: string } | null>(null);
 
+  // v2.4.9 打磨 M8：关联产品集下拉（镜像客户详情 linkSelect）
+  const [linkSelect, setLinkSelect] = createSignal("");
+
   const supplierName = () => {
     const name = params.name || "";
     try {
@@ -64,6 +67,7 @@ export default function SupplierDetail() {
   createEffect(() => {
     if (currentWorkspace()) {
       loadSuppliers();
+      loadProductSets();
       loadTagDefs();
     }
   });
@@ -98,6 +102,39 @@ export default function SupplierDetail() {
       loadSuppliers();
     } else {
       showToast("error", "保存失败", result.error || "未知错误");
+    }
+  };
+
+  // —— 关联产品集（v2.4.9 打磨 M8：唯一写点在供应商侧；产品集侧只读反查留 v2.7，镜像客户 Clients.tsx:265-296）——
+
+  const relatedProductSets = () => detailSupplier()?.related_product_sets ?? [];
+
+  const unlinkedProductSets = () => {
+    const linked = new Set(relatedProductSets());
+    return productSets().filter((ps) => !linked.has(ps.name));
+  };
+
+  const handleLink = async () => {
+    const name = supplierName();
+    const ps = linkSelect();
+    if (!name || !ps) return;
+    const result = await api.suppliers.linkRelation(name, ps);
+    if (result.success) {
+      setLinkSelect("");
+      loadSuppliers();
+    } else {
+      showToast("error", "关联失败", result.error || "未知错误");
+    }
+  };
+
+  const handleUnlink = async (ps: string) => {
+    const name = supplierName();
+    if (!name) return;
+    const result = await api.suppliers.unlinkRelation(name, ps);
+    if (result.success) {
+      loadSuppliers();
+    } else {
+      showToast("error", "解除关联失败", result.error || "未知错误");
     }
   };
 
@@ -145,54 +182,99 @@ export default function SupplierDetail() {
           <button class="btn-primary" onClick={() => navigate("/suppliers")}>返回供应商列表</button>
         </EmptyState>
       }>
-        {/* 档案卡 */}
-        <div class="card p-6 mb-6 shrink-0">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold text-surface-900">供应商档案</h3>
-            <button class="btn-secondary text-sm" onClick={() => openEditInfo(detailSupplier()!)}>
-              ✏️ 编辑档案
-            </button>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
-            <InfoRow label="联系人" value={detailSupplier()!.contact} />
-            <InfoRow label="电话" value={detailSupplier()!.phone} />
-            <InfoRow label="邮箱" value={detailSupplier()!.email} />
-            <InfoRow label="地址" value={detailSupplier()!.address} />
-          </div>
-          <Show when={(detailSupplier()!.tags || []).length > 0}>
-            <div class="flex flex-wrap gap-1.5 mt-4">
-              <For each={detailSupplier()!.tags || []}>
-                {(tag) => (
-                  <TagChip
-                    name={tag}
-                    warn={!definedTagNames().has(tag)}
-                    title={definedTagNames().has(tag) ? undefined : "未在设置中定义，可在设置中转为正式标签"}
-                  />
-                )}
-              </For>
+        {/* 档案卡 + 关联产品集（v2.4.9 打磨 M8：布局镜像客户详情 Clients.tsx:439 三列网格） */}
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 shrink-0">
+          {/* 档案卡 */}
+          <div class="lg:col-span-2 card p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-semibold text-surface-900">供应商档案</h3>
+              <button class="btn-secondary text-sm" onClick={() => openEditInfo(detailSupplier()!)}>
+                ✏️ 编辑档案
+              </button>
             </div>
-          </Show>
-          <Show when={detailSupplier()!.notes}>
-            <p class="text-sm text-surface-600 mt-4 whitespace-pre-wrap">{detailSupplier()!.notes}</p>
-          </Show>
-          {/* erp_ext 只读区（v2.7 仓迹同步预留；无内容时不渲染） */}
-          <Show when={detailSupplier()!.erp_ext && Object.keys(detailSupplier()!.erp_ext!).length > 0}>
-            <div class="mt-4 pt-4 border-t border-surface-100">
-              <p class="text-xs font-medium text-surface-400 mb-2">ERP 扩展信息（只读，由仓迹写回）</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+              <InfoRow label="联系人" value={detailSupplier()!.contact} />
+              <InfoRow label="电话" value={detailSupplier()!.phone} />
+              <InfoRow label="邮箱" value={detailSupplier()!.email} />
+              <InfoRow label="地址" value={detailSupplier()!.address} />
+            </div>
+            <Show when={(detailSupplier()!.tags || []).length > 0}>
+              <div class="flex flex-wrap gap-1.5 mt-4">
+                <For each={detailSupplier()!.tags || []}>
+                  {(tag) => (
+                    <TagChip
+                      name={tag}
+                      warn={!definedTagNames().has(tag)}
+                      title={definedTagNames().has(tag) ? undefined : "未在设置中定义，可在设置中转为正式标签"}
+                    />
+                  )}
+                </For>
+              </div>
+            </Show>
+            <Show when={detailSupplier()!.notes}>
+              <p class="text-sm text-surface-600 mt-4 whitespace-pre-wrap">{detailSupplier()!.notes}</p>
+            </Show>
+            {/* erp_ext 只读区（v2.7 仓迹同步预留；无内容时不渲染） */}
+            <Show when={detailSupplier()!.erp_ext && Object.keys(detailSupplier()!.erp_ext!).length > 0}>
+              <div class="mt-4 pt-4 border-t border-surface-100">
+                <p class="text-xs font-medium text-surface-400 mb-2">ERP 扩展信息（只读，由仓迹写回）</p>
+                <div class="flex flex-wrap gap-2">
+                  <For each={Object.entries(detailSupplier()!.erp_ext!)}>
+                    {([k, v]) => (
+                      <span class="text-xs px-2 py-1 rounded-lg bg-surface-100 text-surface-600">
+                        <span class="font-medium text-surface-500">{k}</span>: {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                      </span>
+                    )}
+                  </For>
+                </div>
+              </div>
+            </Show>
+            <p class="text-xs text-surface-400 mt-4">
+              创建于 {detailSupplier()!.created_at} · 更新于 {detailSupplier()!.updated_at}
+            </p>
+          </div>
+
+          {/* 关联产品集（镜像客户 Clients.tsx:494-534 独立卡片即点即存；唯一写点在供应商侧） */}
+          <div class="card p-6">
+            <h3 class="text-lg font-semibold text-surface-900 mb-4">关联产品集</h3>
+            <Show when={relatedProductSets().length > 0} fallback={
+              <p class="text-sm text-surface-400">暂未关联产品集</p>
+            }>
               <div class="flex flex-wrap gap-2">
-                <For each={Object.entries(detailSupplier()!.erp_ext!)}>
-                  {([k, v]) => (
-                    <span class="text-xs px-2 py-1 rounded-lg bg-surface-100 text-surface-600">
-                      <span class="font-medium text-surface-500">{k}</span>: {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                <For each={relatedProductSets()}>
+                  {(ps) => (
+                    <span
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary-50 text-primary-700 text-sm cursor-pointer hover:bg-primary-100 transition-colors"
+                      title={`打开产品集 ${ps}`}
+                      onClick={() => navigate(`/product-sets/${encodeURIComponent(ps)}`)}
+                    >
+                      {ps}
+                      <button
+                        class="text-surface-400 hover:text-red-500"
+                        title="解除关联"
+                        onClick={(e) => { e.stopPropagation(); void handleUnlink(ps); }}
+                      >
+                        ✕
+                      </button>
                     </span>
                   )}
                 </For>
               </div>
+            </Show>
+            <div class="flex gap-2 mt-4">
+              <select
+                class="flex-1 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+                value={linkSelect()}
+                onChange={(e) => setLinkSelect(e.currentTarget.value)}
+              >
+                <option value="">选择产品集…</option>
+                <For each={unlinkedProductSets()}>
+                  {(ps) => <option value={ps.name}>{ps.name}</option>}
+                </For>
+              </select>
+              <button class="btn-primary text-sm" onClick={handleLink} disabled={!linkSelect()}>添加</button>
             </div>
-          </Show>
-          <p class="text-xs text-surface-400 mt-4">
-            创建于 {detailSupplier()!.created_at} · 更新于 {detailSupplier()!.updated_at}
-          </p>
+          </div>
         </div>
 
         {/* 文件区：FileBrowserView scope="supplier"（子文件夹 合同/对账单/往来文件，core create 已建齐）；

@@ -55,6 +55,11 @@ const api = {
     update: (req: unknown) => invoke('qihebox:suppliers:update', req),
     rename: (oldName: string, newName: string) => invoke('qihebox:suppliers:rename', oldName, newName),
     delete: (name: string) => invoke('qihebox:suppliers:delete', name),
+    // v2.4.9 打磨 M8：供应商关联产品集（镜像客户通道）
+    linkRelation: (supplier: string, productSet: string) =>
+      invoke('qihebox:suppliers:linkRelation', supplier, productSet),
+    unlinkRelation: (supplier: string, productSet: string) =>
+      invoke('qihebox:suppliers:unlinkRelation', supplier, productSet),
   },
   // v2.4.9 S3：报价单（纯透传，业务在主进程 core/；delete = removeEntry 账物分离不删文件）
   quotes: {

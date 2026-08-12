@@ -11,6 +11,8 @@
  * 7. inbound 带 supplier_id 存在性不硬校验（删除供应商后编辑旧入库单放行）
  * 8. 区域判别：interpretMetadataKeyRegion 供应商 key → 'supplier'；同名产品集优先逻辑同客户
  * 9. Logger 注入断言：create/rename 调用 logger.info（S6 core 接口）
+ * 10. 关联产品集（v2.4.9 打磨 M8）：linkRelation/unlinkRelation（校验产品集存在、去重、档案持久化）；
+ *     create/update 带不存在产品集拒绝、带合法集透传（update 去重）
  */
 import { describe, it, expect } from 'vitest'
 import { buildTestBox } from './helpers'
@@ -340,5 +342,63 @@ describe('供应商服务（v2.4.9 S2）', () => {
 
     await suppliers.rename('甲', '乙')
     expect(infoMsgs()).toEqual([expect.stringContaining('甲'), expect.stringContaining('乙')])
+  })
+
+  it('linkRelation：产品集存在才可关联（去重）→ 档案持久化；unlinkRelation 解除（v2.4.9 打磨 M8）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.suppliers.create({ name: '甲' })
+    await box.workspace.productSetCreate({ name: '系列A' })
+
+    // 不存在的产品集 → 拒绝
+    await expect(box.suppliers.linkRelation('甲', '不存在集')).rejects.toThrow('不存在')
+
+    let s = await box.suppliers.linkRelation('甲', '系列A')
+    expect(s.related_product_sets).toEqual(['系列A'])
+    // 重复关联去重
+    s = await box.suppliers.linkRelation('甲', '系列A')
+    expect(s.related_product_sets).toEqual(['系列A'])
+    // 档案持久化（目录扫描为实、JSON 为档案：list() 与档案一致）
+    expect((await readSuppliersStore(ws))['甲']).toHaveProperty('related_product_sets', ['系列A'])
+    expect((await box.suppliers.list()).find((x) => x.name === '甲')?.related_product_sets).toEqual(['系列A'])
+    // 移除
+    s = await box.suppliers.unlinkRelation('甲', '系列A')
+    expect(s.related_product_sets).toEqual([])
+    expect((await readSuppliersStore(ws))['甲']).toHaveProperty('related_product_sets', [])
+    // 不存在的供应商拒绝
+    await expect(box.suppliers.linkRelation('不存在', '系列A')).rejects.toThrow('供应商不存在')
+    await expect(box.suppliers.unlinkRelation('不存在', '系列A')).rejects.toThrow('供应商不存在')
+  })
+
+  it('create/update：带不存在产品集拒绝；create 透传 related_product_sets；update 透传 + 去重（v2.4.9 打磨 M8）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    await box.workspace.productSetCreate({ name: '系列B' })
+
+    // create 带不存在产品集 → 拒绝（不落盘：目录 + 档案均未创建）
+    await expect(box.suppliers.create({ name: '甲', related_product_sets: ['不存在集'] })).rejects.toThrow('不存在')
+    expect(await box.suppliers.list()).toHaveLength(0)
+
+    // create 带合法集 → 透传落盘 + buildInfo 输出
+    const created = await box.suppliers.create({ name: '甲', related_product_sets: ['系列A', '系列A'] })
+    expect(created.related_product_sets).toEqual(['系列A', '系列A'])
+    expect((await readSuppliersStore(ws))['甲']).toHaveProperty('related_product_sets', ['系列A', '系列A'])
+
+    // update 带不存在产品集 → 拒绝（原值保留）
+    await expect(box.suppliers.update({ name: '甲', related_product_sets: ['系列B', '不存在集'] })).rejects.toThrow('不存在')
+    expect((await readSuppliersStore(ws))['甲']).toHaveProperty('related_product_sets', ['系列A', '系列A'])
+
+    // update 合法集 → 透传 + 去重
+    const updated = await box.suppliers.update({ name: '甲', related_product_sets: ['系列B', '系列B'] })
+    expect(updated.related_product_sets).toEqual(['系列B'])
+    expect((await readSuppliersStore(ws))['甲']).toHaveProperty('related_product_sets', ['系列B'])
+    // 未传字段保留原值
+    const partial = await box.suppliers.update({ name: '甲', contact: '李工' })
+    expect(partial.related_product_sets).toEqual(['系列B'])
   })
 })
