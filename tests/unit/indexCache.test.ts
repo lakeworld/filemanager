@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { WorkspaceIndex } from '../../src/main/core/indexCache'
 import type { CompactItem } from '../../src/main/core/indexCache'
 import { formatTime } from '../../src/main/core/workspace'
-import { PRODUCT_SETS_DIR, IMAGES_DIR, CERTS_DIR } from '../../src/main/core/paths'
+import { PRODUCT_SETS_DIR, IMAGES_DIR, CERTS_DIR, SUPPLIERS_DIR, QUOTES_DIR } from '../../src/main/core/paths'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -50,6 +50,29 @@ describe('WorkspaceIndex（v2.4.x Everything 式精简索引）', () => {
       expect(entries[0].path).toBe(path.join(d, 'a.jpg'))
     }
     expect(listRawCalls).toBe(3) // 命中 → 未增加
+  })
+
+  it('build：供应商（两级）/ 报价（一级）区域纳入逐目录快照（v2.4.9 §6.2）', async () => {
+    const ws = await tmp()
+    // 供应商/<名>/<子文件夹> 与 报价/<YYYY>（其余区域目录不存在，readdir 为空不影响计数）
+    await fsp.mkdir(path.join(ws, SUPPLIERS_DIR, '供应商A', '合同'), { recursive: true })
+    await fsp.mkdir(path.join(ws, SUPPLIERS_DIR, '供应商A', '对账单'), { recursive: true })
+    await fsp.mkdir(path.join(ws, SUPPLIERS_DIR, '供应商A', '往来文件'), { recursive: true })
+    await fsp.mkdir(path.join(ws, QUOTES_DIR, '2026'), { recursive: true })
+    const index = new WorkspaceIndex()
+    let listRawCalls = 0
+    const listRaw = async (): Promise<CompactItem[]> => {
+      listRawCalls++
+      return []
+    }
+    const built = await index.build(ws, listRaw)
+    expect(built).toBe(4) // 供应商A 3 子文件夹 + 报价/2026
+    expect(listRawCalls).toBe(4)
+
+    // 命中查询零 listRaw
+    const dir = path.join(ws, SUPPLIERS_DIR, '供应商A', '合同')
+    expect(await index.query(dir, listRaw)).toEqual([])
+    expect(listRawCalls).toBe(4)
   })
 
   it('query 命中零 listRaw；touch 目录 mtime 后签名变化 → 重建', async () => {

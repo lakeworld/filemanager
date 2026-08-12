@@ -70,6 +70,31 @@ describe('全局搜索（SearchService）', () => {
   })
 })
 
+describe('供应商/报价区文件命中（v2.4.9 §6.2）', () => {
+  it('供应商/<名>/<子文件夹> 与 报价/<YYYY>/ 原件按文件名命中，path 自明来源区域', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await fsp.mkdir(path.join(ws, '供应商', '供应商A', '合同'), { recursive: true })
+    await fsp.mkdir(path.join(ws, '供应商', '供应商A', '对账单'), { recursive: true })
+    await fsp.mkdir(path.join(ws, '报价', '2026'), { recursive: true })
+    await fsp.writeFile(path.join(ws, '供应商', '供应商A', '合同', '供应商A采购合同.pdf'), '%PDF-1.4')
+    await fsp.writeFile(path.join(ws, '供应商', '供应商A', '对账单', '供应商A对账单.txt'), 'x')
+    await fsp.writeFile(path.join(ws, '报价', '2026', '报价单QT-2026001.pdf'), '%PDF-1.4')
+
+    const r1 = await box.search.search('采购合同')
+    expect(r1.files.some((f) => f.name === '供应商A采购合同.pdf' && f.path.includes('供应商'))).toBe(true)
+    const r2 = await box.search.search('对账单')
+    expect(r2.files.some((f) => f.name === '供应商A对账单.txt' && f.path.includes('供应商'))).toBe(true)
+    const r3 = await box.search.search('报价单QT')
+    expect(r3.files.some((f) => f.name === '报价单QT-2026001.pdf' && f.path.includes('报价'))).toBe(true)
+    // 供应商/报价台账记录不进全局搜索（同发票：只搜文件本体）
+    const r4 = await box.search.search('供应商A')
+    expect(r4.files.length).toBeGreaterThan(0)
+  })
+})
+
 describe('搜索命中标签（v2.4.4 T1）', () => {
   it('文件标签命中：返回文件并附带 tags 供展示', async () => {
     const { box, ws } = await buildSearchBox()

@@ -7,12 +7,13 @@
  * - save/load：userData/index/<workspaceHash>/index.json 紧凑 JSON，二次启动免全量扫描
  * - v2.4.7（§4.5）：build() 增补 客户/<名>/<各子文件夹>、发票/<YYYY>/、入库/<YYYY>/ 三区扫描
  *   （与产品集同法逐目录快照；fs.watch 工作区根 recursive 天然覆盖，失效事件零改动）
+ * - v2.4.9（§6.2）：build() 再增补 供应商/<名>/<各子文件夹>（两级，同客户）与 报价/<YYYY>/（一级，同发票/入库）
  * 纯 TS：可在 node 环境直接测试。
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 import { formatTime } from './workspace'
-import { PRODUCT_SETS_DIR, IMAGES_DIR, CERTS_DIR, CUSTOMERS_DIR, INVOICES_DIR, INBOUND_DIR } from './paths'
+import { PRODUCT_SETS_DIR, IMAGES_DIR, CERTS_DIR, CUSTOMERS_DIR, INVOICES_DIR, INBOUND_DIR, SUPPLIERS_DIR, QUOTES_DIR } from './paths'
 import type { FileEntry } from '../../shared/types'
 
 /** 紧凑条目：元组，避免对象属性名重复占用内存 */
@@ -103,7 +104,9 @@ export class WorkspaceIndex {
    * 遍历工作区各区域的叶子目录，逐个构建快照：
    * - 产品集区：{产品集}/{图包|证书}/{子文件夹}（现有逻辑）
    * - 客户区：{客户}/{客户名}/{子文件夹}
+   * - 供应商区：{供应商}/{供应商名}/{子文件夹}（v2.4.9 S2 同构客户）
    * - 发票/入库区：{发票|入库}/{YYYY}（文件直接归档在年份目录下）
+   * - 报价区：{报价}/{YYYY}（v2.4.9 S3 同构发票/入库）
    * 不可读/不存在的目录静默跳过。返回成功构建的目录数。
    */
   async build(ws: string, listRaw: (dir: string) => Promise<CompactItem[]>): Promise<number> {
@@ -137,6 +140,14 @@ export class WorkspaceIndex {
     }
     built += await this.buildLeafSnapshots(path.join(ws, INVOICES_DIR), listRaw)
     built += await this.buildLeafSnapshots(path.join(ws, INBOUND_DIR), listRaw)
+    // —— v2.4.9（§6.2）：供应商（两级，同客户）/ 报价（一级，同发票/入库）——
+    const suppliersDir = path.join(ws, SUPPLIERS_DIR)
+    const suppliers = await fsp.readdir(suppliersDir, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[])
+    for (const s of suppliers) {
+      if (!s.isDirectory()) continue
+      built += await this.buildLeafSnapshots(path.join(suppliersDir, s.name), listRaw)
+    }
+    built += await this.buildLeafSnapshots(path.join(ws, QUOTES_DIR), listRaw)
     return built
   }
 
