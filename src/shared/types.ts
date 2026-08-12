@@ -314,7 +314,7 @@ export interface CustomerInfo {
   notes: string
   /** 关联产品集名数组（唯一写点在客户侧，产品集侧只读反查） */
   related_product_sets?: string[]
-  /** 预留命名空间（v2.6 erp-bridge 写回；本体只读不校验、API 面不含入参） */
+  /** 预留命名空间（v2.7 erp-bridge 写回；本体只读不校验、API 面不含入参） */
   erp_ext?: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -355,7 +355,7 @@ export interface CustomerCreateRequest {
   related_product_sets?: string[]
 }
 
-/** 客户档案更新：不含 erp_ext 字段（本体物理不可写，v2.6 erp-bridge 才写回） */
+/** 客户档案更新：不含 erp_ext 字段（本体物理不可写，v2.7 erp-bridge 才写回） */
 export interface CustomerUpdateRequest {
   name: string
   alias?: string

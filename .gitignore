@@ -42,7 +42,9 @@ web-tools/dist/
 软件发布包/
 
 # 内部文档（运维 / 审计 / 规划 / 动作记录，一律本地保留，绝不进开源仓库）
+# 无斜杠版兜底：worktree 中 docs/INTERNAL 以 symlink 存在，git 视为文件，斜杠目录规则不匹配
 docs/INTERNAL/
+docs/INTERNAL
 AGENTS.md
 docs/RELEASE-AUDIT.md
 # 内部运维文档与部署配置（v2.4.3 起从公开仓库移出，本地保留）
