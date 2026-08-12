@@ -1,65 +1,29 @@
 /**
- * 主进程文件日志：app.getPath('logs') 下按日期轮转。
- * 崩溃/异常/协议错误等关键事件落盘，便于排查。
+ * 主进程文件日志入口（v2.4.9 S6-1 薄壳）：核心能力迁至 core 层 FileLogger（src/main/core/logger.ts）。
+ * 本文件仅负责 electron 侧初始化（app.getPath('logs')）与转发，导出签名与 v2.4.2 完全一致，现有调用零改动。
  */
 import { app } from 'electron'
-import fsp from 'node:fs/promises'
-import path from 'node:path'
+import { FileLogger, type Logger } from './core/logger'
 
-let logDir = ''
-let currentDate = ''
-let stream: fsp.FileHandle | null = null
+let instance: FileLogger | null = null
 
 export function initLogger(): void {
   try {
-    logDir = app.getPath('logs')
-    void fsp.mkdir(logDir, { recursive: true })
-    // v2.4.2（批次二）：启动时清理 14 天前的日志文件（防常驻运行一年 365 个文件无界增长）
-    void cleanupOldLogs()
+    instance = new FileLogger({ logDir: app.getPath('logs') })
   } catch {
-    // 日志不可用时静默降级
+    // 日志不可用时静默降级（后续 log() 仅 console 输出）
   }
 }
 
-/** 删除 N 天前的 main-YYYY-MM-DD.log（保留近期日志便于排查） */
-const LOG_RETAIN_DAYS = 14
-async function cleanupOldLogs(): Promise<void> {
-  try {
-    const cutoff = new Date(Date.now() - LOG_RETAIN_DAYS * 24 * 60 * 60 * 1000)
-    const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`
-    const files = await fsp.readdir(logDir)
-    for (const f of files) {
-      const m = /^main-(\d{4}-\d{2}-\d{2})\.log$/.exec(f)
-      if (m && m[1] < cutoffStr) {
-        await fsp.rm(path.join(logDir, f), { force: true }).catch(() => {})
-      }
-    }
-  } catch {
-    // 清理失败不影响日志功能
-  }
-}
-
-async function getStream(): Promise<fsp.FileHandle | null> {
-  // 用本地日期命名日志文件（toISOString 是 UTC，会导致跨时区文件错日）
-  const d = new Date()
-  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  if (stream && currentDate === date) return stream
-  try {
-    await stream?.close()
-  } catch {
-    // 忽略
-  }
-  currentDate = date
-  try {
-    stream = await fsp.open(path.join(logDir, `main-${date}.log`), 'a')
-    return stream
-  } catch {
-    return null
-  }
-}
-
-/** 写日志：文件 + console 双通道 */
+/** 写日志：文件 + console 双通道（转发 core FileLogger） */
 export async function log(level: 'info' | 'warn' | 'error', msg: string): Promise<void> {
+  if (instance) {
+    if (level === 'error') await instance.error(msg)
+    else if (level === 'warn') await instance.warn(msg)
+    else await instance.info(msg)
+    return
+  }
+  // 未初始化（initLogger 未调用或失败）：仅 console 输出，保持旧行为
   if (level === 'error') {
     console.error(`[main] ${msg}`)
   } else if (level === 'warn') {
@@ -67,12 +31,9 @@ export async function log(level: 'info' | 'warn' | 'error', msg: string): Promis
   } else {
     console.log(`[main] ${msg}`)
   }
-  try {
-    const s = await getStream()
-    if (s) {
-      await s.write(`[${new Date().toISOString()}] [${level}] ${msg}\n`)
-    }
-  } catch {
-    // 静默
-  }
+}
+
+/** 暴露 FileLogger 实例（v2.4.9 S6：供后续模块注入使用） */
+export function getLogger(): Logger | null {
+  return instance
 }
