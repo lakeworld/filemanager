@@ -17,7 +17,7 @@ import {
   setSelectedProductSet,
   workspaceConfig,
 } from "~/stores/workspace";
-import type { ApiResult, CustomerInfo, ProductSetInfo, ProductSetCreateRequest } from "~/types";
+import type { ApiResult, CustomerInfo, ProductSetInfo, ProductSetCreateRequest, SupplierInfo } from "~/types";
 
 export default function ProductSets() {
   const navigate = useNavigate();
@@ -40,6 +40,9 @@ export default function ProductSets() {
   // v2.4.7（§5.2）：详情态「关联客户」只读区块——customers.json 反查 related_product_sets 含本集的客户
   // （写操作只在客户侧，单一写点，无双向同步；点击跳客户详情）
   const [relatedCustomers, setRelatedCustomers] = createSignal<CustomerInfo[]>([]);
+  // v2.4.9（打磨）：详情态「关联供应商」只读区块——suppliers.json 反查 related_product_sets 含本集的供应商
+  // （写操作只在供应商侧，单一写点镜像客户；点击跳供应商详情）
+  const [relatedSuppliers, setRelatedSuppliers] = createSignal<SupplierInfo[]>([]);
 
   const contextMenu = useContextMenu<ProductSetInfo>();
 
@@ -115,6 +118,23 @@ export default function ProductSets() {
     api.clients.list().then((result: ApiResult<CustomerInfo[]>) => {
       if (cancelled || !result.success || !result.data) return;
       setRelatedCustomers(result.data.filter((c) => (c.related_product_sets ?? []).includes(name)));
+    });
+  });
+
+  // v2.4.9（打磨）：关联供应商反查加载（镜像客户；suppliers.json 反查 related_product_sets）
+  createEffect(() => {
+    const name = psName();
+    if (!name) {
+      setRelatedSuppliers([]);
+      return;
+    }
+    let cancelled = false;
+    onCleanup(() => {
+      cancelled = true;
+    });
+    api.suppliers.list().then((result: ApiResult<SupplierInfo[]>) => {
+      if (cancelled || !result.success || !result.data) return;
+      setRelatedSuppliers(result.data.filter((s) => (s.related_product_sets ?? []).includes(name)));
     });
   });
 
@@ -486,6 +506,35 @@ export default function ProductSets() {
                       <span class="font-medium">{c.name}</span>
                       <Show when={c.file_count > 0}>
                         <span class="text-xs text-emerald-500">{c.file_count} 文件</span>
+                      </Show>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
+
+          {/* v2.4.9（打磨）：关联供应商只读区块（suppliers.json 反查 related_product_sets；写操作只在供应商侧） */}
+          <div class="card p-5 mt-4">
+            <div class="flex items-center justify-between mb-3">
+              <h2 class="text-lg font-semibold">关联供应商</h2>
+              <span class="text-sm text-surface-400">在供应商详情页维护关联</span>
+            </div>
+            <Show when={relatedSuppliers().length > 0} fallback={
+              <EmptyState icon="🏭" title="暂无关联供应商" desc="可在供应商详情页的关联产品集区域添加" />
+            }>
+              <div class="flex flex-wrap gap-2">
+                <For each={relatedSuppliers()}>
+                  {(s) => (
+                    <button
+                      class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors text-sm"
+                      onClick={() => navigate(`/suppliers/${encodeURIComponent(s.name)}`)}
+                      title={`查看供应商「${s.name}」`}
+                    >
+                      <span>🏭</span>
+                      <span class="font-medium">{s.name}</span>
+                      <Show when={s.file_count > 0}>
+                        <span class="text-xs text-amber-500">{s.file_count} 文件</span>
                       </Show>
                     </button>
                   )}

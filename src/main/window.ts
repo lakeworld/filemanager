@@ -380,6 +380,12 @@ async function wakeRecheck(win: BrowserWindow, delayMs: number): Promise<boolean
 }
 
 async function recoverAfterWake(win: BrowserWindow): Promise<void> {
+  // v2.4.9（修复）：入口互斥——resume 自愈进行中时托盘恢复（windowShow）也会调用本函数，
+  // 两路并发会同时 invalidate/reload/destroy 同一窗口；inFlight 时直接跳过（已有自愈在跑）。
+  if (wakeRecoveryInFlight) {
+    void log('info', '[wake] 自愈已在进行，跳过本次（互斥）')
+    return
+  }
   wakeRecoveryInFlight = true
   try {
     if (win.isDestroyed()) {
@@ -493,6 +499,10 @@ export function windowShow(): void {
   cancelDestroy()
   // v2.4.3（F3）：唤醒即做活性检查（加载中自动跳过，ready-to-show 兜底）
   void pingRenderer(win)
+  // v2.4.9（修复）：托盘恢复路径补画面自愈——隐藏期间 GPU 合成表面可能失效（与休眠同类），
+  // JS 活性检查测不出白屏（渲染进程活着、画面空白）；recoverAfterWake 自带全部守卫
+  // （销毁/最小化/崩溃/加载中/隐藏均跳过），画面正常仅一次无害 invalidate，失效才逐级修复。
+  void recoverAfterWake(win)
 }
 
 export function windowMinimize(): void {
