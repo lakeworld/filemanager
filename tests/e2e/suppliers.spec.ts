@@ -223,4 +223,44 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     await fsp.rm(src, { force: true }).catch(() => {})
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
+
+  test('标签：新建带标签（TagInput）→ 保存 → 卡片/详情标签可见', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-suppliers-tag-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+
+    await gotoRoute('/suppliers')
+    await expect(page.getByRole('heading', { name: '供应商', exact: true })).toBeVisible({ timeout: 15000 })
+
+    // 新建弹窗：名称 + 标签输入（TagInput 回车新建标签，无已定义匹配 → 走「新建标签」流程）
+    await page.getByRole('button', { name: '➕ 新建供应商' }).click()
+    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '新建供应商' }) })
+    await expect(modal).toBeVisible()
+    await modal.getByPlaceholder('如：义乌恒通供应链').fill('标签供应商')
+    const tagInput = modal.getByPlaceholder('如：重点供应商、外贸')
+    await tagInput.fill('E2E重点供应商')
+    await tagInput.press('Enter')
+    // 已选 chip 可见（TagInput 受控 value 已含该标签）
+    await expect(modal.getByText('E2E重点供应商', { exact: true })).toBeVisible()
+    await modal.getByRole('button', { name: '确认创建' }).click()
+    await expect(modal).not.toBeVisible()
+
+    // 列表卡片标签可见
+    await expect(page.getByText('标签供应商', { exact: true })).toBeVisible()
+    await expect(page.getByText('E2E重点供应商', { exact: true })).toBeVisible()
+
+    // 数据核对：tags 已持久化（core 透传）
+    const list = await page.evaluate(async () => (window as any).qihebox.suppliers.list())
+    expect(list.success).toBe(true)
+    const s = list.data.find((x: { name: string }) => x.name === '标签供应商')
+    expect(s).toBeTruthy()
+    expect(s.tags).toEqual(['E2E重点供应商'])
+
+    // 详情页档案卡标签可见
+    await gotoRoute(`/suppliers/${encodeURIComponent('标签供应商')}`)
+    await expect(page.getByRole('heading', { name: '标签供应商' })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole('heading', { name: '供应商档案' })).toBeVisible()
+    await expect(page.getByText('E2E重点供应商', { exact: true })).toBeVisible()
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
 })

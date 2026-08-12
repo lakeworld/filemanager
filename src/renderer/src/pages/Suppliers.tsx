@@ -6,6 +6,7 @@ import { currentWorkspace } from "~/stores/workspace";
 import { suppliers, loadSuppliers } from "~/stores/suppliers";
 import { showToast } from "~/stores/notifyBanner";
 import TagChip from "~/components/TagChip";
+import TagInput from "~/components/TagInput";
 import EmptyState from "~/components/EmptyState";
 import ContextMenu from "~/components/ContextMenu";
 import ConfirmDialog from "~/components/ConfirmDialog";
@@ -22,7 +23,7 @@ const SUPPLIER_ROW_HEIGHT = 244;
 
 /**
  * 供应商列表页（v2.4.9 S2，PLAN §3.1）：
- * 卡片网格（名称/联系人/标签/文件数）+ 新建弹窗（name/contact/phone/email/address/notes）
+ * 卡片网格（名称/联系人/标签/文件数）+ 新建弹窗（name/contact/phone/email/address/tags/notes）
  * + 删除（ConfirmDialog「移入回收站」）+ 重命名（弹窗；级联 inbound.supplier_id 在 core BoxService.renameSupplier）。
  * 详情页独立（SupplierDetail.tsx，/suppliers/:name），与客户同范式。
  */
@@ -36,6 +37,8 @@ export default function Suppliers() {
   const [newEmail, setNewEmail] = createSignal("");
   const [newAddress, setNewAddress] = createSignal("");
   const [newNotes, setNewNotes] = createSignal("");
+  // v2.4.9 打磨 M1：新建弹窗标签（TagInput，同客户弹窗范式）
+  const [newTags, setNewTags] = createSignal<string[]>([]);
 
   // 重命名弹窗状态（列表入口；改名后走 qihebox:suppliers:rename，级联在 core 已做）
   const [renameTarget, setRenameTarget] = createSignal<SupplierInfo | null>(null);
@@ -67,6 +70,7 @@ export default function Suppliers() {
       phone: newPhone().trim() || undefined,
       email: newEmail().trim() || undefined,
       address: newAddress().trim() || undefined,
+      tags: newTags(),
       notes: newNotes().trim() || undefined,
     };
     const result = await api.suppliers.create(req);
@@ -78,6 +82,7 @@ export default function Suppliers() {
       setNewEmail("");
       setNewAddress("");
       setNewNotes("");
+      setNewTags([]);
       loadSuppliers();
     } else {
       showToast("error", "创建失败", result.error || "未知错误");
@@ -215,7 +220,7 @@ export default function Suppliers() {
         </Show>
       </Show>
 
-      {/* 新建供应商弹窗（字段：名称/联系人/电话/邮箱/地址/备注） */}
+      {/* 新建供应商弹窗（字段：名称/联系人/电话/邮箱/地址/标签/备注） */}
       <Show when={showCreateModal()}>
         <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-hidden" onClick={() => setShowCreateModal(false)}>
           <div class="bg-white rounded-2xl w-full max-w-xl p-6 shadow-xl max-h-[90vh] overflow-y-auto overflow-x-hidden" onClick={(e) => e.stopPropagation()}>
@@ -271,6 +276,15 @@ export default function Suppliers() {
                   onInput={(e) => setNewAddress(e.currentTarget.value)}
                 />
               </div>
+            </div>
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-surface-700 mb-1">标签（建议从已定义标签中选择）</label>
+              <TagInput
+                value={newTags()}
+                onChange={setNewTags}
+                options={tagList()}
+                placeholder="如：重点供应商、外贸"
+              />
             </div>
             <div class="mb-4">
               <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>
