@@ -296,12 +296,15 @@ export class FilesService {
       // v2.4.2（I3）：元数据累积，循环结束一次落盘（finally 兜底取消路径）
       const metaEntries: { filePath: string; meta: FileMetadata }[] = []
       const total = sourceFiles.length
+      // v2.4.9 S5：批次编号槽位——补零位数按批次总量自适应（单文件 → '1'；10 文件 → '01'…'10'），随 readdir 顺序递增
+      const seqWidth = String(total).length
       try {
         for (let i = 0; i < total; i++) {
           // v2.3.0：支持取消（渲染层 importCancel 置位后中断抛错，已复制文件保留）
           if (opts?.isCancelled?.()) throw new ImportCancelledError(imported)
           try {
-            const entry = await this.importOneFile(sourceFiles[i], targetDir, req, cfg, metaEntries)
+            const seq = String(i + 1).padStart(seqWidth, '0')
+            const entry = await this.importOneFile(sourceFiles[i], targetDir, req, cfg, metaEntries, seq)
             imported.push(entry)
           } catch (err) {
             // v2.4.2（I1）：单文件失败收集，不中断整批
@@ -383,6 +386,7 @@ export class FilesService {
     req: ImportFileRequest,
     cfg: WorkspaceConfig,
     metaEntries: { filePath: string; meta: FileMetadata }[],
+    sequence: string,
   ): Promise<FileEntry> {
     const p = this.normalizeSourcePath(srcPath)
     if (!p) throw new Error('源路径为空')
@@ -393,9 +397,9 @@ export class FilesService {
     const ext = path.extname(p).toLowerCase()
     const base = sanitizeName(path.basename(p, ext))
 
-    // 命名模板组合
-    const ctx: ImportContext = { targetProductSet: req.target_product_set, subFolder: req.sub_folder }
-    let candidate = composeTargetName(cfg, base, ext, ctx)
+    // 命名模板组合（v2.4.9 S5：收 cfg.naming_template + ctx 带批次编号 sequence）
+    const ctx: ImportContext = { targetProductSet: req.target_product_set, subFolder: req.sub_folder, sequence }
+    let candidate = composeTargetName(cfg.naming_template, base, ext, ctx)
 
     // 冲突后缀
     const destPath = path.join(targetDir, candidate)

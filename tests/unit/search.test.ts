@@ -42,7 +42,7 @@ async function buildSearchBox() {
 describe('全局搜索（SearchService）', () => {
   it('文件名关键词命中：返回文件并带上所属产品集', async () => {
     const { box } = await buildSearchBox()
-    // 导入时命名模板会重命名（系列A_主图_红色毛衣.jpg），用包含匹配
+    // 导入时命名模板会重命名（v2.4.9 S5 后为 系列A_主图_红色毛衣_1.jpg），用包含匹配
     const r1 = await box.search.search('毛衣')
     expect(r1.files.map((f) => f.name).some((n) => n.includes('红色毛衣'))).toBe(true)
     expect(r1.product_sets.map((p) => p.name)).toContain('系列A')

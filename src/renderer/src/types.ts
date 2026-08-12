@@ -3,6 +3,7 @@ export type {
   ApiResult,
   WorkspaceInfo,
   NamingTemplate,
+  NamingField,
   WorkspaceConfig,
   ProductSetInfo,
   ProductSetCreateRequest,

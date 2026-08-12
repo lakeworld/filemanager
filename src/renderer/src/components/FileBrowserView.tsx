@@ -1,7 +1,7 @@
 import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
-import { workspaceConfig, loadWorkspaceConfig, currentWorkspace, fileBrowserRefreshTrigger } from "~/stores/workspace";
+import { workspaceConfig, loadWorkspaceConfig, currentWorkspace, fileBrowserRefreshTrigger, defaultNamingTemplate } from "~/stores/workspace";
 import { openPreview } from "~/stores/preview";
 import { showToast } from "~/stores/notifyBanner";
 import { loadTagDefs, tagLabel, tagList } from "~/stores/tags";
@@ -656,10 +656,13 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         />
       </Show>
 
-      {/* 批量重命名（v2.3.3 P2，多选菜单入口） */}
+      {/* 批量重命名（v2.3.3 P2，多选菜单入口；v2.4.9 S5 复用命名模板——template 缺省兜底默认对象，
+           ctx 的 product_set 槽位 = 当前实体名（产品集/客户/供应商，与导入语义一致）） */}
       <Show when={showBatchRename()}>
         <BatchRenameDialog
           files={batchRenameFiles()}
+          template={workspaceConfig()?.naming_template ?? defaultNamingTemplate()}
+          ctx={{ targetProductSet: props.entity, subFolder: props.subFolder }}
           onClose={() => setShowBatchRename(false)}
           onDone={() => {
             loadFiles();

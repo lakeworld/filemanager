@@ -20,11 +20,14 @@ export interface WorkspaceInfo {
   created_at: string
 }
 
+/** v2.4.9 S5：命名模板槽位（product_set/sub_folder/original_name/sequence；sequence 缺省/空 → 槽位跳过） */
+export type NamingField = 'product_set' | 'sub_folder' | 'original_name' | 'sequence'
+
 export interface NamingTemplate {
   product_set_prefix: string
   product_set_suffix: string
   sku_separator: string
-  sku_fields: string[]
+  sku_fields: NamingField[]
   conflict_suffix: string
 }
 
