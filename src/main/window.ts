@@ -503,6 +503,16 @@ export function windowShow(): void {
   // JS 活性检查测不出白屏（渲染进程活着、画面空白）；recoverAfterWake 自带全部守卫
   // （销毁/最小化/崩溃/加载中/隐藏均跳过），画面正常仅一次无害 invalidate，失效才逐级修复。
   void recoverAfterWake(win)
+  // v2.4.9（打磨）：托盘/激活恢复 → 通知渲染层回仪表盘（用户反馈：托盘打开固定看首页）。
+  // 窗口若在重建加载中，等 did-finish-load 再发（事件不丢）；已就绪则直接发。
+  const notifyRestored = () => {
+    if (!win.isDestroyed() && !quitting) win.webContents.send('qihebox:event:window:restored')
+  }
+  if (wc.isLoading()) {
+    wc.once('did-finish-load', notifyRestored)
+  } else {
+    notifyRestored()
+  }
 }
 
 export function windowMinimize(): void {
