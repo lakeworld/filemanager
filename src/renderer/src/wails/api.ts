@@ -233,6 +233,10 @@ export const api = {
   },
   app: {
     version: () => qb.app.version() as Promise<string>,
+    // v2.4.9（S4）：开机自启（Linux .desktop / Win·mac 系统登录项）/ 托盘状态
+    setAutoLaunch: (enabled: boolean) => qb.app.setAutoLaunch(enabled) as Promise<ApiResult<boolean>>,
+    isAutoLaunch: () => qb.app.isAutoLaunch() as Promise<ApiResult<boolean>>,
+    isTrayReady: () => qb.app.isTrayReady() as Promise<ApiResult<boolean>>,
   },
   updater: {
     check: () => qb.updater.check() as Promise<ApiResult<UpdateInfo | null>>,

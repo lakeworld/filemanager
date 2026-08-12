@@ -18,6 +18,7 @@ import { copyFilesToClipboard } from './clipboard'
 import { showFilesInExplorer } from './explorer'
 import { workspaceFileUrl, thumbnailFileUrl } from './protocol'
 import { checkUpdate, downloadUpdate, applyUpdate, getCachedUpdate, UpdateInfo } from './updater'
+import { setAutoLaunch, isAutoLaunch } from './autoLaunchMain'
 import { isPathInsideWorkspaceReal, classifyFileType } from './core/paths'
 import { FilesService, ImportCancelledError } from './core/files'
 import { ZipCancelledError, compressToZip } from './core/archive'
@@ -93,7 +94,19 @@ function rememberSavePath(p: string): void {
   }
 }
 
-export function registerIpc(box: BoxService, account: AccountService): void {
+/**
+ * v2.4.9（S4）：app 命名空间 IPC 依赖注入——index.ts 闭包态（托盘状态）经此传入，
+ * 避免 ipc.ts 反向依赖 index.ts（环）。isTrayReady 供渲染层/自启态查询托盘是否已初始化。
+ */
+export interface AppIpcHooks {
+  isTrayReady: () => boolean
+}
+
+export function registerIpc(
+  box: BoxService,
+  account: AccountService,
+  hooks: AppIpcHooks = { isTrayReady: () => false },
+): void {
   // —— 账号（v2.2.0：可选登录复用 ERP 账号；心跳统计活跃）——
   ipcMain.handle('qihebox:account:status', () => handle(() => account.status()))
   ipcMain.handle('qihebox:account:login', (_e, email: string, password: string) =>
@@ -591,6 +604,17 @@ export function registerIpc(box: BoxService, account: AccountService): void {
 
   // —— 应用信息 ——
   ipcMain.handle('qihebox:app:version', () => app.getVersion())
+
+  // —— v2.4.9（S4）：开机自启（平台薄壳在 autoLaunchMain.ts；Linux .desktop / Win·mac 系统登录项）——
+  ipcMain.handle('qihebox:app:setAutoLaunch', (_e, enabled: boolean) =>
+    handle(() => {
+      setAutoLaunch(!!enabled)
+      return true
+    }),
+  )
+  ipcMain.handle('qihebox:app:isAutoLaunch', () => handle(() => isAutoLaunch()))
+  // r3 P1-2 定稿：tray 为 index.ts 闭包变量、e2e/渲染层无法直接访问——查询 IPC 返回 tray !== null
+  ipcMain.handle('qihebox:app:isTrayReady', () => ok(hooks.isTrayReady()))
 
   // —— 更新（占位）——
   ipcMain.handle('qihebox:updater:check', () => handle(() => checkUpdate(app.getVersion())))
