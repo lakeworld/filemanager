@@ -115,7 +115,6 @@ interface QiheboxApi {
   }
   // v2.4.9（S6-2）：日志（「我的」页日志卡片）
   log: {
-    openDir: () => Promise<unknown>
     exportZip: () => Promise<unknown>
   }
   dashboard: {

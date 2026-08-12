@@ -110,17 +110,7 @@ export default function Profile() {
     window.open("https://www.qihebook.cloud/file-manager", "_blank");
   };
 
-  // v2.4.9（S6-2）：日志卡片——打开日志目录 / 导出 zip（IPC 薄透传，主进程实现）
-  const openLogDir = async () => {
-    setLogErr("");
-    try {
-      const r = await api.log.openDir();
-      if (!r.success) setLogErr(r.error || "打开日志目录失败");
-    } catch (err) {
-      setLogErr(err instanceof Error ? err.message : String(err));
-    }
-  };
-
+  // v2.4.9（S6-2）：日志卡片——导出 zip（IPC 薄透传，主进程实现；2026-08-12 用户反馈：不需要打开日志目录，仅保留导出）
   const exportLogs = async () => {
     setLogErr("");
     setLogMsg("");
@@ -323,7 +313,7 @@ export default function Profile() {
               </div>
             </Show>
 
-            {/* v2.4.9（S6-2）：日志卡片——打开日志目录 / 导出 zip（应用级，不随工作区门控） */}
+            {/* v2.4.9（S6-2）：日志卡片——导出 zip（应用级，不随工作区门控） */}
             <Show when={active() === "log"}>
               <div class="rounded-2xl border border-surface-200 bg-white p-6 shadow-card">
                 <div class="mb-4 flex items-center gap-2 border-b border-surface-100 pb-4">
@@ -331,17 +321,11 @@ export default function Profile() {
                   <h2 class="text-lg font-semibold text-surface-900">日志</h2>
                 </div>
                 <p class="text-sm text-surface-600">
-                  日志文件用于诊断崩溃与异常，本地存储，不上传。需要排查问题时可将日志目录发给开发者。
+                  日志文件用于诊断崩溃与异常，本地存储，不上传。需要排查问题时可将日志导出后发给开发者。
                 </p>
                 <div class="mt-4 flex flex-wrap items-center gap-3">
                   <button
-                    class="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-700"
-                    onClick={() => openLogDir()}
-                  >
-                    打开日志目录
-                  </button>
-                  <button
-                    class="inline-flex items-center gap-1.5 rounded-lg border border-surface-200 bg-white px-4 py-2 text-sm font-semibold text-surface-700 transition hover:bg-surface-50 disabled:opacity-50"
+                    class="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-700 disabled:opacity-50"
                     onClick={() => exportLogs()}
                     disabled={logBusy()}
                   >

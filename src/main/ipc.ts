@@ -552,17 +552,9 @@ export function registerIpc(
     }),
   )
 
-  // —— v2.4.9（S6-2）：日志（「我的」页日志卡片；打开日志目录 / 导出 zip）——
+  // —— v2.4.9（S6-2）：日志（「我的」页日志卡片；导出 zip；2026-08-12 用户反馈不再需要打开日志目录）——
   // 只收集 main-YYYY-MM-DD.log（与 core FileLogger 同口径，不碰目录内其他文件）
   const LOG_FILE_RE = /^main-(\d{4}-\d{2}-\d{2})\.log$/
-  ipcMain.handle('qihebox:log:openDir', () =>
-    handle(async () => {
-      const logDir = app.getPath('logs')
-      // open.ts 已含 Linux xdg-open 5s 超时 + e2e 短路，不挂起 IPC
-      await openFileWithDefaultApp(logDir)
-      return { path: logDir }
-    }),
-  )
   ipcMain.handle('qihebox:log:exportZip', () =>
     handle(async () => {
       const logDir = app.getPath('logs')

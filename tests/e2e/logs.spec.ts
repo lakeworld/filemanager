@@ -15,7 +15,7 @@ const LOGS_DIR = path.join(os.tmpdir(), 'qihebox-e2e-userdata', 'logs')
 
 /**
  * S6 日志系统（v2.4.9，PLAN §3.6.3 / §3.6.4）：
- * 1. 「我的」页日志卡片：打开日志目录 / 导出日志两按钮可见
+ * 1. 「我的」页日志卡片：导出日志按钮可见（2026-08-12 用户反馈：不再提供打开日志目录）
  * 2. 导出日志：保存对话框（e2e 打桩）→ 确认 → 路径存在且为 zip
  * 3. 渲染进程 console.error/warn 注入 → main-*.log 含 [renderer] 行（info 不转发）
  */
@@ -58,13 +58,11 @@ test.describe('S6 日志系统', () => {
     await page.getByRole('heading', { name: '日志' }).waitFor({ timeout: 10000 })
   }
 
-  test('「我的」页日志卡片：打开日志目录 / 导出日志两按钮可见', async () => {
+  test('「我的」页日志卡片：导出日志按钮可见', async () => {
     await openLogCard()
-    await expect(page.getByRole('button', { name: '打开日志目录' })).toBeVisible()
+    // 2026-08-12 用户反馈：不需要打开日志目录，仅保留导出
     await expect(page.getByRole('button', { name: '导出日志' })).toBeVisible()
-    // 打开日志目录：e2e 下 openFileWithDefaultApp 短路（不 spawn 外部应用），IPC 通路正常返回、不报错
-    await page.getByRole('button', { name: '打开日志目录' }).click()
-    await expect(page.getByText(/打开日志目录失败/)).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '打开日志目录' })).toHaveCount(0)
   })
 
   test('导出日志：保存对话框确认 → 路径存在且为 zip', async () => {
