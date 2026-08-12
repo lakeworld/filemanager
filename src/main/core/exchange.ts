@@ -406,7 +406,7 @@ export class ExchangeService {
     for (const src of sources) {
       const ext = path.extname(src).toLowerCase()
       const base = sanitizeName(path.basename(src, ext))
-      const candidate = composeTargetName(cfg, base, ext, { targetProductSet: psSlot, subFolder: subSlot })
+      const candidate = composeTargetName(cfg.naming_template, base, ext, { targetProductSet: psSlot, subFolder: subSlot })
       const finalName = await resolveConflictName(targetDir, candidate, cfg.naming_template.conflict_suffix, ext)
       await fsp.copyFile(src, path.join(targetDir, finalName), fs.constants.COPYFILE_EXCL)
       archived.push(path.relative(ws, path.join(targetDir, finalName)).split(path.sep).join('/'))

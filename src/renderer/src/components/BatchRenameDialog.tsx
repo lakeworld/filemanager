@@ -1,22 +1,23 @@
 import { Show, For, createSignal, createMemo, onMount, onCleanup } from "solid-js";
 import { api } from "~/wails/api";
-import { baseOf, batchRenameTargets } from "~/utils/batchRename";
-import type { FileEntry } from "~/types";
+import { batchRenameTargets } from "~/utils/batchRename";
+import type { FileEntry, NamingTemplate } from "~/types";
 
 /**
- * 「批量重命名」对话框（v2.3.3 P2）。
- * 输入前缀（默认取第一个选中文件的主名）与起始序号（默认 1），
- * 实时预览目标名列表（`{前缀}_{序号}{扩展名}`，序号补零位数按数量自适应，冲突自动加 _1）。
+ * 「批量重命名」对话框（v2.3.3 P2 引入，v2.4.9 S5 复用命名模板）。
+ * 命名模板由父级传入（workspaceConfig().naming_template，缺省兜底默认对象），
+ * ctx 的 product_set 槽位 = 当前实体名（产品集/客户/供应商，与导入语义一致）、sub_folder = 当前子文件夹；
+ * 用户仅输入起始序号（默认 1），实时预览目标名列表（模板组合 + 序号补零位数按数量自适应，冲突自动加 _1）。
  * 应用时逐个调用 api.files.rename（每个文件一次 IPC，不新增后端批量 API），
  * 单文件失败跳过并汇总提示；全部成功才关闭并回调 onDone（父级刷新列表、清空选择）。
  */
 export default function BatchRenameDialog(props: {
   files: FileEntry[];
+  template: NamingTemplate;
+  ctx: { targetProductSet: string; subFolder: string };
   onClose: () => void;
   onDone: () => void;
 }) {
-  const first = () => props.files[0];
-  const [prefix, setPrefix] = createSignal(baseOf(first()?.name ?? ""));
   const [startStr, setStartStr] = createSignal("1");
   const [status, setStatus] = createSignal<"idle" | "renaming" | "error">("idle");
   const [errorMsg, setErrorMsg] = createSignal("");
@@ -26,9 +27,9 @@ export default function BatchRenameDialog(props: {
     return Number.isNaN(n) ? 1 : n;
   };
 
-  // 目标名预览（含批内/磁盘重名绕行），随输入实时重算
+  // 目标名预览（含批内/磁盘重名绕行），随起始序号实时重算
   const targetNames = createMemo<string[]>(() =>
-    batchRenameTargets(props.files, prefix(), startNum()),
+    batchRenameTargets(props.files, props.template, props.ctx, startNum()),
   );
 
   // 收尾轮：Esc 关闭（重命名进行中不允许，只能等待完成）
@@ -84,17 +85,6 @@ export default function BatchRenameDialog(props: {
 
         <div class="space-y-4">
           <div>
-            <label class="block text-sm font-medium text-surface-700 mb-1">前缀</label>
-            <input
-              type="text"
-              class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              placeholder="文件名前缀，如：夏季T恤"
-              value={prefix()}
-              onInput={(e) => setPrefix(e.currentTarget.value)}
-            />
-          </div>
-
-          <div>
             <label class="block text-sm font-medium text-surface-700 mb-1">起始序号</label>
             <input
               type="number"
@@ -103,6 +93,9 @@ export default function BatchRenameDialog(props: {
               value={startStr()}
               onInput={(e) => setStartStr(e.currentTarget.value)}
             />
+            <p class="text-xs text-surface-400 mt-1">
+              命名规则：{props.ctx.targetProductSet || "产品集名"}_{props.ctx.subFolder || "子文件夹"}_原文件名_序号
+            </p>
           </div>
 
           <div>

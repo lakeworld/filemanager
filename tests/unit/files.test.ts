@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest'
 import { buildTestBox, WorkspaceService } from './helpers'
 import { ImportCancelledError, ThumbnailProvider } from '../../src/main/core/files'
 import { BoxService } from '../../src/main/core'
-import { batchRenameTargets } from '../../src/renderer/src/utils/batchRename'
 import type { FileEntry } from '../../src/main/core/files'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -39,7 +38,8 @@ describe('文件导入与命名（对照原 files.go / app_test.go 链路）', (
     })
     expect(result.imported).toHaveLength(1)
     expect(result.failed).toHaveLength(0)
-    expect(result.imported[0].name).toBe('夏季T恤系列_主图_src-banner.jpg')
+    // v2.4.9 S5：默认模板含 sequence 槽位——单文件批次 total=1 → 编号 '1'
+    expect(result.imported[0].name).toBe('夏季T恤系列_主图_src-banner_1.jpg')
     expect(result.imported[0].file_type).toBe('image')
 
     // 文件真实落盘
@@ -108,11 +108,11 @@ describe('文件导入与命名（对照原 files.go / app_test.go 链路）', (
     const first = (await box.files.importFiles(req)).imported
     const second = (await box.files.importFiles(req)).imported
     const names = [...first, ...second].map((f) => f.name)
-    // 首次：img.png、img2.png；二次：img_1.png、img2_1.png
-    expect(names[0]).toMatch(/系列A_主图_img\.png$/)
-    expect(names[1]).toMatch(/系列A_主图_img2\.png$/)
-    expect(names[2]).toMatch(/系列A_主图_img_1\.png$/)
-    expect(names[3]).toMatch(/系列A_主图_img2_1\.png$/)
+    // v2.4.9 S5：批次编号——首次 2 文件 seq 1/2（img_1、img2_2）；二次同候选名冲突 → resolveConflictName 加 _1（img_1_1、img2_2_1）
+    expect(names[0]).toMatch(/系列A_主图_img_1\.png$/)
+    expect(names[1]).toMatch(/系列A_主图_img2_2\.png$/)
+    expect(names[2]).toMatch(/系列A_主图_img_1_1\.png$/)
+    expect(names[3]).toMatch(/系列A_主图_img2_2_1\.png$/)
   })
 
   it('v2.4.2（I1）：单文件失败不中断整批——坏源跳过，其余导入成功', async () => {
@@ -138,7 +138,7 @@ describe('文件导入与命名（对照原 files.go / app_test.go 链路）', (
     expect(result.failed[0].path).toBe(missing)
   })
 
-  it('v2.4.2（D1）：无扩展名文件冲突加 _1 不丢原名（LICENSE → LICENSE_1）', async () => {
+  it('v2.4.2（D1）：无扩展名文件冲突加 _1 不丢原名（LICENSE → LICENSE_1_1）', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -147,10 +147,11 @@ describe('文件导入与命名（对照原 files.go / app_test.go 链路）', (
 
     const src = path.join(ws, '..', 'LICENSE')
     await fsp.writeFile(src, 'MIT')
-    // 目标已存在同文件 → 冲突
+    // v2.4.9 S5：默认模板含 sequence——单文件批次候选名 = 无扩展名_主图_LICENSE_1，
+    // 预置同名文件触发冲突（无扩展名文件冲突后缀必须原样追加，不丢主名）
     const destDir = path.join(ws, '产品集', '无扩展名', '图包', '主图')
     await fsp.mkdir(destDir, { recursive: true })
-    await fsp.writeFile(path.join(destDir, '无扩展名_主图_LICENSE'), 'MIT-OLD')
+    await fsp.writeFile(path.join(destDir, '无扩展名_主图_LICENSE_1'), 'MIT-OLD')
 
     const result = await box.files.importFiles({
       source_paths: [src],
@@ -159,8 +160,8 @@ describe('文件导入与命名（对照原 files.go / app_test.go 链路）', (
       target_type: 'image',
       sub_folder: '主图',
     })
-    // 旧实现 slice(0,-0) 会把文件名清空成 `_1`，这里必须保留原名
-    expect(result.imported[0].name).toBe('无扩展名_主图_LICENSE_1')
+    // 旧实现 slice(0,-0) 会把文件名清空成 `_1`，这里必须保留原名；冲突再叠加 _1
+    expect(result.imported[0].name).toBe('无扩展名_主图_LICENSE_1_1')
   })
 
   it('file:// 前缀路径兼容', async () => {
@@ -506,13 +507,16 @@ describe('导入目录（v2.3.3 P2：递归平铺导入）', () => {
     })).imported
     // 仅 3 个非隐藏文件被导入；隐藏文件 / 隐藏目录内文件 / 空目录全部跳过
     expect(imported).toHaveLength(3)
+    // v2.4.9 S5：编号槽位随 readdir 展开顺序 1/2/3（readdir 顺序与文件系统相关 → 断言「基名各一 + 编号集合固定」，不绑定具体顺序）
     const names = imported.map((f) => f.name).sort()
-    expect(names).toEqual(['目录导入_主图_a.jpg', '目录导入_主图_b.png', '目录导入_主图_c.jpg'])
-    // 全部平铺到目标子文件夹（不保留子目录结构）
+    const pat = /^目录导入_主图_(a|b|c)_([123])\.(jpg|png)$/
+    expect(names.every((n) => pat.test(n))).toBe(true)
+    expect(new Set(names.map((n) => n.match(pat)![2]))).toEqual(new Set(['1', '2', '3']))
+    // 全部平铺到目标子文件夹（不保留子目录结构），文件名同样带编号
     const destDir = path.join(ws, '产品集', '目录导入', '图包', '主图')
-    expect((await fsp.readdir(destDir)).sort()).toEqual(
-      ['目录导入_主图_a.jpg', '目录导入_主图_b.png', '目录导入_主图_c.jpg'],
-    )
+    const dest = (await fsp.readdir(destDir)).sort()
+    expect(dest).toHaveLength(3)
+    expect(dest.every((n) => pat.test(n))).toBe(true)
   })
 
   it('目录内仅隐藏文件/空目录 → 没有可导入的文件', async () => {
@@ -567,47 +571,6 @@ describe('导入目录（v2.3.3 P2：递归平铺导入）', () => {
       { done: 2, total: 3 },
       { done: 3, total: 3 },
     ])
-  })
-})
-
-describe('批量重命名目标名生成（v2.3.3 P2：前端批处理，参照 resolveConflictName 加 _1 语义）', () => {
-  /** 构造 FileEntry（name 即磁盘文件名，用于冲突判定） */
-  function fe(name: string): FileEntry {
-    return { name, path: `/ws/${name}`, size: 1, modified: '', file_type: 'image', thumbnail_path: null }
-  }
-
-  it('前缀 + 起始序号：序号补零位数按数量自适应', () => {
-    const files = [fe('a.jpg'), fe('b.png'), fe('c.jpg')]
-    // 3 个文件 → 最大序号 3，补零 1 位
-    expect(batchRenameTargets(files, '夏季', 1)).toEqual(['夏季_1.jpg', '夏季_2.png', '夏季_3.jpg'])
-  })
-
-  it('起始序号跨 10 位：自动升级补零位数', () => {
-    const files = [fe('a.jpg'), fe('b.jpg'), fe('c.jpg'), fe('d.jpg'), fe('e.jpg')]
-    expect(batchRenameTargets(files, 'P', 97)).toEqual([
-      'P_097.jpg',
-      'P_098.jpg',
-      'P_099.jpg',
-      'P_100.jpg',
-      'P_101.jpg',
-    ])
-  })
-
-  it('自身原名命中目标名：不视为冲突', () => {
-    const files = [fe('夏季_1.jpg'), fe('b.jpg')]
-    // f1 目标名即自身原名 → 无需绕行；f2 正常
-    expect(batchRenameTargets(files, '夏季', 1)).toEqual(['夏季_1.jpg', '夏季_2.jpg'])
-  })
-
-  it('目标名与磁盘已有文件冲突 → 追加 _1 递增', () => {
-    const files = [fe('a.jpg'), fe('夏季_1.jpg')]
-    // f1 目标 夏季_1.jpg 与 f2 原名冲突 → 夏季_1_1.jpg；f2 正常
-    expect(batchRenameTargets(files, '夏季', 1)).toEqual(['夏季_1_1.jpg', '夏季_2.jpg'])
-  })
-
-  it('无扩展名文件：目标名不带扩展名', () => {
-    const files = [fe('DSC_0001'), fe('x.png')]
-    expect(batchRenameTargets(files, '图', 1)).toEqual(['图_1', '图_2.png'])
   })
 })
 
@@ -666,10 +629,10 @@ describe('文件索引（v2.4.x：fileList 命中 / 写操作失效 / 预热）'
       sub_folder: '主图',
     })
 
-    // 导入已失效缓存 → 重建后可见新文件（若未失效会命中旧空缓存）
+    // 导入已失效缓存 → 重建后可见新文件（若未失效会命中旧空缓存）；v2.4.9 S5：默认模板含编号 → fresh_1.jpg
     const list = await box.files.fileList(req)
     expect(list).toHaveLength(1)
-    expect(list[0].name).toMatch(/fresh\.jpg$/)
+    expect(list[0].name).toMatch(/fresh_1\.jpg$/)
   })
 
   it('fileList 二次查询命中索引：listRaw 只执行一次（零 readdir/stat）', async () => {

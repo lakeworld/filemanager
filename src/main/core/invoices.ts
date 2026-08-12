@@ -366,7 +366,8 @@ export class InvoicesService {
     const base = sanitizeName(path.basename(sourcePath, ext))
     const cfg = await this.workspace.loadConfig(ws)
     const ctx: ImportContext = { targetProductSet: '', subFolder: '' }
-    const candidate = composeTargetName(cfg, base, ext, ctx)
+    // v2.4.9 S5：composeTargetName 收 NamingTemplate（sequence 缺省 → 槽位跳过，归档命名行为不变）
+    const candidate = composeTargetName(cfg.naming_template, base, ext, ctx)
     const name = await resolveConflictName(targetDir, candidate, cfg.naming_template.conflict_suffix, ext)
     await fsp.copyFile(sourcePath, path.join(targetDir, name))
     // v2.4.x：归档改变发票区目录内容 → 失效该目录的索引快照（查询时重建）

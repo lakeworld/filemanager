@@ -10,7 +10,7 @@ import { api } from "~/wails/api";
 import { loadTagDefs, refreshTags } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
 import ConfirmDialog from "~/components/ConfirmDialog";
-import type { ApiResult, TagInfo, WorkspaceConfig } from "~/types";
+import type { ApiResult, NamingField, TagInfo, WorkspaceConfig } from "~/types";
 
 /** 预设色板（标签颜色选择） */
 const PALETTE = [
@@ -214,6 +214,21 @@ export default function Settings() {
         [field]: value,
       },
     }));
+  };
+
+  // —— v2.4.9 S5：命名模板字段勾选（sku_fields 增删；旧 config 显式 3 字段原样保留——勾选「编号」才启用 sequence 槽位）——
+  const NAMING_FIELD_OPTIONS: { key: NamingField; label: string }[] = [
+    { key: "product_set", label: "产品集名" },
+    { key: "sub_folder", label: "子文件夹" },
+    { key: "original_name", label: "原文件名" },
+    { key: "sequence", label: "编号" },
+  ];
+  const toggleSkuField = (key: NamingField) => {
+    setConfig((prev) => {
+      const fields = prev.naming_template.sku_fields;
+      const next = fields.includes(key) ? fields.filter((f) => f !== key) : [...fields, key];
+      return { ...prev, naming_template: { ...prev.naming_template, sku_fields: next } };
+    });
   };
 
   // —— 标签管理 ——
@@ -768,6 +783,27 @@ export default function Settings() {
                 />
                 <p class="text-xs text-surface-400 mt-1">使用 {"{n}"} 表示序号</p>
               </div>
+            </div>
+
+            {/* v2.4.9 S5：字段复选框组（sku_fields 勾选；编号 hint 说明两种编号来源） */}
+            <div class="mt-4 pt-4 border-t border-surface-100">
+              <label class="block text-sm font-medium text-surface-700 mb-2">字段</label>
+              <div class="flex flex-wrap gap-4">
+                <For each={NAMING_FIELD_OPTIONS}>
+                  {(opt) => (
+                    <label class="inline-flex items-center gap-1.5 text-sm text-surface-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        class="w-4 h-4 accent-primary-600 cursor-pointer"
+                        checked={config().naming_template.sku_fields.includes(opt.key)}
+                        onChange={() => toggleSkuField(opt.key)}
+                      />
+                      {opt.label}
+                    </label>
+                  )}
+                </For>
+              </div>
+              <p class="text-xs text-surface-400 mt-1">编号：导入按批次顺序、批量重命名按起始序号，自动补零</p>
             </div>
           </div>
 

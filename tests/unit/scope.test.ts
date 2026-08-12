@@ -176,11 +176,12 @@ describe('v2.4.7 files scope（§4.6）', () => {
     })
     expect(r.imported).toHaveLength(1)
     expect(r.failed).toHaveLength(0)
-    expect(r.imported[0].name).toBe('张三_报价_contract.pdf')
+    // v2.4.9 S5：默认模板含 sequence——单文件批次编号 '1'
+    expect(r.imported[0].name).toBe('张三_报价_contract_1.pdf')
 
-    const dest = path.join(ws, '客户', '张三', '报价', '张三_报价_contract.pdf')
+    const dest = path.join(ws, '客户', '张三', '报价', '张三_报价_contract_1.pdf')
     await expect(fsp.stat(dest)).resolves.toBeTruthy()
-    expect(box.metadata.fileMetadataKey(dest)).toBe('客户/张三/报价/张三_报价_contract.pdf')
+    expect(box.metadata.fileMetadataKey(dest)).toBe('客户/张三/报价/张三_报价_contract_1.pdf')
   })
 
   it('moveFiles scope=customer：结构化目标 = 客户/<名>/<子文件夹>（target_type 忽略），元数据随路径迁移', async () => {

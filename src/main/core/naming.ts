@@ -1,40 +1,13 @@
 /**
  * 命名模板引擎（对照原 Go files.go importOneFile 的命名逻辑）
- * 纯 TS：可在 node 环境直接测试（原实现此逻辑无直接单测，本次补上）。
+ * v2.4.9 S5：sanitizeName / ImportContext / composeTargetName 迁入 src/shared/naming.ts（双端共享），
+ * 此处透传（现有 import 方零改动——符号从本模块仍可拿到）；resolveConflictName 留原文件。
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
-import { WorkspaceConfig } from './paths'
 
-/** 非法字符替换（对照 sanitizeName） */
-export function sanitizeName(name: string): string {
-  return name.replace(/[\\/:*?"<>|]/g, '_').trim()
-}
-
-export interface ImportContext {
-  targetProductSet: string
-  subFolder: string
-}
-
-/** 按命名模板组合目标文件名（含扩展名）。对照原 Go compose 逻辑。 */
-export function composeTargetName(cfg: WorkspaceConfig, base: string, ext: string, ctx: ImportContext): string {
-  const t = cfg.naming_template
-  const sep = t.sku_separator || '_'
-  const fieldMap: Record<string, string> = {
-    product_set: ctx.targetProductSet,
-    sub_folder: ctx.subFolder,
-    original_name: base,
-  }
-  const parts: string[] = []
-  if (t.product_set_prefix) parts.push(t.product_set_prefix)
-  for (const f of t.sku_fields) {
-    const v = fieldMap[f]
-    if (v) parts.push(v)
-  }
-  if (t.product_set_suffix) parts.push(t.product_set_suffix)
-  if (parts.length === 0) parts.push(base)
-  return parts.join(sep) + ext
-}
+export { sanitizeName, composeTargetName } from '../../shared/naming'
+export type { ImportContext } from '../../shared/naming'
 
 /**
  * 冲突后缀解析：在扩展名前插入 `_{n}` 递增序号（对照原 Go 循环）。

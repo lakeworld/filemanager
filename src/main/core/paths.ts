@@ -59,7 +59,8 @@ export function defaultNamingTemplate(): NamingTemplate {
     product_set_prefix: '',
     product_set_suffix: '',
     sku_separator: '_',
-    sku_fields: ['product_set', 'sub_folder', 'original_name'],
+    // v2.4.9 S5：默认模板 4 字段（sequence 编号槽位；旧工作区显式 3 字段 config 原样保留不迁移）
+    sku_fields: ['product_set', 'sub_folder', 'original_name', 'sequence'],
     conflict_suffix: '_{n}',
   }
 }
