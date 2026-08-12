@@ -6,7 +6,7 @@ import helpMarkdown from "../../../../HELP.md?raw";
 import privacyMarkdown from "../../../../PRIVACY.md?raw";
 import type { UpdateInfo } from "~/types";
 
-type SectionKey = "account" | "update" | "help" | "privacy";
+type SectionKey = "account" | "update" | "help" | "log" | "privacy";
 
 const icons = {
   account: (
@@ -18,6 +18,10 @@ const icons = {
   help: (
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
   ),
+  // v2.4.9（S6-2）：日志卡片图标（文档列表）
+  log: (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/></svg>
+  ),
   privacy: (
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
   ),
@@ -27,6 +31,7 @@ const menuItems: { key: SectionKey; label: string; desc: string }[] = [
   { key: "account", label: "账号", desc: "登录、账号与统计说明" },
   { key: "update", label: "检查更新", desc: "版本、下载、自动安装" },
   { key: "help", label: "使用帮助", desc: "功能说明与常见问题" },
+  { key: "log", label: "日志", desc: "日志文件用于诊断崩溃与异常，本地存储" },
   { key: "privacy", label: "隐私协议", desc: "数据与隐私说明" },
 ];
 
@@ -39,6 +44,10 @@ export default function Profile() {
   >("idle");
   const [latestVersion, setLatestVersion] = createSignal<UpdateInfo | null>(null);
   const [updateError, setUpdateError] = createSignal("");
+  // v2.4.9（S6-2）：日志卡片状态（导出中 / 成功提示保存路径 / 失败）
+  const [logBusy, setLogBusy] = createSignal(false);
+  const [logMsg, setLogMsg] = createSignal("");
+  const [logErr, setLogErr] = createSignal("");
 
   onMount(async () => {
     try {
@@ -99,6 +108,37 @@ export default function Profile() {
   const openDownloadPage = () => {
     // 触发主进程 setWindowOpenHandler → 系统浏览器打开官网文件管理页
     window.open("https://www.qihebook.cloud/file-manager", "_blank");
+  };
+
+  // v2.4.9（S6-2）：日志卡片——打开日志目录 / 导出 zip（IPC 薄透传，主进程实现）
+  const openLogDir = async () => {
+    setLogErr("");
+    try {
+      const r = await api.log.openDir();
+      if (!r.success) setLogErr(r.error || "打开日志目录失败");
+    } catch (err) {
+      setLogErr(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const exportLogs = async () => {
+    setLogErr("");
+    setLogMsg("");
+    setLogBusy(true);
+    try {
+      const r = await api.log.exportZip();
+      if (!r.success) {
+        setLogErr(r.error || "导出日志失败");
+      } else if (r.data && r.data.path) {
+        // 导出成功：提示保存路径（zip 由用户自行发送，应用不调用外部 API）
+        setLogMsg(`已导出 ${r.data.count} 个日志文件：${r.data.path}`);
+      }
+      // path 为空 = 用户取消保存对话框，不提示错误
+    } catch (err) {
+      setLogErr(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLogBusy(false);
+    }
   };
 
   const helpHtml = () => simpleMarkdownToHtml(helpMarkdown);
@@ -280,6 +320,40 @@ export default function Profile() {
                 <div class="max-h-[70vh] overflow-y-auto pr-2">
                   <div class="prose prose-sm max-w-none" innerHTML={helpHtml()} />
                 </div>
+              </div>
+            </Show>
+
+            {/* v2.4.9（S6-2）：日志卡片——打开日志目录 / 导出 zip（应用级，不随工作区门控） */}
+            <Show when={active() === "log"}>
+              <div class="rounded-2xl border border-surface-200 bg-white p-6 shadow-card">
+                <div class="mb-4 flex items-center gap-2 border-b border-surface-100 pb-4">
+                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-700">{icons.log}</span>
+                  <h2 class="text-lg font-semibold text-surface-900">日志</h2>
+                </div>
+                <p class="text-sm text-surface-600">
+                  日志文件用于诊断崩溃与异常，本地存储，不上传。需要排查问题时可将日志目录发给开发者。
+                </p>
+                <div class="mt-4 flex flex-wrap items-center gap-3">
+                  <button
+                    class="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-700"
+                    onClick={() => openLogDir()}
+                  >
+                    打开日志目录
+                  </button>
+                  <button
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-surface-200 bg-white px-4 py-2 text-sm font-semibold text-surface-700 transition hover:bg-surface-50 disabled:opacity-50"
+                    onClick={() => exportLogs()}
+                    disabled={logBusy()}
+                  >
+                    {logBusy() ? "导出中..." : "导出日志"}
+                  </button>
+                </div>
+                <Show when={logMsg()}>
+                  <div class="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700 break-all">{logMsg()}</div>
+                </Show>
+                <Show when={logErr()}>
+                  <div class="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{logErr()}</div>
+                </Show>
               </div>
             </Show>
 

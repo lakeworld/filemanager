@@ -74,6 +74,9 @@ protocol.registerSchemesAsPrivileged([
 // ② e2e 会读写真实缩略图/索引/账号文件，污染生产数据。须在单实例锁之前设置。
 if (process.env.QIHEBOX_E2E === '1') {
   app.setPath('userData', path.join(os.tmpdir(), 'qihebox-e2e-userdata'))
+  // v2.4.9（S6-2）：日志目录一并隔离（logs 默认随 appData，e2e 不写生产日志；
+  // e2e 断言按 <tmpdir>/qihebox-e2e-userdata/logs 读取 main-*.log）
+  app.setPath('logs', path.join(os.tmpdir(), 'qihebox-e2e-userdata', 'logs'))
 }
 
 // —— 单实例锁（替代原 Go CreateMutex）——
@@ -163,6 +166,19 @@ function setupCrashRecovery(win: BrowserWindow): void {
       }, 1000)
     })
   }
+}
+
+// —— v2.4.9（S6-2）：渲染进程 console 转发 ——
+// console error/warn 转发落盘（只转 error/warn，info 防噪音）。Electron 31 事件旧式签名
+// (event, level, message, line, sourceId)，level 为数字（0=verbose / 1=info / 2=warning / 3=error，
+// 见 node_modules/electron/electron.d.ts WebContents）。
+// 挂载点随窗口创建/重建：休眠销毁后 ensureMainWindow → setWindowCreateHandler 再次挂上，
+// 旧窗口销毁时监听随 webContents 一并回收，不会重复挂载。
+function setupRendererConsoleForward(win: BrowserWindow): void {
+  win.webContents.on('console-message', (_e, level, message) => {
+    if (level === 2) void log('warn', `[renderer] ${message}`)
+    else if (level === 3) void log('error', `[renderer] ${message}`)
+  })
 }
 
 // 关闭窗口 → 隐藏到托盘（对照原 Go beforeClose）；v2.3.0：隐藏后启动销毁倒计时（第三层休眠）
@@ -483,6 +499,7 @@ app.whenReady().then(() => {
   // v2.3.0：统一窗口初始化钩子——休眠销毁后的重建（ensureMainWindow）自动带上崩溃自愈与托盘行为
   setWindowCreateHandler((win) => {
     setupCrashRecovery(win)
+    setupRendererConsoleForward(win)
     setupCloseToTray(win)
     win.on('closed', () => {
       void log('info', '[window] 主窗口已销毁（休眠回收或退出）')
@@ -492,6 +509,7 @@ app.whenReady().then(() => {
   const win = createMainWindow()
   setupTray()
   setupCrashRecovery(win)
+  setupRendererConsoleForward(win)
   setupCloseToTray(win)
   // v2.4.7（F10）：系统休眠唤醒自愈——resume 后分层检查，白屏自动 reload（含画面像素检测）
   setupWakeRecovery()

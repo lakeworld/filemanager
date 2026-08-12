@@ -114,6 +114,11 @@ const api = {
   exports: {
     list: () => invoke('qihebox:exports:list'),
   },
+  // v2.4.9（S6-2）：日志（「我的」页日志卡片）——打开日志目录 / 导出 zip（薄透传）
+  log: {
+    openDir: () => invoke('qihebox:log:openDir'),
+    exportZip: () => invoke('qihebox:log:exportZip'),
+  },
   dashboard: {
     stats: () => invoke('qihebox:dashboard:stats'),
     expiringCerts: () => invoke('qihebox:dashboard:expiringCerts'),
