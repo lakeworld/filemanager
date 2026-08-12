@@ -5,6 +5,8 @@ import { accountStatus, loginAccount, logoutAccount } from "~/stores/account";
 import helpMarkdown from "../../../../HELP.md?raw";
 import privacyMarkdown from "../../../../PRIVACY.md?raw";
 import type { UpdateInfo } from "~/types";
+// v2.4.9：加入用户群二维码（活码——指向官网 /wechat-group，群码过期只换官网图、本码长期有效）
+import qrUrl from "~/assets/wechat-group-qr.png";
 
 type SectionKey = "account" | "update" | "help" | "log" | "privacy";
 
@@ -134,6 +136,18 @@ export default function Profile() {
   const helpHtml = () => simpleMarkdownToHtml(helpMarkdown);
   const privacyHtml = () => simpleMarkdownToHtml(privacyMarkdown);
 
+  // v2.4.9：用户群邮箱反馈（复制到剪贴板；不调外部 API，红线合规）
+  const [emailCopied, setEmailCopied] = createSignal(false);
+  const copyEmail = async () => {
+    try {
+      await navigator.clipboard.writeText("1252235854@qq.com");
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 2000);
+    } catch {
+      // 剪贴板不可用时静默（邮箱文本仍可见可手输）
+    }
+  };
+
   // v2.4.7（评审 P4）：应用内下载安装通道未就绪，不再展示下载/安装入口；
   // 版本号获取失败时不编造历史版本号，显示「--」
   const displayVersion = () => version() || "--";
@@ -151,6 +165,37 @@ export default function Profile() {
             <div class="hidden rounded-xl bg-white/15 px-4 py-2 text-center backdrop-blur sm:block">
               <div class="text-xs text-primary-100">当前版本</div>
               <div class="text-xl font-bold">v{displayVersion()}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* v2.4.9：加入用户群（活码——二维码指向官网 /wechat-group，群码 7 天过期时官网换图、本码长期有效）+ 邮箱反馈 */}
+        <div class="mb-6 rounded-2xl border border-surface-200 bg-white p-5 shadow-card">
+          <div class="flex flex-wrap items-center gap-5">
+            <img src={qrUrl} alt="加入用户群二维码" class="h-32 w-32 shrink-0 rounded-xl border border-surface-200 bg-white" />
+            <div class="min-w-0 flex-1">
+              <h2 class="text-lg font-semibold text-surface-900">加入用户群</h2>
+              <p class="mt-1 text-sm text-surface-600">
+                获取使用技巧、反馈问题、参与新功能讨论。扫码或点下方按钮进群；群二维码过期时官网自动更新，本码长期有效。
+              </p>
+              <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <button
+                  class="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-700"
+                  onClick={() => window.open("https://www.qihebook.cloud/wechat-group", "_blank")}
+                >
+                  打开群聊页面
+                </button>
+                <span class="inline-flex items-center gap-1.5 text-sm text-surface-600">
+                  邮箱反馈：
+                  <code class="rounded bg-surface-100 px-1.5 py-0.5 text-surface-800">1252235854@qq.com</code>
+                  <button
+                    class="rounded-lg bg-surface-100 px-2.5 py-1 text-xs font-semibold text-surface-700 transition hover:bg-surface-200"
+                    onClick={copyEmail}
+                  >
+                    {emailCopied() ? "已复制 ✓" : "复制"}
+                  </button>
+                </span>
+              </div>
             </div>
           </div>
         </div>
