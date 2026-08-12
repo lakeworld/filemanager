@@ -29,6 +29,8 @@ export default function Sidebar() {
         { icon: "📜", label: "证书库", path: "/certs" },
         // v2.4.7：客户 + 发票入口（PLAN §5.2 / §6.5）
         { icon: "🤝", label: "客户", path: "/clients" },
+        // v2.4.9 S2：供应商入口
+        { icon: "🏭", label: "供应商", path: "/suppliers" },
         { icon: "🧾", label: "发票", path: "/invoices" },
       ],
     },

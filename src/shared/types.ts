@@ -93,8 +93,9 @@ export interface FileListRequest {
    * v2.4.7：实体区域作用域，缺省 'productSet'（旧调用方零改动，PLAN §4.6）。
    * - 'productSet'：product_set 槽位 = 产品集名（现行为）
    * - 'customer'：product_set 槽位 = 客户名，file_type 忽略，sub_folder 为客户子文件夹
+   * - 'supplier'（v2.4.9 S2）：product_set 槽位 = 供应商名，file_type 忽略，sub_folder 为供应商固定子文件夹
    */
-  scope?: 'productSet' | 'customer'
+  scope?: 'productSet' | 'customer' | 'supplier'
   /**
    * v2.4.4：媒体类型过滤（图包库「图片/视频」筛选用）。
    * 仅在图包目录（file_type='image'/'video'）语义下生效：传入后按条目实际类型过滤；
@@ -109,8 +110,8 @@ export interface ImportFileRequest {
   target_folder: string
   target_type: string
   sub_folder: string
-  /** v2.4.7：scope 语义同 FileListRequest；'customer' 时 target_product_set 槽位承载客户名、file_type 忽略 */
-  scope?: 'productSet' | 'customer'
+  /** v2.4.7：scope 语义同 FileListRequest；'customer' 时 target_product_set 槽位承载客户名、file_type 忽略；'supplier'（v2.4.9 S2）同构（供应商名） */
+  scope?: 'productSet' | 'customer' | 'supplier'
   /** v2.3.0：批量导入取消标记（GlobalDropOverlay 生成，主进程轮询检测） */
   cancelToken?: string
 }
@@ -130,24 +131,24 @@ export interface MoveFilesRequest {
   target_type?: string
   /** 结构化目标：子文件夹 */
   sub_folder?: string
-  /** v2.4.7：scope 语义同 FileListRequest；'customer' 时结构化目标路径 = 客户/<名>/<sub_folder> */
-  scope?: 'productSet' | 'customer'
+  /** v2.4.7：scope 语义同 FileListRequest；'customer'/'supplier'（v2.4.9 S2）时结构化目标路径 = <区根>/<名>/<sub_folder> */
+  scope?: 'productSet' | 'customer' | 'supplier'
 }
 
 export interface SubfolderCreateRequest {
   product_set: string
   file_type: string
   name: string
-  /** v2.4.7：scope 语义同 FileListRequest；'customer' 时 config 写入 customer_subfolders */
-  scope?: 'productSet' | 'customer'
+  /** v2.4.7：scope 语义同 FileListRequest；'customer' 时 config 写入 customer_subfolders；'supplier'（v2.4.9 S2）固定子文件夹集不写 config */
+  scope?: 'productSet' | 'customer' | 'supplier'
 }
 
 export interface DeleteSubfolderRequest {
   product_set: string
   file_type: string
   name: string
-  /** v2.4.7：scope 语义同 FileListRequest；'customer' 时 config 从 customer_subfolders 移除 */
-  scope?: 'productSet' | 'customer'
+  /** v2.4.7：scope 语义同 FileListRequest；'customer' 时 config 从 customer_subfolders 移除；'supplier'（v2.4.9 S2）无 config 键（固定集） */
+  scope?: 'productSet' | 'customer' | 'supplier'
 }
 
 export interface MetadataUpdateRequest {

@@ -40,6 +40,14 @@ interface QiheboxApi {
     linkRelation: (customer: string, productSet: string) => Promise<unknown>
     unlinkRelation: (customer: string, productSet: string) => Promise<unknown>
   }
+  // v2.4.9 S2：供应商（纯透传，通道 qihebox:suppliers:*）
+  suppliers: {
+    list: () => Promise<unknown>
+    create: (req: unknown) => Promise<unknown>
+    update: (req: unknown) => Promise<unknown>
+    rename: (oldName: string, newName: string) => Promise<unknown>
+    delete: (name: string) => Promise<unknown>
+  }
   invoices: {
     list: (filter?: unknown) => Promise<unknown>
     checkNumber: (number: string, excludeNumber?: string | null) => Promise<unknown>
