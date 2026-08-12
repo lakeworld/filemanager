@@ -65,26 +65,36 @@ function snapshot(label, rootPid) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// v2.4.9（S4）：自启态专项变体——`node scripts/measure-memory.mjs --autostart`
+// 以 `--autostart` 启动（延迟建窗、无渲染进程、托盘常驻），仅测单一稳态，实测 3 次取稳定值。
+const AUTOSTART = process.argv.includes('--autostart')
+
 const app = await electron.launch({
-  args: ['.', ...PROD_ARGS],
+  args: ['.', ...PROD_ARGS, ...(AUTOSTART ? ['--autostart'] : [])],
   cwd: ROOT,
   env: { ...process.env, XDG_CONFIG_HOME: xdg },
 })
 
 try {
   const mainPid = app.process().pid
-  const page = await app.firstWindow()
-  await page.waitForLoadState('domcontentloaded')
-  await sleep(8000)
-  snapshot('醒着（窗口打开，空闲 8s）', mainPid)
+  if (AUTOSTART) {
+    // 自启态无窗口：不调 firstWindow（会挂起等待），直接空闲 8s 后采样托盘常驻档
+    await sleep(8000)
+    snapshot('自启态（--autostart 延迟建窗、托盘常驻，空闲 8s）', mainPid)
+  } else {
+    const page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    await sleep(8000)
+    snapshot('醒着（窗口打开，空闲 8s）', mainPid)
 
-  await app.evaluate(({ BrowserWindow }) => {
-    for (const w of BrowserWindow.getAllWindows()) w.close()
-  })
-  await sleep(4000)
-  snapshot('关窗后（隐藏到托盘，销毁倒计时中）', mainPid)
-  await sleep(34000)
-  snapshot('托盘常驻（30s 休眠销毁后）', mainPid)
+    await app.evaluate(({ BrowserWindow }) => {
+      for (const w of BrowserWindow.getAllWindows()) w.close()
+    })
+    await sleep(4000)
+    snapshot('关窗后（隐藏到托盘，销毁倒计时中）', mainPid)
+    await sleep(34000)
+    snapshot('托盘常驻（30s 休眠销毁后）', mainPid)
+  }
 } finally {
   try {
     process.kill(-app.process().pid, 'SIGKILL')
