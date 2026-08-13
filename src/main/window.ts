@@ -431,9 +431,18 @@ async function recoverAfterWake(win: BrowserWindow): Promise<void> {
       return
     }
 
+    // L2.5（v2.4.9 修复 2）：hide/show 前再给一次 L1 重试——刚恢复的窗口偶尔需要二次重绘才出帧；
+    // 减少对 hide/show 的依赖（X11 unmap/remap 成本高，且用户刚 show 出窗口时 hide 有被系统视为关闭的风险）
+    if (win.isDestroyed() || quitting) return
+    wc.invalidate()
+    if (await wakeRecheck(win, 1000)) {
+      void log('info', '[wake] L2.5 L1 重试后画面恢复，跳过 hide/show')
+      return
+    }
+
     // L3：hide/show 强制 X11 unmap/remap，重建合成表面（JS 状态仍保留）
     if (win.isDestroyed() || quitting) return
-    void log('warn', '[wake] L2 复检仍空窗，L3 hide/show 强制重建合成表面')
+    void log('warn', '[wake] L2.5 重试仍空窗，L3 hide/show 强制重建合成表面')
     win.hide()
     await wakeDelay(WAKE_HIDE_SHOW_GAP_MS)
     if (win.isDestroyed() || quitting) return
@@ -499,10 +508,17 @@ export function windowShow(): void {
   cancelDestroy()
   // v2.4.3（F3）：唤醒即做活性检查（加载中自动跳过，ready-to-show 兜底）
   void pingRenderer(win)
-  // v2.4.9（修复）：托盘恢复路径补画面自愈——隐藏期间 GPU 合成表面可能失效（与休眠同类），
-  // JS 活性检查测不出白屏（渲染进程活着、画面空白）；recoverAfterWake 自带全部守卫
-  // （销毁/最小化/崩溃/加载中/隐藏均跳过），画面正常仅一次无害 invalidate，失效才逐级修复。
-  void recoverAfterWake(win)
+  // v2.4.9（修复 2）：托盘恢复路径补画面自愈——但必须带 settle 延迟（与 resume 路径同口径）。
+  // 上版（4aae566）直接调用：窗口刚 show 就 capturePage 拿到空帧 → 误判空窗 → 无谓 L2 reload
+  // → L3 hide 把刚恢复的窗口藏起来（Deepin 下触发窗口销毁，见 2026-08-13 日志）。延迟 1.5s 等画面稳定再判。
+  const doRecover = () => {
+    if (!win.isDestroyed() && !quitting && !wakeRecoveryInFlight) void recoverAfterWake(win)
+  }
+  if (wc.isLoading()) {
+    wc.once('did-finish-load', () => setTimeout(doRecover, WAKE_SETTLE_MS))
+  } else {
+    setTimeout(doRecover, WAKE_SETTLE_MS)
+  }
   // v2.4.9（打磨）：托盘/激活恢复 → 通知渲染层回仪表盘（用户反馈：托盘打开固定看首页）。
   // 窗口若在重建加载中，等 did-finish-load 再发（事件不丢）；已就绪则直接发。
   const notifyRestored = () => {
