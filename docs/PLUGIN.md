@@ -336,6 +336,14 @@ erp_ext?: {
 
 **冲突规则（记录级裁决）**：同步以整条档案 `updated_at` 较新者为准，方向确定后仅写对方能力域白名单内的差异字段；box 专属字段（alias/country/source/related_product_sets）不在 ERP 写白名单、永不被覆盖；`erp_ext` 仅 ERP 写。已知取舍：记录级时间戳粒度下，同记录内 box 与 ERP 对不同字段的并发改动存在互覆盖可能（v2.7 实装按此实现；字段级时间戳列为后续细化候选，不在本版本承诺）。
 
+**能力域扩展规则**（v2.5 定稿）：
+
+- **能力域 = 协议附录，一域一节**：每个业务能力域（customers，以及未来 suppliers、invoices 等）在 PLUGIN.md 以单独一节声明其公开契约，能力表、字段归属规则、命名空间 schema、冲突规则随节成组。
+- **扩展模式统一**：任一能力域按「读能力（`list`/`get`）+ 写能力（`write<Ext>`）+ 关联能力（`relation.link`/`relation.unlink`）+ 事件（`<entity>Created`/`<entity>Updated`/`<entity>Deleted`，经 `host.events` 总线）」成组声明；customers 域为第一实例（读 = `list`/`get`、写 = `writeErpExt`/`syncProfile`、关联 = `relation.link`/`relation.unlink`、事件 = `customerCreated`/`customerUpdated`/`fileArchived`，见上表）。
+- **命名空间通用约定（`erp_ext` / `ocr_ext`）**：插件写回本体不拥有的数据，一律写入命名空间字段，本体只读不校验；命名空间内字段由写入方（桥接插件）定义并版本化，本体不解析——`erp_ext` 由 erp-bridge 写（客户/供应商档案），`ocr_ext` 由 OCR 查验插件写（发票台账，v2.7 写入目标），均只读展示。
+- **冲突裁决通用规则**：同步冲突沿用本节记录级裁决——整条档案 `updated_at` 较新者为准，方向确定后仅写对方能力域白名单内的差异字段（见上「冲突规则」）。
+- **新增能力域 = 协议增量**：新增业务能力域遵循 §四「API 演进政策」（只增不删），随宿主版本发布；不删除、不改写既有能力域契约。
+
 ---
 
 ## 六、安全与信任分级
