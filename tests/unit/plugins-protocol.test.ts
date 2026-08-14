@@ -16,6 +16,7 @@ import {
   pluginFileUrl,
   resolvePluginAsset,
   registerQiheboxProtocol,
+  workspaceFileUrl,
 } from '../../src/main/protocol'
 
 /** electron mock 状态：捕获 protocol.handle 回调、mock net.fetch 与 app.getPath（userData 由测试注入） */
@@ -181,6 +182,23 @@ describe('registerQiheboxProtocol handler 端到端（mock electron）', () => {
     expect(resp.headers.get('Cache-Control')).toBe('no-store')
   })
 
+  it('plugin 响应带 Content-Security-Policy 头且内容合理（兑现 §六 规则 5，限制内联脚本/外部域）', async () => {
+    mockState.netFetch.mockResolvedValue(new Response('module-content', { headers: { 'Content-Type': 'text/javascript' } }))
+    const resp = await get('qihebox://plugin/com.qihe.hello/renderer/pages/Main.js')
+    const csp = resp.headers.get('Content-Security-Policy')
+    expect(csp).toBeTruthy()
+    expect(csp).toContain("default-src 'self'")
+    expect(csp).toContain("script-src 'self'")
+    // 有意义：禁内联脚本（不允许 script-src 'unsafe-inline'）与任意域（不允许 *）
+    expect(csp).not.toContain("script-src 'unsafe-inline'")
+    expect(csp).not.toContain("script-src *")
+    expect(csp).not.toContain('*')
+    // hello 示例用内联 style 属性（h() 的 style 对象），须放行内联样式
+    expect(csp).toContain("style-src 'self' 'unsafe-inline'")
+    expect(csp).toContain("img-src 'self' data:")
+    expect(csp).toContain("connect-src 'self'")
+  })
+
   it('GET 带 Range → 206 + Content-Range + 分段内容（真实读盘，不经 net.fetch）', async () => {
     const resp = await get('qihebox://plugin/com.qihe.hello/renderer/pages/Main.js', { range: 'bytes=0-4' })
     expect(resp.status).toBe(206)
@@ -188,6 +206,8 @@ describe('registerQiheboxProtocol handler 端到端（mock electron）', () => {
     expect(resp.headers.get('Accept-Ranges')).toBe('bytes')
     expect(await resp.text()).toBe('expor')
     expect(mockState.netFetch).not.toHaveBeenCalled()
+    // Range 分支同样带 CSP（serveFile 的 extraHeaders 在 baseHeaders 内，206/416 均覆盖）
+    expect(resp.headers.get('Content-Security-Policy')).toContain("script-src 'self'")
   })
 
   it('非法 id → 400；不存在资源 / 未安装插件 → 404', async () => {
@@ -207,5 +227,38 @@ describe('registerQiheboxProtocol handler 端到端（mock electron）', () => {
 
   it('非 GET → 405', async () => {
     expect((await get('qihebox://plugin/com.qihe.hello/renderer/pages/Main.js', { method: 'POST' })).status).toBe(405)
+  })
+})
+
+describe('registerQiheboxProtocol handler file 分支（本体文件预览不加 CSP，保持现状）', () => {
+  let wsDir = ''
+  let filePath = ''
+
+  beforeEach(async () => {
+    mockState.handler = null
+    mockState.netFetch.mockReset()
+    mockState.userData = await fsp.mkdtemp(path.join(os.tmpdir(), 'qh-protocol-file-'))
+    wsDir = path.join(mockState.userData, 'ws')
+    await fsp.mkdir(wsDir, { recursive: true })
+    filePath = path.join(wsDir, 'note.txt')
+    await fsp.writeFile(filePath, 'preview-content', 'utf-8')
+    registerQiheboxProtocol(
+      { workspace: { currentWorkspacePath: () => wsDir } } as never,
+      undefined,
+      undefined,
+    )
+  })
+
+  async function get(url: string): Promise<Response> {
+    if (!mockState.handler) throw new Error('handler 未注册')
+    return mockState.handler(fakeRequest(url))
+  }
+
+  it('file 分支 200 流式提供且不带 Content-Security-Policy 头', async () => {
+    mockState.netFetch.mockResolvedValue(new Response('preview-body', { headers: { 'Content-Type': 'text/plain' } }))
+    const resp = await get(workspaceFileUrl(filePath))
+    expect(resp.status).toBe(200)
+    expect(await resp.text()).toBe('preview-body')
+    expect(resp.headers.get('Content-Security-Policy')).toBeNull()
   })
 })
