@@ -42,15 +42,15 @@ import type { ApiResult } from '../shared/types'
 
 export type { ApiResult } from '../shared/types'
 
-function ok<T>(data: T): ApiResult<T> {
+export function ok<T>(data: T): ApiResult<T> {
   return { success: true, data, error: null }
 }
 
-function fail<T>(err: unknown): ApiResult<T> {
+export function fail<T>(err: unknown): ApiResult<T> {
   return { success: false, data: null, error: err instanceof Error ? err.message : String(err) }
 }
 
-/** ApiResult 包装（薄壳纪律）：装配层（index.ts）settings 通道复用，与 plugins/ipc.ts 同构 */
+/** ApiResult 包装（薄壳纪律）：装配层（index.ts）settings 通道与 plugins/ipc.ts 复用 */
 export async function handle<T>(fn: () => Promise<T> | T): Promise<ApiResult<T>> {
   try {
     return ok(await fn())
@@ -62,9 +62,9 @@ export async function handle<T>(fn: () => Promise<T> | T): Promise<ApiResult<T>>
 /**
  * v2.4.2（R2）：向窗口发送事件的安全通道——窗口已被休眠销毁（close → 托盘 → 30 秒 → destroy，v2.4.5 T3）
  * 时 webContents.send 会抛 "Object has been destroyed"，旧实现会让异常同步传播进导入循环、
- * 静默中断导入。此处统一守卫 + try/catch。
+ * 静默中断导入。此处统一守卫 + try/catch。plugins/ipc.ts 复用。
  */
-function sendTo(win: BrowserWindow | null, channel: string, payload: unknown): void {
+export function sendTo(win: BrowserWindow | null, channel: string, payload: unknown): void {
   if (!win || win.isDestroyed()) return
   try {
     win.webContents.send(channel, payload)

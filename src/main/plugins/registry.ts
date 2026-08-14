@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import { validateManifest } from '../../plugins/types'
 import type { PluginManifest, PluginText } from '../../plugins/types'
 import type { PluginInfo } from '../../shared/types'
+import { writeJsonAtomic } from '../core/paths'
 
 // —— 宿主存储布局（userData/plugins，PLUGIN.md §3.4）——
 export const PLUGINS_DIR = 'plugins'
@@ -92,6 +93,8 @@ export interface RegistryOptions {
   hostVersion: string
   /** 本体路由（默认内置 BODY_ROUTES；测试可注入） */
   bodyRoutes?: string[]
+  /** 日志回调（与 loader/host/installer 同风格；缺省静默） */
+  log?: (level: 'info' | 'warn' | 'error', msg: string) => void
 }
 
 /** 熔断 broken 原因前缀（setEnabled(id, true) 视为「重试」：清 failCount 重新启用，PLAN §3.3） */
@@ -130,6 +133,7 @@ export class PluginRegistry {
   private root: string
   private hostVersion: string
   private bodyRoutes: string[]
+  private log: (level: 'info' | 'warn' | 'error', msg: string) => void
   /** config.json 启停覆盖（{ [id]: boolean }；setEnabled 写入，uninstall 清除） */
   private configOverrides: Record<string, boolean> = {}
 
@@ -137,6 +141,7 @@ export class PluginRegistry {
     this.root = opts.root
     this.hostVersion = opts.hostVersion
     this.bodyRoutes = opts.bodyRoutes ?? BODY_ROUTES
+    this.log = opts.log ?? (() => {})
   }
 
   // —— 装配期同步扫描（微秒级：仅读 manifest 清单 JSON，不加载插件代码）——
@@ -278,7 +283,7 @@ export class PluginRegistry {
    * 设置启停：写 config.json 覆盖 + 更新登记状态。
    * 非法转移抛错：broken 插件不可操作（熔断原因除外——「重试」= setEnabled(id, true) 清 failCount 重新启用，PLAN §3.3）。
    */
-  setEnabled(id: string, enabled: boolean): void {
+  async setEnabled(id: string, enabled: boolean): Promise<void> {
     const entry = this.entries.get(id)
     if (!entry) throw new Error(`插件未安装：${id}`)
     if (entry.state === 'broken') {
@@ -291,7 +296,7 @@ export class PluginRegistry {
       entry.state = 'enabled'
       entry.enabled = true
       this.configOverrides[id] = true
-      this.persistConfig()
+      await this.persistConfig()
       return
     }
     if (entry.enabled === enabled) return // 幂等
@@ -299,7 +304,7 @@ export class PluginRegistry {
     entry.state = enabled ? 'enabled' : 'disabled'
     if (enabled) entry.failCount = 0 // 重新启用清零连续失败（重试语义）
     this.configOverrides[id] = enabled
-    this.persistConfig()
+    await this.persistConfig()
   }
 
   /** loader 熔断入口：握手/调用连续失败 → 自动 broken（state 变化广播由 ipc 层 onChanged 处理） */
@@ -311,10 +316,10 @@ export class PluginRegistry {
   }
 
   /** 卸载时清除启停覆盖并落盘 */
-  forgetConfig(id: string): void {
+  async forgetConfig(id: string): Promise<void> {
     if (Object.prototype.hasOwnProperty.call(this.configOverrides, id)) {
       delete this.configOverrides[id]
-      this.persistConfig()
+      await this.persistConfig()
     }
   }
 
@@ -361,15 +366,12 @@ export class PluginRegistry {
     return {}
   }
 
-  private persistConfig(): void {
-    const tmpPath = `${this.configPath()}.tmp-${process.pid}-${Date.now()}`
+  private async persistConfig(): Promise<void> {
     try {
-      fs.writeFileSync(tmpPath, JSON.stringify(this.configOverrides, null, 2), { encoding: 'utf-8', mode: 0o644 })
-      fs.renameSync(tmpPath, this.configPath())
+      await writeJsonAtomic(this.configPath(), this.configOverrides)
     } catch (err) {
       // 配置落盘失败仅记录（不抛——启停覆盖丢失可接受，下次重启回退 manifest.enabled）
-      // eslint-disable-next-line no-console
-      console.warn(`[plugins] config.json 写入失败: ${String(err)}`)
+      this.log('warn', `[plugins] config.json 写入失败: ${String(err)}`)
     }
   }
 }
