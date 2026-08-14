@@ -105,6 +105,22 @@ function pluginsRootFallback(): string {
   return path.join(app.getPath('userData'), 'plugins')
 }
 
+/**
+ * v2.5 协议承诺（PLUGIN.md §六 规则 5）：插件页面模块纳入 CSP 管辖。
+ * 仅 qihebox://plugin/<id>/... 响应附加此头；file/thumb（本体文件预览/缩略图）不加，保持现状。
+ * - script-src 'self'：插件脚本/模块仅允许来自插件包自身，禁内联脚本与外部域（有意义的限制）
+ * - style-src 'self' 'unsafe-inline'：hello 示例经 h() 用内联 style 属性，须放行内联样式
+ * - img-src 'self' data:：插件包内图片 + data: URI（图标/内联图）
+ * - connect-src 'self'：fetch/XHR 默认仅同源（IPC 走 contextBridge 不经 connect-src，不受影响）
+ */
+const PLUGIN_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+].join('; ')
+
 /** v2.4.2（P1-P2）：服务本地文件，支持单区间 Range → 206。无 Range → 整文件流式（net.fetch） */
 async function serveFile(resolved: string, request: Request, extraHeaders?: Record<string, string>): Promise<Response> {
   const stat = await fsp.stat(resolved)
@@ -196,7 +212,7 @@ export function registerQiheboxProtocol(
           // 统一 404（不区分「不存在」与「逃逸被拒」，不泄露包外存在性）
           return new Response('plugin asset not found', { status: 404 })
         }
-        return serveFile(resolved, request, { 'Cache-Control': 'no-store' })
+        return serveFile(resolved, request, { 'Cache-Control': 'no-store', 'Content-Security-Policy': PLUGIN_CSP })
       }
 
       const encoded = decodeURIComponent(url.pathname.slice(1))
