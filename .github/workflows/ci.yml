@@ -64,6 +64,11 @@ jobs:
       - name: Build (electron-vite)
         run: npm run build
 
+      # v2.5（r2-执行P1-7）：仅新增 hello 插件构建步骤，其余保持 master——
+      # 本地经 pretest:e2e 钩子自动构建，CI 直跑 npx playwright test 需显式构建
+      - name: Build hello plugin (e2e fixture)
+        run: node scripts/build-hello-plugin.mjs
+
       - name: Install system libraries (headless)
         run: |
           sudo apt-get update

@@ -8,9 +8,12 @@
  *   Chromium 媒体加载器把开放区间 bytes=N- 的截断 206 视为「读到流尾」，
  *   大视频（moov 在文件尾部）只拿到 1MB 数据即放弃，报 MEDIA_ERR_SRC_NOT_SUPPORTED。
  *   修复后 bytes=N- 流式返回 N..EOF，与 http 服务器语义一致。
- * 注册时机：主进程 app.whenReady 后调用 registerQiheboxProtocol(box)
+ * - v2.5（PLAN §4.3）：qihebox://plugin/<id>/<relpath>——从 userData/plugins/<id>/pkg/ 流式提供
+ *   插件渲染层产物（渲染层经 import() 动态加载页面模块，组件 = 模块默认导出）；
+ *   与工作区无关（userData 级），同款防护：id 域名倒序 + relPath 拒绝 '..'/空段 + realpath 前缀比对
+ * 注册时机：主进程 app.whenReady 后调用 registerQiheboxProtocol(box, getThumbsRoot?, getPluginsRoot?)
  */
-import { protocol, net } from 'electron'
+import { protocol, net, app } from 'electron'
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 import fs from 'node:fs'
@@ -29,6 +32,77 @@ export function workspaceFileUrl(filePath: string): string {
 export function thumbnailFileUrl(thumbPath: string): string {
   const encoded = Buffer.from(thumbPath, 'utf-8').toString('base64url')
   return `qihebox://thumb/${encoded}`
+}
+
+// —— v2.5（PLAN §4.3）：插件包内资源 URL（qihebox://plugin/<id>/<relpath>）——
+
+/** 插件 id 格式：域名倒序（与 src/plugins/types.ts ID_RE 同源，不跨模块引用保持 protocol 自治） */
+const PLUGIN_ID_RE = /^[a-z0-9]+(\.[a-z0-9]+)+$/
+
+/** decodeURIComponent 的安全包装：非法百分号编码 → 空串（由调用方判定拒绝） */
+function safeDecode(seg: string): string {
+  try {
+    return decodeURIComponent(seg)
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 插件包内资源 URL：qihebox://plugin/<id>/<relpath>（渲染层 routes 动态 import 用）。
+ * relPath 逐段 encodeURIComponent（含空格/中文的产物文件名安全）；id 为域名倒序，直接拼入。
+ */
+export function pluginFileUrl(id: string, relPath: string): string {
+  const safe = relPath
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((s) => s.length > 0)
+    .map((s) => encodeURIComponent(s))
+    .join('/')
+  return `qihebox://plugin/${id}/${safe}`
+}
+
+/**
+ * 解析插件 URL pathname（形如 /<id>/<relpath> 的原始编码段）：
+ * - id 须为域名倒序（拒绝 '..'/'/'/大小写等一切逃逸形态）
+ * - relPath 逐段解码后拒绝空段 / '.' / '..'（防 %2e%2e 编码逃逸；URL 层折叠的 '..' 亦在此被拒）
+ * 非法 → null（handler 返回 400）。注意：反斜杠不在段校验范围——Windows 分隔符语义的逃逸
+ * 由 resolvePluginAsset 的 realpath 前缀比对兜底（与 file/thumb 同款 D7 防护）。
+ */
+export function parsePluginUrl(rawPathname: string): { id: string; relPath: string } | null {
+  if (!rawPathname.startsWith('/')) return null
+  const segments = rawPathname.slice(1).split('/')
+  const id = safeDecode(segments[0] ?? '')
+  if (!PLUGIN_ID_RE.test(id)) return null
+  const relParts: string[] = []
+  for (let i = 1; i < segments.length; i++) {
+    const seg = safeDecode(segments[i])
+    if (seg === '' || seg === '.' || seg === '..') return null
+    relParts.push(seg)
+  }
+  if (relParts.length === 0) return null
+  return { id, relPath: relParts.join('/') }
+}
+
+/**
+ * 解析插件包内资源到磁盘绝对路径（防符号链接逃逸，与 file/thumb 同款 realpath 前缀比对）：
+ * pkg 根与目标均 realpath 解析，目标必须在 pkg 根之内；文件/目录不存在 → null。
+ * 纯 node 实现（不依赖 electron），可直接单测。
+ */
+export async function resolvePluginAsset(pkgRoot: string, relPath: string): Promise<string | null> {
+  const target = path.resolve(pkgRoot, relPath)
+  const [rootReal, targetReal] = await Promise.all([
+    fsp.realpath(pkgRoot).catch(() => null),
+    fsp.realpath(target).catch(() => null),
+  ])
+  if (!rootReal || !targetReal) return null
+  if (targetReal !== rootReal && !targetReal.startsWith(rootReal + path.sep)) return null
+  return targetReal
+}
+
+/** 插件安装根（缺省）：userData/plugins（与 installer 落盘位置一致，见 PLAN §4.2） */
+function pluginsRootFallback(): string {
+  return path.join(app.getPath('userData'), 'plugins')
 }
 
 /** v2.4.2（P1-P2）：服务本地文件，支持单区间 Range → 206。无 Range → 整文件流式（net.fetch） */
@@ -93,6 +167,7 @@ async function serveFile(resolved: string, request: Request, extraHeaders?: Reco
 export function registerQiheboxProtocol(
   box: BoxService,
   getThumbsRoot?: () => string,
+  getPluginsRoot?: () => string,
 ): void {
   protocol.handle('qihebox', async (request) => {
     try {
@@ -100,10 +175,30 @@ export function registerQiheboxProtocol(
       if (request.method !== 'GET') {
         return new Response('method not allowed', { status: 405 })
       }
-      if (url.hostname !== 'file' && url.hostname !== 'thumb') {
+      if (url.hostname !== 'file' && url.hostname !== 'thumb' && url.hostname !== 'plugin') {
         void log('error', `[protocol] bad host: ${url.hostname} ${request.url}`)
         return new Response('bad request', { status: 400 })
       }
+
+      // v2.5（PLAN §4.3）：插件包内资源——qihebox://plugin/<id>/<relpath>，从 userData/plugins/<id>/pkg/ 提供。
+      // 与工作区无关（userData 级，PLAN §六.3），复用流式 + Range 体系（v2.4.7 F7 流式语义，不带回旧 1MB 截断）；
+      // no-store：插件重装/更新后立即生效，不命中浏览器旧缓存（模块小、本地磁盘，缓存收益低）
+      if (url.hostname === 'plugin') {
+        const parsed = parsePluginUrl(url.pathname)
+        if (!parsed) {
+          void log('error', `[protocol] bad plugin url: ${request.url}`)
+          return new Response('invalid plugin url', { status: 400 })
+        }
+        const pkgRoot = path.join(getPluginsRoot?.() ?? pluginsRootFallback(), parsed.id, 'pkg')
+        const resolved = await resolvePluginAsset(pkgRoot, parsed.relPath)
+        if (!resolved) {
+          void log('error', `[protocol] plugin asset not found or outside package: ${request.url}`)
+          // 统一 404（不区分「不存在」与「逃逸被拒」，不泄露包外存在性）
+          return new Response('plugin asset not found', { status: 404 })
+        }
+        return serveFile(resolved, request, { 'Cache-Control': 'no-store' })
+      }
+
       const encoded = decodeURIComponent(url.pathname.slice(1))
       let filePath: string
       try {

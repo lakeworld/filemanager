@@ -1,7 +1,8 @@
-import { Show, For, createSignal } from "solid-js";
+import { Show, For, createSignal, onMount } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import Logo from "~/components/Logo";
 import { currentWorkspace } from "~/stores/workspace";
+import { initPluginRegistry, pluginSidebarGroups } from "~/plugins/registry";
 
 interface MenuItem {
   icon: string;
@@ -20,6 +21,11 @@ export default function Sidebar() {
   const [expanded, setExpanded] = createSignal(true);
   // v2.4.9 M7：分组折叠——默认全展开；点组标题收起/展开；会话内不持久化（与 expanded 内存信号一致）
   const [collapsedGroups, setCollapsedGroups] = createSignal<string[]>([]);
+
+  // v2.5：插件注册表初始化（幂等；未安装插件时零派生开销，Sidebar 常驻即全局初始化点）
+  onMount(() => {
+    void initPluginRegistry();
+  });
 
   const toggleGroup = (title: string) =>
     setCollapsedGroups((prev) =>
@@ -66,6 +72,8 @@ export default function Sidebar() {
       items: [
         { icon: "👤", label: "我的", path: "/profile" },
         { icon: "⚙️", label: "设置", path: "/settings" },
+        // v2.5：插件管理（/settings/plugins，见 plugins/PluginManagerPage.tsx）
+        { icon: "🧩", label: "插件", path: "/settings/plugins" },
         { icon: "🗑️", label: "回收站", path: "/trash" },
       ],
     },
@@ -122,6 +130,53 @@ export default function Sidebar() {
                 <div class="mx-3 my-2 border-t border-surface-200" />
               </Show>
               {/* 64px 整体折叠态忽略分组折叠：组内条目全显（组标题本就不渲染，无恢复入口） */}
+              <Show when={!expanded() || !collapsedGroups().includes(group.title)}>
+                <For each={group.items}>
+                  {(item) => (
+                    <button
+                      class="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-surface-100"
+                      classList={{
+                        "text-primary-700 bg-primary-50 border-r-2 border-primary-600": isActive(item.path),
+                        "text-surface-600": !isActive(item.path),
+                      }}
+                      title={!expanded() ? item.label : undefined}
+                      onClick={() => navigate(item.path)}
+                    >
+                      <span class="text-base">{item.icon}</span>
+                      <Show when={expanded()}>
+                        <span class="font-medium">{item.label}</span>
+                      </Show>
+                    </button>
+                  )}
+                </For>
+              </Show>
+            </>
+          )}
+        </For>
+
+        {/* v2.5：插件分组（启用插件的 pages，来自渲染层插件注册表；未安装/无页面时为空）。
+            与本体分组同款折叠交互（v2.4.9 M7 语义）：组标题可收起/展开 */}
+        <For each={pluginSidebarGroups()}>
+          {(group) => (
+            <>
+              <Show when={expanded()}>
+                <div class="px-3 mb-2 mt-4">
+                  <button
+                    type="button"
+                    class="w-full flex items-center justify-between gap-1 text-xs font-medium text-surface-400 uppercase tracking-wider px-2 py-1 rounded-lg hover:bg-surface-100 hover:text-surface-600 transition-colors cursor-pointer"
+                    title={`展开/收起${group.title}`}
+                    onClick={() => toggleGroup(group.title)}
+                  >
+                    <span>{group.title}</span>
+                    <span class="text-[10px] leading-none text-surface-300">
+                      {collapsedGroups().includes(group.title) ? "▶" : "▼"}
+                    </span>
+                  </button>
+                </div>
+              </Show>
+              <Show when={!expanded()}>
+                <div class="mx-3 my-2 border-t border-surface-200" />
+              </Show>
               <Show when={!expanded() || !collapsedGroups().includes(group.title)}>
                 <For each={group.items}>
                   {(item) => (

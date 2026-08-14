@@ -5,7 +5,7 @@
  * - 注册 IPC 与 qihebox:// 文件协议
  * - 系统托盘 + 关闭隐藏到托盘 + 崩溃自愈骨架
  */
-import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage, Notification } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage, Notification, ipcMain } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -16,6 +16,8 @@ import { globalWorkspaceIndex } from './core/indexCache'
 import { SharpThumbnailService } from './thumbnail'
 import { registerIpc } from './ipc'
 import { registerQiheboxProtocol } from './protocol'
+import { registerPluginHost, type PluginHostHandle } from './plugins/ipc'
+import { createSettings } from './settings'
 import { AccountService } from './account'
 import { log, initLogger, getLogger } from './log'
 import { isAutoLaunchMode } from './core/autoLaunch'
@@ -91,6 +93,8 @@ if (!gotLock) {
 Menu.setApplicationMenu(null)
 
 let tray: Tray | null = null
+/** v2.5：插件宿主装配句柄（registerPluginHost 返回；宿主事件桥与退出清理用） */
+let pluginHost: PluginHostHandle | null = null
 /** v2.4.9（S4）：当前实例是否自启态（决定 --autostart 延迟建窗与自启态诊断日志） */
 let autostartMode = false
 /** v2.4.2（R1）：崩溃计数改为时间窗——10 分钟内 ≥3 次才退出；`clean-exit`（休眠销毁窗口）不计 */
@@ -214,6 +218,11 @@ app.on('before-quit', () => {
   setQuitting(true)
 })
 
+// v2.5：退出清理——全部已激活插件 dispose()（尽力，超时 2s 不强等，PLAN §六.4）+ 宿主事件总线清理
+app.on('will-quit', () => {
+  void pluginHost?.dispose()
+})
+
 
 // v2.3.0 分层休眠：窗口被休眠销毁（close → 托盘 → 30 秒无活跃 → destroy，v2.4.5 T3 提速）时，
 // 必须监听 window-all-closed 阻止 Electron 默认退出（Windows/Linux 无监听时全窗口关闭即退出）。
@@ -276,6 +285,8 @@ async function runUpdateCheck(): Promise<void> {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send('qihebox:event:update:available', info)
     }
+    // v2.5：插件宿主事件桥——发现新版（host.events.on('updateAvailable') 白名单通道，PLAN §1.1 步骤 7）
+    pluginHost?.emitHostEvent('updateAvailable', info)
     // 收尾轮：发现新版补一条系统通知兜底（用户不在 Profile 页也能感知）；按版本去重
     if (notifiedUpdateVersion !== info.version) {
       notifiedUpdateVersion = info.version
@@ -351,6 +362,8 @@ async function runCertNotify(box: BoxService): Promise<void> {
           }
         }
       }
+      // v2.5：插件宿主事件桥——证书到期（host.events.on('certExpiring') 白名单通道，PLAN §1.1 步骤 7）
+      pluginHost?.emitHostEvent('certExpiring', toNotify)
     }
   }
 }
@@ -469,7 +482,20 @@ app.whenReady().then(() => {
   const exchange = box.exchange
 
   registerIpc(box, account, { isTrayReady: () => tray !== null })
-  registerQiheboxProtocol(box, () => thumbs.currentThumbsRoot())
+  registerQiheboxProtocol(box, () => thumbs.currentThumbsRoot(), () => path.join(app.getPath('userData'), 'plugins'))
+
+  // —— v2.5：插件宿主装配（PLAN §六）——装配期只做已安装包清单登记（同步微秒级），
+  // 不加载任何插件代码（惰性加载归 src/main/plugins/loader.ts）；默认未安装任何插件时零开销
+  const settings = createSettings(app.getPath('userData'))
+  pluginHost = registerPluginHost(box, account, settings)
+
+  // —— v2.5：开发者模式设置 IPC（侧载收紧，PLAN §3.5）——
+  ipcMain.handle('qihebox:settings:getDevMode', () => settings.getDevMode())
+  ipcMain.handle('qihebox:settings:setDevMode', async (_e, enabled: boolean) => {
+    // 必须先 await 落盘再返回——否则调用方读到旧值（渲染层开关弹回）
+    await settings.setDevMode(!!enabled)
+    return settings.getDevMode()
+  })
 
   // v2.4.7（评审 P5）：重启后恢复已登录账号的心跳——登录态由 account.json 持久化，
   // 此前只有 login() 内启动心跳，重启后心跳静默丢失（startHeartbeat 幂等，登录路径仍会重复调用无害）
@@ -490,6 +516,8 @@ app.whenReady().then(() => {
     .then(() => {
       // v2.4.x：注册工作区切换钩子（含恢复失败路径）——setCurrentWorkspace 后重建索引与文件监听
       workspace.onWorkspaceChanged(() => {
+        // v2.5：插件宿主事件桥——工作区切换（host.events.on('workspaceChanged') 白名单通道，PLAN §1.1 步骤 7）
+        pluginHost?.emitHostEvent('workspaceChanged', box.workspace.currentWorkspacePath())
         void setupWorkspaceIndex(box).catch((err) => void log('warn', `文件索引重建失败: ${String(err)}`))
         // v2.4.7：交换区监听随工作区切换关闭重建（watch 句柄与防抖定时器成对释放）+ 立即补扫
         exchange.stop()

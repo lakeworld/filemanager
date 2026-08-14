@@ -15,6 +15,9 @@ files:
   - build/trayicon.png
   - build/appicon.png
   - build/logo.png
+  # v2.5（r2-测试P1-6）：插件 .qbox 构建产物不进安装包（files: out/**/* 会把 out/plugins/*.qbox 打进包，
+  # 违反「零插件默认态」红线——插件一律侧载安装；此排除与 e2e 前置构建互不影响）
+  - '!out/plugins/**'
   # v2.2.1：logo.png 用于 startDrag 拖拽图标，缺失则安装版拖拽失败（打包回归）
   # v2.1.2 包瘦身：渲染层已把 pdfjs / @tanstack/solid-virtual 打进 bundle
   # （pdf.worker 也已复制到 renderer assets），node_modules 里的 101MB pdfjs-dist 是死重，排除

@@ -1,6 +1,7 @@
 import type { ContextMenuItem } from "~/components/ContextMenu";
 import { api } from "~/wails/api";
 import type { FileEntry } from "~/types";
+import { callPlugin, pluginFileCommands } from "~/plugins/registry";
 
 /**
  * 统一文件右键菜单 builder（v2.3.x UI 统一批）。
@@ -195,6 +196,21 @@ export function buildFileContextMenuItems<T extends FileEntry>(
       icon: "🗑️",
       danger: true,
       action: () => onDelete(paths),
+    });
+  }
+
+  // 11. 插件右键命令注入槽（v2.5，PLAN §5.3）：启用插件声明的 scope='file' 命令。
+  // 可见性过滤 when.exts——仅当单选且扩展名命中（未声明 exts 则始终显示），防右键菜单污染
+  for (const cmd of pluginFileCommands()) {
+    const extMatch =
+      !cmd.exts ||
+      cmd.exts.length === 0 ||
+      (single && cmd.exts.some((e) => file.name.toLowerCase().endsWith(e.toLowerCase())));
+    if (!extMatch) continue;
+    items.push({
+      label: cmd.label,
+      icon: "🧩",
+      action: () => void callPlugin(cmd.pluginId, cmd.commandId, { filePaths: paths }),
     });
   }
 

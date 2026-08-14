@@ -4,6 +4,7 @@
  * 事件：events.on('import:complete', cb) → 主进程发 'qihebox:event:import:complete'
  */
 import { contextBridge, ipcRenderer, webUtils, webFrame } from 'electron'
+import type { ApiResult, PluginInfo } from '../shared/types'
 
 const invoke = (channel: string, ...args: unknown[]): Promise<unknown> =>
   ipcRenderer.invoke(channel, ...args)
@@ -206,6 +207,39 @@ const api = {
     setAutoLaunch: (enabled: boolean) => invoke('qihebox:app:setAutoLaunch', enabled),
     isAutoLaunch: () => invoke('qihebox:app:isAutoLaunch'),
     isTrayReady: () => invoke('qihebox:app:isTrayReady'),
+  },
+  // v2.5：插件宿主命名空间（PLAN §3.5 / 交叉契约）——纯透传，不 import 任何插件代码。
+  // 全部经 qihebox:plugins:* 通道（宿主返回 ApiResult 包装，此处不拆包）；插件代码不进 preload bundle
+  plugins: {
+    /** 已安装插件清单（含禁用/broken；管理页与 Sidebar/路由/菜单注入的数据源） */
+    list: (): Promise<ApiResult<PluginInfo[]>> =>
+      invoke('qihebox:plugins:list') as Promise<ApiResult<PluginInfo[]>>,
+    /** 调用插件 IPC：plugins.call(id, action, payload) → 宿主路由到插件注册的 action */
+    call: (pluginId: string, action: string, payload?: unknown): Promise<ApiResult<unknown>> =>
+      invoke('qihebox:plugins:call', pluginId, action, payload) as Promise<ApiResult<unknown>>,
+    /** 管理页：启停（即时生效 + 持久化 userData/plugins/config.json） */
+    setEnabled: (pluginId: string, enabled: boolean): Promise<ApiResult<boolean>> =>
+      invoke('qihebox:plugins:setEnabled', pluginId, enabled) as Promise<ApiResult<boolean>>,
+    /** 侧载安装本地 .qbox（JSON Schema + SHA-256 校验在宿主侧；需开发者模式开启，PLAN §3.5） */
+    install: (source: { filePath: string }): Promise<ApiResult<PluginInfo>> =>
+      invoke('qihebox:plugins:install', source) as Promise<ApiResult<PluginInfo>>,
+    /** 卸载（删除 userData/plugins/<id>/ 的代码与状态，UI 明示确认后调用） */
+    uninstall: (pluginId: string): Promise<ApiResult<boolean>> =>
+      invoke('qihebox:plugins:uninstall', pluginId) as Promise<ApiResult<boolean>>,
+    /** 订阅插件广播事件（宿主 host.events.emit → qihebox:event:<channel>），返回退订函数 */
+    on: (channel: string, cb: (data: unknown) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, data: unknown): void => cb(data)
+      ipcRenderer.on(`qihebox:event:${channel}`, listener)
+      return () => {
+        ipcRenderer.removeListener(`qihebox:event:${channel}`, listener)
+      }
+    },
+  },
+  // v2.5：开发者模式设置（侧载收紧，PLAN §3.5）——默认关，userData/settings.json 持久化
+  settings: {
+    getDevMode: (): Promise<boolean> => invoke('qihebox:settings:getDevMode') as Promise<boolean>,
+    setDevMode: (enabled: boolean): Promise<boolean> =>
+      invoke('qihebox:settings:setDevMode', enabled) as Promise<boolean>,
   },
   events: {
     /** 订阅主进程事件，返回取消订阅函数 */

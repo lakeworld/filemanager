@@ -3,6 +3,7 @@ import { lazy } from "solid-js";
 import { Router, Route } from "@solidjs/router";
 import type { RouteSectionProps } from "@solidjs/router";
 import App from "./App";
+import { PluginRoutes } from "./plugins/routes";
 import "./index.css";
 
 // 路由级懒加载：首屏只加载仪表盘，其余页面按需分包（性能优化）
@@ -59,6 +60,8 @@ render(
       <Route path="/files/customer/:name/:subFolder" component={FileBrowser} />
       <Route path="/files/supplier/:name/:subFolder" component={FileBrowser} />
       <Route path="/files/:type/:productSet/:subFolder" component={FileBrowser} />
+      {/* v2.5：插件管理页 + 启用插件的动态页面路由（随插件清单响应式增减，启停即时生效） */}
+      <PluginRoutes />
     </Router>
   ),
   document.getElementById("root")!
