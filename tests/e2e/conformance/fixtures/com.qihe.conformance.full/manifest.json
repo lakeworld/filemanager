@@ -1,0 +1,33 @@
+{
+  "id": "com.qihe.conformance.full",
+  "name": "Conformance 全能力夹具",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "enabled": true,
+  "kind": ["ipc", "pages", "commands"],
+  "ipcPrefix": "conformance-full",
+  "description": "一致性套件正路径夹具：声明全权限并提供 host API 语义自证调用（storage/events/files/account/notify/entitlement/workspace）。",
+  "author": "启禾软件",
+  "permissions": {
+    "network": ["api.qihe.com"],
+    "clipboard": true,
+    "notification": true,
+    "account": true
+  },
+  "pages": [
+    {
+      "path": "/plugin/conformance-full",
+      "label": "Conformance 全能力",
+      "icon": "🧪",
+      "group": "插件",
+      "component": "renderer/Main.js"
+    }
+  ],
+  "commands": [
+    {
+      "id": "conformance-full.noop",
+      "label": "🧪 Conformance 全能力命令",
+      "scope": "global"
+    }
+  ]
+}

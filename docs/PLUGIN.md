@@ -396,6 +396,7 @@ erp_ext?: {
 - 构建：参考 `scripts/build-hello-plugin.mjs`，把编译产物打包为 `.qbox`（zip）
 - 安装：应用内「设置 → 插件 → 开发者模式」开启后，经「手动导入 .qbox」侧载（默认关闭开发者模式；安装前有通用风险确认框）
 - 调试：主进程日志经 `host.log`；broken 原因、激活耗时、调用计数在管理页可见
+- **一致性套件**：`npm run conformance -- <插件路径>`（`.qbox` 或含 `manifest.json` 的目录；未传参默认体检 hello）对插件跑协议体检（manifest 校验→安装→握手→页面/IPC/命令→host API 语义往返→卸载），上手与报告解读见 `tests/e2e/conformance/README.md`
 - 问题与协议不符之处：到公开仓库提 issue
 
 ---
