@@ -800,6 +800,15 @@ describe('createPluginHost：host.files 能力域（v2.5 增量，PLAN §3.3）'
     expect(await codeOf(inst.host.files.writeExport('ok.txt', 'x'.repeat(200)))).toBe('TOO_LARGE')
     expect(await codeOf(inst.host.files.writeExport('ok.txt', 42 as unknown as string))).toBe('INVALID_NAME')
   })
+
+  it('\\0（NUL）路径/文件名 → INVALID_NAME（不抛无 code 裸异常，对齐业务错误码承诺）', async () => {
+    const inst = await createPluginHost(makeDeps())
+    expect(await codeOf(inst.host.files.readText('a\0b.txt'))).toBe('INVALID_NAME')
+    expect(await codeOf(inst.host.files.readBuffer('a\0b.txt'))).toBe('INVALID_NAME')
+    expect(await codeOf(inst.host.files.writeExport('a\0b.txt', 'x'))).toBe('INVALID_NAME')
+    expect(await codeOf(inst.host.files.readText('\0'))).toBe('INVALID_NAME')
+    expect(await codeOf(inst.host.files.writeExport('\0', 'x'))).toBe('INVALID_NAME')
+  })
 })
 
 // ==================== v2.5 增量：host.account 权限门控 + entitlement 占位（PLAN §3.2/§3.4） ====================

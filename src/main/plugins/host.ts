@@ -252,6 +252,9 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
     if (typeof relPath !== 'string' || relPath.length === 0) {
       throw fileError('INVALID_NAME', '文件路径须为非空字符串')
     }
+    if (relPath.includes('\0')) {
+      throw fileError('INVALID_NAME', '文件路径不得包含 NUL 字符')
+    }
     const ws = deps.workspace.currentPath()
     if (!ws) throw fileError('NO_WORKSPACE', '当前没有打开的工作区')
     const resolved = path.resolve(ws, relPath)
