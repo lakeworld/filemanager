@@ -7,9 +7,6 @@ interface QiheboxApi {
     login: (email: string, password: string) => Promise<unknown>
     logout: () => Promise<unknown>
   }
-  ai: {
-    call: (action: string, payload: unknown) => Promise<unknown>
-  }
   workspace: {
     list: () => Promise<unknown>
     current: () => Promise<unknown>
@@ -170,6 +167,20 @@ interface QiheboxApi {
     setAutoLaunch: (enabled: boolean) => Promise<unknown>
     isAutoLaunch: () => Promise<unknown>
     isTrayReady: () => Promise<unknown>
+  }
+  // v2.5：插件宿主命名空间（纯透传；宿主返回 ApiResult 包装，渲染层 registry 直读 success/error）
+  plugins: {
+    list: () => Promise<unknown>
+    call: (pluginId: string, action: string, payload?: unknown) => Promise<unknown>
+    setEnabled: (pluginId: string, enabled: boolean) => Promise<unknown>
+    install: (source: { filePath: string }) => Promise<unknown>
+    uninstall: (pluginId: string) => Promise<unknown>
+    on: (channel: string, cb: (data: unknown) => void) => () => void
+  }
+  // v2.5：开发者模式设置（侧载收紧，PLAN §3.5）
+  settings: {
+    getDevMode: () => Promise<unknown>
+    setDevMode: (enabled: boolean) => Promise<unknown>
   }
   events: {
     on: (channel: string, callback: (data: unknown) => void) => () => void

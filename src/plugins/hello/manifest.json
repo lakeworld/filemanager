@@ -1,0 +1,28 @@
+{
+  "id": "com.qihe.hello",
+  "name": "Hello 示例插件",
+  "version": "2.5.5",
+  "apiVersion": 1,
+  "enabled": true,
+  "kind": ["ipc", "pages", "commands"],
+  "ipcPrefix": "hello",
+  "description": "插件协议教学样板：演示 IPC / 页面 / 右键命令三种能力（v2.5 hello 示例，侧载安装，不进安装包）。",
+  "author": "启禾软件",
+  "license": "MIT",
+  "pages": [
+    {
+      "path": "/plugin/hello",
+      "label": "Hello 示例",
+      "icon": "👋",
+      "group": "插件",
+      "component": "renderer/Main.js"
+    }
+  ],
+  "commands": [
+    {
+      "id": "hello.greet",
+      "label": "👋 Hello 示例（记录文件数）",
+      "scope": "file"
+    }
+  ]
+}

@@ -78,6 +78,56 @@ describe('AccountService', () => {
     expect(raw.deviceId).toBeTruthy()
   })
 
+  // —— v2.5（PLAN §3.2）：tokenCache 生命周期（host.account 同步读取的内存缓存）——
+
+  it('tokenCache：登录写入、登出清空（getToken/isLoggedIn 往返）', async () => {
+    expect(svc.getToken()).toBeNull()
+    expect(svc.isLoggedIn()).toBe(false)
+    const r = await svc.login('a@b.com', 'pw')
+    expect(r.ok).toBe(true)
+    expect(svc.getToken()).toBe('jwt-token')
+    expect(svc.isLoggedIn()).toBe(true)
+    await svc.logout()
+    expect(svc.getToken()).toBeNull()
+    expect(svc.isLoggedIn()).toBe(false)
+  })
+
+  it('tokenCache：重启恢复（新实例 status() 读盘后 getToken 返回缓存 token）', async () => {
+    await svc.login('a@b.com', 'pw')
+    const fresh = new AccountService({ ...deps, fetchImpl: mockFetchOk('jwt-token') })
+    expect(fresh.getToken()).toBeNull() // 未读盘前无缓存
+    expect(fresh.status().loggedIn).toBe(true) // status() 触发 load() → 写缓存
+    expect(fresh.getToken()).toBe('jwt-token')
+    expect(fresh.isLoggedIn()).toBe(true)
+    fresh.stopHeartbeat()
+  })
+
+  it('tokenCache：解密异常（safeStorage 降级失败）→ getToken null + log 警告，不抛', async () => {
+    // 先正常登录落盘，再用解密失败的 deps 重建（模拟 safeStorage 不可用）
+    await svc.login('a@b.com', 'pw')
+    const warns: string[] = []
+    const bad = new AccountService({
+      ...deps,
+      decrypt: () => '', // 解密失败（返回空串）
+      log: (level, msg) => {
+        if (level === 'warn') warns.push(msg)
+      },
+    })
+    expect(bad.status().loggedIn).toBe(false) // 按未登录处理
+    expect(bad.getToken()).toBeNull()
+    expect(warns.some((m) => m.includes('解密失败'))).toBe(true)
+    bad.stopHeartbeat()
+  })
+
+  it('tokenCache：账号文件缺失 → 清缓存（外部删除后 getToken 不再返回旧 token）', async () => {
+    await svc.login('a@b.com', 'pw')
+    expect(svc.getToken()).toBe('jwt-token')
+    fs.rmSync(accountFile, { force: true })
+    svc.status() // load() 失败 → 清缓存
+    expect(svc.getToken()).toBeNull()
+    expect(svc.isLoggedIn()).toBe(false)
+  })
+
   it('登录失败：返回错误且不落盘', async () => {
     const fetchImpl = mockFetchStatus(401, { message: 'invalid credentials' })
     svc = new AccountService({ ...deps, fetchImpl })

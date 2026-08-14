@@ -14,7 +14,11 @@
   "include": [
     "src/main/**/*",
     "src/preload/**/*",
+    "src/plugins/**/*",
     "electron.vite.config.ts",
     "tests/**/*"
+  ],
+  "exclude": [
+    "src/plugins/hello/**/*"
   ]
 }

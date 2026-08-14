@@ -568,3 +568,72 @@ export interface QuoteUpdateRequest {
   notes?: string
   file_path?: string
 }
+
+// —— v2.5：插件宿主（宿主 → 渲染层共享类型；协议契约见 src/plugins/types.ts，此处为可序列化镜像）——
+
+/**
+ * 已安装插件运行时状态（宿主 → 渲染层 list() 输出）。
+ * 纯 JSON 可序列化；name/description 为宿主解析后的展示字符串（manifest.name 可为 PluginText map，
+ * 宿主按当前 locale 解析后输出）；permissions 与 manifest.permissions 同构。
+ */
+export interface PluginInfo {
+  /** 全局唯一插件 id（域名倒序，如 com.qihe.hello） */
+  id: string
+  /** 展示名（manifest.name 解析后的字符串） */
+  name: string
+  /** 插件版本（语义化版本） */
+  version: string
+  /** 插件所针对的宿主 API 版本 */
+  apiVersion: number
+  /** 能力类型（ipc / pages / commands） */
+  kind: string[]
+  /** 启停状态（可被 userData/plugins/config.json 覆盖） */
+  enabled: boolean
+  /** 运行状态：enabled 启用 / disabled 禁用 / broken 校验失败或熔断 */
+  state: 'enabled' | 'disabled' | 'broken'
+  /** broken 原因（管理页展示，如 apiCompat 不兼容 / id 冲突 / 缺入口 / 熔断失败计数） */
+  brokenReason?: string
+  /** 描述（manifest.description 解析后的字符串） */
+  description?: string
+  /** 作者 */
+  author?: string
+  /** 插件图标（管理页展示） */
+  icon?: string
+  /** 状态同步范围镜像（v2.5 增量，PLAN §3.1：global = 状态将随设备同步；缺省 'local'） */
+  syncScope?: 'global' | 'local'
+  /** 页面入口（manifest.pages 解析后的镜像，label 已解析为字符串）。
+   *  渲染层宿主经 list() 派生 Sidebar 插件分组与动态路由表（PLAN §5.1），缺失时该插件页面能力不可注入 */
+  pages?: Array<{
+    /** 路由路径（带插件前缀，如 /plugin/ai） */
+    path: string
+    label: string
+    icon: string
+    group: string
+    /** 包内相对路径（宿主经 qihebox://plugin/<id>/ 协议 URL 动态 import，组件 = 模块默认导出） */
+    component: string
+  }>
+  /** 右键命令（manifest.commands 解析后的镜像；渲染层派生右键菜单注入槽，PLAN §5.3） */
+  commands?: Array<{
+    /** 插件内唯一命令 id */
+    id: string
+    label: string
+    scope: 'file' | 'global'
+    /** 可见性过滤：仅匹配的文件类型出现该命令 */
+    when?: { exts?: string[] }
+  }>
+  /** 声明式权限（仅展示，v1 不强制拦截，见 PLUGIN.md §2.6；account 为 v2.5 增量） */
+  permissions?: {
+    network?: string[]
+    clipboard?: boolean
+    notification?: boolean
+    account?: boolean
+  }
+  /** 最近一次激活耗时（毫秒，管理页可观测） */
+  activationMs?: number
+  /** IPC 调用累计次数 */
+  callCount: number
+  /** 失败累计次数（熔断计数依据） */
+  failCount: number
+  /** 安装时间（ISO 字符串） */
+  installedAt: string
+}

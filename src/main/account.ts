@@ -53,6 +53,14 @@ const log = (deps: AccountDeps, level: 'info' | 'warn' | 'error', msg: string): 
 export class AccountService {
   private sessionExpired = false
   private heartbeatTimer: NodeJS.Timeout | null = null
+  /**
+   * v2.5（PLAN §3.2 r2-测试P1-4/架构P1-1/性能P1-3）：token/登录态内存缓存。
+   * 修正伪前提：master account.ts 无内存缓存，status()/beat() 每次 load() 读盘+解密；
+   * host.account 是同步接口且被高频调用（AI 类插件每次请求取 token），须走缓存。
+   * 生命周期：login/load 读盘成功后写入；logout 清空；解密异常 → null + log 警告（不抛）。
+   */
+  private tokenCache: string | null = null
+  private loggedInCache = false
 
   constructor(private deps: AccountDeps) {}
 
@@ -63,13 +71,28 @@ export class AccountService {
       const raw = fs.readFileSync(this.deps.accountFile, 'utf8')
       const parsed = JSON.parse(raw) as Partial<StoredAccount>
       if (!parsed.token || !parsed.userId || !parsed.deviceId) return null
-      return {
-        token: this.deps.decrypt(parsed.token),
+      const token = this.deps.decrypt(parsed.token)
+      if (!token) {
+        // v2.5：safeStorage 解密异常 → token 不可用，按未登录处理（log 警告，不抛）
+        log(this.deps, 'warn', 'token 解密失败（safeStorage 异常？），按未登录处理')
+        this.tokenCache = null
+        this.loggedInCache = false
+        return null
+      }
+      const acc: StoredAccount = {
+        token,
         userId: parsed.userId,
         email: parsed.email ?? '',
         deviceId: parsed.deviceId,
       }
+      // v2.5：读盘成功 → 写入缓存（getToken/isLoggedIn 直接返回，不重复读盘+解密）
+      this.tokenCache = token
+      this.loggedInCache = true
+      return acc
     } catch {
+      // 文件缺失/损坏 → 同步清缓存（登录态已不存在，host.account 不得返回旧 token）
+      this.tokenCache = null
+      this.loggedInCache = false
       return null
     }
   }
@@ -132,6 +155,9 @@ export class AccountService {
     const deviceId = existing?.deviceId ?? randomUUID()
     this.sessionExpired = false
     this.save({ token, userId, email: body.record?.email ?? email, deviceId })
+    // v2.5：登录成功写入 token 缓存（host.account 同步读取）
+    this.tokenCache = token
+    this.loggedInCache = true
     log(this.deps, 'info', `登录成功 user=${userId}`)
     // 登录即启动心跳（统计活跃），并立即上报一次
     this.startHeartbeat()
@@ -143,6 +169,19 @@ export class AccountService {
     this.stopHeartbeat()
     this.remove()
     this.sessionExpired = false
+    // v2.5：登出清空 token 缓存
+    this.tokenCache = null
+    this.loggedInCache = false
+  }
+
+  /** v2.5（PLAN §3.2）：同步返回 token 内存缓存（登录态读盘时写入；未登录 → null） */
+  getToken(): string | null {
+    return this.tokenCache
+  }
+
+  /** v2.5（PLAN §3.2）：同步返回登录态缓存 */
+  isLoggedIn(): boolean {
+    return this.loggedInCache
   }
 
   status(): AccountStatus {
