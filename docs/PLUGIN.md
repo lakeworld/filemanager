@@ -105,15 +105,15 @@ export interface PluginManifest {
 
 **校验规则**（宿主登记阶段执行，任一失败 → broken）：
 
-1. `id` 全局唯一；`ipcPrefix` 全局唯一；`pages[].path` 不与本体路由及已注册插件路由冲突
-2. `kind` 声明与实际的 pages/commands 一致（互相有字段）
-3. `apiCompat` 与宿主 `API_VERSION` 相交（`min ≤ 1 ≤ max`）；声明 `minHostVersion` 时宿主产品版本须 ≥ 该值
-4. `pages[].path` 必须以 `/plugin/` 开头；`pages[].component` 必须为包内相对路径（拒绝绝对路径与 `..` 逃逸）
-5. `transport` 缺省或 `'inproc'`；其余值 → broken（v1 仅进程内）
-6. `permissions.network` 域名须为合法主机名或 `'*'`（`'*'` 须附说明，管理页醒目展示）
-7. `activation` 中 `onEvent:<channel>` 的 channel 必须以本插件 `ipcPrefix` 开头
-8. `syncScope` 仅支持缺省（默认 `'local'`）、`'global'` 或 `'local'`；其余值 → broken（v2.5 增量）
-9. `permissions` 子字段类型校验：`account` / `clipboard` / `notification` 布尔、`network` 字符串数组或 `'*'`；非法 → broken（v2.5 增量）
+1. `id` 全局唯一；`ipcPrefix` 全局唯一；`pages[].path` 不与本体路由及已注册插件路由冲突 <!-- contract:v1:manifest.rule1 -->
+2. `kind` 声明与实际的 pages/commands 一致（互相有字段） <!-- contract:v1:manifest.rule2 -->
+3. `apiCompat` 与宿主 `API_VERSION` 相交（`min ≤ 1 ≤ max`）；声明 `minHostVersion` 时宿主产品版本须 ≥ 该值 <!-- contract:v1:manifest.rule3 -->
+4. `pages[].path` 必须以 `/plugin/` 开头；`pages[].component` 必须为包内相对路径（拒绝绝对路径与 `..` 逃逸） <!-- contract:v1:manifest.rule4 -->
+5. `transport` 缺省或 `'inproc'`；其余值 → broken（v1 仅进程内） <!-- contract:v1:manifest.rule5 -->
+6. `permissions.network` 域名须为合法主机名或 `'*'`（`'*'` 须附说明，管理页醒目展示） <!-- contract:v1:manifest.rule6 -->
+7. `activation` 中 `onEvent:<channel>` 的 channel 必须以本插件 `ipcPrefix` 开头 <!-- contract:v1:manifest.rule7 -->
+8. `syncScope` 仅支持缺省（默认 `'local'`）、`'global'` 或 `'local'`；其余值 → broken（v2.5 增量） <!-- contract:v1:manifest.rule8 -->
+9. `permissions` 子字段类型校验：`account` / `clipboard` / `notification` 布尔、`network` 字符串数组或 `'*'`；非法 → broken（v2.5 增量） <!-- contract:v1:manifest.rule9 -->
 
 ---
 
@@ -125,6 +125,8 @@ export interface PluginManifest {
          └ 失败 → broken（不加载，管理页如实上报）
          失败重试：仅「加载/握手」失败，下次触发时重试
 ```
+
+<!-- contract:v1:retry.policy -->
 
 | 阶段 | 时机 | 说明 |
 |---|---|---|
@@ -154,11 +156,16 @@ export interface PluginManifest {
 3. 管理页展示每插件激活耗时、调用次数、失败计数
 4. **已知代价（诚实说明）**：进程内方案下，插件 `activate` 内的同步死循环会卡死宿主进程，无法防御——选择内存克制的已知代价，靠信任分级与审查兜底（见 §六）
 
+<!-- contract:v1:fuse.policy -->
+
 ### API 演进政策
 
 1. **只增不删**：同一 API 大版本内只新增；废弃字段标记 `@deprecated`，至少存活一个宿主大版本
 2. `apiCompat` 不相交 → broken + 管理页明确提示「需升级宿主 / 需升级插件」
 3. 官方索引维护「插件版本 → 所需宿主 API 版本」映射（versions.json），旧宿主自动选兼容旧版插件
+
+<!-- contract:v1:api-version -->
+<!-- contract:v1:api-evolution -->
 
 ---
 
@@ -207,7 +214,21 @@ export interface PluginHost {
 }
 ```
 
+<!-- contract:v1:host.api-version -->
+<!-- contract:v1:host.log -->
+<!-- contract:v1:host.storage -->
+<!-- contract:v1:host.events -->
+<!-- contract:v1:host.workspace -->
+<!-- contract:v1:host.dialog -->
+<!-- contract:v1:host.notify -->
+<!-- contract:v1:host.account -->
+<!-- contract:v1:host.files -->
+<!-- contract:v1:host.entitlement -->
+
 > **host.files 边界说明**：`readText` / `readBuffer` 的 `relPath` 相对当前工作区，realpath 解析防符号链接逃逸，超出工作区 → `OUT_OF_WORKSPACE`，无工作区 → `NO_WORKSPACE`，不存在 → `NOT_FOUND`，超限 → `TOO_LARGE`；`writeExport` 文件名经宿主安全校验（非法 → `INVALID_NAME`）。带 `code` 属性的业务错误**不计入熔断**（熔断只统计加载/握手/未定义方法类失败），可放心用错误码做业务分支。产品约定：插件应只读取用户操作涉及的文件；inproc 无法技术强制，靠权限声明与侧载知情授权兜底。渲染层大数据读取建议走 `qihebox://file` URL 而非插件 IPC（structured clone 放大）。
+
+<!-- contract:v1:error.code -->
+<!-- contract:v1:host.files.boundary -->
 
 ### 5.2 插件 → 宿主：PluginRegistration（activate 返回）
 
@@ -222,6 +243,11 @@ export interface PluginRegistration {
   dispose?: () => void
 }
 ```
+
+<!-- contract:v1:registration.ipc -->
+<!-- contract:v1:registration.pages -->
+<!-- contract:v1:registration.commands -->
+<!-- contract:v1:registration.dispose -->
 
 ### 5.3 渲染层 → 宿主：window.qihebox.plugins
 
@@ -244,6 +270,10 @@ window.qihebox.settings = {
 }
 ```
 
+<!-- contract:v1:window.plugins -->
+<!-- contract:v1:window.settings -->
+<!-- contract:v2.7:window.plugins.catalog -->
+
 > preload 为薄壳纯透传，不 import 任何插件代码。
 
 ### 5.4 IPC 通道命名
@@ -254,6 +284,8 @@ window.qihebox.settings = {
 | `qihebox:plugins:list / setEnabled / call / catalog / install / uninstall` | 宿主通用通道 |
 | `qihebox:plugin:<ipcPrefix>:<action>` | 插件通道，前缀登记时校验全局唯一 |
 | `qihebox:settings:getDevMode / setDevMode` | 宿主（v2.5 增量：开发者模式） |
+
+<!-- contract:v1:ipc.channels -->
 
 ### 5.5 customers 能力域与 `erp_ext` 契约（v2.4.9 定稿，v2.7 实装）
 
@@ -266,6 +298,16 @@ window.qihebox.settings = {
 | `customer.syncProfile` | ERP 写 | 双向同步：写本体对齐字段（type/contact/phone/email/address/notes）+ `erp_ext`（v2.7 实装，本版本只定稿协议与类型） |
 | `relation.link` / `relation.unlink` | ERP 写 | 建立/解除客户↔产品集关联 |
 | 事件 `customerCreated` / `customerUpdated` / `fileArchived` | box → ERP | 复用 `host.events` 总线，增量同步不靠轮询 |
+
+<!-- contract:v2.7:customer.list -->
+<!-- contract:v2.7:customer.get -->
+<!-- contract:v2.7:customer.write-erp-ext -->
+<!-- contract:v2.7:customer.sync-profile -->
+<!-- contract:v2.7:relation.link -->
+<!-- contract:v2.7:relation.unlink -->
+<!-- contract:v2.7:event.customer-created -->
+<!-- contract:v2.7:event.customer-updated -->
+<!-- contract:v2.7:event.file-archived -->
 
 **字段归属规则**（v2.4.9 定稿，替换 v2.4.7「ERP 不可写本体字段」表述）：
 
@@ -287,6 +329,8 @@ erp_ext?: {
 }
 ```
 
+<!-- contract:v2.7:erp-ext.schema -->
+
 **冲突规则（记录级裁决）**：同步以整条档案 `updated_at` 较新者为准，方向确定后仅写对方能力域白名单内的差异字段；box 专属字段（alias/country/source/related_product_sets）不在 ERP 写白名单、永不被覆盖；`erp_ext` 仅 ERP 写。已知取舍：记录级时间戳粒度下，同记录内 box 与 ERP 对不同字段的并发改动存在互覆盖可能（v2.7 实装按此实现；字段级时间戳列为后续细化候选，不在本版本承诺）。
 
 ---
@@ -305,13 +349,15 @@ erp_ext?: {
 宿主对两级均强制执行：
 
 1. 插件只能通过 `host` 注入的能力访问系统；不提供任意路径读写、任意 shell 执行（`host.files` 为白名单例外，见 §5.1）
-2. 插件状态只能写在 `userData/plugins/<id>/state/`；storage.set 有路径与大小校验（单 key ≤ 1MB，总容量 ≤ 64MB）
-3. 插件不得注册 `qihebox:*` 前缀通道；事件 channel 强制 `ipcPrefix` 前缀
+2. 插件状态只能写在 `userData/plugins/<id>/state/`；storage.set 有路径与大小校验（单 key ≤ 1MB，总容量 ≤ 64MB） <!-- contract:v1:storage.bounds -->
+3. 插件不得注册 `qihebox:*` 前缀通道；事件 channel 强制 `ipcPrefix` 前缀 <!-- contract:v1:channel.reserved --> <!-- contract:v1:event.prefix -->
 4. `permissions` 字段先行：v1 用于展示与安装确认，未来 `transport='process'` 隔离落地时升级为强制拦截
-5. 插件页面模块纳入 CSP 管辖
-6. 一切安装均需 JSON Schema + SHA-256 校验；侧载另需开发者模式开启 + 通用风险确认框
+5. 插件页面模块纳入 CSP 管辖 <!-- contract:v1:security.csp -->
+6. 一切安装均需 JSON Schema + SHA-256 校验；侧载另需开发者模式开启 + 通用风险确认框 <!-- contract:v1:install.check -->
 
 **确认对话框口径（v2.5 落地）**：安装确认框文案为「此插件将获得与启禾文件管理同等的系统权限：可读取工作区文件、访问网络、执行系统命令。插件未经过官方审查。仅安装你信任来源的插件。确认安装？」；权限声明的完整展示在安装后的管理页详情中（安装前逐项预览属 v2.6 预检 API，v2.5 不实现）。
+
+<!-- contract:v1:sideload.gate -->
 
 ---
 
@@ -326,7 +372,11 @@ erp_ext?: {
 | 插件业务状态 | `userData/plugins/<id>/state/` | 插件（storage 限界） |
 | 插件导出物 | 工作区 `导出/<pluginId>_<fileName>` | 插件产物（`host.files.writeExport`，应用导出区展示；**卸载不自动删除**） |
 
+<!-- contract:v1:state.isolation -->
+
 **`syncScope` 语义（v2.5 增量）**：`state/` 位于 `userData/plugins/<id>/`（本机全局，不在工作区内）——`syncScope: 'global'` 声明该插件的状态期望跨设备可用，`'local'`（缺省）为仅本机。消费机制尚未落地（后续版本提供），v2.5 仅作声明与展示。
+
+<!-- contract:v1:sync-scope.semantics -->
 
 ---
 
@@ -335,6 +385,8 @@ erp_ext?: {
 - 未安装/禁用插件：零内存、零代码加载
 - 插件代码全部惰性加载，不进 `app ready → 窗口可交互` 关键路径
 - 「停用即释放」的诚实口径：ESM 模块代码一经加载无法从 V8 卸载（VS Code / Obsidian 同样如此）；承诺是停用后**实例/订阅/定时器/IPC 通道全部回收**，模块代码常驻、重启后完全释放
+
+<!-- contract:v1:memory.zero -->
 
 ---
 
@@ -353,6 +405,9 @@ erp_ext?: {
 - `transport: 'process'`：不可信插件组共享一个 utilityProcess 的隔离方案（VS Code 扩展宿主同粒度）
 - `transport: 'http'`：loopback 桥接，供外部应用经桥接插件对接
 - 两条路径下 `activate` / `PluginRegistration` 语义不变，仅传输层变化
+
+<!-- contract:v2.7:transport.process -->
+<!-- contract:v2.7:transport.http -->
 
 ---
 
