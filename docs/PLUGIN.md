@@ -404,6 +404,7 @@ erp_ext?: {
 ## 九、开发与调试
 
 - 公开仓库 `src/plugins/hello/` 是教学样板 + e2e 夹具：展示 manifest 写法、activate/registration、页面与命令注册、storage 使用
+- **完整教学见 `src/plugins/hello/README.md`**（15 分钟上手 + 逐文件讲解 + 改造指引 + 契约速查 + 已知边界）
 - 构建：参考 `scripts/build-hello-plugin.mjs`，把编译产物打包为 `.qbox`（zip）
 - 安装：应用内「设置 → 插件 → 开发者模式」开启后，经「手动导入 .qbox」侧载（默认关闭开发者模式；安装前有通用风险确认框）
 - 调试：主进程日志经 `host.log`；broken 原因、激活耗时、调用计数在管理页可见
