@@ -77,6 +77,11 @@ jobs:
       - name: Run Playwright tests (xvfb)
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test
 
+      # v2.5（PLAN-v2.5-测试 Task 4）：一致性套件自检（hello 自检 = 套件健康证明）——
+      # hello 构建产物已由上一步「Build hello plugin (e2e fixture)」就位；套件内部自建正负夹具
+      - name: Run conformance suite (hello self-check)
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm run conformance -- out/plugins/com.qihe.hello.qbox
+
       - name: Upload playwright report
         uses: actions/upload-artifact@v4
         if: always()

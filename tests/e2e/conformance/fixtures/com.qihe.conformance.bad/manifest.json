@@ -1,0 +1,10 @@
+{
+  "id": "com.qihe.conformance.bad",
+  "name": "Conformance 负路径夹具",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "enabled": true,
+  "kind": ["ipc"],
+  "ipcPrefix": "conformance-bad",
+  "transport": "http"
+}

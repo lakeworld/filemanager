@@ -19,6 +19,8 @@
     "api:update": "node scripts/update-api-surface.mjs",
     "test:e2e": "playwright test",
     "pretest:e2e": "node scripts/build-hello-plugin.mjs",
+    "conformance": "node tests/e2e/conformance/run-conformance.mjs",
+    "preconformance": "node scripts/build-hello-plugin.mjs",
     "bench": "vitest run tests/bench",
     "build:linux": "electron-vite build && electron-builder --linux --publish never",
     "build:win": "electron-vite build && electron-builder --win --publish never"
