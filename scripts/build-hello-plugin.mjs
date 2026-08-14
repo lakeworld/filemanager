@@ -222,6 +222,11 @@ async function collectRendererSources(srcDir) {
  * @returns {Promise<{ outPath: string; files: string[] }>}
  */
 export async function buildHelloPlugin(opts = {}) {
+  // 构建流水线（四步，照抄即可看懂每一步在做什么）：
+  //   ① 读 manifest.json —— 存在 + 可解析 + 有 id（结构级校验；九条完整校验由宿主登记期执行）
+  //   ② esbuild 编译 —— main/index.ts → main/index.js（CJS）；renderer 每个 .ts/.js → renderer/<同名>.js（ESM，solid-js 打入自包含）
+  //   ③ 打包 zip —— manifest 原样 + 编译产物，经 packQbox 手写 zip 容器输出 <id>.qbox
+  //   ④ 落盘校验 —— 写入 outDir 后确认条目数与产物大小（log 打印；结构级，不含宿主完整校验）
   const srcDir = opts.srcDir ?? DEFAULT_SRC_DIR
   const outDir = opts.outDir ?? DEFAULT_OUT_DIR
   const log = opts.log ?? (() => {})
