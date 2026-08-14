@@ -465,7 +465,7 @@ export interface InvoiceRecord {
   file_path: string
   tags?: string[]
   notes?: string
-  /** 预留命名空间（v2.6 OCR 插件写回），本体不校验 */
+  /** 预留命名空间（v2.7 OCR 插件写回），本体不校验 */
   ocr_ext?: Record<string, unknown>
   created_at: string
   updated_at: string
