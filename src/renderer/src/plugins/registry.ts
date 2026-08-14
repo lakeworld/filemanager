@@ -49,10 +49,10 @@ interface PluginBridge {
   on(channel: string, cb: (data: unknown) => void): () => void
 }
 
-/** preload settings 命名空间的最小本地类型（v2.5 增量，PLAN §3.5：开发者模式） */
+/** preload settings 命名空间的最小本地类型（v2.5 增量，PLAN §3.5：开发者模式；返回 ApiResult 包装） */
 interface SettingsBridge {
-  getDevMode(): Promise<boolean>
-  setDevMode(enabled: boolean): Promise<boolean>
+  getDevMode(): Promise<ApiResult<boolean>>
+  setDevMode(enabled: boolean): Promise<ApiResult<boolean>>
 }
 
 /** 取 preload 桥（qihebox.d.ts 补全 plugins 命名空间后，此处断言可替换为直接访问） */
@@ -208,12 +208,12 @@ export function uninstallPlugin(pluginId: string): Promise<ApiResult<boolean>> {
 
 // —— v2.5 增量（PLAN §3.5）：开发者模式（侧载收紧）——
 
-/** 开发者模式是否开启（默认 false；管理页据此显示侧载导入入口） */
-export function getDevMode(): Promise<boolean> {
+/** 开发者模式是否开启（默认 false；管理页据此显示侧载导入入口）；返回 ApiResult<boolean> 包装 */
+export function getDevMode(): Promise<ApiResult<boolean>> {
   return getSettingsBridge().getDevMode()
 }
 
-/** 设置开发者模式（userData/settings.json 持久化，重启保持） */
-export function setDevMode(enabled: boolean): Promise<boolean> {
+/** 设置开发者模式（userData/settings.json 持久化，重启保持）；返回 ApiResult<boolean> 包装 */
+export function setDevMode(enabled: boolean): Promise<ApiResult<boolean>> {
   return getSettingsBridge().setDevMode(enabled)
 }

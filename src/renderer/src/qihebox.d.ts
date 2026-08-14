@@ -1,6 +1,8 @@
 /**
  * window.qihebox 类型声明（由 preload contextBridge 暴露）
  */
+import type { ApiResult } from '../../shared/types'
+
 interface QiheboxApi {
   account: {
     status: () => Promise<unknown>
@@ -177,10 +179,10 @@ interface QiheboxApi {
     uninstall: (pluginId: string) => Promise<unknown>
     on: (channel: string, cb: (data: unknown) => void) => () => void
   }
-  // v2.5：开发者模式设置（侧载收紧，PLAN §3.5）
+  // v2.5：开发者模式设置（侧载收紧，PLAN §3.5；返回 ApiResult<boolean> 包装）
   settings: {
-    getDevMode: () => Promise<unknown>
-    setDevMode: (enabled: boolean) => Promise<unknown>
+    getDevMode: () => Promise<ApiResult<boolean>>
+    setDevMode: (enabled: boolean) => Promise<ApiResult<boolean>>
   }
   events: {
     on: (channel: string, callback: (data: unknown) => void) => () => void

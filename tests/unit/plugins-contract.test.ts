@@ -14,11 +14,10 @@
  * 额外携带 host 构造上下文（bus / logCalls / emitted / wsDir / stateDir）供 log 转发、
  * 事件往返、emit 前缀、storage 落盘、files 读写等行为级断言使用。
  *
- * 已知差异（实施发现，PLAN §五 对账差异④）：
- *   security.csp——PLUGIN.md §六 规则 5「插件页面模块纳入 CSP 管辖」尚未落地：
- *   qihebox:// scheme 以 bypassCSP:true 注册、渲染层 index.html 无 CSP meta/header。
- *   此处 self-check 断言当前可验证的插件资源安全边界（受控协议 URL + 路径逃逸拒绝），
- *   CSP 差异记入对账差异，处置由用户拍板（本任务不改生产代码逻辑）。
+ * 已知差异（实施发现，PLAN §五 对账差异④；2026-08-14 已部分落地 4fc39b4）：
+ *   security.csp——qihebox://plugin/<id>/ 响应已附加 Content-Security-Policy 头（PLUGIN_CSP），
+ *   兑现 §六 规则 5 的「响应带 CSP 头」承诺；但 import 模块无执行约束（形式防护，真隔离 v2.7）。
+ *   self-check 断言 protocol.ts 源码含 CSP 头与 PLUGIN_CSP（删头即红），并保留协议 URL 资源边界断言。
  */
 import { describe, expect, it, beforeAll, afterAll } from 'vitest'
 import fs from 'node:fs'
@@ -492,12 +491,25 @@ const CONTRACT: Record<string, ContractEntry> = {
     check: () => {
       expect(PRELOAD_MANIFEST.plugins).toEqual(['list', 'call', 'setEnabled', 'install', 'uninstall', 'on'])
       assertPreloadManifestMatchesSource()
+      // 签名口径（P1-E1/A3）：plugins 命名空间方法返回 ApiResult 包装；install 返回 ApiResult<PluginInfo>
+      // （组 D 已把 PLUGIN.md §5.3 改为 ApiResult 口径，此处守护 preload 源码与文档一致）
+      const preload = readSource('src/preload/index.ts')
+      expect(preload).toContain('ApiResult<')
+      expect(preload).toContain('list: (): Promise<ApiResult<PluginInfo[]>>')
+      expect(preload).toContain('call: (pluginId: string, action: string, payload?: unknown): Promise<ApiResult<unknown>>')
+      expect(preload).toContain('setEnabled: (pluginId: string, enabled: boolean): Promise<ApiResult<boolean>>')
+      expect(preload).toContain('install: (source: { filePath: string }): Promise<ApiResult<PluginInfo>>')
+      expect(preload).toContain('uninstall: (pluginId: string): Promise<ApiResult<boolean>>')
     },
   },
   'contract:v1:window.settings': {
     stage: 'v1',
     check: () => {
       expect(PRELOAD_MANIFEST.settings).toEqual(['getDevMode', 'setDevMode'])
+      // 签名口径（P1-E2）：settings 命名空间返回 ApiResult<boolean>（对齐全仓 handle() 纪律）
+      const preload = readSource('src/preload/index.ts')
+      expect(preload).toContain('getDevMode: (): Promise<ApiResult<boolean>>')
+      expect(preload).toContain('setDevMode: (enabled: boolean): Promise<ApiResult<boolean>>')
     },
   },
 
@@ -662,9 +674,11 @@ const CONTRACT: Record<string, ContractEntry> = {
   'contract:v1:security.csp': {
     stage: 'v1',
     check: () => {
-      // 已知差异（实施发现④）：CSP 未落地（bypassCSP:true，无 CSP meta/header）。
-      // 此处断言当前可验证的插件资源安全边界：受控协议 URL + id 域名倒序 + 路径逃逸拒绝 + realpath 前缀比对。
+      // CSP 头已落地（4fc39b4）：qihebox://plugin/<id>/ 响应附加 Content-Security-Policy（PLUGIN_CSP），
+      // 兑现 §六 规则 5 承诺；删头即红。同时保留协议 URL 资源边界断言（受控协议 URL + 路径逃逸拒绝）。
       const proto = readSource('src/main/protocol.ts')
+      expect(proto).toContain('Content-Security-Policy')
+      expect(proto).toContain('PLUGIN_CSP')
       expect(proto).toContain('qihebox://plugin/')
       expect(proto).toContain('parsePluginUrl')
       expect(proto).toContain('resolvePluginAsset')

@@ -106,6 +106,21 @@ module.exports = {
 }
 `
 
+/** P1-A1：handler 抛带 code 属性但非业务码的原生 Node 错误（ENOENT 同形态）——应计入熔断 */
+const NODE_ERROR_JS = `
+module.exports = {
+  activate: async () => ({
+    ipc: {
+      boom: async () => {
+        const e = new Error("ENOENT: no such file or directory")
+        e.code = 'ENOENT'
+        throw e
+      },
+    },
+  }),
+}
+`
+
 /** loader 测试用 createHost：host.ts 真实实现（含 state 缓存）；
  *  v2.5 增量：account/accountAccess 注入（缺省空实现 + 无权限门控） */
 function makeCreateHost(bus: HostEventBus, overrides: Partial<Parameters<typeof createPluginHost>[0]> = {}) {
@@ -399,6 +414,108 @@ describe('PluginLoader：惰性加载 / 握手 / 熔断', () => {
     expect(registry.get('com.qihe.g')!.state).toBe('enabled')
     expect(registry.get('com.qihe.g')!.failCount).toBe(0)
     expect(registry.get('com.qihe.g')!.brokenReason).toBeUndefined()
+  })
+
+  it('原生 Node 错误（ENOENT 带 code 但非业务码）计入熔断——3 次 broken（P1-A1）', async () => {
+    writePlugin('com.qihe.node', {}, NODE_ERROR_JS)
+    const { loader, registry } = makeLoader(new HostEventBus())
+    for (let i = 1; i <= BREAK_THRESHOLD; i++) {
+      await expect(loader.call('com.qihe.node', 'boom', null)).rejects.toThrow('ENOENT')
+      if (i < BREAK_THRESHOLD) expect(registry.get('com.qihe.node')!.state).toBe('enabled')
+    }
+    expect(registry.get('com.qihe.node')!.state).toBe('broken')
+    expect(registry.get('com.qihe.node')!.failCount).toBe(3)
+    expect(registry.get('com.qihe.node')!.brokenReason).toContain('熔断')
+  })
+
+  it('业务错误码白名单（INVALID_NAME）不熔断——超阈值仍 enabled、failCount 0（P1-A1）', async () => {
+    writePlugin(
+      'com.qihe.biz',
+      {},
+      `module.exports = {
+  activate: async () => ({
+    ipc: { boom: async () => { const e = new Error('invalid name'); e.code = 'INVALID_NAME'; throw e } },
+  }),
+}`,
+    )
+    const { loader, registry } = makeLoader(new HostEventBus())
+    for (let i = 0; i < BREAK_THRESHOLD + 1; i++) {
+      await expect(loader.call('com.qihe.biz', 'boom', null)).rejects.toThrow('invalid name')
+    }
+    expect(registry.get('com.qihe.biz')!.state).toBe('enabled')
+    expect(registry.get('com.qihe.biz')!.failCount).toBe(0)
+  })
+
+  it('激活期间停用 → 宿主 dispose + registration.dispose 均执行、无孤儿实例（P1-A2）', async () => {
+    let resolveGate!: (v: unknown) => void
+    g.__activateGate = new Promise((r) => {
+      resolveGate = r
+    })
+    g.__activateStarted = false
+    g.__pluginDispose = 0
+    writePlugin(
+      'com.qihe.race',
+      {},
+      `module.exports = {
+  activate: async () => { globalThis.__activateStarted = true; return await globalThis.__activateGate },
+}`,
+    )
+    const bus = new HostEventBus()
+    const registry = makeRegistry()
+    let hostDisposed = 0
+    const baseCreateHost = makeCreateHost(bus)
+    const loader = new PluginLoader({
+      registry,
+      root,
+      createHost: async (id, manifest) => {
+        const inst = await baseCreateHost(id, manifest)
+        const orig = inst.dispose.bind(inst)
+        inst.dispose = () => {
+          hostDisposed++
+          orig()
+        }
+        return inst
+      },
+      importer: cjsImporter,
+      log: () => {},
+    })
+    const p = loader.call('com.qihe.race', 'ping', null)
+    // 等待 activate 进入挂起（createHost + activate 已启动）
+    for (let i = 0; i < 200 && !g.__activateStarted; i++) await sleep(5)
+    expect(g.__activateStarted).toBe(true)
+    // 激活挂起期间停用 → 打取消标记
+    loader.deactivate('com.qihe.race')
+    // 放行 activate 返回 registration
+    resolveGate({ ipc: { ping: async () => 'pong' }, dispose: () => { g.__pluginDispose = ((g.__pluginDispose as number) || 0) + 1 } })
+    await expect(p).rejects.toThrow('激活中止')
+    expect(g.__pluginDispose).toBe(1) // registration.dispose 被调用
+    expect(hostDisposed).toBe(1) // 宿主 dispose 被调用（无孤儿实例）
+    // 取消不计熔断（非插件失败）
+    expect(registry.get('com.qihe.race')!.failCount).toBe(0)
+  })
+})
+
+// ==================== P1-A4：importComplete 宿主事件接线 ====================
+
+describe('importComplete 宿主事件接线（P1-A4）', () => {
+  it('HostEventBus 投递 importComplete → 订阅回调收到（白名单通道）', () => {
+    const bus = new HostEventBus()
+    const got: unknown[] = []
+    bus.pluginOn('importComplete', (d) => got.push(d))
+    bus.emitHost('importComplete', { success: true, count: 1, cancelled: false })
+    expect(got).toEqual([{ success: true, count: 1, cancelled: false }])
+    expect((HOST_EVENT_WHITELIST as readonly string[]).includes('importComplete')).toBe(true)
+  })
+
+  // 装配层（src/main/index.ts + src/main/ipc.ts）import electron，无法 node 直测——采用源包含断言
+  // （与 sideload.gate 的 DEV_MODE_REQUIRED 断言同口径）：files 导入完成处经 onImportComplete 钩子
+  // 回调投递宿主事件 importComplete，删除接线即红。
+  it('装配层接线：files 导入完成经 onImportComplete 钩子投递宿主事件（源包含断言）', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+    const ipcSrc = fs.readFileSync(path.join(repoRoot, 'src/main/ipc.ts'), 'utf-8')
+    const indexSrc = fs.readFileSync(path.join(repoRoot, 'src/main/index.ts'), 'utf-8')
+    expect(ipcSrc).toContain('onImportComplete')
+    expect(indexSrc).toContain("emitHostEvent('importComplete'")
   })
 })
 
