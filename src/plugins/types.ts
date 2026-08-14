@@ -1,6 +1,7 @@
 /**
  * 插件协议同源定义（v2.5，P0）：
- * 权威来源 = docs/INTERNAL/PLUGIN.md §2.2（PluginManifest）与 §2.4（PluginHost / PluginRegistration）。
+ * 权威来源 = docs/PLUGIN.md（公开契约：§三 PluginManifest / §五 双向 API PluginHost·PluginRegistration）；
+ * 内部版 docs/INTERNAL/PLUGIN.md 与之双处同步，冲突时以公开版 + 实现为准。
  * 本文件为纯类型模块 + 清单校验函数：不 import electron / node / 任何模块，
  * 编译后不产生运行时依赖（src/plugins/** 仅入 tsconfig.node.json，供主进程侧复用）。
  * 渲染层可见的运行时类型（PluginInfo 等）收敛于 src/shared/types.ts。
