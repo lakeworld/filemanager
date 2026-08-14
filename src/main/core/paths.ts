@@ -245,6 +245,7 @@ export function assertSafeFolderName(name: string, label = '名称'): string {
 /** 文件名校验（重命名入口用）：段校验 + Windows 非法字符/保留名/尾随点与空格 */
 export function assertSafeFileName(name: string): string {
   const n = assertSafePathSegment(name, '文件名')
+  if (n.includes('\0')) throw new Error('文件名不能包含 NUL 字符')
   if (n.endsWith('.') || n.endsWith(' ')) throw new Error('文件名不能以 . 或空格结尾')
   if (/[:*?"<>|]/.test(n)) throw new Error('文件名包含非法字符（: * ? " < > |）')
   if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(n.split('.')[0])) {
