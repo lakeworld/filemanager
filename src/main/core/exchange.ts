@@ -98,6 +98,8 @@ export interface ExchangeLedgerSinks {
 const PROCESSED_MAX = 500
 /** watch 防抖窗口（§8.2：500ms，批量投递合并为一次补扫） */
 const WATCH_DEBOUNCE_MS = 500
+/** v2.5（审查 P1-C4）：投递描述文件大小上限（读前 stat 限大小，防超大 JSON readFile/parse OOM） */
+const MAX_DESC_BYTES = 1024 * 1024
 
 interface ExchangeState {
   processed: { id: string; at: string }[]
@@ -229,8 +231,13 @@ export class ExchangeService {
     }
 
     // 1. 读描述 JSON（坏 JSON → error 回执并消费描述文件，防反复报警）
+    // v2.5（P1-C4）：读前 stat 限大小——超大描述文件不 readFile/parse，直接 error 回执（防 OOM）
     let desc: unknown
     try {
+      const st = await fsp.stat(descPath)
+      if (st.size > MAX_DESC_BYTES) {
+        return this.finishError(ws, id, `描述文件超过大小上限（${MAX_DESC_BYTES} 字节）`, descPath)
+      }
       desc = JSON.parse(await fsp.readFile(descPath, 'utf-8'))
     } catch {
       return this.finishError(ws, id, '描述 JSON 解析失败', descPath)
@@ -316,8 +323,13 @@ export class ExchangeService {
     const year = f.date.slice(0, 4)
     const targetDir = path.join(ws, INVOICES_DIR, year)
     const archived = await this.copyFiles(sourceFiles, targetDir, cfg, sanitizeName(f.number), year)
-    // 查重失败抛错 → error 回执（不建记录；已归档文件保留，账物分离原则下无害）
-    await this.ledger.createInvoice(f, archived)
+    try {
+      await this.ledger.createInvoice(f, archived)
+    } catch (err) {
+      // v2.5（P1-C3）：台账写入失败 → 回滚已归档副本，不留孤儿文件（账物一致）
+      await this.rollbackArchived(targetDir, archived)
+      throw err
+    }
     return this.finishOk(ws, id, archived, descPath, sourceFiles)
   }
 
@@ -338,7 +350,13 @@ export class ExchangeService {
     const year = f.date.slice(0, 4)
     const targetDir = path.join(ws, INBOUND_DIR, year)
     const archived = await this.copyFiles(sourceFiles, targetDir, cfg, sanitizeName(f.id), year)
-    await this.ledger.createInbound(f, archived)
+    try {
+      await this.ledger.createInbound(f, archived)
+    } catch (err) {
+      // v2.5（P1-C3）：台账写入失败 → 回滚已归档副本，不留孤儿文件（账物一致）
+      await this.rollbackArchived(targetDir, archived)
+      throw err
+    }
     return this.finishOk(ws, id, archived, descPath, sourceFiles)
   }
 
@@ -413,6 +431,16 @@ export class ExchangeService {
     }
     globalWorkspaceIndex.invalidate(targetDir)
     return archived
+  }
+
+  /**
+   * v2.5（P1-C3）：回滚已归档副本——台账写入失败时删除已复制的归档文件，
+   * 不留孤儿归档文件，投递区与归档区账物一致。archived 为工作区相对路径（copyFiles 产出）。
+   */
+  private async rollbackArchived(targetDir: string, archived: string[]): Promise<void> {
+    const ws = this.requireWS()
+    await Promise.all(archived.map((rel) => fsp.rm(path.join(ws, rel), { force: true }).catch(() => {})))
+    globalWorkspaceIndex.invalidate(targetDir)
   }
 
   private async finishOk(
