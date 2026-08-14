@@ -47,7 +47,7 @@
 - **安装**：管理页从官方索引勾选下载，或手动导入本地 `.qbox`（侧载）→ JSON Schema + SHA-256 校验 → 解压到 `userData/plugins/<id>/pkg/` → 登记。
 - **状态**：插件业务状态存 `userData/plugins/<id>/state/`（经 `host.storage` 访问）；启停覆盖存 `userData/plugins/config.json`。代码与状态分离。
 - **卸载**：删除 `pkg/` 与 `state/`；「禁用」两者都保留。
-- **渲染层加载**：插件 renderer 产物经 `qihebox://plugin/<id>/...` 协议 URL 动态 `import()`（访问才加载），纳入 CSP 管辖；**插件包自包含依赖**（solid-js 等打入自身产物），宿主不提供共享运行时。
+- **渲染层加载**：插件 renderer 产物经 `qihebox://plugin/<id>/...` 协议 URL 动态 `import()`（访问才加载），响应携带 CSP 头（见 §六 规则 5）；**插件包自包含依赖**（solid-js 等打入自身产物），宿主不提供共享运行时。
 
 ---
 
@@ -352,7 +352,7 @@ erp_ext?: {
 2. 插件状态只能写在 `userData/plugins/<id>/state/`；storage.set 有路径与大小校验（单 key ≤ 1MB，总容量 ≤ 64MB） <!-- contract:v1:storage.bounds -->
 3. 插件不得注册 `qihebox:*` 前缀通道；事件 channel 强制 `ipcPrefix` 前缀 <!-- contract:v1:channel.reserved --> <!-- contract:v1:event.prefix -->
 4. `permissions` 字段先行：v1 用于展示与安装确认，未来 `transport='process'` 隔离落地时升级为强制拦截
-5. 插件页面模块纳入 CSP 管辖 <!-- contract:v1:security.csp -->
+5. 插件文件响应携带 `Content-Security-Policy` 头（`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'`）<!-- contract:v1:security.csp -->——**诚实说明**：插件页面以 `import()` 模块加载，Chromium 不对 JS 子资源执行响应头 CSP，故该头目前为**形式防护**（v2.7 沙箱化后生效）；插件代码的实质隔离依赖 v2.7 `transport='process'`
 6. 一切安装均需 JSON Schema + SHA-256 校验；侧载另需开发者模式开启 + 通用风险确认框 <!-- contract:v1:install.check -->
 
 **确认对话框口径（v2.5 落地）**：安装确认框文案为「此插件将获得与启禾文件管理同等的系统权限：可读取工作区文件、访问网络、执行系统命令。插件未经过官方审查。仅安装你信任来源的插件。确认安装？」；权限声明的完整展示在安装后的管理页详情中（安装前逐项预览属 v2.6 预检 API，v2.5 不实现）。
