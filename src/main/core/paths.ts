@@ -182,11 +182,28 @@ export async function writeJsonAtomic(filePath: string, data: unknown): Promise<
   await fsp.rename(tmpPath, filePath)
 }
 
+/**
+ * 读取 JSON 文件：文件不存在返回 null；文件存在但 JSON 解析失败（损坏）时，
+ * 先备份原文件为 `<filePath>.corrupt-<时间戳>`（不丢数据、留证）再返回 null。
+ * 统一覆盖各台账（invoices/quotes/clients/suppliers）与 config.json 的损坏降级
+ * （与 inbound.ts / metadata.ts 的 .corrupt-<ts> 备份范式一致）。
+ */
 export async function readJsonFile<T>(filePath: string): Promise<T | null> {
+  let raw: string
   try {
-    const raw = await fsp.readFile(filePath, 'utf-8')
+    raw = await fsp.readFile(filePath, 'utf-8')
+  } catch {
+    return null // 文件不存在
+  }
+  try {
     return JSON.parse(raw) as T
   } catch {
+    // 损坏：备份原文件（不丢数据），降级为 null
+    try {
+      await fsp.copyFile(filePath, `${filePath}.corrupt-${Date.now()}`)
+    } catch {
+      // 备份失败不阻断
+    }
     return null
   }
 }

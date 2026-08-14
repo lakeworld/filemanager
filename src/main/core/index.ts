@@ -182,12 +182,14 @@ export class BoxService {
 
   /**
    * 重命名客户（v2.4.9 S3 编排）：目录迁移 + 档案 key 迁移（clients.rename），
-   * 随后级联更新报价台账 customer 名字引用（quotes.renameCustomer；幂等，不校验存在性）。
+   * 随后级联更新报价台账 customer 与发票台账 customer 名字引用
+   * （quotes.renameCustomer / invoices.renameCustomer；幂等，不校验存在性）。
    * ipc.ts 的 qihebox:clients:rename 改调本包装在 S3b 做（本任务只加 core 编排）。
    */
   async renameCustomer(oldName: string, newName: string): Promise<void> {
     await this.clients.rename(oldName, newName)
     await this.quotes.renameCustomer(oldName.trim(), newName.trim())
+    await this.invoices.renameCustomer(oldName.trim(), newName.trim())
   }
 
   /** 确保图片/PDF 缩略图存在（缺失自动生成，mtime 命中直接返回），返回缩略图路径 */

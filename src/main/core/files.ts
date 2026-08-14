@@ -176,6 +176,10 @@ export class FilesService {
    * v2.4.2（D6）：单文件 stat 失败（同步中文件被替换/移除/坏符号链接）跳过，不拖垮整个列表。
    */
   async listRaw(dir: string): Promise<CompactItem[]> {
+    // v2.5（审查 P1-B3）：目录 realpath 边界校验——工作区内 symlink 指向区外的目录跳过不枚举
+    // （安全边界一律用 isPathInsideWorkspaceReal；每目录仅校验一次，不逐文件，开销可忽略）
+    const ws = this.workspace.currentWorkspacePath()
+    if (ws && !(await isPathInsideWorkspaceReal(ws, dir))) return []
     let entries: import('node:fs').Dirent[]
     try {
       entries = await fsp.readdir(dir, { withFileTypes: true })

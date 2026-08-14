@@ -325,6 +325,34 @@ describe('发票台账（PLAN §6）', () => {
     expect((await box.invoices.listTagEntries())[0].tags).toEqual([])
   })
 
+  it('v2.5（P1-C1）：台账损坏 → 备份原文件（.corrupt-<ts>）并降级为空', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const p = path.join(ws, '.qihefilemanager', 'invoices.json')
+    const corrupt = '{"invoices": {"INV-1": '
+    await fsp.writeFile(p, corrupt)
+    // 损坏 → list 不崩且返回空
+    expect(await box.invoices.list()).toEqual([])
+    // 原文件内容已在 .corrupt-* 留证
+    const dir = path.join(ws, '.qihefilemanager')
+    const backups = (await fsp.readdir(dir)).filter((n) => n.startsWith('invoices.json.corrupt-'))
+    expect(backups).toHaveLength(1)
+    expect(await fsp.readFile(path.join(dir, backups[0]), 'utf-8')).toBe(corrupt)
+  })
+
+  it('v2.5（P1-C2）：客户重命名级联发票 customer 引用（BoxService.renameCustomer）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.clients.create({ name: '张三' })
+    await addInvoice(box, ws, { number: 'CUST-1', customer: '张三' })
+    await box.renameCustomer('张三', '李四')
+    expect((await box.invoices.list()).find((r) => r.number === 'CUST-1')?.customer).toBe('李四')
+  })
+
   it('未打开工作区时所有入口报错', async () => {
     const home = await tmp()
     const box = buildTestBox(home)
