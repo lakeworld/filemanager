@@ -119,7 +119,7 @@ export class PluginInstaller {
     const entry = this.registry.get(id)
     if (!entry) throw new Error(`插件未安装：${id}`)
     await fsp.rm(path.join(this.root, id), { recursive: true, force: true })
-    this.registry.forgetConfig(id)
+    await this.registry.forgetConfig(id)
     await this.reload()
     this.log('info', `插件已卸载：${id}`)
   }

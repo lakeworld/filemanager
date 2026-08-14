@@ -251,7 +251,7 @@ describe('PluginRegistry：发现与校验', () => {
     expect(registry.get('com.qihe.d')!.brokenReason).toContain('须以 "/plugin/" 开头')
   })
 
-  it('config 启停覆盖 manifest.enabled；setEnabled 持久化并在新实例读回', () => {
+  it('config 启停覆盖 manifest.enabled；setEnabled 持久化并在新实例读回', async () => {
     writePlugin('com.qihe.a') // manifest.enabled=true
     const cfgPath = path.join(root, 'config.json')
     fs.writeFileSync(cfgPath, JSON.stringify({ 'com.qihe.a': false }))
@@ -259,7 +259,7 @@ describe('PluginRegistry：发现与校验', () => {
     expect(registry.get('com.qihe.a')!.state).toBe('disabled')
     expect(registry.get('com.qihe.a')!.enabled).toBe(false)
     // 管理页启用 → config.json 落盘
-    registry.setEnabled('com.qihe.a', true)
+    await registry.setEnabled('com.qihe.a', true)
     const persisted = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) as Record<string, boolean>
     expect(persisted['com.qihe.a']).toBe(true)
     // 新 registry 实例（模拟重启）读回
@@ -267,11 +267,11 @@ describe('PluginRegistry：发现与校验', () => {
     expect(registry.get('com.qihe.a')!.state).toBe('enabled')
   })
 
-  it('broken 非法转移：校验失败不可启用；熔断原因可重置（重试语义）', () => {
+  it('broken 非法转移：校验失败不可启用；熔断原因可重置（重试语义）', async () => {
     writePlugin('com.qihe.x', { apiCompat: [2, 3] })
     const registry = makeRegistry()
-    expect(() => registry.setEnabled('com.qihe.x', true)).toThrow('校验失败无法启用')
-    expect(() => registry.setEnabled('com.qihe.x', false)).toThrow('broken 状态')
+    await expect(registry.setEnabled('com.qihe.x', true)).rejects.toThrow('校验失败无法启用')
+    await expect(registry.setEnabled('com.qihe.x', false)).rejects.toThrow('broken 状态')
     // 熔断 broken：setEnabled(true) 清 failCount 重新启用
     writePlugin('com.qihe.y')
     const registry2 = makeRegistry()
@@ -279,7 +279,7 @@ describe('PluginRegistry：发现与校验', () => {
     registry2.recordFail('com.qihe.y')
     registry2.markBroken('com.qihe.y', '熔断：连续失败 3 次')
     expect(registry2.get('com.qihe.y')!.state).toBe('broken')
-    registry2.setEnabled('com.qihe.y', true)
+    await registry2.setEnabled('com.qihe.y', true)
     expect(registry2.get('com.qihe.y')!.state).toBe('enabled')
     expect(registry2.get('com.qihe.y')!.failCount).toBe(0)
     expect(registry2.get('com.qihe.y')!.brokenReason).toBeUndefined()
@@ -350,7 +350,7 @@ describe('PluginLoader：惰性加载 / 握手 / 熔断', () => {
     expect(registry.get('com.qihe.b')!.failCount).toBe(3)
     expect(registry.get('com.qihe.b')!.brokenReason).toContain('熔断')
     // 重试 = setEnabled(id, true)（清 failCount 重新启用）→ 再次失败重新计数
-    registry.setEnabled('com.qihe.b', true)
+    await registry.setEnabled('com.qihe.b', true)
     await expect(loader.call('com.qihe.b', 'echo', null)).rejects.toThrow('activate boom')
     expect(registry.get('com.qihe.b')!.failCount).toBe(1)
   })
@@ -643,7 +643,7 @@ describe('PluginInstaller：.qbox 侧载安装 / 卸载', () => {
     await buildQbox(qbox, manifestFor('com.qihe.rm'))
     const { installer, registry } = makeInstaller()
     await installer.install(qbox)
-    registry.setEnabled('com.qihe.rm', false) // 写 config 覆盖
+    await registry.setEnabled('com.qihe.rm', false) // 写 config 覆盖
     // 插件业务状态（state/ 与 pkg/ 分离）
     await fsp.mkdir(path.join(root, 'com.qihe.rm', 'state'), { recursive: true })
     await fsp.writeFile(path.join(root, 'com.qihe.rm', 'state', 'foo.json'), '{"a":1}')

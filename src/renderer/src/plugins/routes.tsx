@@ -56,10 +56,6 @@ function PluginPageMount(props: { pluginId: string; component: string }): JSX.El
 }
 
 /**
- * 插件路由集合：管理页路由（固定）+ 启用插件 pages 的动态路由。
- * 嵌入 Router 后随 pluginRoutes() 信号变化即时增删（插件禁用 → 路由移除 → 页面实例回收）。
- */
-/**
  * 插件路由集合：管理页路由（固定）+ 插件页面统一经通配路由运行时分发。
  * 实现说明（2026-08-11 实测）：@solidjs/router 1.0 对 Router mount 后**新增**的 <Route> 元素
  * 不会响应式重注册（PluginRoutes 在 pluginList 变化后不重渲染、新路由不进匹配表，页面 404 空白）。

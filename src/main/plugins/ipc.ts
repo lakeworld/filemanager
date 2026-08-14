@@ -16,38 +16,13 @@ import type { SettingsService } from '../settings'
 import { log } from '../log'
 import { getMainWindow, windowShow } from '../window'
 import type { ApiResult } from '../../shared/types'
+import { ok, fail, handle, sendTo } from '../ipc'
 import { PluginRegistry, PLUGINS_DIR, STATE_DIR } from './registry'
 import { PluginLoader } from './loader'
 import { PluginInstaller } from './installer'
 import { createPluginHost, HostEventBus, HOST_EVENT_WHITELIST } from './host'
 
-// —— ApiResult 包装（与 src/main/ipc.ts 同构：薄壳只做透传，业务在插件宿主层）——
-
-function ok<T>(data: T): ApiResult<T> {
-  return { success: true, data, error: null }
-}
-
-function fail<T>(err: unknown): ApiResult<T> {
-  return { success: false, data: null, error: err instanceof Error ? err.message : String(err) }
-}
-
-async function handle<T>(fn: () => Promise<T> | T): Promise<ApiResult<T>> {
-  try {
-    return ok(await fn())
-  } catch (err) {
-    return fail<T>(err)
-  }
-}
-
-/** 向窗口发送事件的安全通道（窗口被休眠销毁后 webContents.send 抛错 → 守卫 + try/catch，同 src/main/ipc.ts） */
-function sendTo(win: BrowserWindow | null, channel: string, payload: unknown): void {
-  if (!win || win.isDestroyed()) return
-  try {
-    win.webContents.send(channel, payload)
-  } catch {
-    // 发送瞬间被销毁的竞态兜底
-  }
-}
+// ApiResult 包装（ok/fail/handle/sendTo）自 src/main/ipc.ts 复用（薄壳纪律单点）
 
 /** 受限对话框能力（host.dialog）：仅选择，不放开任意路径（PLUGIN.md §2.4.1） */
 async function openDialog(kind: 'file' | 'directory', opts: unknown): Promise<string> {
@@ -94,7 +69,7 @@ export function registerPluginHost(
   settings: Pick<SettingsService, 'getDevMode'>,
 ): PluginHostHandle {
   const root = path.join(app.getPath('userData'), PLUGINS_DIR)
-  const registry = new PluginRegistry({ root, hostVersion: app.getVersion() })
+  const registry = new PluginRegistry({ root, hostVersion: app.getVersion(), log })
   registry.scan() // 装配期同步登记（微秒级：仅读 manifest 清单），不加载任何插件代码
 
   const bus = new HostEventBus((level, msg) => void log(level, msg))
@@ -146,7 +121,7 @@ export function registerPluginHost(
   ipcMain.handle('qihebox:plugins:setEnabled', (_e, id: string, enabled: boolean) =>
     handle(async () => {
       const wasBroken = registry.get(id)?.state === 'broken'
-      registry.setEnabled(id, !!enabled)
+      await registry.setEnabled(id, !!enabled)
       if (!enabled) {
         loader.deactivate(id)
       } else if (wasBroken) {
