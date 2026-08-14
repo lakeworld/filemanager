@@ -17,6 +17,24 @@ import { PKG_DIR, MAIN_ENTRY, CIRCUIT_BROKEN_PREFIX, type PluginRegistry } from 
 /** 熔断阈值：握手/调用连续失败 3 次 → 自动 broken（PLUGIN.md §2.3.2） */
 export const BREAK_THRESHOLD = 3
 
+/** 业务错误码白名单（host.files 六码，PLAN §3.3）：仅这些 code 豁免熔断；
+ *  原生 Node 错误（ENOENT/ECONNREFUSED 等）带 code 但非业务码 → 计入熔断（P1-A1）。 */
+export const BUSINESS_ERROR_CODES = new Set([
+  'NOT_FOUND',
+  'OUT_OF_WORKSPACE',
+  'NO_WORKSPACE',
+  'TOO_LARGE',
+  'INVALID_NAME',
+  'IO_ERROR',
+])
+
+/** 激活期间被停用（setEnabled(false)/uninstall 竞态）的内部信号——不计熔断（非插件失败，P1-A2） */
+class ActivationCancelledError extends Error {
+  constructor() {
+    super('插件已被停用，激活中止')
+  }
+}
+
 export interface LoaderOptions {
   registry: PluginRegistry
   /** userData/plugins 根（加载 userData/plugins/<id>/pkg/main/index.js） */
@@ -35,6 +53,8 @@ interface Runtime {
   active: boolean
   /** 激活中 Promise（并发触发合并为一次加载） */
   activating: Promise<void> | null
+  /** 激活期间被 deactivate 打上的取消标记（doLoad 二次检查据此丢弃刚创建的宿主，P1-A2） */
+  cancelled?: boolean
 }
 
 export class PluginLoader {
@@ -72,7 +92,7 @@ export class PluginLoader {
       await existing.activating
       return
     }
-    const rt: Runtime = { host: undefined as unknown as PluginHost, hostDispose: () => {}, active: false, activating: null }
+    const rt: Runtime = { host: undefined as unknown as PluginHost, hostDispose: () => {}, active: false, activating: null, cancelled: false }
     this.runtimes.set(id, rt)
     rt.activating = this.doLoad(id, rt)
     try {
@@ -97,13 +117,25 @@ export class PluginLoader {
       }
       created = await this.createHost(id, entry.manifest)
       // 激活期间被停用（setEnabled(false) 竞态）→ 丢弃刚创建的宿主并终止
-      if (this.runtimes.get(id) !== rt) {
+      if (this.runtimes.get(id) !== rt || rt.cancelled) {
         created.dispose()
         created = null
-        throw new Error('插件已被停用，激活中止')
+        throw new ActivationCancelledError()
       }
       const registration = await (activate as (host: PluginHost) => Promise<unknown>)(created.host)
       this.assertRegistration(registration)
+      // v2.5 修复（P1-A2）：activate 挂起期间被 deactivate → 二次检查取消标记/运行时仍登记，
+      // 立即 dispose 刚创建的宿主 + registration.dispose，杜绝孤儿实例（订阅/定时器泄漏）
+      if (rt.cancelled || this.runtimes.get(id) !== rt) {
+        try {
+          registration.dispose?.()
+        } catch (err) {
+          this.log('error', `插件 dispose 异常（${id}）: ${String(err)}`)
+        }
+        created.dispose()
+        created = null
+        throw new ActivationCancelledError()
+      }
       rt.host = created.host
       rt.hostDispose = created.dispose
       rt.registration = registration
@@ -113,18 +145,19 @@ export class PluginLoader {
       this.registry.resetFailCount(id) // 握手成功清零连续失败
     } catch (err) {
       created?.dispose() // 部分初始化（createHost 成功但 activate 抛错）也要清理订阅/缓存
-      this.fail(id, err)
+      if (!(err instanceof ActivationCancelledError)) this.fail(id, err)
       throw err
     }
   }
 
   /**
    * 熔断计数：连续失败达阈值 → 自动 broken（失败原因保留，管理页可观测 + 手动重置）。返回是否已熔断。
-   * v2.5 增量（r2-性能P1-2，PLAN §3.3）：带 `code` 属性的业务错误（host.files 等业务域错误）
-   * 不计数熔断——仅统计加载/握手/未定义方法类失败，业务失败由调用方按错误码处理。
+   * v2.5 修复（P1-A1）：仅业务错误码白名单（host.files 六码，BUSINESS_ERROR_CODES）豁免熔断；
+   * 原生 Node 错误（ENOENT/ECONNREFUSED 等）带 code 但非业务码 → 计入熔断（此前 `'code' in err` 误豁免）。
    */
   private fail(id: string, err: unknown): boolean {
-    if (err && typeof err === 'object' && 'code' in err) return false
+    const code = err && typeof err === 'object' ? (err as { code?: unknown }).code : undefined
+    if (typeof code === 'string' && BUSINESS_ERROR_CODES.has(code)) return false
     this.registry.recordFail(id)
     const entry = this.registry.get(id)
     if (entry && entry.failCount >= BREAK_THRESHOLD) {
@@ -209,19 +242,27 @@ export class PluginLoader {
     const rt = this.runtimes.get(id)
     if (!rt) return
     this.runtimes.delete(id)
-    if (!rt.active) return
-    rt.active = false
-    try {
-      rt.registration?.dispose?.()
-    } catch (err) {
-      this.log('error', `插件 dispose 异常（${id}）: ${String(err)}`)
+    // 已激活 → 正常 dispose（registration.dispose + hostDispose）
+    if (rt.active) {
+      rt.active = false
+      try {
+        rt.registration?.dispose?.()
+      } catch (err) {
+        this.log('error', `插件 dispose 异常（${id}）: ${String(err)}`)
+      }
+      try {
+        rt.hostDispose()
+      } catch (err) {
+        this.log('error', `插件宿主清理异常（${id}）: ${String(err)}`)
+      }
+      rt.registration = undefined
+      return
     }
-    try {
-      rt.hostDispose()
-    } catch (err) {
-      this.log('error', `插件宿主清理异常（${id}）: ${String(err)}`)
+    // v2.5 修复（P1-A2）：激活进行中（createHost/activate 尚未完成）→ 打取消标记，
+    // 由 doLoad 在 activate 返回后二次检查并清理刚创建的宿主（防孤儿实例）
+    if (rt.activating) {
+      rt.cancelled = true
     }
-    rt.registration = undefined
   }
 
   /** 退出清理：全部已激活插件 dispose()（尽力，超时 2s 不强等，PLAN §六.4） */

@@ -140,19 +140,23 @@ export default function PluginManagerPage(): JSX.Element {
   onMount(() => {
     // 幂等初始化 + 显式刷新兜底（事件路径与操作路径双保险）
     void initPluginRegistry().then(() => refreshPluginRegistry())
-    // v2.5：开发者模式状态（侧载收紧）
-    void getDevMode().then((v) => {
-      setDevModeState(v)
+    // v2.5：开发者模式状态（侧载收紧；ApiResult 包装，P1-E2）
+    void getDevMode().then((r) => {
+      setDevModeState(r.success && r.data === true)
       setDevModeLoaded(true)
     })
   })
 
-  /** 切换开发者模式（userData/settings.json 持久化） */
+  /** 切换开发者模式（userData/settings.json 持久化；ApiResult 包装，失败回退 + toast，P1-E2） */
   const toggleDevMode = async () => {
     const next = !devMode()
-    const saved = await setDevMode(next)
-    setDevModeState(saved)
-    showToast('success', next ? '开发者模式已开启' : '开发者模式已关闭', next ? '可在下方导入本地插件包' : undefined)
+    const r = await setDevMode(next)
+    if (r.success) {
+      setDevModeState(r.data === true)
+      showToast('success', next ? '开发者模式已开启' : '开发者模式已关闭', next ? '可在下方导入本地插件包' : undefined)
+    } else {
+      showToast('error', '开发者模式设置失败', r.error ?? '未知错误')
+    }
   }
 
   /** 展示排序：启用 → 禁用 → broken，组内按名称 */

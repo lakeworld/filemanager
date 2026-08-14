@@ -86,8 +86,8 @@ test.describe('插件宿主 e2e（v2.5）', () => {
     const list0 = await page.evaluate(async () => (window as any).qihebox.plugins.list())
     expect(list0.data.some((p: any) => p.id === HELLO_ID)).toBe(false)
 
-    // 0.5 开启开发者模式（userData 持久化）
-    expect(await setDevMode(true)).toBe(true)
+    // 0.5 开启开发者模式（userData 持久化；返回 ApiResult<boolean>，P1-E2）
+    expect((await setDevMode(true)).data).toBe(true)
 
     // 1. 侧载安装（JSON Schema + SHA-256 校验在宿主侧）
     const ins = await page.evaluate(async (p) => (window as any).qihebox.plugins.install({ filePath: p }), HELLO_QBOX)
@@ -182,7 +182,7 @@ test.describe('插件宿主 e2e（v2.5）', () => {
     await killApp()
     await launchApp()
     const devModeAfterRestart = await page.evaluate(async () => (window as any).qihebox.settings.getDevMode())
-    expect(devModeAfterRestart).toBe(true)
+    expect(devModeAfterRestart.data).toBe(true)
     // 重启后管理页入口仍在（依赖持久化开关）
     await gotoRoute('/settings/plugins')
     await expect(page.getByRole('heading', { name: '侧载导入' })).toBeVisible({ timeout: 15000 })

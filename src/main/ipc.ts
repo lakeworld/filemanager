@@ -50,7 +50,8 @@ function fail<T>(err: unknown): ApiResult<T> {
   return { success: false, data: null, error: err instanceof Error ? err.message : String(err) }
 }
 
-async function handle<T>(fn: () => Promise<T> | T): Promise<ApiResult<T>> {
+/** ApiResult 包装（薄壳纪律）：装配层（index.ts）settings 通道复用，与 plugins/ipc.ts 同构 */
+export async function handle<T>(fn: () => Promise<T> | T): Promise<ApiResult<T>> {
   try {
     return ok(await fn())
   } catch (err) {
@@ -100,6 +101,8 @@ function rememberSavePath(p: string): void {
  */
 export interface AppIpcHooks {
   isTrayReady: () => boolean
+  /** v2.5（P1-A4）：files 导入完成（含取消/失败）→ 宿主事件 importComplete 投递回调（装配层注入） */
+  onImportComplete?: (payload: { success: boolean; count: number; cancelled: boolean }) => void
 }
 
 export function registerIpc(
@@ -243,6 +246,8 @@ export function registerIpc(
           cancelled: false,
           error: null,
         })
+        // v2.5（P1-A4）：宿主事件 importComplete——完成即投递（成功）
+        hooks.onImportComplete?.({ success: true, count: result.imported.length, cancelled: false })
       })
       .catch((err: unknown) => {
         if (err instanceof ImportCancelledError) {
@@ -253,6 +258,8 @@ export function registerIpc(
             cancelled: true,
             error: null,
           })
+          // v2.5（P1-A4）：宿主事件 importComplete——取消亦投递
+          hooks.onImportComplete?.({ success: false, count: err.imported.length, cancelled: true })
         } else {
           // 整批性失败（源展开错误等）：count=0 是真实值，不再误导
           sendTo(win, 'qihebox:event:import:complete', {
@@ -262,6 +269,8 @@ export function registerIpc(
             cancelled: false,
             error: err instanceof Error ? err.message : String(err),
           })
+          // v2.5（P1-A4）：宿主事件 importComplete——整批失败亦投递
+          hooks.onImportComplete?.({ success: false, count: 0, cancelled: false })
         }
       })
       .finally(() => {

@@ -3,8 +3,8 @@
  * 装配入口：registerPluginHost(box, account, settings)（PLAN §六——registerIpc 之后追加）——
  * 装配期只做已安装包清单登记（同步微秒级，不加载任何插件代码；惰性加载归 loader.ts），
  * 随后注册 IPC 通道、plugins:changed 广播（payload=PluginInfo[]）、插件事件桥（qihebox:event:<channel>）。
- * 宿主事件入口：emitHostEvent(channel, data)（装配层在 workspaceChanged / certExpiring / updateAvailable
- * 等发生时调用，channel 白名单强校验；importComplete 保持不接——协议白名单通道照旧）。
+ * 宿主事件入口：emitHostEvent(channel, data)（装配层在 workspaceChanged / certExpiring / updateAvailable /
+ * importComplete 发生时调用，channel 白名单强校验）。
  * v2.5 增量：不移植 qihebox:ai:call / aiCall（v2.4.7 时代残留）；install 的 devMode 校验在本层 handler。
  * 退出清理：dispose() → 全部已激活插件 dispose()（尽力，超时 2s 不强等，PLAN §六.4）。
  */

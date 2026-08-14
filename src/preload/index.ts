@@ -235,11 +235,13 @@ const api = {
       }
     },
   },
-  // v2.5：开发者模式设置（侧载收紧，PLAN §3.5）——默认关，userData/settings.json 持久化
+  // v2.5：开发者模式设置（侧载收紧，PLAN §3.5）——默认关，userData/settings.json 持久化；
+  // 返回 ApiResult<boolean> 包装（对齐全仓 handle() 纪律，P1-E2）
   settings: {
-    getDevMode: (): Promise<boolean> => invoke('qihebox:settings:getDevMode') as Promise<boolean>,
-    setDevMode: (enabled: boolean): Promise<boolean> =>
-      invoke('qihebox:settings:setDevMode', enabled) as Promise<boolean>,
+    getDevMode: (): Promise<ApiResult<boolean>> =>
+      invoke('qihebox:settings:getDevMode') as Promise<ApiResult<boolean>>,
+    setDevMode: (enabled: boolean): Promise<ApiResult<boolean>> =>
+      invoke('qihebox:settings:setDevMode', enabled) as Promise<ApiResult<boolean>>,
   },
   events: {
     /** 订阅主进程事件，返回取消订阅函数 */

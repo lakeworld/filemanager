@@ -14,7 +14,7 @@ import { BoxService } from './core'
 import { WorkspaceService } from './core/workspace'
 import { globalWorkspaceIndex } from './core/indexCache'
 import { SharpThumbnailService } from './thumbnail'
-import { registerIpc } from './ipc'
+import { registerIpc, handle } from './ipc'
 import { registerQiheboxProtocol } from './protocol'
 import { registerPluginHost, type PluginHostHandle } from './plugins/ipc'
 import { createSettings } from './settings'
@@ -468,117 +468,158 @@ async function setupWorkspaceIndex(box: BoxService): Promise<void> {
 
 app.whenReady().then(() => {
   initLogger()
-  // 单一 workspace 实例贯穿全部服务
-  const workspace = new WorkspaceService()
-  // v2.1.0：缩略图缓存根迁移到 userData（工作区不再被 .thumbnails 污染，坚果云不同步缓存）
-  const thumbs = new SharpThumbnailService(workspace, {
-    userDataThumbsDir: path.join(app.getPath('userData'), 'thumbs'),
-  })
-  const box = new BoxService(thumbs, workspace, getLogger() ?? undefined)
-
-  // v2.4.7：交换区投递服务（PLAN §8）——ledger sink 已在 BoxService 构造器内接入发票/入库台账
-  // （查重等账务规则单点落在台账服务，§6.2「三入口同函数」）；此处只做生命周期装配：
-  // 工作区打开/切换时 stop + start（watch 句柄与防抖定时器成对释放重建）+ 启动补扫
-  const exchange = box.exchange
-
-  registerIpc(box, account, { isTrayReady: () => tray !== null })
-  registerQiheboxProtocol(box, () => thumbs.currentThumbsRoot(), () => path.join(app.getPath('userData'), 'plugins'))
-
-  // —— v2.5：插件宿主装配（PLAN §六）——装配期只做已安装包清单登记（同步微秒级），
-  // 不加载任何插件代码（惰性加载归 src/main/plugins/loader.ts）；默认未安装任何插件时零开销
-  const settings = createSettings(app.getPath('userData'))
-  pluginHost = registerPluginHost(box, account, settings)
-
-  // —— v2.5：开发者模式设置 IPC（侧载收紧，PLAN §3.5）——
-  ipcMain.handle('qihebox:settings:getDevMode', () => settings.getDevMode())
-  ipcMain.handle('qihebox:settings:setDevMode', async (_e, enabled: boolean) => {
-    // 必须先 await 落盘再返回——否则调用方读到旧值（渲染层开关弹回）
-    await settings.setDevMode(!!enabled)
-    return settings.getDevMode()
-  })
-
-  // v2.4.7（评审 P5）：重启后恢复已登录账号的心跳——登录态由 account.json 持久化，
-  // 此前只有 login() 内启动心跳，重启后心跳静默丢失（startHeartbeat 幂等，登录路径仍会重复调用无害）
-  if (account.status().loggedIn) account.startHeartbeat()
-
-
-  // 启动恢复/创建默认工作区（有最近工作区则恢复，无则自动创建）；
-  // 恢复成功后初始化工作区索引（load/build + 文件监听，异步不阻塞）；随后跑后台任务（均静默）
-  workspace
-    .restoreOrCreateDefault()
-    .then(() => {
-      // v2.4.x：初始化工作区索引——加载/校验或全量构建 + 落盘 + 文件监听（失败仅 log，签名校验兜底）
-      return setupWorkspaceIndex(box).catch((err) => void log('warn', `文件索引初始化失败: ${String(err)}`))
+  // —— v2.5（P1-D1）：启动装配兜底——主装配体整体 try/catch，任一失败仅 log 降级；
+  // 窗口/托盘/唤醒自愈独立在兜底分支执行，保证装配失败也至少创建窗口、托盘常驻。 ——
+  let box: BoxService | null = null
+  try {
+    // 单一 workspace 实例贯穿全部服务
+    const workspace = new WorkspaceService()
+    // v2.1.0：缩略图缓存根迁移到 userData（工作区不再被 .thumbnails 污染，坚果云不同步缓存）
+    const thumbs = new SharpThumbnailService(workspace, {
+      userDataThumbsDir: path.join(app.getPath('userData'), 'thumbs'),
     })
-    .catch((err) => {
-      void log('warn', `默认工作区恢复失败: ${String(err)}`)
-    })
-    .then(() => {
-      // v2.4.x：注册工作区切换钩子（含恢复失败路径）——setCurrentWorkspace 后重建索引与文件监听
-      workspace.onWorkspaceChanged(() => {
-        // v2.5：插件宿主事件桥——工作区切换（host.events.on('workspaceChanged') 白名单通道，PLAN §1.1 步骤 7）
-        pluginHost?.emitHostEvent('workspaceChanged', box.workspace.currentWorkspacePath())
-        void setupWorkspaceIndex(box).catch((err) => void log('warn', `文件索引重建失败: ${String(err)}`))
-        // v2.4.7：交换区监听随工作区切换关闭重建（watch 句柄与防抖定时器成对释放）+ 立即补扫
-        exchange.stop()
-        void exchange.start().catch((err) => void log('warn', `交换区补扫失败: ${String(err)}`))
+    box = new BoxService(thumbs, workspace, getLogger() ?? undefined)
+    const svc = box // 非空常量：闭包内直接使用，避免 null 收窄丢失
+
+    // v2.4.7：交换区投递服务（PLAN §8）——ledger sink 已在 BoxService 构造器内接入发票/入库台账
+    // （查重等账务规则单点落在台账服务，§6.2「三入口同函数」）；此处只做生命周期装配：
+    // 工作区打开/切换时 stop + start（watch 句柄与防抖定时器成对释放重建）+ 启动补扫
+    const exchange = svc.exchange
+
+    // —— IPC / 协议 / 插件宿主 / 设置注册：各自失败仅 log 降级，不阻断装配（P1-D1）——
+    try {
+      registerIpc(svc, account, {
+        isTrayReady: () => tray !== null,
+        // v2.5（P1-A4）：files 导入完成 → 宿主事件 importComplete 投递桥
+        onImportComplete: (payload) => pluginHost?.emitHostEvent('importComplete', payload),
       })
-      // v2.4.7：启动补扫推迟到后台任务阶段异步执行（不进 app ready → 窗口可交互关键路径，PLAN §一.3）
-      void exchange.start().catch((err) => void log('warn', `交换区启动补扫失败: ${String(err)}`))
-      // 收尾轮（候选 3）：缩略图磁盘缓存惰性 GC——再延迟 30s 避开启动高峰，后台低优先执行
-      setTimeout(() => {
-        void thumbs
-          .collectGarbage()
-          .then((r) => {
-            if (r.removed > 0) {
-              void log('info', `缩略图缓存 GC：清理 ${r.removed} 个文件，释放 ${(r.freedBytes / 1024 / 1024).toFixed(1)}MB`)
-            }
-          })
-          .catch((err) => void log('warn', `缩略图缓存 GC 失败: ${String(err)}`))
-      }, 30_000).unref?.()
-      return runStartupTasks(box)
-    })
+    } catch (err) {
+      void log('error', `IPC 注册失败（降级继续，窗口仍创建）: ${String(err)}`)
+    }
+    try {
+      registerQiheboxProtocol(svc, () => thumbs.currentThumbsRoot(), () => path.join(app.getPath('userData'), 'plugins'))
+    } catch (err) {
+      void log('error', `协议注册失败（降级继续）: ${String(err)}`)
+    }
 
-  // v2.3.0：统一窗口初始化钩子——休眠销毁后的重建（ensureMainWindow）自动带上崩溃自愈与托盘行为
-  setWindowCreateHandler((win) => {
-    setupCrashRecovery(win)
-    setupRendererConsoleForward(win)
-    setupCloseToTray(win)
-    win.on('closed', () => {
-      void log('info', '[window] 主窗口已销毁（休眠回收或退出）')
-    })
-  })
+    // —— v2.5：插件宿主装配（PLAN §六）——装配期只做已安装包清单登记（同步微秒级），
+    // 不加载任何插件代码（惰性加载归 src/main/plugins/loader.ts）；默认未安装任何插件时零开销
+    const settings = createSettings(app.getPath('userData'))
+    try {
+      pluginHost = registerPluginHost(svc, account, settings)
+    } catch (err) {
+      void log('error', `插件宿主装配失败（降级继续，插件功能不可用）: ${String(err)}`)
+    }
 
-  // v2.4.9（S4）：开机自启分支（决策 5/11/15）——自启态不建窗：托盘常驻 + 后台任务照常
-  // （索引构建 + fs.watch 监听 / 交换区补扫 / 30s 缩略图 GC / runStartupTasks 均在下方链上
-  // 无条件执行，与托盘态同口径，不跳过）；等待托盘点击 / second-instance / activate 经
-  // ensureMainWindow() 兜底建窗（决策 15）。
-  autostartMode = isAutoLaunchMode(process.argv, process.env) || isMacAutostartLaunch()
-  if (autostartMode) {
-    // 自启态诊断日志（§3.6.2）：命中来源 / 托盘初始化 / 延迟建窗
-    const src = process.argv.includes('--autostart')
-      ? 'argv'
-      : process.env.QIHEBOX_AUTOSTART === '1'
-        ? 'env'
-        : 'mac wasOpenedAtLogin'
-    void log('info', `autostart 模式命中（来源: ${src}）`)
-    setupTray()
-    void log('info', 'autostart: 托盘初始化完成')
-    void log('info', 'autostart: 延迟建窗，等待托盘/激活触发')
-  } else {
-    const win = createMainWindow()
-    setupTray()
-    setupCrashRecovery(win)
-    setupRendererConsoleForward(win)
-    setupCloseToTray(win)
+    // —— v2.5：开发者模式设置 IPC（侧载收紧，PLAN §3.5；ApiResult 包装对齐 handle() 纪律，P1-E2）——
+    try {
+      ipcMain.handle('qihebox:settings:getDevMode', () => handle(() => settings.getDevMode()))
+      ipcMain.handle('qihebox:settings:setDevMode', (_e, enabled: boolean) =>
+        handle(async () => {
+          // 必须先 await 落盘再返回——否则调用方读到旧值（渲染层开关弹回）
+          await settings.setDevMode(!!enabled)
+          return settings.getDevMode()
+        }),
+      )
+    } catch (err) {
+      void log('error', `设置 IPC 注册失败（降级继续）: ${String(err)}`)
+    }
+
+    // v2.4.7（评审 P5）：重启后恢复已登录账号的心跳——登录态由 account.json 持久化，
+    // 此前只有 login() 内启动心跳，重启后心跳静默丢失（startHeartbeat 幂等，登录路径仍会重复调用无害）
+    if (account.status().loggedIn) account.startHeartbeat()
+
+
+    // 启动恢复/创建默认工作区（有最近工作区则恢复，无则自动创建）；
+    // 恢复成功后初始化工作区索引（load/build + 文件监听，异步不阻塞）；随后跑后台任务（均静默）
+    workspace
+      .restoreOrCreateDefault()
+      .then(() => {
+        // v2.4.x：初始化工作区索引——加载/校验或全量构建 + 落盘 + 文件监听（失败仅 log，签名校验兜底）
+        return setupWorkspaceIndex(svc).catch((err) => void log('warn', `文件索引初始化失败: ${String(err)}`))
+      })
+      .catch((err) => {
+        void log('warn', `默认工作区恢复失败: ${String(err)}`)
+      })
+      .then(() => {
+        // v2.4.x：注册工作区切换钩子（含恢复失败路径）——setCurrentWorkspace 后重建索引与文件监听
+        workspace.onWorkspaceChanged(() => {
+          // v2.5：插件宿主事件桥——工作区切换（host.events.on('workspaceChanged') 白名单通道，PLAN §1.1 步骤 7）
+          pluginHost?.emitHostEvent('workspaceChanged', svc.workspace.currentWorkspacePath())
+          void setupWorkspaceIndex(svc).catch((err) => void log('warn', `文件索引重建失败: ${String(err)}`))
+          // v2.4.7：交换区监听随工作区切换关闭重建（watch 句柄与防抖定时器成对释放）+ 立即补扫
+          exchange.stop()
+          void exchange.start().catch((err) => void log('warn', `交换区补扫失败: ${String(err)}`))
+        })
+        // v2.4.7：启动补扫推迟到后台任务阶段异步执行（不进 app ready → 窗口可交互关键路径，PLAN §一.3）
+        void exchange.start().catch((err) => void log('warn', `交换区启动补扫失败: ${String(err)}`))
+        // 收尾轮（候选 3）：缩略图磁盘缓存惰性 GC——再延迟 30s 避开启动高峰，后台低优先执行
+        setTimeout(() => {
+          void thumbs
+            .collectGarbage()
+            .then((r) => {
+              if (r.removed > 0) {
+                void log('info', `缩略图缓存 GC：清理 ${r.removed} 个文件，释放 ${(r.freedBytes / 1024 / 1024).toFixed(1)}MB`)
+              }
+            })
+            .catch((err) => void log('warn', `缩略图缓存 GC 失败: ${String(err)}`))
+        }, 30_000).unref?.()
+        return runStartupTasks(svc)
+      })
+
+    // v2.3.0：统一窗口初始化钩子——休眠销毁后的重建（ensureMainWindow）自动带上崩溃自愈与托盘行为
+    setWindowCreateHandler((win) => {
+      setupCrashRecovery(win)
+      setupRendererConsoleForward(win)
+      setupCloseToTray(win)
+      win.on('closed', () => {
+        void log('info', '[window] 主窗口已销毁（休眠回收或退出）')
+      })
+    })
+  } catch (err) {
+    void log('error', `启动装配失败（进入窗口兜底分支）: ${String(err)}`)
   }
-  // v2.4.7（F10）：系统休眠唤醒自愈——resume 后分层检查，白屏自动 reload（含画面像素检测）
-  setupWakeRecovery()
+
+  // —— 兜底分支（P1-D1）：窗口 + 托盘 + 唤醒自愈独立于主装配，失败也至少创建窗口 ——
+  try {
+    // v2.4.9（S4）：开机自启分支（决策 5/11/15）——自启态不建窗：托盘常驻 + 后台任务照常
+    // （索引构建 + fs.watch 监听 / 交换区补扫 / 30s 缩略图 GC / runStartupTasks 均在下方链上
+    // 无条件执行，与托盘态同口径，不跳过）；等待托盘点击 / second-instance / activate 经
+    // ensureMainWindow() 兜底建窗（决策 15）。
+    autostartMode = isAutoLaunchMode(process.argv, process.env) || isMacAutostartLaunch()
+    if (autostartMode) {
+      // 自启态诊断日志（§3.6.2）：命中来源 / 托盘初始化 / 延迟建窗
+      const src = process.argv.includes('--autostart')
+        ? 'argv'
+        : process.env.QIHEBOX_AUTOSTART === '1'
+          ? 'env'
+          : 'mac wasOpenedAtLogin'
+      void log('info', `autostart 模式命中（来源: ${src}）`)
+      setupTray()
+      void log('info', 'autostart: 托盘初始化完成')
+      void log('info', 'autostart: 延迟建窗，等待托盘/激活触发')
+    } else {
+      const win = createMainWindow()
+      setupTray()
+      setupCrashRecovery(win)
+      setupRendererConsoleForward(win)
+      setupCloseToTray(win)
+    }
+    // v2.4.7（F10）：系统休眠唤醒自愈——resume 后分层检查，白屏自动 reload（含画面像素检测）
+    setupWakeRecovery()
+  } catch (err) {
+    void log('error', `窗口/托盘/唤醒自愈初始化失败，尝试兜底建窗: ${String(err)}`)
+    try {
+      if (!autostartMode && BrowserWindow.getAllWindows().length === 0) createMainWindow()
+    } catch (err2) {
+      void log('error', `兜底建窗失败: ${String(err2)}`)
+    }
+  }
 
   // v2.4.0：每日定时任务（24h）——更新检查 + 证书到期通知；应用常驻托盘期间持续生效
   setInterval(() => {
     void runUpdateCheck()
-    void runCertNotify(box)
+    if (box) void runCertNotify(box)
   }, 24 * 3600 * 1000).unref()
 })
 
