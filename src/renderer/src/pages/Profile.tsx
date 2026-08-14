@@ -10,20 +10,20 @@ import type { UpdateInfo } from "~/types";
 type SectionKey = "account" | "update" | "help" | "log" | "privacy";
 
 const icons = {
-  account: (
+  account: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"/></svg>
   ),
-  update: (
+  update: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
   ),
-  help: (
+  help: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
   ),
   // v2.4.9（S6-2）：日志卡片图标（文档列表）
-  log: (
+  log: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/></svg>
   ),
-  privacy: (
+  privacy: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
   ),
 };
@@ -219,7 +219,7 @@ export default function Profile() {
                           "bg-surface-100 text-surface-500 group-hover:bg-surface-200": !isActive(),
                         }}
                       >
-                        {icons[item.key]}
+                        {icons[item.key]()}
                       </span>
                       <div class="min-w-0">
                         <div
@@ -275,7 +275,7 @@ export default function Profile() {
                 <div class="mb-6 flex items-center justify-between gap-4">
                   <div>
                     <div class="flex items-center gap-2">
-                      <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-700">{icons.update}</span>
+                      <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-700">{icons.update()}</span>
                       <h2 class="text-lg font-semibold text-surface-900">检查更新</h2>
                     </div>
                     <p class="mt-1 text-xs text-surface-400">启禾文件管理 v{displayVersion()}</p>
@@ -345,7 +345,7 @@ export default function Profile() {
             <Show when={active() === "help"}>
               <div class="rounded-2xl border border-surface-200 bg-white p-6 shadow-card">
                 <div class="mb-4 flex items-center gap-2 border-b border-surface-100 pb-4">
-                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-700">{icons.help}</span>
+                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-700">{icons.help()}</span>
                   <h2 class="text-lg font-semibold text-surface-900">使用帮助</h2>
                 </div>
                 <div class="max-h-[70vh] overflow-y-auto pr-2">
@@ -358,7 +358,7 @@ export default function Profile() {
             <Show when={active() === "log"}>
               <div class="rounded-2xl border border-surface-200 bg-white p-6 shadow-card">
                 <div class="mb-4 flex items-center gap-2 border-b border-surface-100 pb-4">
-                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-700">{icons.log}</span>
+                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-700">{icons.log()}</span>
                   <h2 class="text-lg font-semibold text-surface-900">日志</h2>
                 </div>
                 <p class="text-sm text-surface-600">
@@ -385,7 +385,7 @@ export default function Profile() {
             <Show when={active() === "privacy"}>
               <div class="rounded-2xl border border-surface-200 bg-white p-6 shadow-card">
                 <div class="mb-4 flex items-center gap-2 border-b border-surface-100 pb-4">
-                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-700">{icons.privacy}</span>
+                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-700">{icons.privacy()}</span>
                   <h2 class="text-lg font-semibold text-surface-900">隐私协议</h2>
                 </div>
                 <div class="max-h-[70vh] overflow-y-auto pr-2">
@@ -426,7 +426,7 @@ function AccountSection() {
   return (
     <div class="rounded-2xl border border-surface-200 bg-white p-6 shadow-card">
       <div class="mb-4 flex items-center gap-2 border-b border-surface-100 pb-4">
-        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-700">{icons.account}</span>
+        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-700">{icons.account()}</span>
         <h2 class="text-lg font-semibold text-surface-900">账号</h2>
       </div>
 
