@@ -222,6 +222,22 @@ describe('交换区投递（v2.4.7）', () => {
     expect((await readReceipt(ws, 'bad')).status).toBe('error')
   })
 
+  it('超大描述文件（>1MB）→ error 回执，读前限大小不 readFile/parse（防 OOM）', async () => {
+    const exchange = newExchange()
+    const dir = path.join(ws, '交换区')
+    // 合法 JSON（尾随空白可被 JSON.parse 接受）+ 超大体积：验证读前 stat 大小上限拦截
+    const desc = { id: 'big', kind: 'invoice', files: ['f.pdf'], invoice: { number: '1', date: '2026-01-01', amount: 1, seller: 'a', buyer: 'b' } }
+    await fsp.writeFile(path.join(dir, 'big.json'), JSON.stringify(desc) + ' '.repeat(1024 * 1024 + 1))
+
+    const receipt = await exchange.processFile(path.join(dir, 'big.json'))
+
+    expect(receipt.status).toBe('error')
+    expect(receipt.error).toContain('大小')
+    // 描述文件被消费（防反复报警），进程不崩
+    await expect(fsp.stat(path.join(dir, 'big.json'))).rejects.toThrow()
+    expect((await readReceipt(ws, 'big')).status).toBe('error')
+  })
+
   it('id 与文件名不一致 / 未知 kind / 缺少字段段 → error 回执', async () => {
     const exchange = newExchange()
     const dir = path.join(ws, '交换区')
@@ -299,7 +315,7 @@ describe('交换区投递（v2.4.7）', () => {
     expect(await fsp.readdir(path.join(ws, '发票', '2026'))).toHaveLength(1)
   })
 
-  it('台账查重失败（ledger 抛错）→ error 回执，不建记录', async () => {
+  it('台账查重失败（ledger 抛错）→ error 回执，不建记录，且已归档文件回滚（不留孤儿）', async () => {
     const { ledger } = makeLedger()
     ledger.createInvoice = async () => {
       throw new Error('发票号码 555 已存在（2026-08-01，文件 发票/2026/xxx.pdf）')
@@ -319,6 +335,30 @@ describe('交换区投递（v2.4.7）', () => {
     // 投递被消费，不反复重试
     await expect(fsp.stat(path.join(ws, '交换区', 'inv-dupnum.json'))).rejects.toThrow()
     expect((await readReceipt(ws, 'inv-dupnum')).status).toBe('error')
+    // C3：台账写失败 → 归档区无残留（已归集副本回滚删除，账物一致）
+    const leftovers = await fsp.readdir(path.join(ws, '发票', '2026')).catch(() => [] as string[])
+    expect(leftovers.filter((n) => n.endsWith('.pdf'))).toHaveLength(0)
+  })
+
+  it('inbound 台账写失败 → error 回执 + 归档回滚（不留孤儿）', async () => {
+    const { ledger } = makeLedger()
+    ledger.createInbound = async () => {
+      throw new Error('入库单编号 RK001 已存在')
+    }
+    const exchange = newExchange(ledger)
+    await placeDelivery(
+      ws,
+      'inb-dup',
+      { id: 'inb-dup', kind: 'inbound', files: ['x.pdf'], inbound: { id: 'RK001', date: '2026-07-15', supplier: '供应商X' } },
+      { 'x.pdf': 'x' },
+    )
+
+    const receipt = await exchange.processFile(path.join(ws, '交换区', 'inb-dup.json'))
+
+    expect(receipt.status).toBe('error')
+    expect(receipt.error).toContain('已存在')
+    const leftovers = await fsp.readdir(path.join(ws, '入库', '2026')).catch(() => [] as string[])
+    expect(leftovers.filter((n) => n.endsWith('.pdf'))).toHaveLength(0)
   })
 
   it('台账未接入（未注入 ledger）→ invoice/inbound 投递 error 回执，文件不落盘', async () => {

@@ -68,6 +68,8 @@ export interface ThumbnailServiceOptions {
 /** v2.4.2（修复 2）：单任务超时与队列上限 */
 const TASK_TIMEOUT_MS = 15_000
 const QUEUE_MAX = 200
+/** v2.5（审查 P1-B1）：在途去重 pending Map 上限，超出按插入序淘汰最旧（防重度滚动下单调增长） */
+const PENDING_MAX = 512
 
 interface QueueEntry<T> {
   origin: ThumbOrigin
@@ -122,7 +124,7 @@ export class ThumbQueue<T> {
     return cancelled
   }
 
-  enqueue(task: () => Promise<T>, origin: ThumbOrigin): Promise<T> {
+  enqueue(task: () => Promise<T>, origin: ThumbOrigin, onCancel?: () => void): Promise<T> {
     return new Promise<T>((resolve) => {
       let cancelled = false
       const entry: QueueEntry<T> = {
@@ -130,6 +132,8 @@ export class ThumbQueue<T> {
         settle: () => {
           cancelled = true
           resolve(this.cancelledValue)
+          // v2.5（P1-B1）：作废时同步通知调用方清理其 pending 去重条目（.finally 之外的即时删除）
+          onCancel?.()
         },
         run: async () => {
           this.running++
@@ -201,6 +205,30 @@ export class SharpThumbnailService implements ThumbnailProvider {
     private workspace: WorkspaceService,
     private opts: ThumbnailServiceOptions = {},
   ) {}
+
+  /** 在途去重条目数（测试断言用；P1-B1） */
+  get pendingCount(): number {
+    return this.pending.size
+  }
+
+  /**
+   * v2.5（P1-B1）：登记在途去重条目——有上限（最旧淘汰）+ settle 时自清理。
+   * 清理放在 enqueue 返回 Promise 的 `.finally`：取消/成功/失败/超时任一 settle 都触发，
+   * 不再依赖任务闭包 finally（排队中被取消的任务永不执行 run，旧写法导致 pending 泄漏）。
+   * 返回同值包装 Promise；清理带「仍指向本次任务」守卫，防取消/淘汰后新任务被误删。
+   */
+  private trackPending(key: string, task: Promise<string>): Promise<string> {
+    if (this.pending.size >= PENDING_MAX) {
+      const oldest = this.pending.keys().next().value
+      if (oldest !== undefined) this.pending.delete(oldest)
+    }
+    let tracked!: Promise<string>
+    tracked = task.finally(() => {
+      if (this.pending.get(key) === tracked) this.pending.delete(key)
+    })
+    this.pending.set(key, tracked)
+    return tracked
+  }
 
   /** 当前工作区对应的缓存根（新位置）；无 userData 配置时返回空（走旧位置） */
   currentThumbsRoot(): string {
@@ -357,14 +385,12 @@ export class SharpThumbnailService implements ThumbnailProvider {
         } catch (err) {
           console.error('[thumbnail] 生成失败:', filePath, err)
           return ''
-        } finally {
-          this.pending.delete(filePath)
         }
       },
       origin,
+      () => this.pending.delete(filePath),
     )
-    this.pending.set(filePath, task)
-    return task
+    return this.trackPending(filePath, task)
   }
 
   /**
@@ -384,25 +410,26 @@ export class SharpThumbnailService implements ThumbnailProvider {
     const key = `prev:${filePath}`
     const inFlight = this.pending.get(key)
     if (inFlight) return inFlight
-    const task = this.genQueue.enqueue(async () => {
-      try {
-        // 延迟加载 sharp 复用 loadSharp()（与缩略图同一原生库）
-        const sharp = await loadSharp()
-        await fsp.mkdir(path.dirname(preview), { recursive: true })
-        await sharp(filePath, { limitInputPixels: MAX_INPUT_PIXELS })
-          .resize(PREVIEW_SIZE, PREVIEW_SIZE, { fit: 'inside', withoutEnlargement: true })
-          .jpeg({ quality: JPEG_QUALITY })
-          .toFile(preview)
-        return preview
-      } catch (err) {
-        console.error('[thumbnail] 预览副本生成失败:', filePath, err)
-        return ''
-      } finally {
-        this.pending.delete(key)
-      }
-    }, 'browse')
-    this.pending.set(key, task)
-    return task
+    const task = this.genQueue.enqueue(
+      async () => {
+        try {
+          // 延迟加载 sharp 复用 loadSharp()（与缩略图同一原生库）
+          const sharp = await loadSharp()
+          await fsp.mkdir(path.dirname(preview), { recursive: true })
+          await sharp(filePath, { limitInputPixels: MAX_INPUT_PIXELS })
+            .resize(PREVIEW_SIZE, PREVIEW_SIZE, { fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: JPEG_QUALITY })
+            .toFile(preview)
+          return preview
+        } catch (err) {
+          console.error('[thumbnail] 预览副本生成失败:', filePath, err)
+          return ''
+        }
+      },
+      'browse',
+      () => this.pending.delete(key),
+    )
+    return this.trackPending(key, task)
   }
 
   async thumbnailUrl(filePath: string): Promise<string> {
