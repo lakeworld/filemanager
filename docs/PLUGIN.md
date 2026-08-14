@@ -253,21 +253,24 @@ export interface PluginRegistration {
 
 ```ts
 window.qihebox.plugins = {
-  list(): Promise<PluginInfo[]>                       // 含禁用/broken
-  call(pluginId: string, action: string, payload?: unknown): Promise<unknown>
-  setEnabled(pluginId: string, enabled: boolean): Promise<boolean>
-  catalog(): Promise<PluginCatalogEntry[]>            // 官方索引目录（进入管理页时拉取，不后台轮询；v2.7 实装）
-  install(source: { downloadUrl: string; sha256: string } | { filePath: string }): Promise<boolean>
-  // 侧载（filePath）需开发者模式开启；关闭时拒绝（DEV_MODE_REQUIRED）
-  uninstall(pluginId: string): Promise<boolean>
-  on(channel: string, cb: (data: unknown) => void): () => void
+  list(): Promise<ApiResult<PluginInfo[]>>            // 含禁用/broken
+  call(pluginId: string, action: string, payload?: unknown): Promise<ApiResult<unknown>>
+  setEnabled(pluginId: string, enabled: boolean): Promise<ApiResult<boolean>>
+  catalog(): Promise<ApiResult<PluginCatalogEntry[]>> // 官方索引目录（进入管理页时拉取，不后台轮询；v2.6/v2.7 实装，当前未实现）
+  install(source: { filePath: string }): Promise<ApiResult<PluginInfo>>
+  // v2.5 仅侧载 filePath 形态；侧载需开发者模式开启，关闭时拒绝（DEV_MODE_REQUIRED）
+  // install({ downloadUrl, sha256 }) 官方索引形态 v2.6+（当前未实现）
+  uninstall(pluginId: string): Promise<ApiResult<boolean>>
+  on(channel: string, cb: (data: unknown) => void): () => void  // 订阅函数，返回退订函数（非 Promise）
 }
 
 /** 开发者模式（v2.5 增量）：侧载安装入口门控，默认关，重启保持 */
 window.qihebox.settings = {
-  getDevMode(): Promise<boolean>
-  setDevMode(enabled: boolean): Promise<boolean>
+  getDevMode(): Promise<ApiResult<boolean>>
+  setDevMode(enabled: boolean): Promise<ApiResult<boolean>>
 }
+
+/** ApiResult<T> = { success: boolean; data: T | null; error: string | null }（对齐 src/shared/types.ts 实际定义） */
 ```
 
 <!-- contract:v1:window.plugins -->
