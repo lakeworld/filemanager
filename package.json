@@ -16,6 +16,7 @@
     "start": "electron-vite preview",
     "test": "vitest run tests/unit",
     "test:watch": "vitest",
+    "api:update": "node scripts/update-api-surface.mjs",
     "test:e2e": "playwright test",
     "pretest:e2e": "node scripts/build-hello-plugin.mjs",
     "bench": "vitest run tests/bench",
