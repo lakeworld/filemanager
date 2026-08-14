@@ -756,7 +756,9 @@ describe('契约对账（docs/PLUGIN.md ↔ 实现）', () => {
     expect(extra, `文档多锚点/无映射锚点：${extra.join(', ')}`).toEqual([])
   })
 
-  it('内部版 docs/INTERNAL/PLUGIN.md 锚点与公开版双份同步', () => {
+  // 内部版（docs/INTERNAL/）为 gitignore 黑名单文件，CI checkout 后不存在 → CI 跳过；
+  // 本地双份同步验证（黑名单纪律：内部版本地保留不进仓库）
+  it.skipIf(!fs.existsSync(INTERNAL_PLUGIN_MD))('内部版 docs/INTERNAL/PLUGIN.md 锚点与公开版双份同步', () => {
     const internal = extractAnchors(fs.readFileSync(INTERNAL_PLUGIN_MD, 'utf-8'))
     const publicAnchors = readPublicAnchors()
     const onlyInternal = [...internal].filter((k) => !publicAnchors.has(k))
