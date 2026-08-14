@@ -83,7 +83,17 @@ export default function Sidebar() {
     if (path === "/") {
       return location.pathname === "/";
     }
-    return location.pathname === path || location.pathname.startsWith(`${path}/`);
+    if (location.pathname === path) return true;
+    // 前缀匹配（父级入口在详情/子页高亮，如 /product-sets/:name 高亮「产品集」）；
+    // 但若存在更具体的菜单项命中当前路径（如 /settings/plugins 命中插件入口），父项让位不高亮
+    if (location.pathname.startsWith(`${path}/`)) {
+      const all = groups.flatMap((g) => g.items.map((i) => i.path));
+      const hitMoreSpecific = all.some(
+        (p) => p !== path && (location.pathname === p || location.pathname.startsWith(`${p}/`))
+      );
+      return !hitMoreSpecific;
+    }
+    return false;
   };
 
   return (
