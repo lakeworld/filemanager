@@ -1,5 +1,36 @@
 # 更新日志
 
+## v2.5 — 2026-08-14（插件协议与宿主：协议 v1 冻结 + hello 开源插件）
+
+> 插件基础设施版本：公开插件协议（`docs/PLUGIN.md`，API_VERSION=1，**发布即冻结、此后只增不删**）+ 三段宿主 + `.qbox` 侧载 + hello 开源教学插件。普通用户零变化（插件页空列表 + 风险横幅，官方索引 v2.6+ 上线）。设计见 `docs/INTERNAL/PLAN-v2.5-增量.md`（14 步移植清单）+ `PLAN-v2.5-测试.md`（协议测试四件套，四视角审查）+ `PLAN-v2.5-polish.md`（T2–T5 打磨）。
+
+### 插件协议与宿主
+
+- **公开协议 v1**：manifest 九条校验规则（id 域名倒序 / kind 双向一致 / apiCompat 相交 / 路径逃逸拒绝 / transport 仅 inproc / 权限声明 / 事件前缀 / syncScope / account 布尔）+ 握手状态机（发现→校验→惰性加载→握手→运行→停用）+ 熔断（连续 3 次 broken，业务错误码不计）+ 双向 API（PluginHost 白名单 / PluginRegistration）+ 渲染层 `window.qihebox.plugins` + IPC 通道命名 + 安全与信任分级 + 状态隔离 + API 演进政策
+- **宿主三段**：主进程（registry / loader / installer / host / ipc，纯 TS 可 node 直测）+ preload 透传命名空间 + 渲染层（插件管理页 / Sidebar 插件分组 / 右键命令注入 / 协议 URL 动态 import 页面）
+- **协议增量**：`syncScope`（状态同步范围声明）、`host.account`（登录态，tokenCache 生命周期）、`host.files`（受限读写：读边界/写平铺导出/错误码）、`host.entitlement`（恒 free 占位，v2.7 接通）、侧载收紧（开发者模式默认关 + IPC 层强制 + 风险确认框）
+- **`host.files` 错误码**：NOT_FOUND / OUT_OF_WORKSPACE / NO_WORKSPACE / TOO_LARGE / INVALID_NAME / IO_ERROR（含 `\0` 路径防御）
+- **诚实说明（协议即承诺）**：CSP 响应头为形式防护（`import()` 模块不受 CSP 执行约束，真隔离在 v2.7 `transport='process'`）；侧载 SHA-256 为记录非比对（官方索引 v2.6+ 比对）；inproc 信任模型为架构约定（文档如实写明）
+- **hello 开源插件 2.5.5**：教学样板（ipc/pages/commands 三能力 + README 15 分钟上手 + 改造指引），随发布提供 `.qbox`，不进安装包
+
+### 协议测试四件套（守护"协议即承诺"）
+
+- **API 兼容性守护**：`npm run api:update` 基线 + 超集强制（删字段/改签名即红，破坏需显式 API_FORCE_BREAK）
+- **契约对账**：PLUGIN.md 双份锚点 54 项（v1 41 + v2.7 13）双向对账——文档与实现谁漂移都红
+- **模糊测试**：fast-check 三套（manifest 1000 例 / host.files 含 `\0` 注入 / registry 500 例，固定 seed）
+- **一致性套件**：`npm run conformance -- <插件路径>` 第三方插件体检（manifest 校验→安装→握手→能力抽查→卸载，正负路径夹具）
+
+### 修复（打磨轮实测 + 后端全链路审查）
+
+- **「我的」页菜单图标丢失**（v2.4.9 老 bug）：icons 共享 JSX 元素被 Solid 移动 → 改函数式
+- **侧边栏「设置」与「插件」同时高亮**：isActive 前缀匹配加更具体项让位
+- **后端全链路审查 15 项 P1 全修**（5 链路子代理审查，见 `docs/INTERNAL/审查-2026-08-14-后端全链路.md`）：台账损坏备份留证 / 客户改名级联发票 / 报价畸形容错 / 列表 realpath 边界 / 缩略图 pending 泄漏 / 交换区失败回滚 + 描述大小上限 / 熔断码白名单 / 激活停用竞态 / importComplete 接线 / 启动装配兜底 / settings ApiResult 化
+
+### 测试与门禁
+
+- 单测 **498**（v2.4.9 295 + 宿主 122 + 协议四件套 58 + 审查修复 16 + transport 7）/ e2e **79** + conformance 独立口径 / 双 tsc 零错误 / 构建通过
+- 内存实测（3 次取稳定值，2026-08-14）：醒着 **462** / 托盘常驻 **289** / 自启态 **277**（过门禁 ≤487/310/310；零插件默认态，比 v2.4.9 的 472/301/288 略优——「零插件零内存」承诺兑现）
+
 ## v2.4.9 — 2026-08-12（供应商 / 报价 / 开机自启 / 客户对齐 / 命名模板编号槽位 / 日志系统）
 
 > v2.5（插件宿主）之后的下一本体功能版本：供应商台账+目录、报价单（对齐启禾 OS 报价单 Quotation）、开机自启（`--autostart` 托盘常驻）、客户字段对齐启禾 OS（为 v2.7 erp-bridge 铺路）、命名模板编号槽位、日志系统。设计见 `docs/INTERNAL/PLAN-v2.4.9.md`（v0.5，三轮 4 视角审查通过）。
