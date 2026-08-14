@@ -196,7 +196,7 @@ export class QuotesService {
   /** 台账列表：按报价日期降序（同日按单号升序）；返回记录副本，防调用方污染 store */
   async list(): Promise<QuoteRecord[]> {
     const store = await this.loadStore()
-    const out = Object.values(store.quotes).map((r) => ({ ...r, lines: r.lines.map((l) => ({ ...l })) }))
+    const out = Object.values(store.quotes).map((r) => ({ ...r, lines: (r.lines ?? []).map((l) => ({ ...l })) }))
     out.sort((a, b) =>
       a.date < b.date ? 1 : a.date > b.date ? -1 : a.quotation_no < b.quotation_no ? -1 : a.quotation_no > b.quotation_no ? 1 : 0,
     )
@@ -207,7 +207,7 @@ export class QuotesService {
   async get(quotationNo: string): Promise<QuoteRecord | undefined> {
     const store = await this.loadStore()
     const rec = store.quotes[(quotationNo ?? '').trim()]
-    return rec ? { ...rec, lines: rec.lines.map((l) => ({ ...l })) } : undefined
+    return rec ? { ...rec, lines: (rec.lines ?? []).map((l) => ({ ...l })) } : undefined
   }
 
   /** 新建报价：明细/日期校验 + 金额写入时计算 + 单号（自动生成或手输查重）+ 可选归档文件校验；初始状态 草稿 */
@@ -246,7 +246,7 @@ export class QuotesService {
     store.quotes[quotationNo] = rec
     await this.saveStore(ws, store)
     this.logger?.info(`报价单创建: ${quotationNo}`)
-    return { ...rec, lines: rec.lines.map((l) => ({ ...l })) }
+    return { ...rec, lines: (rec.lines ?? []).map((l) => ({ ...l })) }
   }
 
   /**
@@ -286,7 +286,7 @@ export class QuotesService {
 
     store.quotes[no] = rec
     await this.saveStore(ws, store)
-    return { ...rec, lines: rec.lines.map((l) => ({ ...l })) }
+    return { ...rec, lines: (rec.lines ?? []).map((l) => ({ ...l })) }
   }
 
   /** 状态流转（矩阵单入口）：非法跳转拒绝；→已确认 写入/刷新 confirmed_at；updated_at 刷新 */
@@ -306,7 +306,7 @@ export class QuotesService {
     rec.updated_at = currentTimeString()
     await this.saveStore(ws, store)
     this.logger?.info(`报价单状态流转: ${no} → ${status}`)
-    return { ...rec, lines: rec.lines.map((l) => ({ ...l })) }
+    return { ...rec, lines: (rec.lines ?? []).map((l) => ({ ...l })) }
   }
 
   /**

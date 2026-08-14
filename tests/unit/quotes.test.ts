@@ -359,6 +359,32 @@ describe('报价单服务（v2.4.9 S3）', () => {
     expect(await interpretMetadataKeyRegion(wsPath, '系列A/图包/主图/a.jpg')).toBe('productSet')
   })
 
+  it('v2.5（P1-C5）：畸形记录缺 lines → list/get 不崩（r.lines ?? [] 兜底）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    // 预置畸形记录：缺 lines（模拟历史损坏/手改单条）
+    const store = {
+      quotes: {
+        'QT-20260811-001': {
+          quotation_no: 'QT-20260811-001',
+          date: '2026-08-11',
+          total_amount: 0,
+          status: '草稿',
+          file_path: '',
+          created_at: '',
+          updated_at: '',
+        },
+      },
+    }
+    await fsp.writeFile(path.join(ws, '.qihefilemanager', '报价.json'), JSON.stringify(store, null, 2))
+    const list = await box.quotes.list()
+    expect(list).toHaveLength(1)
+    expect(list[0].lines).toEqual([])
+    expect((await box.quotes.get('QT-20260811-001'))?.lines).toEqual([])
+  })
+
   it('Logger 注入：create/setStatus 调用 logger.info（S6 core 接口）', async () => {
     const home = await tmp()
     const ws = await tmp()

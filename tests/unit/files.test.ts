@@ -697,3 +697,30 @@ describe('文件索引（v2.4.x：fileList 命中 / 写操作失效 / 预热）'
     expect(dirReads).toBe(0)
   })
 })
+
+describe('v2.5（P1-B3）：symlink 越界目录 realpath 边界', () => {
+  it('工作区内 symlink 指向区外的目录跳过不枚举；正常目录不受影响', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '越界链接' })
+
+    // 外部目录放文件
+    const outside = await tmp()
+    await fsp.writeFile(path.join(outside, 'external.jpg'), PNG_1PX)
+
+    // 主图 子文件夹 → 替换为指向区外的 symlink
+    const linkDir = path.join(ws, '产品集', '越界链接', '图包', '主图')
+    await fsp.rmdir(linkDir)
+    await fsp.symlink(outside, linkDir, 'dir')
+
+    // 区外目录被跳过，不枚举外部文件
+    const list = await box.files.fileList({ product_set: '越界链接', file_type: 'image', sub_folder: '主图' })
+    expect(list).toHaveLength(0)
+
+    // 正常目录（详情页 为空目录）仍可正常枚举，不报错
+    const ok = await box.files.fileList({ product_set: '越界链接', file_type: 'image', sub_folder: '详情页' })
+    expect(ok).toHaveLength(0)
+  })
+})

@@ -347,6 +347,24 @@ export class InvoicesService {
   }
 
   /**
+   * v2.5（审查 P1-C2）：客户重命名级联——扫描全部发票，customer === 旧名 的更新为新名。
+   * 名字引用语义（对齐 inbound.renameSupplierId / quotes.renameCustomer）：不校验客户存在，
+   * 无命中或台账缺失时幂等不报错。
+   */
+  async renameCustomer(oldName: string, newName: string): Promise<void> {
+    const ws = this.requireWS()
+    const store = await this.loadStore(ws)
+    let changed = false
+    for (const rec of Object.values(store.invoices)) {
+      if (rec.customer === oldName) {
+        rec.customer = newName
+        changed = true
+      }
+    }
+    if (changed) await this.saveStore(ws, store)
+  }
+
+  /**
    * 复制归档到 发票/<YYYY>/（YYYY = 开票日期年份；源文件可以是工作区外，UI 对话框选本地文件）。
    * 命名：套用命名模板（发票无产品集/子文件夹槽位 → 均为空，仅 original_name 生效等价原文件名；
    * 用户配置的 prefix/suffix 照常套用），冲突时按 conflict_suffix 加 _{n} 递增序号（resolveConflictName）。

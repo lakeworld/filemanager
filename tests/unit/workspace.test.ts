@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isPathInsideWorkspace, thumbnailPath, productSetFromFilePath, defaultWorkspaceConfig } from '../../src/main/core/paths'
+import { isPathInsideWorkspace, thumbnailPath, productSetFromFilePath, defaultWorkspaceConfig, readJsonFile } from '../../src/main/core/paths'
 import { buildTestBox } from './helpers'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -42,6 +42,25 @@ describe('productSetFromFilePath', () => {
   it('非产品集路径返回空', () => {
     expect(productSetFromFilePath('/ws', '/ws/导出/a.jpg')).toBe('')
     expect(productSetFromFilePath('/ws', '/other/a.jpg')).toBe('')
+  })
+})
+
+describe('readJsonFile 损坏备份（v2.5 P1-C1/B2）', () => {
+  it('文件存在但 JSON 损坏 → 备份 .corrupt-<ts> 后返回 null', async () => {
+    const dir = await tmp()
+    const p = path.join(dir, 'data.json')
+    await fsp.writeFile(p, '{bad json')
+    expect(await readJsonFile(p)).toBeNull()
+    const backups = (await fsp.readdir(dir)).filter((n) => n.startsWith('data.json.corrupt-'))
+    expect(backups).toHaveLength(1)
+    expect(await fsp.readFile(path.join(dir, backups[0]), 'utf-8')).toBe('{bad json')
+  })
+
+  it('文件缺失 → 返回 null 且不产生备份', async () => {
+    const dir = await tmp()
+    const p = path.join(dir, 'missing.json')
+    expect(await readJsonFile(p)).toBeNull()
+    expect(await fsp.readdir(dir)).toEqual([])
   })
 })
 
@@ -185,5 +204,20 @@ describe('工作区全链路（对照原 app_test.go）', () => {
     // 非保留名照常可用
     const ok = await box.workspace.productSetCreate({ name: '正常集' })
     expect(ok.name).toBe('正常集')
+  })
+
+  it('v2.5（P1-B2）：config.json 损坏 → loadConfig 返回默认值并备份原文件', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const p = path.join(ws, '.qihefilemanager', 'config.json')
+    await fsp.writeFile(p, '{"name": "坏')
+    const cfg = await box.workspace.loadConfig(ws)
+    expect(cfg.name).toBe('Workspace') // 降级默认值，不再静默覆盖
+    const dir = path.join(ws, '.qihefilemanager')
+    const backups = (await fsp.readdir(dir)).filter((n) => n.startsWith('config.json.corrupt-'))
+    expect(backups).toHaveLength(1)
+    expect(await fsp.readFile(path.join(dir, backups[0]), 'utf-8')).toBe('{"name": "坏')
   })
 })
