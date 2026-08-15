@@ -128,7 +128,7 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
 
     // 详情页删除 → ConfirmDialog 确认（文案「移入回收站」）
     await page.getByRole('button', { name: /删除供应商/ }).click()
-    const dialog = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '删除供应商' }) })
+    const dialog = page.getByRole('dialog', { name: '删除供应商' })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText(/将移入回收站/)).toBeVisible()
     await dialog.getByRole('button', { name: '删除', exact: true }).click()

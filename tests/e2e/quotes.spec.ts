@@ -246,7 +246,7 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     await gotoRoute('/quotes')
     await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
     await page.locator('button[title="删除"]').click()
-    const dialog = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '删除报价记录' }) })
+    const dialog = page.getByRole('dialog', { name: '删除报价记录' })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText(/归档文件保留/)).toBeVisible()
     await dialog.getByRole('button', { name: '删除', exact: true }).click()

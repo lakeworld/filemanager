@@ -53,9 +53,12 @@ export default function FilePreviewModal() {
   const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
 
   // 收尾轮：Esc 关闭预览（右键菜单打开时由 ContextMenu 自身的 Esc 监听先关菜单，不抢关）
+  // v2.5.1（T2，D2）：层栈让位——预览内弹 Modal（如删除确认）时，layerStack 已消费 Esc（defaultPrevented），预览不抢关；
+  // 完整迁移（预览 Esc 注册进层栈）随 T3 波3（弹出层 Esc 归栈）进行
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (e.defaultPrevented) return; // 层栈/其他弹出层已消费
       if (contextMenu().show) return;
       closePreview();
     };
