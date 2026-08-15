@@ -52,11 +52,11 @@ export default function Dashboard() {
     subHref?: string;
   }
   const statCards: StatCard[] = [
-    { label: "产品集", value: () => stats()?.data?.total_product_sets ?? 0, icon: "📦", color: "bg-blue-50 text-blue-700", href: "/product-sets" },
+    { label: "产品集", value: () => stats()?.data?.total_product_sets ?? 0, icon: "📦", color: "bg-info-50 text-info-700", href: "/product-sets" },
     { label: "图片", value: () => stats()?.data?.total_images ?? 0, icon: "🖼️", color: "bg-purple-50 text-purple-700", href: "/images" },
-    { label: "证书", value: () => stats()?.data?.total_certs ?? 0, icon: "📜", color: "bg-orange-50 text-orange-700", href: "/certs" },
+    { label: "证书", value: () => stats()?.data?.total_certs ?? 0, icon: "📜", color: "bg-cert-50 text-cert-700", href: "/certs" },
     // v2.4.7（§4.3）：客户数统计卡
-    { label: "客户", value: () => stats()?.data?.total_customers ?? 0, icon: "🤝", color: "bg-emerald-50 text-emerald-700", href: "/clients" },
+    { label: "客户", value: () => stats()?.data?.total_customers ?? 0, icon: "🤝", color: "bg-success-50 text-success-700", href: "/clients" },
     // v2.4.9 打磨 M5：供应商/报价统计卡（目录扫描口径，同 total_customers）
     { label: "供应商", value: () => stats()?.data?.total_suppliers ?? 0, icon: "🏭", color: "bg-cyan-50 text-cyan-700", href: "/suppliers" },
     // 报价卡：总报价数 + subText「草稿 N 条」副链接（外层无 href → div，subText 独立 A 导航，规避嵌套锚点）
@@ -64,7 +64,7 @@ export default function Dashboard() {
       label: "报价",
       value: () => stats()?.data?.total_quotes ?? 0,
       icon: "📄",
-      color: "bg-amber-50 text-amber-700",
+      color: "bg-warning-50 text-warning-700",
       subText: () => `草稿 ${stats()?.data?.draft_quotes ?? 0} 条`,
       subHref: `/quotes?status=${encodeURIComponent("草稿")}`,
     },
@@ -164,10 +164,10 @@ export default function Dashboard() {
                 {([productSet, fileName, expiry]) => (
                   <A
                     href={`/certs?productSet=${encodeURIComponent(productSet)}`}
-                    class="flex items-center gap-3 p-3 rounded-lg bg-orange-50 hover:bg-orange-100 transition-colors"
+                    class="flex items-center gap-3 p-3 rounded-lg bg-cert-50 hover:bg-cert-100 transition-colors"
                     title={`在证书库查看「${productSet}」的证书`}
                   >
-                    <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center text-lg">⚠️</div>
+                    <div class="w-10 h-10 rounded-lg bg-cert-100 flex items-center justify-center text-lg">⚠️</div>
                     <div class="flex-1 min-w-0">
                       <div class="text-sm font-medium truncate">{fileName}</div>
                       <div class="text-xs text-surface-500">{productSet} · 到期日 {expiry}</div>
@@ -191,10 +191,10 @@ export default function Dashboard() {
                 {(inv) => (
                   <A
                     href="/invoices?dueSoon=1"
-                    class="flex items-center gap-3 p-3 rounded-lg bg-yellow-50 hover:bg-yellow-100 transition-colors"
+                    class="flex items-center gap-3 p-3 rounded-lg bg-warning-50 hover:bg-warning-100 transition-colors"
                     title={`在发票台账查看「${inv.number}」`}
                   >
-                    <div class="w-10 h-10 rounded-lg bg-yellow-100 flex items-center justify-center text-lg">🧾</div>
+                    <div class="w-10 h-10 rounded-lg bg-warning-100 flex items-center justify-center text-lg">🧾</div>
                     <div class="flex-1 min-w-0">
                       <div class="text-sm font-medium truncate">{inv.number} · {inv.seller}</div>
                       <div class="text-xs text-surface-500">

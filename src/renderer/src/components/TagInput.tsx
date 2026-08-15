@@ -1,4 +1,5 @@
 import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
+import { pushLayer } from "~/components/ui/layerStack";
 import { Portal } from "solid-js/web";
 import { tagColor, refreshTags, DEFAULT_TAG_COLOR } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
@@ -161,10 +162,19 @@ export default function TagInput(props: {
     if (n > 0) setActiveIndex((i) => Math.min(i, n - 1));
   });
 
+  // v2.5.1（T3 波3，D2）：弹出层入层栈（Esc 归属栈顶：弹出层 > 弹窗）
+  createEffect(() => {
+    if (!open()) return;
+    const layer = pushLayer({ onEscape: () => setOpen(false) });
+    onCleanup(() => layer.remove());
+  });
+
   // 点击外部 / ESC / 滚动（捕获）/ 窗口变化 → 关闭
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      if (e.defaultPrevented) return; // 层栈已消费
+      setOpen(false);
     };
     const onDown = (e: MouseEvent) => {
       const target = e.target as Node;

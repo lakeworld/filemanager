@@ -38,13 +38,13 @@ function PluginPageMount(props: { pluginId: string; component: string }): JSX.El
   }
 
   return (
-    <ErrorBoundary fallback={(err) => <div class="p-8 text-sm text-red-600">插件页面渲染失败：{String(err)}</div>}>
+    <ErrorBoundary fallback={(err) => <div class="p-8 text-sm text-danger-600">插件页面渲染失败：{String(err)}</div>}>
       <Show
         when={url()}
-        fallback={<div class="p-8 text-sm text-red-600">插件页面模块路径非法（拒绝绝对路径与 .. 逃逸）</div>}
+        fallback={<div class="p-8 text-sm text-danger-600">插件页面模块路径非法（拒绝绝对路径与 .. 逃逸）</div>}
       >
         <Show when={!mod.loading} fallback={<Loading text="插件页面加载中…" />}>
-          <Show when={!mod.error} fallback={<div class="p-8 text-sm text-red-600">插件页面加载失败：{String(mod.error)}</div>}>
+          <Show when={!mod.error} fallback={<div class="p-8 text-sm text-danger-600">插件页面加载失败：{String(mod.error)}</div>}>
             <Show when={mod()?.default} fallback={<div class="p-8 text-sm text-surface-500">插件页面模块缺少默认导出组件</div>}>
               <Comp />
             </Show>

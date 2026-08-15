@@ -198,7 +198,7 @@ export default function Settings() {
           <button class="text-surface-400 hover:text-primary-600 ml-0.5" title="重命名（同步所有产品集）" onClick={() => startRename(props.type, props.name)}>
             ✎
           </button>
-          <button class="text-surface-400 hover:text-red-500 ml-0.5" onClick={() => props.onRemove(props.index)}>
+          <button class="text-surface-400 hover:text-danger-500 ml-0.5" onClick={() => props.onRemove(props.index)}>
             ✕
           </button>
         </span>
@@ -592,7 +592,7 @@ export default function Settings() {
                           </div>
                         </Show>
                         <button
-                          class="text-xs text-red-500 hover:text-red-600 shrink-0"
+                          class="text-xs text-danger-500 hover:text-danger-600 shrink-0"
                           onClick={() => handleDeleteTag(tag.name)}
                         >
                           删除
@@ -664,7 +664,7 @@ export default function Settings() {
                                     重命名
                                   </button>
                                   <button
-                                    class="text-xs text-red-500 hover:text-red-600 shrink-0"
+                                    class="text-xs text-danger-500 hover:text-danger-600 shrink-0"
                                     onClick={() => handleDeleteTag(child.name)}
                                   >
                                     删除
@@ -693,12 +693,12 @@ export default function Settings() {
                 <div class="space-y-1">
                   <For each={orphanTags()}>
                     {(tag) => (
-                      <div class="flex items-center gap-3 py-2 px-3 rounded-lg bg-amber-50/60 hover:bg-amber-50 transition-colors">
+                      <div class="flex items-center gap-3 py-2 px-3 rounded-lg bg-warning-50/60 hover:bg-warning-50 transition-colors">
                         <button
                           class="w-5 h-5 rounded-full shrink-0 cursor-default bg-surface-300 border border-dashed border-surface-400"
                           title="未定义标签"
                         />
-                        <span class="text-sm font-medium flex-1 text-amber-800">{tag.name}</span>
+                        <span class="text-sm font-medium flex-1 text-warning-800">{tag.name}</span>
                         <span class="text-xs text-surface-400 shrink-0">{tag.count} 处</span>
                         <Show when={adoptingOrphan() === tag.name}>
                           <div class="flex items-center gap-1">
@@ -720,7 +720,7 @@ export default function Settings() {
                           {adoptingOrphan() === tag.name ? "取消" : "转为正式标签"}
                         </button>
                         <button
-                          class="text-xs text-red-500 hover:text-red-600 shrink-0"
+                          class="text-xs text-danger-500 hover:text-danger-600 shrink-0"
                           onClick={() => handleRemoveOrphan(tag.name)}
                         >
                           清除引用
@@ -831,7 +831,7 @@ export default function Settings() {
               </For>
             </div>
             <Show when={renameError()}>
-              <div class="mt-2 text-sm text-red-600">{renameError()}</div>
+              <div class="mt-2 text-sm text-danger-600">{renameError()}</div>
             </Show>
           </div>
 
@@ -859,7 +859,7 @@ export default function Settings() {
               </For>
             </div>
             <Show when={renameError()}>
-              <div class="mt-2 text-sm text-red-600">{renameError()}</div>
+              <div class="mt-2 text-sm text-danger-600">{renameError()}</div>
             </Show>
           </div>
 
@@ -887,7 +887,7 @@ export default function Settings() {
               </For>
             </div>
             <Show when={renameError()}>
-              <div class="mt-2 text-sm text-red-600">{renameError()}</div>
+              <div class="mt-2 text-sm text-danger-600">{renameError()}</div>
             </Show>
           </div>
 
@@ -896,7 +896,7 @@ export default function Settings() {
               {saved() ? "已保存 ✓" : "保存设置"}
             </button>
             <Show when={saved()}>
-              <span class="text-sm text-green-600">设置已保存到工作区</span>
+              <span class="text-sm text-success-600">设置已保存到工作区</span>
             </Show>
           </div>
         </div>
