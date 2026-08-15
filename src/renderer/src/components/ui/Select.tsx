@@ -10,7 +10,7 @@ interface SelectProps {
   disabled?: boolean;
   class?: string;
   ariaLabel?: string;
-  onChange?: (e: Event) => void;
+  onChange?: (e: Event & { currentTarget: HTMLSelectElement }) => void;
   children: JSX.Element;
 }
 
