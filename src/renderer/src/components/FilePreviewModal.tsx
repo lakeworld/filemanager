@@ -147,7 +147,7 @@ export default function FilePreviewModal() {
           </div>
 
           <Show when={previewError()}>
-            <div class="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
+            <div class="mb-4 p-3 bg-danger-50 border border-danger-100 rounded-lg text-sm text-danger-700">
               {previewError()}
             </div>
           </Show>

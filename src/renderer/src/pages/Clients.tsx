@@ -43,6 +43,13 @@ export default function Clients() {
   const navigate = useNavigate();
   const params = useParams();
   const [showCreateModal, setShowCreateModal] = createSignal(false);
+  // v2.5.1（T4）：列表加载守卫——初始 Skeleton 不闪空态（T0 坐实违规 Clients:337）
+  const [loadingCustomers, setLoadingCustomers] = createSignal(true);
+  const reloadCustomers = async () => {
+    setLoadingCustomers(true);
+    await loadCustomers();
+    setLoadingCustomers(false);
+  };
   const [newName, setNewName] = createSignal("");
   const [newAlias, setNewAlias] = createSignal("");
   const [newCountry, setNewCountry] = createSignal("");
@@ -107,7 +114,7 @@ export default function Clients() {
 
   createEffect(() => {
     if (currentWorkspace()) {
-      loadCustomers();
+      void reloadCustomers();
       loadProductSets();
       loadTagDefs();
       loadCustomerQuotes();
@@ -180,7 +187,7 @@ export default function Clients() {
       setNewAddress("");
       setNewTags([]);
       setNewNotes("");
-      loadCustomers();
+      void reloadCustomers();
     } else {
       showToast("error", "创建失败", result.error || "未知错误");
     }
@@ -197,7 +204,7 @@ export default function Clients() {
     const result = await api.clients.rename(oldName, editingNameValue());
     if (result.success) {
       setEditingName(false);
-      loadCustomers();
+      void reloadCustomers();
       // v2.4.9 S3b：改名级联报价台账（core renameCustomer 编排），详情联动按新名重载
       loadCustomerQuotes();
       navigate(`/clients/${encodeURIComponent(editingNameValue())}`);
@@ -220,7 +227,7 @@ export default function Clients() {
     const result = await api.clients.delete(name);
     if (result.success) {
       navigate("/clients");
-      loadCustomers();
+      void reloadCustomers();
     } else {
       showToast("error", "删除客户失败", result.error || "未知错误");
     }
@@ -236,7 +243,7 @@ export default function Clients() {
   const doCardDelete = async (name: string) => {
     const result = await api.clients.delete(name);
     if (result.success) {
-      loadCustomers();
+      void reloadCustomers();
     } else {
       showToast("error", "删除客户失败", result.error || "未知错误");
     }
@@ -277,7 +284,7 @@ export default function Clients() {
     const result = await api.clients.update(req);
     if (result.success) {
       setEditingInfoCustomer(null);
-      loadCustomers();
+      void reloadCustomers();
     } else {
       showToast("error", "保存失败", result.error || "未知错误");
     }
@@ -299,7 +306,7 @@ export default function Clients() {
     const result = await api.clients.linkRelation(name, ps);
     if (result.success) {
       setLinkSelect("");
-      loadCustomers();
+      void reloadCustomers();
     } else {
       showToast("error", "关联失败", result.error || "未知错误");
     }
@@ -310,7 +317,7 @@ export default function Clients() {
     if (!name) return;
     const result = await api.clients.unlinkRelation(name, ps);
     if (result.success) {
-      loadCustomers();
+      void reloadCustomers();
     } else {
       showToast("error", "解除关联失败", result.error || "未知错误");
     }
@@ -336,11 +343,18 @@ export default function Clients() {
         </button>
       </div>
 
-      <Show when={customers().length > 0} fallback={
-        <EmptyState icon="🤝" title="暂无客户" desc="创建您第一个客户来开始管理">
-          <button class="btn-primary" onClick={() => setShowCreateModal(true)}>新建客户</button>
-        </EmptyState>
+      <Show when={!loadingCustomers()} fallback={
+        <div class="flex flex-col gap-3 py-8">
+          <div class="skeleton h-20 w-full rounded-xl" />
+          <div class="skeleton h-20 w-full rounded-xl" />
+          <div class="skeleton h-20 w-full rounded-xl" />
+        </div>
       }>
+        <Show when={customers().length > 0} fallback={
+          <EmptyState icon="🤝" title="暂无客户" desc="创建您第一个客户来开始管理">
+            <button class="btn-primary" onClick={() => setShowCreateModal(true)}>新建客户</button>
+          </EmptyState>
+        }>
         <Show when={!params.name}>
           <div class="flex flex-col md:flex-row gap-3 mb-4">
             <input
@@ -617,9 +631,10 @@ export default function Clients() {
           </Show>
         </Show>
       </Show>
+      </Show>
 
       {/* 新建客户弹窗 */}
-      <CreateClientModal open={showCreateModal()} onClose={() => setShowCreateModal(false)} onCreated={loadCustomers} />
+      <CreateClientModal open={showCreateModal()} onClose={() => setShowCreateModal(false)} onCreated={() => void reloadCustomers()} />
       <EditInfoModal customer={editingInfoCustomer()} onClose={() => setEditingInfoCustomer(null)} onSaved={loadCustomers} />
       {/* Context Menu（统一组件，v2.3.x） */}
       <Show when={contextMenu.payload()}>

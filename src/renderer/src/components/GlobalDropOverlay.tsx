@@ -336,7 +336,7 @@ export default function GlobalDropOverlay() {
           </div>
           <div class="h-1.5 w-full bg-white/20 rounded-full overflow-hidden">
             <div
-              class="h-full bg-primary-400 rounded-full transition-all duration-200"
+              class="h-full bg-primary-400 rounded-full transition-[width] duration-200"
               style={{
                 width: importProgress()
                   ? `${Math.round((importProgress()!.done / Math.max(1, importProgress()!.total)) * 100)}%`
@@ -354,19 +354,19 @@ export default function GlobalDropOverlay() {
       </Show>
 
       <Show when={importStatus() === "cancelled"}>
-        <div class="fixed bottom-4 right-4 z-50 bg-amber-600 text-white px-4 py-2 rounded-lg shadow-lg">
+        <div class="fixed bottom-4 right-4 z-50 bg-warning-600 text-white px-4 py-2 rounded-lg shadow-lg">
           已取消导入（已复制的文件保留）
         </div>
       </Show>
 
       <Show when={importStatus() === "done"}>
-        <div class="fixed bottom-4 right-4 z-50 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg">
+        <div class="fixed bottom-4 right-4 z-50 bg-success-600 text-white px-4 py-2 rounded-lg shadow-lg">
           导入完成
         </div>
       </Show>
 
       <Show when={importStatus() === "error"}>
-        <div class="fixed bottom-4 right-4 z-50 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg max-w-md">
+        <div class="fixed bottom-4 right-4 z-50 bg-danger-600 text-white px-4 py-2 rounded-lg shadow-lg max-w-md">
           <div class="font-medium">导入失败</div>
           <Show when={importError()}>
             <div class="text-xs mt-1 opacity-90">{importError()}</div>

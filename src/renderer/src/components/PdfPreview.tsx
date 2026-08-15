@@ -230,7 +230,7 @@ export default function PdfPreview(props: PdfPreviewProps) {
           <div class="absolute inset-0 flex items-center justify-center bg-surface-100 text-surface-400">PDF 加载中…</div>
         </Show>
         <Show when={error() && !loading()}>
-          <div class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface-100 text-sm text-red-600">
+          <div class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface-100 text-sm text-danger-600">
             <span>PDF 预览失败：{error()}</span>
             <span class="text-surface-400 text-xs">可尝试用系统程序打开</span>
           </div>

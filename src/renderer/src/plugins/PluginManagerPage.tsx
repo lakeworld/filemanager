@@ -32,9 +32,9 @@ import {
 
 // —— 状态标签 ——
 const STATUS_META: Record<PluginInfo['state'], { text: string; cls: string }> = {
-  enabled: { text: '启用', cls: 'bg-green-50 text-green-600' },
+  enabled: { text: '启用', cls: 'bg-success-50 text-success-600' },
   disabled: { text: '禁用', cls: 'bg-surface-100 text-surface-500' },
-  broken: { text: 'broken', cls: 'bg-red-50 text-red-600' },
+  broken: { text: 'broken', cls: 'bg-danger-50 text-danger-600' },
 }
 
 /** broken 是否源于 apiCompat 不兼容（需升级宿主/插件，不提供开关） */
@@ -79,7 +79,7 @@ function PermissionsView(props: { p: PluginInfo }): JSX.Element {
           <For each={network}>
             {(d) =>
               d === '*' ? (
-                <div class="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">
+                <div class="text-xs text-warning-700 bg-warning-50 rounded px-2 py-1">
                   ⚠ 可访问任意网络域名（{props.p.description ?? '未提供说明'}）
                 </div>
               ) : (
@@ -234,7 +234,7 @@ export default function PluginManagerPage(): JSX.Element {
       </div>
 
       {/* v2.5 增量（PLAN §3.5）：风险横幅（管理页常驻） */}
-      <div class="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+      <div class="mb-4 rounded-lg bg-warning-50 border border-warning-200 px-4 py-3 text-sm text-warning-800">
         ⚠ 插件未经过官方审查，安装需自行承担风险。官方索引将于后续版本上线。
       </div>
 
@@ -269,7 +269,7 @@ export default function PluginManagerPage(): JSX.Element {
               onClick={() => void toggleDevMode()}
             >
               <span
-                class="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
+                class="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-[left,background-color]"
                 style={{ left: devMode() ? '22px' : '2px' }}
               />
             </button>
@@ -329,7 +329,7 @@ export default function PluginManagerPage(): JSX.Element {
                       <div class="text-sm text-surface-500 mt-1 line-clamp-2">{p.description}</div>
                     </Show>
                     <Show when={p.state === 'broken' && p.brokenReason}>
-                      <div class="text-xs text-red-600 mt-1">原因：{p.brokenReason}</div>
+                      <div class="text-xs text-danger-600 mt-1">原因：{p.brokenReason}</div>
                     </Show>
                   </div>
 
@@ -350,13 +350,13 @@ export default function PluginManagerPage(): JSX.Element {
                         onClick={() => void toggleEnabled(p)}
                       >
                         <span
-                          class="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
+                          class="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-[left,background-color]"
                           style={{ left: p.state === 'enabled' ? '22px' : '2px' }}
                         />
                       </button>
                     </Show>
                     <button
-                      class="text-xs text-red-500 hover:text-red-600"
+                      class="text-xs text-danger-500 hover:text-danger-600"
                       onClick={() => setUninstallTarget(p)}
                     >
                       卸载

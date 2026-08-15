@@ -82,7 +82,7 @@ export default function Header() {
           id="global-search-input"
           type="text"
           placeholder="全局搜索 (Ctrl+K)"
-          class="w-full pl-9 pr-4 py-2 bg-surface-100 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+          class="w-full pl-9 pr-4 py-2 bg-surface-100 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors"
           value={searchQuery()}
           onInput={(e) => setSearchQuery(e.currentTarget.value)}
           onKeyDown={handleSearch}

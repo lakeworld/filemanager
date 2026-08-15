@@ -154,7 +154,7 @@ export default function Search() {
           </div>
           <input
             type="text"
-            class="w-full pl-10 pr-4 py-3 bg-surface-0 border border-surface-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all shadow-sm"
+            class="w-full pl-10 pr-4 py-3 bg-surface-0 border border-surface-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors shadow-sm"
             placeholder="输入关键词搜索..."
             value={query()}
             onInput={(e) => setQuery(e.currentTarget.value)}
@@ -237,7 +237,7 @@ export default function Search() {
               scrollResetKey={results().files}
               renderItem={(file: FileEntry) => (
                 <div
-                  class={`card p-3 cursor-pointer hover:shadow-card-hover transition-all select-none ${
+                  class={`card p-3 cursor-pointer hover:shadow-card-hover select-none ${
                     selectedPaths().includes(file.path) ? "border-primary-500 bg-primary-50" : ""
                   }`}
                   onClick={() => {
