@@ -2,6 +2,9 @@ import { Show, For, createSignal, onCleanup, onMount, createEffect } from "solid
 import { api } from "~/wails/api";
 import { simpleMarkdownToHtml } from "~/utils/markdown";
 import { accountStatus, loginAccount, logoutAccount } from "~/stores/account";
+import { showToast } from "~/stores/notifyBanner";
+import Input from "~/components/ui/Input";
+import Button from "~/components/ui/Button";
 import helpMarkdown from "../../../../HELP.md?raw";
 import privacyMarkdown from "../../../../PRIVACY.md?raw";
 import type { UpdateInfo } from "~/types";
@@ -419,6 +422,9 @@ function AccountSection() {
     const r = await loginAccount(e, password());
     if (!r.ok) {
       setError(r.error ?? "登录失败");
+    } else {
+      // v2.5.1 登录增强（D5）：登录成功 toast 反馈
+      showToast("success", "已登录", accountStatus().email);
     }
     setBusy(false);
   };
@@ -442,7 +448,7 @@ function AccountSection() {
               </div>
             </div>
 
-            {/* 登录表单 */}
+            {/* 登录表单（v2.5.1 登录增强 D4：换 ui/Input + ui/Button 底座） */}
             <form
               class="mt-5 space-y-3"
               onSubmit={(e) => {
@@ -450,16 +456,14 @@ function AccountSection() {
                 handleLogin();
               }}
             >
-              <input
+              <Input
                 type="email"
-                class="w-full rounded-lg border border-surface-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="邮箱"
                 value={email()}
                 onInput={(e) => setEmail(e.currentTarget.value)}
               />
-              <input
+              <Input
                 type="password"
-                class="w-full rounded-lg border border-surface-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="密码"
                 value={password()}
                 onInput={(e) => setPassword(e.currentTarget.value)}
@@ -468,9 +472,9 @@ function AccountSection() {
                 <div class="rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-600">{error()}</div>
               </Show>
               <div class="flex items-center justify-between">
-                <button type="submit" class="btn-primary px-5" disabled={busy()}>
+                <Button type="submit" disabled={busy()}>
                   {busy() ? "登录中..." : "登录"}
-                </button>
+                </Button>
                 <button
                   type="button"
                   class="text-xs text-primary-600 hover:text-primary-700"
@@ -493,19 +497,31 @@ function AccountSection() {
           </div>
           <button
             class="shrink-0 rounded-lg border border-surface-200 px-4 py-2 text-sm text-surface-700 transition-colors hover:bg-surface-50"
-            onClick={() => logoutAccount()}
+            onClick={() => {
+              void logoutAccount();
+              // v2.5.1 登录增强（D5）：登出 toast 反馈
+              showToast("info", "已登出");
+            }}
           >
             登出
           </button>
         </div>
         <Show when={accountStatus().sessionExpired}>
-          <div class="mt-4 rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-600">
-            登录已过期，请重新登录。
+          <div class="mt-4 flex items-center gap-3 rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-600">
+            <span class="flex-1">登录已过期，请重新登录。</span>
+            {/* v2.5.1 登录增强（D6）：过期态直接重登入口（诚实口径：过期 token 不复用，先登出） */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                void logoutAccount();
+                showToast("info", "请重新登录");
+              }}
+            >
+              重新登录
+            </Button>
           </div>
         </Show>
-        <p class="mt-4 text-xs text-surface-400">
-          AI 额度与账号绑定，换设备不重置。试用额度用完后本地功能完全不受影响。
-        </p>
       </Show>
     </div>
   );

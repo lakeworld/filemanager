@@ -7,6 +7,7 @@ import GlobalDropOverlay from "~/components/GlobalDropOverlay";
 import FilePreviewModal from "~/components/FilePreviewModal";
 import { loadCurrentWorkspace, loadWorkspaces, setFileBrowserRefreshTrigger } from "~/stores/workspace";
 import { loadTagDefs } from "~/stores/tags";
+import { loadAccountStatus } from "~/stores/account";
 import { banner, showCertReminder } from "~/stores/notifyBanner";
 import { onMount, createSignal, createEffect, onCleanup, Show } from "solid-js";
 
@@ -171,6 +172,8 @@ export default function App(props: RouteSectionProps) {
     loadCurrentWorkspace();
     loadWorkspaces();
     loadTagDefs(); // 全局加载标签颜色定义
+    // v2.5.1 登录增强（T1/D1）：启动恢复登录态（幂等，失败静默；不阻塞关键路径）
+    void loadAccountStatus();
 
     // v2.3.0：恢复上次所在页面（首次启动/窗口重建均生效）
     const last = localStorage.getItem("qihebox:lastRoute");

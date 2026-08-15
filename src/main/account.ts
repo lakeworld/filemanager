@@ -137,8 +137,22 @@ export class AccountService {
       return { ok: false, error: '网络异常，请检查网络后重试' }
     }
     if (!res.ok) {
-      // 登录可能触发 ERP 验证码 / 限流 / 邮箱验证，统一引导到官网网页端
-      return { ok: false, error: '登录失败（可能需邮箱验证或验证码），请前往官网网页端登录后重试' }
+      // v2.5.1 登录增强（D3/D9）：透传服务端 message（凭据错误等如实展示），
+      // 429 限流给固定文案；message 限长 200 字符防撑破布局（P2-D）。隐私边界不变。
+      let serverMsg = ''
+      try {
+        const b = (await res.json()) as { message?: string }
+        serverMsg = typeof b?.message === 'string' ? b.message.trim() : ''
+      } catch {
+        // 响应体非 JSON → 走兜底
+      }
+      if (res.status === 429) {
+        return { ok: false, error: '登录过于频繁，请稍后再试' }
+      }
+      if (serverMsg) {
+        return { ok: false, error: serverMsg.slice(0, 200) }
+      }
+      return { ok: false, error: '登录失败，请稍后重试' }
     }
     let body: { token?: string; record?: { id?: string; email?: string } }
     try {
