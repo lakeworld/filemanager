@@ -5,6 +5,9 @@ import type { RouteSectionProps } from "@solidjs/router";
 import App from "./App";
 import { PluginRoutes } from "./plugins/routes";
 import "./index.css";
+// v2.5.2（视觉升级）：思源黑体（Noto Sans SC）中文子集——400 正文 + 700 标题加粗；
+// 自建精简 @font-face（仅 CJK 主区/标点/全角分片，拉丁走 Inter、emoji 走系统字体）
+import "./assets/fonts.css";
 
 // 路由级懒加载：首屏只加载仪表盘，其余页面按需分包（性能优化）
 const Dashboard = lazy(() => import("./pages/Dashboard"));

@@ -7,17 +7,18 @@ export default {
   theme: {
     extend: {
       colors: {
+        // v2.5.2（视觉升级，参考仓迹 ERP）：主色对齐 Fluent 蓝 #0078D4（accent 梯度，色相不变仅亮度调整）
         primary: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
+          50: '#f0f7fc',
+          100: '#dceef9',
+          200: '#b7dcf4',
+          300: '#8ac4ec',
+          400: '#4aa3e0',
+          500: '#1b8ad4',
+          600: '#0078D4',
+          700: '#106EBE',
+          800: '#0e5aa0',
+          900: '#0d4a85',
         },
         surface: {
           0: '#ffffff',

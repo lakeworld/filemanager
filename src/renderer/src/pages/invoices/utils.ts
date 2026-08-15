@@ -2,7 +2,7 @@
  * 发票/入库台账页纯函数与常量（v2.5.1 T3 波1 拆分，D11 例外条款：允许进 tests/unit 锁定）。
  * 纯结构搬迁：函数体零改动，仅迁移；fileEntryOf 依赖渲染层 store（非纯），保留在主文件。
  */
-import type { InvoiceRecord, InvoiceStatus } from "~/types";
+import type { InvoiceRecord, InvoiceStatus } from "../../types";
 
 export const STATUSES: InvoiceStatus[] = ["待报销", "已报销", "已入账"];
 
@@ -32,6 +32,8 @@ export function statusChipClass(s: InvoiceStatus): string {
       return "bg-info-50 text-info-700";
     case "已入账":
       return "bg-success-50 text-success-700";
+    default:
+      return "bg-surface-100 text-surface-600";
   }
 }
 

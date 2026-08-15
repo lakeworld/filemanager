@@ -1,0 +1,19 @@
+/* 思源黑体（Noto Sans SC）——v2.5.2 视觉升级（参考仓迹 ERP）：
+ * GB2312 全字集 + 常用补充字 7482 字符子集（pyftsubset 生成，OFL 开源可再分发），
+ * 拉丁/数字走 Inter、emoji 走系统字体；400 正文 / 700 标题加粗。
+ * 源：系统 NotoSansCJK-Regular/Bold.ttc（SC 索引 2） */
+@font-face {
+  font-family: 'Noto Sans SC';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/noto-sans-sc-400-subset.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans SC';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/noto-sans-sc-700-subset.woff2') format('woff2');
+}
