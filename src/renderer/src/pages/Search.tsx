@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { currentWorkspace, workspaceConfig, loadWorkspaceConfig, productSets, loadProductSets } from "~/stores/workspace";
 import { loadTagDefs, tagList } from "~/stores/tags";
-import { openPreview } from "~/stores/preview";
+import { openPreview, openFileSmart } from "~/stores/preview";
 import { showToast } from "~/stores/notifyBanner";
 import FileThumbnail from "~/components/FileThumbnail";
 import TagChips from "~/components/TagChips";
@@ -136,7 +136,8 @@ export default function Search() {
   };
 
   const openFilePreview = (file: FileEntry) => {
-    openPreview(file, { onDelete: () => doSearch(query()) });
+    // v2.5.1（F3）：双击分流（other 类型 → 默认应用打开）
+    openFileSmart(file, { onDelete: () => doSearch(query()) });
   };
 
   return (

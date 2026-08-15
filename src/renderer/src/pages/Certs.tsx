@@ -8,7 +8,7 @@ import {
   productSets,
   loadProductSets,
 } from "~/stores/workspace";
-import { openPreview } from "~/stores/preview";
+import { openPreview, openFileSmart } from "~/stores/preview";
 import { loadTagDefs, tagLabel, tagList } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
 import FileThumbnail from "~/components/FileThumbnail";
@@ -418,7 +418,7 @@ export default function Certs() {
                   contextMenu.open(e, cert.path);
                 }}
                 onClick={() => toggleSelection(cert.path)}
-                onDblClick={() => openPreview(cert, { onDelete: loadAllCerts })}
+                onDblClick={() => openFileSmart(cert, { onDelete: loadAllCerts })}
               >
                 <div class="w-12 h-12 rounded-lg bg-orange-50 flex items-center justify-center text-2xl overflow-hidden shrink-0">
                   <FileThumbnail filePath={cert.path} fileType={cert.file_type} class="w-full h-full object-cover" />

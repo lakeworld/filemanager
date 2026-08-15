@@ -8,7 +8,7 @@ import {
   productSets,
   loadProductSets,
 } from "~/stores/workspace";
-import { openPreview } from "~/stores/preview";
+import { openPreview, openFileSmart } from "~/stores/preview";
 import { tagLabel } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
 import FileThumbnail from "~/components/FileThumbnail";
@@ -400,7 +400,7 @@ export default function Images() {
                   contextMenu.open(e, paths);
                 }}
                 onClick={() => toggleSelection(img.path)}
-                onDblClick={() => openPreview(img, { onDelete: loadAllImages })}
+                onDblClick={() => openFileSmart(img, { onDelete: loadAllImages })}
               >
                 <div class="relative h-40 rounded-lg bg-surface-100 overflow-hidden">
                   <input

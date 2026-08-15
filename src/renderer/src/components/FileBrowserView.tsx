@@ -2,7 +2,7 @@ import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { workspaceConfig, loadWorkspaceConfig, currentWorkspace, fileBrowserRefreshTrigger, defaultNamingTemplate } from "~/stores/workspace";
-import { openPreview } from "~/stores/preview";
+import { openPreview, openFileSmart } from "~/stores/preview";
 import { showToast } from "~/stores/notifyBanner";
 import { loadTagDefs, tagLabel, tagList } from "~/stores/tags";
 import FileThumbnail from "~/components/FileThumbnail";
@@ -377,7 +377,8 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
 
   const handleOpenPreview = (file: FileEntry) => {
     // v2.4.7：customer/supplier 区不传 productSet（元数据面板为产品集证书字段语义，不适用）
-    openPreview(file, isEntityScope()
+    // v2.5.1（F3）：双击分流——可预览类型进预览，other 类型默认应用打开
+    openFileSmart(file, isEntityScope()
       ? { editMetadata: false, onDelete: loadFiles }
       : { productSet: props.entity, editMetadata: false, onDelete: loadFiles });
   };
