@@ -3,6 +3,8 @@ import { api } from "~/wails/api";
 import { tagList } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
 import PdfPreview from "~/components/PdfPreview";
+import MarkdownPreview from "~/components/MarkdownPreview";
+import { isMarkdownName } from "../../../shared/fileKind";
 import ContextMenu from "~/components/ContextMenu";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import TagInput from "~/components/TagInput";
@@ -34,6 +36,8 @@ export default function FilePreviewModal() {
   const isPdf = () => previewFile()?.file_type === "pdf";
   const isImage = () => previewFile()?.file_type === "image";
   const isVideo = () => previewFile()?.file_type === "video";
+  // v2.5.1（F4）：md 文件（file_type=other + 扩展名判定，D21）
+  const isMd = () => isMarkdownName(previewFile()?.name ?? "");
   const showMetadata = () => !!previewContext().productSet && previewContext().editMetadata;
   // v2.4.2（P1-P1）：pdfjs 对非 http 协议整文件加载——超大 PDF 内嵌预览会整载进内存（Linux 1GB 堆上限下
   // 有 OOM 白屏风险），超过阈值改引导「用系统程序打开」
@@ -147,12 +151,22 @@ export default function FilePreviewModal() {
 
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div class={showMetadata() ? "lg:col-span-2" : "lg:col-span-3"}>
-              <div
-                class="aspect-video bg-surface-100 rounded-xl flex items-center justify-center overflow-hidden relative"
-                onContextMenu={onContextMenu}
-              >
-                <Show
-                  when={previewUrl()}
+              {/* v2.5.1（F4）：MD 预览——previewUrl 为空不进下方 Show 分支，独立渲染（内部滚动） */}
+              <Show when={isMd()}>
+                <div
+                  class="h-[60vh] bg-surface-100 rounded-xl overflow-hidden relative"
+                  onContextMenu={onContextMenu}
+                >
+                  <MarkdownPreview filePath={previewFile()?.path ?? ""} />
+                </div>
+              </Show>
+              <Show when={!isMd()}>
+                <div
+                  class="aspect-video bg-surface-100 rounded-xl flex items-center justify-center overflow-hidden relative"
+                  onContextMenu={onContextMenu}
+                >
+                  <Show
+                    when={previewUrl()}
                   fallback={
                     <span class="text-6xl">
                       {isImage() ? "🖼️" : isPdf() ? "📄" : isVideo() ? "🎬" : "📎"}
@@ -212,6 +226,8 @@ export default function FilePreviewModal() {
                     </Match>
                   </Switch>
                 </Show>
+                </div>
+              </Show>
 
                 {/* Context menu inside preview（统一组件，v2.3.x） */}
                 <Show when={contextMenu().show}>
@@ -246,7 +262,6 @@ export default function FilePreviewModal() {
                     ]}
                   />
                 </Show>
-              </div>
               <div class="grid grid-cols-3 gap-4 mt-4 text-sm">
                 <div>
                   <div class="text-surface-400">大小</div>

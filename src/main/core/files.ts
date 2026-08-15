@@ -69,6 +69,9 @@ export type {
   DeleteResult,
 } from '../../shared/types'
 
+/** v2.5.1（F4，D26）：readTextFile 文本读取上限（2MB；与 MarkdownPreview 内联渲染阈值同源，防大文件整传） */
+export const MAX_TEXT_READ_BYTES = 2 * 1024 * 1024
+
 /** 缩略图能力抽象（生产用 sharp 实现，测试用假实现） */
 export interface ThumbnailProvider {
   /** 返回缩略图路径；文件不存在/非图片返回空串。origin：browse=浏览请求（可作废/插队），background=导入/改名等后台任务 */
@@ -739,6 +742,16 @@ export class FilesService {
     if (!(await isPathInsideWorkspaceReal(ws, p))) throw new Error('只能访问工作区内的文件')
     await fsp.stat(p)
     return p
+  }
+
+  /** v2.5.1（F4，D26）：读取工作区内文本文件（MD 预览用；2MB 上限防大文件整传，与内联渲染阈值同源） */
+  async readTextFile(filePath: string): Promise<string> {
+    const p = await this.resolveWorkspaceFile(filePath)
+    const stat = await fsp.stat(p)
+    if (stat.size > MAX_TEXT_READ_BYTES) {
+      throw new Error(`文件过大（超过 ${Math.round(MAX_TEXT_READ_BYTES / 1024 / 1024)}MB），请用系统程序打开`)
+    }
+    return fsp.readFile(p, 'utf-8')
   }
 
   /** 读取文件为 base64 data URL（保留兼容；新前端走协议流式，此方法保留供测试） */

@@ -118,6 +118,8 @@ const api = {
     startDrag: (paths: string[]) => invoke('qihebox:files:startDrag', paths),
     workspaceUrl: (filePath: string) => invoke('qihebox:files:workspaceUrl', filePath),
     openWithDefaultApp: (filePath: string) => invoke('qihebox:files:openWithDefaultApp', filePath),
+    // v2.5.1（F4，D26）：读取工作区内文本文件（MD 预览用；白名单校验与 2MB 上限在 core）
+    readTextFile: (filePath: string) => invoke('qihebox:files:readTextFile', filePath),
     // v2.4.4：视频帧缩略图（缓存命中 → URL；miss → 渲染层抓帧后 saveVideoFrame 写入）
     videoThumbnail: (filePath: string) => invoke('qihebox:files:videoThumbnail', filePath),
     saveVideoFrame: (filePath: string, buf: ArrayBuffer) =>

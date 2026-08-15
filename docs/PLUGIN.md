@@ -48,6 +48,7 @@
 - **状态**：插件业务状态存 `userData/plugins/<id>/state/`（经 `host.storage` 访问）；启停覆盖存 `userData/plugins/config.json`。代码与状态分离。
 - **卸载**：删除 `pkg/` 与 `state/`；「禁用」两者都保留。
 - **渲染层加载**：插件 renderer 产物经 `qihebox://plugin/<id>/...` 协议 URL 动态 `import()`（访问才加载），响应携带 CSP 头（见 §六 规则 5）；**插件包自包含依赖**（solid-js 等打入自身产物），宿主不提供共享运行时。
+- **样式复用（v2.5.1 起）**：插件页面运行在同一渲染上下文，可引用本体编译进全局 CSS 的组件类（如 `btn-primary`、`.md-prose` Markdown 渲染样式类，以文档列名为准）；Tailwind purge 以产物实含为验收，插件不应假定未列名类的存在。
 
 ---
 
