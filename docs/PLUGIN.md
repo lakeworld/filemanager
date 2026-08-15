@@ -185,7 +185,8 @@ export interface PluginHost {
     set(key: string, value: unknown): Promise<void>
   }
 
-  /** 事件总线：订阅宿主事件（workspaceChanged / importComplete / certExpiring / updateAvailable...）
+  /** 事件总线：订阅宿主事件（workspaceChanged / importComplete / certExpiring / updateAvailable /
+   *  accountChanged 等，完整清单与投递语义见本节下方说明）
    *  或向渲染层广播。插件 emit 的 channel 必须以本插件 ipcPrefix 开头；
    *  宿主保留事件（无插件前缀）只能 on 不能 emit */
   events: {
@@ -225,6 +226,9 @@ export interface PluginHost {
 <!-- contract:v1:host.account -->
 <!-- contract:v1:host.files -->
 <!-- contract:v1:host.entitlement -->
+
+> **host.events 投递语义（v2.5.1 起明示）**：宿主事件只投递给**已激活**插件的订阅——事件到达时未激活的插件收不到该次事件。需在某宿主事件到达时必在场的插件：`manifest.activation` 声明 `onEvent:<ipcPrefix>:<channel>`（规则⑦），并在 `activate` 内自检一次当前状态（激活与投递存在时序竞态，触发激活的那次事件可能先于订阅注册到达，不可依赖收到它）。
+> **宿主事件清单**：`workspaceChanged`（工作区切换，payload 为新路径）/ `importComplete`（导入完成）/ `certExpiring`（证书到期）/ `updateAvailable`（发现新版本）/ `accountChanged`（**v2.5.1**：登录/登出成功，payload `{ loggedIn: boolean }`）/ `customerCreated` / `customerUpdated` / `fileArchived`（customers/share 域事件，见 §5.5）。依赖登录态的插件应声明 `onEvent:<ipcPrefix>:accountChanged`，并在 activate 自检 `host.account.isLoggedIn()`（activate 期已登录可直接启用相关服务，不必等事件）。
 
 > **host.files 边界说明**：`readText` / `readBuffer` 的 `relPath` 相对当前工作区，realpath 解析防符号链接逃逸，超出工作区 → `OUT_OF_WORKSPACE`，无工作区 → `NO_WORKSPACE`，不存在 → `NOT_FOUND`，超限 → `TOO_LARGE`；`writeExport` 文件名经宿主安全校验（非法 → `INVALID_NAME`）。带 `code` 属性的业务错误**不计入熔断**（熔断只统计加载/握手/未定义方法类失败），可放心用错误码做业务分支。产品约定：插件应只读取用户操作涉及的文件；inproc 无法技术强制，靠权限声明与侧载知情授权兜底。渲染层大数据读取建议走 `qihebox://file` URL 而非插件 IPC（structured clone 放大）。
 

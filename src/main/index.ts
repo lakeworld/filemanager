@@ -261,8 +261,27 @@ function decryptToken(encoded: string): string {
   return ''
 }
 
+/**
+ * 解析登录/心跳服务地址。
+ * 优先环境变量 QIHE_API_BASE，其次 userData/server.json 的 apiBase 字段；
+ * 公开仓库不写死任何服务器地址，由本机私有配置注入。
+ */
+function resolveApiBase(): string {
+  const env = process.env.QIHE_API_BASE
+  if (env) return env.replace(/\/+$/, '')
+  try {
+    const cfgPath = path.join(app.getPath('userData'), 'server.json')
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as { apiBase?: unknown }
+    if (typeof cfg.apiBase === 'string' && cfg.apiBase) return cfg.apiBase.replace(/\/+$/, '')
+  } catch {
+    // 配置文件不存在或损坏 → 登录不可用，不阻断启动
+  }
+  return ''
+}
+
 const account = new AccountService({
   accountFile: path.join(app.getPath('userData'), 'account.json'),
+  baseUrl: resolveApiBase(),
   encrypt: encryptToken,
   decrypt: decryptToken,
   version: () => app.getVersion(),

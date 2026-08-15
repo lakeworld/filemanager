@@ -11,12 +11,13 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
-const BASE_URL = 'https://api.example.invalid'
 const HEARTBEAT_INTERVAL_MS = 60 * 60 * 1000
 
 export interface AccountDeps {
   /** account.json 绝对路径（userData 下） */
   accountFile: string
+  /** 登录/心跳服务地址（不含末尾斜杠）；由宿主从本地私有配置注入，不进公开仓 */
+  baseUrl: string
   /** token 加密（safeStorage.encryptString → base64，失败抛错由调用方降级） */
   encrypt: (plain: string) => string
   /** token 解密；解密失败返回空串表示不可用 */
@@ -121,10 +122,13 @@ export class AccountService {
     email: string,
     password: string,
   ): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!this.deps.baseUrl) {
+      return { ok: false, error: '未配置服务器地址，登录不可用' }
+    }
     const fetchImpl = this.deps.fetchImpl ?? fetch
     let res: Response
     try {
-      res = await fetchImpl(`${BASE_URL}/collections/users/auth-with-password`, {
+      res = await fetchImpl(`${this.deps.baseUrl}/collections/users/auth-with-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -210,10 +214,10 @@ export class AccountService {
 
   async beat(): Promise<void> {
     const acc = this.load()
-    if (!acc) return
+    if (!acc || !this.deps.baseUrl) return
     const fetchImpl = this.deps.fetchImpl ?? fetch
     try {
-      const res = await fetchImpl(`${BASE_URL}/box/heartbeat`, {
+      const res = await fetchImpl(`${this.deps.baseUrl}/box/heartbeat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${acc.token}` },
         body: JSON.stringify({

@@ -13,7 +13,7 @@
  * 插件页面组件 = manifest pages[].component 指向模块的默认导出（协议 URL 动态 import，访问才加载）；
  * 加载中 / 加载失败 / 缺默认导出均如实呈现，模块实例随路由卸载释放（不访问不加载，PLAN §4.1）。
  */
-import { createComponent, Show, ErrorBoundary, createResource } from 'solid-js'
+import { createComponent, Show, ErrorBoundary, createResource, createMemo } from 'solid-js'
 import type { Component, JSX } from 'solid-js'
 import { Route, useLocation } from '@solidjs/router'
 import Loading from '~/components/Loading'
@@ -70,11 +70,20 @@ export function PluginRoutes(): JSX.Element {
   ]
 }
 
-/** 插件页面分发：按当前路径在 pluginRoutes() 中查表，命中则挂载对应插件页面模块 */
+/**
+ * 插件页面分发：按当前路径在 pluginRoutes() 中查表，命中则挂载对应插件页面模块。
+ * 2026-08-15 修复（LAN 4 页合并前暴露）：此前 `const route = matched()` 存函数体普通变量，
+ * Solid 组件函数体只挂载求值一次 → @solidjs/router 对同一通配 Route 复用实例（key 相同不重挂）
+ * → 插件页之间切换不重求值，页面停留在首个打开的插件页（URL 已变内容不变）。
+ * 改 createMemo + Show keyed（render-prop 形态）：location.pathname / pluginRoutes() 响应式重算，
+ * route 对象变化即重渲染 PluginPageMount（createResource 按 url 重新 import，旧页 dispose）。
+ */
 function PluginDispatch(): JSX.Element {
   const location = useLocation()
-  const matched = () => pluginRoutes().find((r) => r.path === location.pathname)
-  const route = matched()
-  if (!route) return null
-  return <PluginPageMount pluginId={route.pluginId} component={route.component} />
+  const route = createMemo(() => pluginRoutes().find((r) => r.path === location.pathname))
+  return (
+    <Show when={route()} fallback={null}>
+      {(r) => <PluginPageMount pluginId={r().pluginId} component={r().component} />}
+    </Show>
+  )
 }

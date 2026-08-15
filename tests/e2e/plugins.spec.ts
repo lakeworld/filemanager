@@ -101,6 +101,18 @@ test.describe('插件宿主 e2e（v2.5）', () => {
     expect(hello.state).toBe('enabled')
     expect(hello.version).toBe(HELLO_VERSION)
 
+    // 2.5 v2.5.1（再定位方案 A，动作-2026-08-15）：安装即激活——首次 IPC 调用前 activationMs 已落
+    // （此前安装不激活，新装插件收不到 accountChanged 等宿主事件；异步激活，轮询等待）
+    await expect
+      .poll(
+        async () => {
+          const l = await page.evaluate(async () => (window as any).qihebox.plugins.list())
+          return l.data.find((p: any) => p.id === HELLO_ID)?.activationMs
+        },
+        { timeout: 5000 },
+      )
+      .toBeGreaterThan(0)
+
     // 3. IPC 调用（懒加载触发 + 回显）
     const ping = await page.evaluate(
       async (id) => (window as any).qihebox.plugins.call(id, 'ping', { text: 'e2e-ping' }),
@@ -142,6 +154,30 @@ test.describe('插件宿主 e2e（v2.5）', () => {
     expect(after.success).toBe(false)
   })
 
+  test('插件页之间切换即时生效（2026-08-15 路由分发修复回归）', async () => {
+    // 前置清场 + devMode 开（沿用全链路用例口径）
+    await uninstallAll()
+    await setDevMode(true)
+    const ins = await page.evaluate(async (p) => (window as any).qihebox.plugins.install({ filePath: p }), HELLO_QBOX)
+    expect(ins.success).toBe(true)
+    try {
+      // 同会话 pushState 导航（不重载）：重载会重挂 PluginDispatch、掩盖「同实例不重求值」缺陷，
+      // 必须 SPA 内连续切换才能复现——修复前第二页永不渲染（URL 变、内容不变）
+      await gotoRoute('/plugin/hello')
+      await expect(page.getByRole('heading', { name: '👋 Hello 示例插件' })).toBeVisible({ timeout: 15000 })
+      // 切到第二页：Main 内容消失、Extra 出现
+      await gotoRoute('/plugin/hello/extra')
+      await expect(page.getByRole('heading', { name: 'Hello Extra 页面' })).toBeVisible({ timeout: 10000 })
+      await expect(page.getByRole('heading', { name: '👋 Hello 示例插件' })).toHaveCount(0)
+      // 切回第一页
+      await gotoRoute('/plugin/hello')
+      await expect(page.getByRole('heading', { name: '👋 Hello 示例插件' })).toBeVisible({ timeout: 10000 })
+      await expect(page.getByRole('heading', { name: 'Hello Extra 页面' })).toHaveCount(0)
+    } finally {
+      await uninstallAll()
+    }
+  })
+
   test('插件管理页 UI：风险横幅 / devMode 门控（入口出现与隐藏）/ 确认框文案 / 清单展示', async () => {
     // 清场 + 确保 devMode 关闭（默认态）
     await uninstallAll()
@@ -154,7 +190,7 @@ test.describe('插件宿主 e2e（v2.5）', () => {
     await expect(page.getByRole('heading', { name: '侧载导入' })).toHaveCount(0)
 
     // 2. 开启开发者模式 → 侧载导入入口出现
-    await page.getByRole('switch').click()
+    await page.getByRole('switch', { name: '开启开发者模式' }).click()
     await expect(page.getByRole('heading', { name: '侧载导入' })).toBeVisible()
 
     // 3. 安装确认框文案断言（含"系统权限"告知语，PLAN §3.5）——

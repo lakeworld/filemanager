@@ -16,6 +16,13 @@
       "icon": "👋",
       "group": "插件",
       "component": "renderer/Main.js"
+    },
+    {
+      "path": "/plugin/hello/extra",
+      "label": "Hello 第二页",
+      "icon": "🧩",
+      "group": "插件",
+      "component": "renderer/Extra.js"
     }
   ],
   "commands": [

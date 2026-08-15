@@ -8,7 +8,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { AccountService, AccountDeps } from '../../src/main/account'
 
-const BASE = 'https://api.example.invalid'
+const BASE = 'https://api.example.test'
 
 function makeDeps(overrides?: Partial<AccountDeps> & { fetchImpl?: typeof fetch }): {
   deps: AccountDeps
@@ -17,6 +17,7 @@ function makeDeps(overrides?: Partial<AccountDeps> & { fetchImpl?: typeof fetch 
   const accountFile = path.join(os.tmpdir(), `qihebox-account-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`)
   const deps: AccountDeps = {
     accountFile,
+    baseUrl: BASE,
     encrypt: (s) => `enc:${Buffer.from(s).toString('base64')}`,
     decrypt: (s) => Buffer.from(s.slice(4), 'base64').toString('utf8'),
     version: () => '2.2.0',
@@ -234,7 +235,12 @@ describe('AccountService', () => {
     expect(urls.some((u) => u.includes('/collections/users/auth-with-password'))).toBe(true)
   })
 
-  it('BASE_URL 指向 ERP 官网（隐私边界：所有请求仅发往自有服务器）', () => {
-    expect(BASE).toBe('https://api.example.invalid')
+  it('baseUrl 可配置：登录请求发往注入的服务器地址（公开仓不写死真实地址）', async () => {
+    const fetchImpl = mockFetchOk('jwt-token')
+    svc = new AccountService({ ...deps, fetchImpl })
+    await svc.login('a@b.com', 'pw')
+    const urls = (fetchImpl as unknown as { mock: { calls: Array<[string, ...unknown[]]> } }).mock.calls.map((c) => String(c[0]))
+    expect(urls.some((u) => u.startsWith(BASE) && u.includes('/collections/users/auth-with-password'))).toBe(true)
+    expect(BASE).not.toContain('qihebook.cloud')
   })
 })
