@@ -107,6 +107,8 @@ export interface AppIpcHooks {
   onCustomerEvent?: (event: 'customerCreated' | 'customerUpdated', payload: { name: string; oldName?: string }) => void
   /** v2.5.1（A1，D20）：文件归档 → 宿主事件 fileArchived 投递回调（装配层注入；只投成功路径，批量逐条） */
   onFileArchived?: (payload: { region: 'invoice' | 'inbound' | 'exchange' | 'quote'; path: string; name: string }) => void
+  /** v2.5.1（登录增强 D24 落地）：登录/登出成功 → accountChanged 投递回调（装配层注入；只投成功路径） */
+  onAccountChanged?: (loggedIn: boolean) => void
 }
 
 export function registerIpc(
@@ -117,9 +119,19 @@ export function registerIpc(
   // —— 账号（v2.2.0：可选登录复用 ERP 账号；心跳统计活跃）——
   ipcMain.handle('qihebox:account:status', () => handle(() => account.status()))
   ipcMain.handle('qihebox:account:login', (_e, email: string, password: string) =>
-    handle(() => account.login(email, password)),
+    handle(async () => {
+      const r = await account.login(email, password)
+      // v2.5.1（D24 落地）：登录成功 → 广播 accountChanged（闭源插件使用锁据此即时恢复服务）
+      if (r.ok) hooks.onAccountChanged?.(true)
+      return r
+    }),
   )
-  ipcMain.handle('qihebox:account:logout', () => handle(() => account.logout()))
+  ipcMain.handle('qihebox:account:logout', () =>
+    handle(async () => {
+      await account.logout()
+      hooks.onAccountChanged?.(false)
+    }),
+  )
 
   // —— 工作区 / 配置 / 产品集 ——
   ipcMain.handle('qihebox:workspace:list', () => handle(() => box.workspace.list()))

@@ -502,6 +502,8 @@ app.whenReady().then(() => {
         onCustomerEvent: (event, payload) => pluginHost?.emitHostEvent(event, payload),
         // v2.5.1（A1，D20）：文件归档 → 宿主事件 fileArchived 投递桥（成功路径）
         onFileArchived: (payload) => pluginHost?.emitHostEvent('fileArchived', payload),
+        // v2.5.1（登录增强 D24 落地）：登录/登出成功 → accountChanged 广播（闭源插件使用锁即时响应）
+        onAccountChanged: (loggedIn) => pluginHost?.emitHostEvent('accountChanged', { loggedIn }),
       })
     } catch (err) {
       void log('error', `IPC 注册失败（降级继续，窗口仍创建）: ${String(err)}`)

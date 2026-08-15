@@ -109,9 +109,11 @@ export default function Search() {
         confirmLabel="删除"
         danger
         onConfirm={() => {
+          // Solid props 惰性 getter：先取快照再 onDone（同 FileBrowserView 2026-08-15 修复）
+          const paths = props.paths;
           props.onDone();
           void (async () => {
-            const result = await api.files.delete(props.paths);
+            const result = await api.files.delete(paths);
             if (result.success) {
               doSearch(query());
             } else {
