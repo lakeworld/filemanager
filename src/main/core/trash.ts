@@ -22,6 +22,7 @@ import {
   PRODUCT_SETS_DIR,
   IMAGES_DIR,
   CERTS_DIR,
+  DOCS_DIR,
   CUSTOMERS_DIR,
   SUPPLIERS_DIR,
   SUPPLIER_SUBFOLDERS,
@@ -169,14 +170,22 @@ export class TrashService {
       } else {
         const rel = path.relative(path.join(ws, PRODUCT_SETS_DIR), meta.originalPath)
         const parts = rel.split(path.sep)
-        const type = parts[1] === IMAGES_DIR ? 'image' : parts[1] === CERTS_DIR ? 'cert' : null
+        // v2.5.1（F1）：文档 子文件夹恢复 → 回填 cfg.doc_subfolders
+        const type = parts[1] === IMAGES_DIR ? 'image' : parts[1] === CERTS_DIR ? 'cert' : parts[1] === DOCS_DIR ? 'doc' : null
         if (type && subName) {
           const cfg = await this.workspace.loadConfig(ws)
-          const list = type === 'image' ? cfg.image_subfolders : cfg.cert_subfolders
-          if (!list.includes(subName)) {
-            if (type === 'image') cfg.image_subfolders.push(subName)
-            else cfg.cert_subfolders.push(subName)
-            await this.workspace.saveConfig(ws, cfg)
+          if (type === 'doc') {
+            if (!(cfg.doc_subfolders ?? []).includes(subName)) {
+              cfg.doc_subfolders = [...(cfg.doc_subfolders ?? []), subName]
+              await this.workspace.saveConfig(ws, cfg)
+            }
+          } else {
+            const list = type === 'image' ? cfg.image_subfolders : cfg.cert_subfolders
+            if (!list.includes(subName)) {
+              if (type === 'image') cfg.image_subfolders.push(subName)
+              else cfg.cert_subfolders.push(subName)
+              await this.workspace.saveConfig(ws, cfg)
+            }
           }
         }
       }

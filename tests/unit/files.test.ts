@@ -679,9 +679,9 @@ describe('文件索引（v2.4.x：fileList 命中 / 写操作失效 / 预热）'
       sub_folder: '主图',
     })
 
-    // 预热全部子文件夹（默认 config：图包 4 个 + 证书 3 个）
+    // 预热全部子文件夹（默认 config：图包 4 个 + 证书 3 个 + v2.5.1 文档 3 个）
     const warmed = await box.files.warmup()
-    expect(warmed).toBe(7)
+    expect(warmed).toBe(10)
 
     const dir = path.join(ws, '产品集', '预热系列', '图包', '主图')
     const readdirSpy = vi.spyOn(fsp, 'readdir')

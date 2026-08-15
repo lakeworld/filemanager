@@ -20,6 +20,7 @@ import {
   WorkspaceConfig,
   IMAGES_DIR,
   CERTS_DIR,
+  DOCS_DIR,
   PRODUCT_SETS_DIR,
   CUSTOMERS_DIR,
   SUPPLIERS_DIR,
@@ -160,6 +161,10 @@ export class FilesService {
     if (req.target_type === 'image') {
       return path.join(ws, PRODUCT_SETS_DIR, req.target_product_set, IMAGES_DIR, req.sub_folder)
     }
+    // v2.5.1（F1）：文档目标 → 产品集/<名>/文档/<子文件夹>
+    if (req.target_type === 'doc') {
+      return path.join(ws, PRODUCT_SETS_DIR, req.target_product_set, DOCS_DIR, req.sub_folder)
+    }
     return path.join(ws, PRODUCT_SETS_DIR, req.target_product_set, CERTS_DIR, req.sub_folder)
   }
 
@@ -262,7 +267,14 @@ export class FilesService {
           ? path.join(ws, SUPPLIERS_DIR, ps, sub)
           : req.file_type === 'image' || req.file_type === 'video'
             ? path.join(ws, PRODUCT_SETS_DIR, ps, IMAGES_DIR, sub)
-            : path.join(ws, PRODUCT_SETS_DIR, ps, CERTS_DIR, sub)
+            // v2.5.1（F1）：文档类型 → 文档 目录（懒补建见 listRaw 调用侧）
+            : req.file_type === 'doc'
+              ? path.join(ws, PRODUCT_SETS_DIR, ps, DOCS_DIR, sub)
+              : path.join(ws, PRODUCT_SETS_DIR, ps, CERTS_DIR, sub)
+    // v2.5.1（F1，D18）：文档目录首次进入懒补建（幂等；图包/证书由 productSetCreate 建齐；doc 分支仅在 productSet scope 可达）
+    if (req.file_type === 'doc') {
+      await fsp.mkdir(dir, { recursive: true })
+    }
     let entries = await this.listDirFiles(dir)
     // v2.4.4（验收修复）：media_type 显式过滤（图包库「图片/视频」切换）；不传则目录内全部列出（FileBrowser 语义）
     if (req.media_type) entries = entries.filter((f) => f.file_type === req.media_type)
@@ -482,9 +494,12 @@ export class FilesService {
         ? path.join(ws, CUSTOMERS_DIR, assertSafePathSegment(req.product_set, '客户名称'), name)
         : req.scope === 'supplier'
           ? path.join(ws, SUPPLIERS_DIR, assertSafePathSegment(req.product_set, '供应商名称'), name)
-          : req.file_type === 'cert'
-            ? path.join(ws, PRODUCT_SETS_DIR, req.product_set, CERTS_DIR, name)
-            : path.join(ws, PRODUCT_SETS_DIR, req.product_set, IMAGES_DIR, name)
+          // v2.5.1（F1）：文档子文件夹 → 文档/<名>
+          : req.file_type === 'doc'
+            ? path.join(ws, PRODUCT_SETS_DIR, req.product_set, DOCS_DIR, name)
+            : req.file_type === 'cert'
+              ? path.join(ws, PRODUCT_SETS_DIR, req.product_set, CERTS_DIR, name)
+              : path.join(ws, PRODUCT_SETS_DIR, req.product_set, IMAGES_DIR, name)
     if (await fsp.stat(dir).then(() => true).catch(() => false)) throw new Error('子文件夹已存在')
     await fsp.mkdir(dir, { recursive: true })
     // v2.4.x：新建子文件夹 → 失效父目录（图包/证书）与新子目录的索引快照
@@ -495,6 +510,9 @@ export class FilesService {
       cfg.customer_subfolders.push(name)
     } else if (req.scope === 'supplier') {
       // v2.4.9 S2：供应商子文件夹为固定集（决策 1），不写 config
+    } else if (req.file_type === 'doc') {
+      if (!cfg.doc_subfolders) cfg.doc_subfolders = []
+      cfg.doc_subfolders.push(name)
     } else if (req.file_type === 'cert') {
       cfg.cert_subfolders.push(name)
     } else {
@@ -518,9 +536,12 @@ export class FilesService {
         ? path.join(ws, CUSTOMERS_DIR, req.product_set, req.name)
         : req.scope === 'supplier'
           ? path.join(ws, SUPPLIERS_DIR, req.product_set, req.name)
-          : req.file_type === 'image'
-            ? path.join(ws, PRODUCT_SETS_DIR, req.product_set, IMAGES_DIR, req.name)
-            : path.join(ws, PRODUCT_SETS_DIR, req.product_set, CERTS_DIR, req.name)
+          // v2.5.1（F1）：文档子文件夹 → 文档/<名>
+          : req.file_type === 'doc'
+            ? path.join(ws, PRODUCT_SETS_DIR, req.product_set, DOCS_DIR, req.name)
+            : req.file_type === 'image'
+              ? path.join(ws, PRODUCT_SETS_DIR, req.product_set, IMAGES_DIR, req.name)
+              : path.join(ws, PRODUCT_SETS_DIR, req.product_set, CERTS_DIR, req.name)
     if (!(await fsp.stat(dir).then(() => true).catch(() => false))) throw new Error('子文件夹不存在')
     // v2.3.1：移入回收站（不再直接 rm；恢复时自动把子文件夹名加回 config）
     await this.trash.trashItem(ws, dir, 'subfolder')
@@ -531,6 +552,9 @@ export class FilesService {
     const cfg = await this.loadConfig(ws)
     if (req.scope === 'customer') {
       cfg.customer_subfolders = filterSlice(cfg.customer_subfolders ?? [], req.name)
+    } else if (req.scope !== 'supplier' && req.file_type === 'doc') {
+      // v2.5.1（F1）：文档子文件夹从 config.doc_subfolders 移除
+      cfg.doc_subfolders = filterSlice(cfg.doc_subfolders ?? [], req.name)
     } else if (req.scope !== 'supplier' && req.file_type === 'image') {
       cfg.image_subfolders = filterSlice(cfg.image_subfolders, req.name)
     } else if (req.scope !== 'supplier') {
@@ -600,7 +624,8 @@ export class FilesService {
               ws,
               PRODUCT_SETS_DIR,
               req.target_product_set!,
-              req.target_type === 'image' ? IMAGES_DIR : CERTS_DIR,
+              // v2.5.1（F1）：doc 目标 → 文档 目录
+              req.target_type === 'image' ? IMAGES_DIR : req.target_type === 'doc' ? DOCS_DIR : CERTS_DIR,
               req.sub_folder!,
             )
       : (req.targetDir ?? '').trim()
