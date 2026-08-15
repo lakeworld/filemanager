@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import { api } from "~/wails/api";
+import { getPreviewKind } from "../../../shared/fileKind";
 import type { FileEntry, FileMetadata } from "~/types";
 
 const defaultMetadata: FileMetadata = {
@@ -121,11 +122,23 @@ export const deleteCurrentFile = async (): Promise<{ ok: boolean; error?: string
 export const openCurrentWithSystem = async () => {
   const file = previewFile();
   if (!file) return;
-
   const result = await api.files.openWithDefaultApp(file.path);
   if (!result.success) {
     setPreviewError(result.error || "无法打开文件");
   }
+};
+
+/**
+ * v2.5.1（F3）：双击/预览统一入口——按类型分流：
+ * 可内嵌预览（image/video/pdf/md）→ openPreview；其余（docx/xlsx/zip 等）→ 默认应用打开。
+ * 各文件域双击处理点统一改调此函数（行为变更登记 CHANGELOG）。
+ */
+export const openFileSmart = async (file: FileEntry, context?: PreviewContext): Promise<void> => {
+  if (getPreviewKind(file) === "other") {
+    await api.files.openWithDefaultApp(file.path);
+    return;
+  }
+  await openPreview(file, context);
 };
 
 export {

@@ -298,12 +298,8 @@ export function classifyFileType(name: string): 'image' | 'pdf' | 'video' | 'oth
   return 'other'
 }
 
-/** v2.5.1（F1）：Markdown 文件判定（渲染层预览分流用；.md 文件类型仍归 'other'，shared 枚举零改动，D21） */
-export function isMarkdownName(name: string): boolean {
-  if (name.startsWith('.')) return false
-  const ext = path.extname(name).toLowerCase()
-  return ext === '.md' || ext === '.markdown'
-}
+/** v2.5.1（F1/F3）：Markdown 文件判定——实现移 src/shared/fileKind.ts（双端共用，D21），此处 re-export 保既有 import 稳定 */
+export { isMarkdownName } from '../../shared/fileKind'
 
 /** MIME 类型（对照 workspace_file_handler.go mimeTypeForPath） */
 export function mimeTypeForPath(name: string): string {
