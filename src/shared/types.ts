@@ -38,12 +38,16 @@ export interface WorkspaceConfig {
   cert_subfolders: string[]
   /** v2.4.7：客户子文件夹默认集（旧 config 缺省时由 loadConfig 合并默认值，向后兼容零迁移） */
   customer_subfolders?: string[]
+  /** v2.5.1（F1）：文档子文件夹默认集（同 customer_subfolders 缺省合并机制） */
+  doc_subfolders?: string[]
 }
 
 export interface ProductSetInfo {
   name: string
   image_count: number
   cert_count: number
+  /** v2.5.1（F1）：文档文件数（文档/ 递归统计，与 image_count/cert_count 同法） */
+  doc_count: number
   created_at: string
   tags: string[]
   notes: string
@@ -52,6 +56,8 @@ export interface ProductSetInfo {
 export interface ProductSetStats {
   image_count: number
   cert_count: number
+  /** v2.5.1（F1）：文档文件数 */
+  doc_count: number
   created_at: string
 }
 

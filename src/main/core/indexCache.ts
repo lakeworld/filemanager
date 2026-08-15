@@ -8,12 +8,13 @@
  * - v2.4.7（§4.5）：build() 增补 客户/<名>/<各子文件夹>、发票/<YYYY>/、入库/<YYYY>/ 三区扫描
  *   （与产品集同法逐目录快照；fs.watch 工作区根 recursive 天然覆盖，失效事件零改动）
  * - v2.4.9（§6.2）：build() 再增补 供应商/<名>/<各子文件夹>（两级，同客户）与 报价/<YYYY>/（一级，同发票/入库）
+ * - v2.5.1（F1）：build() 产品集区扫描增补 文档/ 目录（与图包/证书并列）
  * 纯 TS：可在 node 环境直接测试。
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 import { formatTime } from './workspace'
-import { PRODUCT_SETS_DIR, IMAGES_DIR, CERTS_DIR, CUSTOMERS_DIR, INVOICES_DIR, INBOUND_DIR, SUPPLIERS_DIR, QUOTES_DIR } from './paths'
+import { PRODUCT_SETS_DIR, IMAGES_DIR, CERTS_DIR, DOCS_DIR, CUSTOMERS_DIR, INVOICES_DIR, INBOUND_DIR, SUPPLIERS_DIR, QUOTES_DIR } from './paths'
 import type { FileEntry } from '../../shared/types'
 
 /** 紧凑条目：元组，避免对象属性名重复占用内存 */
@@ -116,7 +117,7 @@ export class WorkspaceIndex {
     const sets = await fsp.readdir(setsDir, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[])
     for (const s of sets) {
       if (!s.isDirectory()) continue
-      for (const typeDir of [IMAGES_DIR, CERTS_DIR]) {
+      for (const typeDir of [IMAGES_DIR, CERTS_DIR, DOCS_DIR]) {
         const typePath = path.join(setsDir, s.name, typeDir)
         const subs = await fsp.readdir(typePath, { withFileTypes: true }).catch(() => [] as import('node:fs').Dirent[])
         for (const sub of subs) {

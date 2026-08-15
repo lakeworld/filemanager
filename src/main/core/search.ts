@@ -20,6 +20,7 @@ import {
   CUSTOMERS_DIR,
   SUPPLIERS_DIR,
   QUOTES_DIR,
+  DOCS_DIR,
   customersInfoPath,
   customerRootPath,
   invoiceRootPath,
@@ -74,15 +75,18 @@ export class SearchService {
       const setMatched = setName.toLowerCase().includes(q) || tagHit(setTags(setName))
 
       const buildSetInfo = async (): Promise<ProductSetInfo> => {
-        const [info, imgCount, certCount] = await Promise.all([
+        const [info, imgCount, certCount, docCount] = await Promise.all([
           fsp.stat(path.join(setsDir, setName)),
           countFiles(path.join(setsDir, setName, IMAGES_DIR)),
           countFiles(path.join(setsDir, setName, CERTS_DIR)),
+          // v2.5.1（F1）：文档文件数（与 productSetList 统计同法）
+          countFiles(path.join(setsDir, setName, DOCS_DIR)),
         ])
         return {
           name: setName,
           image_count: imgCount,
           cert_count: certCount,
+          doc_count: docCount,
           created_at: formatTime(info.mtime),
           tags: setTags(setName),
           notes: extra[setName]?.notes ?? '',

@@ -18,6 +18,8 @@ export const PRODUCT_SETS_INFO_FILE = 'product_sets.json'
 export const PRODUCT_SETS_DIR = '产品集'
 export const IMAGES_DIR = '图包'
 export const CERTS_DIR = '证书'
+// v2.5.1（F1）：产品集文档目录（与图包/证书并列；说明书/参数表/质检报告等文档类文件）
+export const DOCS_DIR = '文档'
 export const EXPORTS_DIR = '导出'
 // v2.4.7：客户 / 发票 / 入库 / 交换区 根目录与台账/状态数据文件
 export const CUSTOMERS_DIR = '客户'
@@ -72,6 +74,8 @@ export function defaultWorkspaceConfig(): WorkspaceConfig {
     image_subfolders: ['主图', '详情页', '白底图', '素材'],
     cert_subfolders: ['3C', '质检', '专利'],
     customer_subfolders: ['报价', '合同', '沟通', '其他'],
+    // v2.5.1（F1，D30）：文档子文件夹默认集（旧 config 缺省由 loadConfig 合并）
+    doc_subfolders: ['说明书', '参数表', '质检报告'],
   }
 }
 
@@ -292,6 +296,13 @@ export function classifyFileType(name: string): 'image' | 'pdf' | 'video' | 'oth
   if (ext === '.pdf') return 'pdf'
   if (['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'].includes(ext)) return 'video'
   return 'other'
+}
+
+/** v2.5.1（F1）：Markdown 文件判定（渲染层预览分流用；.md 文件类型仍归 'other'，shared 枚举零改动，D21） */
+export function isMarkdownName(name: string): boolean {
+  if (name.startsWith('.')) return false
+  const ext = path.extname(name).toLowerCase()
+  return ext === '.md' || ext === '.markdown'
 }
 
 /** MIME 类型（对照 workspace_file_handler.go mimeTypeForPath） */
