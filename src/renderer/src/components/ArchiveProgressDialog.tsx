@@ -1,4 +1,5 @@
 import { Show, createSignal, onMount, onCleanup } from "solid-js";
+import Modal from "~/components/ui/Modal";
 import { api } from "~/wails/api";
 import { showToast } from "~/stores/notifyBanner";
 import type { ArchiveEventPayload, ArchiveProgress, ArchiveResult } from "~/types";
@@ -138,13 +139,7 @@ export default function ArchiveProgressDialog(props: { token: string; onClose: (
   };
 
   return (
-    <div
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      onClick={() => {
-        // 进行中不允许点遮罩关闭（只能走取消），避免丢失取消入口
-        if (status() === "success") props.onClose();
-      }}
-    >
+    <Modal open title={phase() === "extract" ? "解压" : "压缩分享"} lockOpen onClose={props.onClose}>
       <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h2 class="text-xl font-bold">{phase() === "extract" ? "解压" : "压缩分享"}</h2>
         <p class="text-sm text-surface-500 mt-1 mb-4">{phaseText()}</p>
@@ -201,6 +196,6 @@ export default function ArchiveProgressDialog(props: { token: string; onClose: (
           </div>
         </Show>
       </div>
-    </div>
+    </Modal>
   );
 }

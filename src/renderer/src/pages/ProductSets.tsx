@@ -1,6 +1,8 @@
 import { Show, For, createSignal, createEffect, onCleanup } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
+import CreatePsModal from "./productSets/CreatePsModal";
+import EditInfoPsModal from "./productSets/EditInfoPsModal";
 import { tagList } from "~/stores/tags";
 import TagChip from "~/components/TagChip";
 import ContextMenu from "~/components/ContextMenu";
@@ -338,7 +340,7 @@ export default function ProductSets() {
             <For each={filteredProductSets()}>
               {(ps) => (
                 <div
-                  class="card p-5 cursor-pointer hover:shadow-card-hover transition-all group relative"
+                  class="card p-5 cursor-pointer hover:shadow-card-hover group relative"
                   onClick={() => navigate(`/product-sets/${encodeURIComponent(ps.name)}`)}
                   onContextMenu={(e) => contextMenu.open(e, ps)}
                 >
@@ -363,7 +365,7 @@ export default function ProductSets() {
                         📦
                       </button>
                       <button
-                        class="text-surface-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                        class="text-surface-400 hover:text-danger-500 opacity-0 group-hover:opacity-100 transition-opacity"
                         onClick={(e) => handleCardDelete(ps, e)}
                         title="删除产品集"
                       >
@@ -429,7 +431,7 @@ export default function ProductSets() {
                 📦 打包此图包
               </button>
               <button
-                class="btn-secondary text-red-600 hover:bg-red-50 hover:border-red-200"
+                class="btn-secondary text-danger-600 hover:bg-danger-50 hover:border-danger-200"
                 onClick={handleDeleteProductSet}
               >
                 🗑️ 删除产品集
@@ -469,14 +471,14 @@ export default function ProductSets() {
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Image entry card */}
             <div
-              class="card p-8 cursor-pointer hover:shadow-card-hover transition-all bg-gradient-to-br from-blue-50 to-white"
+              class="card p-8 cursor-pointer hover:shadow-card-hover bg-gradient-to-br from-info-50 to-white"
               onClick={() => {
                 const folders = imageFolders();
                 navigate(`/files/image/${encodeURIComponent(psName())}/${folders[0]}`);
               }}
             >
               <div class="flex items-center gap-4">
-                <div class="w-16 h-16 rounded-2xl bg-blue-100 flex items-center justify-center text-4xl">🖼️</div>
+                <div class="w-16 h-16 rounded-2xl bg-info-100 flex items-center justify-center text-4xl">🖼️</div>
                 <div>
                   <h3 class="text-xl font-bold text-surface-900">图包</h3>
                   <p class="text-sm text-surface-500 mt-1">管理产品图片资源</p>
@@ -485,7 +487,7 @@ export default function ProductSets() {
               <div class="mt-6 flex gap-3 flex-wrap">
                 <For each={imageFolders()}>
                   {(folder) => (
-                    <span class="text-xs px-3 py-1.5 rounded-full bg-blue-100 text-blue-700">{folder}</span>
+                    <span class="text-xs px-3 py-1.5 rounded-full bg-info-100 text-info-700">{folder}</span>
                   )}
                 </For>
               </div>
@@ -493,14 +495,14 @@ export default function ProductSets() {
 
             {/* Cert entry card */}
             <div
-              class="card p-8 cursor-pointer hover:shadow-card-hover transition-all bg-gradient-to-br from-orange-50 to-white"
+              class="card p-8 cursor-pointer hover:shadow-card-hover bg-gradient-to-br from-cert-50 to-white"
               onClick={() => {
                 const folders = certFolders();
                 navigate(`/files/cert/${encodeURIComponent(psName())}/${folders[0]}`);
               }}
             >
               <div class="flex items-center gap-4">
-                <div class="w-16 h-16 rounded-2xl bg-orange-100 flex items-center justify-center text-4xl">📜</div>
+                <div class="w-16 h-16 rounded-2xl bg-cert-100 flex items-center justify-center text-4xl">📜</div>
                 <div>
                   <h3 class="text-xl font-bold text-surface-900">证书</h3>
                   <p class="text-sm text-surface-500 mt-1">管理认证与检测报告</p>
@@ -509,14 +511,14 @@ export default function ProductSets() {
               <div class="mt-6 flex gap-3 flex-wrap">
                 <For each={certFolders()}>
                   {(folder) => (
-                    <span class="text-xs px-3 py-1.5 rounded-full bg-orange-100 text-orange-700">{folder}</span>
+                    <span class="text-xs px-3 py-1.5 rounded-full bg-cert-100 text-cert-700">{folder}</span>
                   )}
                 </For>
               </div>
             </div>
             {/* v2.5.1（F2）：文档入口卡——中性色（文档域无专属色族，D17）；点击进 文档/<首个子文件夹> */}
             <div
-              class="card p-8 cursor-pointer hover:shadow-card-hover transition-all bg-gradient-to-br from-surface-100 to-white"
+              class="card p-8 cursor-pointer hover:shadow-card-hover bg-gradient-to-br from-surface-100 to-white"
               onClick={() => {
                 const folders = docFolders();
                 navigate(`/files/doc/${encodeURIComponent(psName())}/${folders[0]}`);
@@ -554,14 +556,14 @@ export default function ProductSets() {
                 <For each={relatedCustomers()}>
                   {(c) => (
                     <button
-                      class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors text-sm"
+                      class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-success-50 text-success-700 hover:bg-success-100 transition-colors text-sm"
                       onClick={() => navigate(`/clients/${encodeURIComponent(c.name)}`)}
                       title={`查看客户「${c.name}」`}
                     >
                       <span>🤝</span>
                       <span class="font-medium">{c.name}</span>
                       <Show when={c.file_count > 0}>
-                        <span class="text-xs text-emerald-500">{c.file_count} 文件</span>
+                        <span class="text-xs text-success-500">{c.file_count} 文件</span>
                       </Show>
                     </button>
                   )}
@@ -583,14 +585,14 @@ export default function ProductSets() {
                 <For each={relatedSuppliers()}>
                   {(s) => (
                     <button
-                      class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors text-sm"
+                      class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-warning-50 text-warning-700 hover:bg-warning-100 transition-colors text-sm"
                       onClick={() => navigate(`/suppliers/${encodeURIComponent(s.name)}`)}
                       title={`查看供应商「${s.name}」`}
                     >
                       <span>🏭</span>
                       <span class="font-medium">{s.name}</span>
                       <Show when={s.file_count > 0}>
-                        <span class="text-xs text-amber-500">{s.file_count} 文件</span>
+                        <span class="text-xs text-warning-500">{s.file_count} 文件</span>
                       </Show>
                     </button>
                   )}
@@ -602,80 +604,8 @@ export default function ProductSets() {
         </Show>
       </Show>
 
-      {/* Create Product Set Modal */}
-      <Show when={showCreateModal()}>
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-hidden" onClick={() => setShowCreateModal(false)}>
-          <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl max-h-[90vh] overflow-y-auto overflow-x-hidden" onClick={(e) => e.stopPropagation()}>
-            <h2 class="text-xl font-bold mb-4">新建产品集</h2>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">产品集名称</label>
-              <input
-                type="text"
-                class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                placeholder="如：夏季T恤系列"
-                value={newPsName()}
-                onInput={(e) => setNewPsName(e.currentTarget.value)}
-              />
-            </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">标签（建议从已定义标签中选择）</label>
-              <TagInput
-                value={newPsTags()}
-                onChange={setNewPsTags}
-                options={tagList()}
-                placeholder="如：客户、重点"
-              />
-            </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>
-              <textarea
-                class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
-                rows={3}
-                placeholder="添加备注..."
-                value={newPsNotes()}
-                onInput={(e) => setNewPsNotes(e.currentTarget.value)}
-              />
-            </div>
-            <div class="flex gap-3 justify-end">
-              <button class="btn-secondary" onClick={() => setShowCreateModal(false)}>取消</button>
-              <button class="btn-primary" onClick={handleCreate}>确认创建</button>
-            </div>
-          </div>
-        </div>
-      </Show>
-
-      {/* Edit Product Set Info Modal */}
-      <Show when={editingInfoPs()}>
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-hidden" onClick={() => setEditingInfoPs(null)}>
-          <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 class="text-xl font-bold mb-4">编辑产品集信息</h2>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">标签（建议从已定义标签中选择）</label>
-              <TagInput
-                value={editTags()}
-                onChange={setEditTags}
-                options={tagList()}
-                placeholder="如：客户、重点"
-              />
-            </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>
-              <textarea
-                class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
-                rows={3}
-                placeholder="添加备注..."
-                value={editNotes()}
-                onInput={(e) => setEditNotes(e.currentTarget.value)}
-              />
-            </div>
-            <div class="flex gap-3 justify-end">
-              <button class="btn-secondary" onClick={() => setEditingInfoPs(null)}>取消</button>
-              <button class="btn-primary" onClick={handleSaveInfo}>保存</button>
-            </div>
-          </div>
-        </div>
-      </Show>
-
+      <CreatePsModal open={showCreateModal()} onClose={() => setShowCreateModal(false)} onCreated={loadProductSets} />
+      <EditInfoPsModal customer={editingInfoPs()} onClose={() => setEditingInfoPs(null)} onSaved={loadProductSets} />
       {/* Context Menu（统一组件，v2.3.x） */}
       <Show when={contextMenu.payload()}>
         {(ps) => (

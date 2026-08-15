@@ -362,7 +362,7 @@ export default function Images() {
             <button class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg" onClick={() => void handleCompress(selectedPaths())}>
               📦 压缩分享
             </button>
-            <button class="px-3 py-1.5 text-sm text-white bg-red-500 hover:bg-red-600 rounded-lg" onClick={() => handleDelete(selectedPaths())}>
+            <button class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg" onClick={() => handleDelete(selectedPaths())}>
               🗑️ 删除
             </button>
           </div>
@@ -390,7 +390,7 @@ export default function Images() {
             gap={16}
             renderItem={(img) => (
               <div
-                class={`card p-2 cursor-pointer select-none hover:shadow-card-hover transition-all ${selectedPaths().includes(img.path) ? "border-primary-500 bg-primary-50" : ""}`}
+                class={`card p-2 cursor-pointer select-none hover:shadow-card-hover ${selectedPaths().includes(img.path) ? "border-primary-500 bg-primary-50" : ""}`}
                 draggable={true}
                 onDragStart={(e) => handleDragOut(e, img.path, selectedPaths())}
                 onContextMenu={(e) => {

@@ -164,7 +164,7 @@ export default function Trash() {
 
   // v2.4.7：条目卡片渲染——小列表 For 与超阈值 VirtualGrid 共用（组件内函数，避免两份 JSX 漂移）
   const renderEntry = (e: TrashEntry) => (
-    <div class="card p-4 flex items-center gap-4 hover:shadow-card-hover transition-all">
+    <div class="card p-4 flex items-center gap-4 hover:shadow-card-hover">
       {/* 缩略图（文件恢复回原路径后缓存命中；非图片/无缓存显示占位） */}
       <div class="w-14 h-14 rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden shrink-0">
         <Show
@@ -195,7 +195,7 @@ export default function Trash() {
           ↺ 恢复
         </button>
         <button
-          class="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+          class="px-3 py-1.5 text-sm text-danger-600 hover:bg-danger-50 rounded-lg transition-colors"
           onClick={() => handlePurge(e.id)}
           disabled={busy()}
         >
@@ -216,10 +216,10 @@ export default function Trash() {
         </div>
         <div class="flex items-center gap-3">
           <Show when={actionMsg()}>
-            <span class="text-sm text-green-600">{actionMsg()}</span>
+            <span class="text-sm text-success-600">{actionMsg()}</span>
           </Show>
           <button
-            class="btn-secondary text-sm text-red-600 hover:bg-red-50 hover:border-red-200"
+            class="btn-secondary text-sm text-danger-600 hover:bg-danger-50 hover:border-danger-200"
             onClick={handleEmpty}
             disabled={busy() || entries().length === 0}
           >

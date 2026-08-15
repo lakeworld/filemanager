@@ -84,7 +84,7 @@ export default function Exports() {
           </p>
         </div>
         <Show when={actionMsg()}>
-          <span class="text-sm text-green-600">{actionMsg()}</span>
+          <span class="text-sm text-success-600">{actionMsg()}</span>
         </Show>
       </div>
 
@@ -95,7 +95,7 @@ export default function Exports() {
         <div class="space-y-2">
           <For each={entries()}>
             {(e) => (
-              <div class="card p-4 flex items-center gap-4 hover:shadow-card-hover transition-all">
+              <div class="card p-4 flex items-center gap-4 hover:shadow-card-hover">
                 <div class="w-14 h-14 rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden shrink-0">
                   <span class="text-2xl">🗜️</span>
                 </div>
@@ -119,7 +119,7 @@ export default function Exports() {
                     定位
                   </button>
                   <button
-                    class="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    class="px-3 py-1.5 text-sm text-danger-600 hover:bg-danger-50 rounded-lg transition-colors"
                     onClick={() => setConfirmDelete({ entry: e })}
                     disabled={busy()}
                   >
