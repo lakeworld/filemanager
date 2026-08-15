@@ -35,6 +35,21 @@ import { customers, loadCustomers } from "~/stores/clients";
 // v2.4.9 S2：供应商下拉（入库单供应商选择，选项来自 suppliers store）
 import { suppliers, loadSuppliers } from "~/stores/suppliers";
 import { openPreview } from "~/stores/preview";
+import {
+  STATUSES,
+  isDueSoon,
+  nextStatusOf,
+  statusChipClass,
+  toDateKey,
+  fmtMoney,
+  baseNameOf,
+  fileTypeOf,
+  INVOICE_COL_TEMPLATE,
+  INBOUND_COL_TEMPLATE,
+} from "./invoices/utils";
+import ArchiveField from "./invoices/ArchiveField";
+import InvoiceEditorModal from "./invoices/InvoiceEditorModal";
+import InboundEditorModal from "./invoices/InboundEditorModal";
 import { loadTagDefs, tagList } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
 import DatePicker from "~/components/DatePicker";
@@ -42,6 +57,7 @@ import TagInput from "~/components/TagInput";
 import VirtualGrid from "~/components/VirtualGrid";
 import EmptyState from "~/components/EmptyState";
 import type { InvoiceRecord, InboundRecord, FileEntry } from "~/types";
+import type { InvoiceFormState, InboundFormState } from "./invoices/types";
 
 // —— 本地类型（镜像 core 请求类型；wails/api.ts 门面类型落位后可由 ~/types 导入替代）——
 
@@ -101,87 +117,6 @@ interface InboundCreateRequest {
   notes?: string;
 }
 
-interface InvoiceFormState {
-  number: string;
-  code: string;
-  date: string;
-  amount: string;
-  seller: string;
-  buyer: string;
-  status: InvoiceStatus;
-  customer: string;
-  due_date: string;
-  file_path: string;
-  tags: string[];
-  notes: string;
-}
-
-interface InboundFormState {
-  id: string;
-  date: string;
-  supplier: string;
-  /** 关联供应商名（选择已有供应商下拉时填入；手输清空；供应商已删除旧单显示灰显占位） */
-  supplier_id: string;
-  product_set: string;
-  amount: string;
-  notes: string;
-  file_path: string;
-}
-
-const STATUSES: InvoiceStatus[] = ["待报销", "已报销", "已入账"];
-
-/** 待办窗口 = 距今 30 天（含已过期 30 天内），与 core isDueSoon / 证书到期提醒窗口同口径 */
-const DUE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-
-/** 记录是否落在待办窗口（due_date 本地时区解析 YYYY-MM-DD，状态 ≠ 已入账；解析失败不提醒） */
-function isDueSoon(rec: InvoiceRecord, now = Date.now()): boolean {
-  if (rec.status === "已入账" || !rec.due_date) return false;
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(rec.due_date);
-  if (!m) return false;
-  const t = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
-  if (Number.isNaN(t)) return false;
-  return t >= now - DUE_WINDOW_MS && t <= now + DUE_WINDOW_MS;
-}
-
-function nextStatusOf(s: InvoiceStatus): InvoiceStatus {
-  return STATUSES[Math.min(STATUSES.indexOf(s) + 1, STATUSES.length - 1)];
-}
-
-function statusChipClass(s: InvoiceStatus): string {
-  switch (s) {
-    case "待报销":
-      return "bg-amber-50 text-amber-700";
-    case "已报销":
-      return "bg-blue-50 text-blue-700";
-    case "已入账":
-      return "bg-emerald-50 text-emerald-700";
-  }
-}
-
-function toDateKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-/** 金额展示（仅展示与页内合计，不进任何计算，PLAN §3.3） */
-function fmtMoney(n: number): string {
-  return Number.isFinite(n)
-    ? n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : "-";
-}
-
-/** 按扩展名分类（镜像主进程 classifyFileType） */
-function fileTypeOf(name: string): string {
-  const dot = name.lastIndexOf(".");
-  const ext = dot >= 0 ? name.slice(dot).toLowerCase() : "";
-  if ([".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"].includes(ext)) return "image";
-  if (ext === ".pdf") return "pdf";
-  if ([".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"].includes(ext)) return "video";
-  return "other";
-}
-
-function baseNameOf(relPath: string): string {
-  return relPath.split("/").pop() || relPath;
-}
 
 /** 台账记录 file_path（工作区相对路径）→ FileEntry，供 openPreview 复用（账物分离：文件缺失时预览会失败并提示） */
 function fileEntryOf(relPath: string): FileEntry | null {
@@ -190,60 +125,12 @@ function fileEntryOf(relPath: string): FileEntry | null {
   return {
     name: baseNameOf(relPath),
     path: `${ws.replace(/\\/g, "/")}/${relPath}`,
-    size: 0, // 台账记录不带文件体积，预览页信息行按 0 显示（不影响功能）
+    size: 0,
     modified: "",
     file_type: fileTypeOf(relPath),
     thumbnail_path: null,
   };
 }
-
-/** 归档文件字段（新建/编辑弹窗共用）：未归档 → 选择本地文件并归档；已归档 → 路径 + 预览 + 换绑 */
-function ArchiveField(props: {
-  label: string;
-  filePath: string;
-  missing: boolean;
-  onPick: () => void;
-  onPreview: () => void;
-}) {
-  return (
-    <div>
-      <label class="block text-sm font-medium text-surface-700 mb-1">{props.label}</label>
-      <Show
-        when={props.filePath}
-        fallback={
-          <button type="button" class="btn-secondary text-sm" onClick={props.onPick}>
-            📂 选择本地文件并归档
-          </button>
-        }
-      >
-        <div class="flex items-center gap-2 text-sm">
-          <span
-            class={`truncate ${props.missing ? "text-red-600" : "text-surface-600"}`}
-            title={props.filePath}
-          >
-            📎 {props.filePath}
-          </span>
-          <Show when={props.missing}>
-            <span class="text-red-600 text-xs shrink-0">文件缺失</span>
-          </Show>
-          <button type="button" class="text-primary-600 hover:text-primary-700 text-xs shrink-0" onClick={props.onPreview}>
-            预览
-          </button>
-          <button type="button" class="text-surface-500 hover:text-primary-600 text-xs shrink-0" onClick={props.onPick}>
-            换绑
-          </button>
-        </div>
-      </Show>
-    </div>
-  );
-}
-
-// 台账列模板（与表头/合计行一致；minmax 保证窄窗口下可截断）
-const INVOICE_COL_TEMPLATE =
-  "minmax(110px,1.1fr) minmax(85px,0.85fr) minmax(130px,1.3fr) minmax(130px,1.3fr) minmax(80px,0.8fr) minmax(165px,1.35fr) minmax(95px,0.95fr) minmax(90px,0.9fr) minmax(105px,0.85fr)";
-// 入库单列模板
-const INBOUND_COL_TEMPLATE =
-  "minmax(110px,1.1fr) minmax(90px,0.9fr) minmax(150px,1.5fr) minmax(120px,1.2fr) minmax(85px,0.85fr) minmax(150px,1.5fr) minmax(105px,0.85fr)";
 
 export default function Invoices() {
   const navigate = useNavigate();
@@ -926,260 +813,30 @@ export default function Invoices() {
       </Show>
 
       {/* ============ 发票 新建/编辑 弹窗 ============ */}
-      <Show when={invoiceEditor()}>
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeInvoiceEditor}>
-          <div
-            class="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-xl max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 class="text-xl font-bold mb-4">{invoiceEditor()?.mode === "edit" ? "编辑发票" : "新建发票"}</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">发票号码 *</label>
-                <input
-                  type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="如：25312000000012345678"
-                  value={invoiceForm().number}
-                  onInput={(e) => setInvoiceField("number", e.currentTarget.value)}
-                />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">发票代码</label>
-                <input
-                  type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="数电票可留空"
-                  value={invoiceForm().code}
-                  onInput={(e) => setInvoiceField("code", e.currentTarget.value)}
-                />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">开票日期 *</label>
-                <DatePicker
-                  value={invoiceForm().date}
-                  onChange={(d) => setInvoiceField("date", d)}
-                  placeholder="选择开票日期"
-                />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">金额（价税合计，元）*</label>
-                <input
-                  type="number"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="如：1250.50"
-                  value={invoiceForm().amount}
-                  onInput={(e) => setInvoiceField("amount", e.currentTarget.value)}
-                />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">开票方 *</label>
-                <input
-                  type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="销售方名称"
-                  value={invoiceForm().seller}
-                  onInput={(e) => setInvoiceField("seller", e.currentTarget.value)}
-                />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">购买方抬头 *</label>
-                <input
-                  type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="购买方名称"
-                  value={invoiceForm().buyer}
-                  onInput={(e) => setInvoiceField("buyer", e.currentTarget.value)}
-                />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">状态</label>
-                <select
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg bg-white text-sm"
-                  value={invoiceForm().status}
-                  onChange={(e) => setInvoiceField("status", e.currentTarget.value as InvoiceStatus)}
-                >
-                  <For each={STATUSES}>
-                    {(s) => <option value={s}>{s}</option>}
-                  </For>
-                </select>
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">关联客户</label>
-                <select
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg bg-white text-sm"
-                  value={invoiceForm().customer}
-                  onChange={(e) => setInvoiceField("customer", e.currentTarget.value)}
-                >
-                  <option value="">不关联客户</option>
-                  <For each={customers()}>
-                    {(c) => <option value={c.name}>{c.name}</option>}
-                  </For>
-                </select>
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">待办日期</label>
-                <DatePicker
-                  value={invoiceForm().due_date}
-                  onChange={(d) => setInvoiceField("due_date", d)}
-                  placeholder="认证抵扣期 / 报销截止"
-                />
-              </div>
-            </div>
-            <div class="mt-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">标签</label>
-              <TagInput
-                value={invoiceForm().tags}
-                onChange={(t) => setInvoiceField("tags", t)}
-                options={tagList()}
-                placeholder="输入标签按回车"
-              />
-            </div>
-            <div class="mt-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>
-              <textarea
-                class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
-                rows={2}
-                placeholder="添加备注..."
-                value={invoiceForm().notes}
-                onInput={(e) => setInvoiceField("notes", e.currentTarget.value)}
-              />
-            </div>
-            <div class="mt-4">
-              <ArchiveField
-                label="发票文件 *（归档至 发票/&lt;年份&gt;/）"
-                filePath={invoiceForm().file_path}
-                missing={!!invoiceForm().file_path && missingFiles()[invoiceForm().file_path]}
-                onPick={() => void pickInvoiceFile()}
-                onPreview={() => invoiceForm().file_path && previewRelPath(invoiceForm().file_path)}
-              />
-            </div>
-            <div class="flex gap-3 justify-end mt-6">
-              <button class="btn-secondary" onClick={closeInvoiceEditor}>取消</button>
-              <button class="btn-primary" onClick={() => void saveInvoice()}>
-                {invoiceEditor()?.mode === "edit" ? "保存" : "确认登记"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </Show>
-
-      {/* ============ 入库单 新建/编辑 弹窗 ============ */}
-      <Show when={inboundEditor()}>
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={closeInboundEditor}>
-          <div
-            class="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-xl max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 class="text-xl font-bold mb-4">{inboundEditor()?.mode === "edit" ? "编辑入库单" : "新建入库单"}</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">单据编号 *</label>
-                <input
-                  type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="如：RK-2026-001"
-                  value={inboundForm().id}
-                  onInput={(e) => setInboundField("id", e.currentTarget.value)}
-                />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">入库日期 *</label>
-                <DatePicker
-                  value={inboundForm().date}
-                  onChange={(d) => setInboundField("date", d)}
-                  placeholder="选择入库日期"
-                />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">供应商 *</label>
-                {/* v2.4.9 S2：供应商下拉（选项来自 suppliers store；选择时填 supplier 为名 + supplier_id 为名）。
-                    兼容手输：下方自由文本输入保留；手输时清空 supplier_id 关联。 */}
-                <select
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg bg-white text-sm mb-2"
-                  value={inboundForm().supplier_id}
-                  onChange={(e) => {
-                    const name = e.currentTarget.value;
-                    setInboundField("supplier", name);
-                    setInboundField("supplier_id", name);
-                  }}
-                >
-                  <option value="">手输 / 不关联已有供应商</option>
-                  <For each={suppliers()}>
-                    {(s) => <option value={s.name}>{s.name}</option>}
-                  </For>
-                  {/* 供应商已删除的旧单：supplier_id 字面值保留，灰显占位（不可选） */}
-                  <Show when={inboundForm().supplier_id && !suppliers().some((s) => s.name === inboundForm().supplier_id)}>
-                    <option value={inboundForm().supplier_id} disabled class="text-surface-400">
-                      {inboundForm().supplier_id}（已删除）
-                    </option>
-                  </Show>
-                </select>
-                <input
-                  type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="供应商名称"
-                  value={inboundForm().supplier}
-                  onInput={(e) => {
-                    setInboundField("supplier", e.currentTarget.value);
-                    // 手输时清空 supplier_id（仅下拉选择建立关联；重命名/删除旧值不再误绑）
-                    setInboundField("supplier_id", "");
-                  }}
-                />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">关联产品集</label>
-                <select
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg bg-white text-sm"
-                  value={inboundForm().product_set}
-                  onChange={(e) => setInboundField("product_set", e.currentTarget.value)}
-                >
-                  <option value="">不关联产品集</option>
-                  <For each={productSets()}>
-                    {(ps) => <option value={ps.name}>{ps.name}</option>}
-                  </For>
-                </select>
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-surface-700 mb-1">金额合计（元）</label>
-                <input
-                  type="number"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="仅展示，不进计算"
-                  value={inboundForm().amount}
-                  onInput={(e) => setInboundField("amount", e.currentTarget.value)}
-                />
-              </div>
-            </div>
-            <div class="mt-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>
-              <textarea
-                class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
-                rows={2}
-                placeholder="添加备注..."
-                value={inboundForm().notes}
-                onInput={(e) => setInboundField("notes", e.currentTarget.value)}
-              />
-            </div>
-            <div class="mt-4">
-              <ArchiveField
-                label="入库文件 *（归档至 入库/&lt;年份&gt;/）"
-                filePath={inboundForm().file_path}
-                missing={!!inboundForm().file_path && missingFiles()[inboundForm().file_path]}
-                onPick={() => void pickInboundFile()}
-                onPreview={() => inboundForm().file_path && previewRelPath(inboundForm().file_path)}
-              />
-            </div>
-            <div class="flex gap-3 justify-end mt-6">
-              <button class="btn-secondary" onClick={closeInboundEditor}>取消</button>
-              <button class="btn-primary" onClick={() => void saveInbound()}>
-                {inboundEditor()?.mode === "edit" ? "保存" : "确认登记"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </Show>
-
+      <InvoiceEditorModal
+        editor={invoiceEditor()}
+        form={invoiceForm()}
+        setField={setInvoiceField}
+        onClose={closeInvoiceEditor}
+        onSave={() => void saveInvoice()}
+        onPickFile={pickInvoiceFile}
+        onPreviewFile={() => invoiceForm().file_path && previewRelPath(invoiceForm().file_path)}
+        missing={missingFiles()}
+        customers={customers()}
+        tagOptions={tagList()}
+      />
+      <InboundEditorModal
+        editor={inboundEditor()}
+        form={inboundForm()}
+        setField={setInboundField}
+        onClose={closeInboundEditor}
+        onSave={() => void saveInbound()}
+        onPickFile={pickInboundFile}
+        onPreviewFile={() => inboundForm().file_path && previewRelPath(inboundForm().file_path)}
+        missing={missingFiles()}
+        suppliers={suppliers()}
+        productSets={productSets()}
+      />
       {/* ============ 删除确认（账物分离：默认只删记录） ============ */}
       <Show when={deleteTarget()}>
         {(t) => (
