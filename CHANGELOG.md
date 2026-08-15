@@ -6,7 +6,7 @@
 
 - **删除确认「完全没反应」**：产品集文档/图包/证书 tab、搜索结果、设置页标签三处删除确认弹窗，点击「删除」后因 Solid props 惰性求值陷阱崩溃（先置空确认状态再读 props → TypeError），删除不执行；已统一为「先取快照再关弹窗」并全仓普查其余 12 处确认弹窗无同类隐患。新增 e2e 回归 3 例（`tests/e2e/delete-confirm-repro.spec.ts`）防回潮
 - **插件「装上后登录不生效」**：宿主事件此前只投递给已激活插件，新装未激活插件收不到登录/登出通知（`accountChanged`）；现在**插件安装成功即激活**（装完即用），且契约文档明示依赖登录态的插件应声明 `onEvent` 激活令牌并在 activate 自检登录态（`docs/PLUGIN.md` §5.1）
-- **插件渲染层 Solid 打包修复**：外部插件目录（qihe-plugins）构建时 `solid-js` 经 `nodePaths` 回退会误打为 server 空实现，导致插件页面 `createSignal` / `createEffect` 不执行、页内 tab 只有壳没有数据；构建脚本已强制 alias 到浏览器端 client Solid，并将 LAN 子页动态列表/条件改为函数子节点，修复登录后仍显示“未登录”/数据不刷新的问题；LAN 主页恢复响应式 tab + 子页常驻渲染，并新增本地回归验证（`tests/e2e/zz-lan-home.spec.ts`）
+- **插件渲染层 Solid 打包修复**：外部插件目录（内部插件仓）构建时 `solid-js` 经 `nodePaths` 回退会误打为 server 空实现，导致插件页面 `createSignal` / `createEffect` 不执行、页内 tab 只有壳没有数据；构建脚本已强制 alias 到浏览器端 client Solid，并将 LAN 子页动态列表/条件改为函数子节点，修复登录后仍显示“未登录”/数据不刷新的问题；LAN 主页恢复响应式 tab + 子页常驻渲染，并新增本地回归验证（`tests/e2e/zz-lan-home.spec.ts`）
 
 ## v2.5.1 A 流能力域 — 2026-08-15（插件协议 customers/share 能力域实装）
 

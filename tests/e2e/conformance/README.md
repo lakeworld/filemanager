@@ -106,6 +106,6 @@ module.exports = {
 - 需要 `out/` 已构建（`npm run build`；插件宿主在 `out/main` 里）。干净环境示例：
 
 ```bash
-env -i PATH=$PATH HOME=/tmp/qh-home PLAYWRIGHT_BROWSERS_PATH=/home/lake/.cache/ms-playwright DISPLAY=:0 \
+env -i PATH=$PATH HOME=/tmp/qh-home PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright DISPLAY=:0 \
   npm run conformance -- out/plugins/com.qihe.conformance.full.qbox
 ```
