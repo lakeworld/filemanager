@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/* v2.5.1（T2，D2）：Modal 进入过渡（opacity + scale，transform/opacity only） */
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 @layer base {
   html {
     font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
@@ -42,6 +54,59 @@
   }
   .card {
     @apply bg-white rounded-xl border border-surface-200 shadow-card transition-all duration-200 hover:shadow-card-hover;
+  }
+}
+
+/* v2.5.1（T1，D10/D13）：组件类扩充——尺寸档：sm = px-3 py-1.5 text-sm / md = px-4 py-2（= 现状 btn-primary 规格）；
+   全部禁 transition-all（精确属性），悬停/激活用 colors+transform+shadow 分列 */
+@layer components {
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-danger-600 text-white font-medium rounded-lg transition-colors duration-fast hover:bg-danger-700 active:scale-95 shadow-sm;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-transparent text-surface-600 font-medium rounded-lg transition-colors duration-fast hover:bg-surface-100 hover:text-surface-800 active:scale-95;
+  }
+  .btn-ghost-danger {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-transparent text-danger-600 font-medium rounded-lg transition-colors duration-fast hover:bg-danger-50 active:scale-95;
+  }
+  .input {
+    @apply h-9 px-3 rounded-lg border border-surface-200 bg-white text-sm text-surface-800 placeholder:text-surface-400 transition-colors duration-fast focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .select {
+    @apply h-9 px-3 rounded-lg border border-surface-200 bg-white text-sm text-surface-800 transition-colors duration-fast focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 disabled:opacity-50;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium whitespace-nowrap;
+  }
+  .badge-success {
+    @apply badge bg-success-50 text-success-700;
+  }
+  .badge-warning {
+    @apply badge bg-warning-50 text-warning-700;
+  }
+  .badge-danger {
+    @apply badge bg-danger-50 text-danger-700;
+  }
+  .badge-info {
+    @apply badge bg-info-50 text-info-700;
+  }
+  .badge-neutral {
+    @apply badge bg-surface-100 text-surface-600;
+  }
+  .badge-cert {
+    @apply badge bg-cert-50 text-cert-700;
+  }
+  .modal-overlay {
+    @apply fixed inset-0 bg-black/50 flex items-center justify-center z-modal p-4;
+  }
+  .modal-overlay-dark {
+    @apply fixed inset-0 bg-black/70 flex items-center justify-center z-modal p-4;
+  }
+  .modal-panel {
+    @apply bg-white rounded-2xl shadow-xl max-h-[90vh] overflow-y-auto;
+  }
+  .skeleton {
+    @apply animate-pulse bg-surface-200 rounded;
   }
 }
 

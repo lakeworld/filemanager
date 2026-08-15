@@ -108,7 +108,7 @@ test.describe('导出区', () => {
 
     // 行内「删除」→ 确认弹窗 → 确认（弹窗内按钮用 exact 文本区分列表行按钮）
     await page.locator('div.card', { hasText: zipName }).getByRole('button', { name: '删除' }).click()
-    const dialog = page.locator('.fixed.inset-0.bg-black\\/50')
+    const dialog = page.getByRole('dialog', { name: '删除导出文件' })
     await dialog.getByRole('button', { name: '删除', exact: true }).click()
 
     // 删除后列表刷新：该产物行消失，另一产物（e2e导出A）仍在
