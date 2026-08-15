@@ -14,9 +14,17 @@
 
 - **MD 预览防注入**：禁渲染 Markdown 内嵌 HTML（转义为可见文本，免引入 DOMPurify）；链接 href 白名单（`javascript:`/`data:` 等拒绝）；图片相对路径解析防目录越界（`../` 逃逸拒绝）
 
-### 修复
+### UI 打磨轮（阶段二：视觉体系统一 + 交互一致性）
 
-- 无（本版为功能版本；UI 打磨轮随阶段二进行）
+- **设计 token 体系**：语义色五族（success/warning/danger/info/cert）+ 时长档（fast/base/slow）+ z-index 阶（dropdown 10 → popup 70）；组件类全套（btn-danger/btn-ghost/btn-ghost-danger/input/select/badge 六态/modal-overlay/modal-panel/skeleton）；语义色硬编码 **177 处全清零**（等值映射零跳变，emerald/yellow 归并逐处核对）
+- **组件底座八件**：Modal（size 六档/tone/lockOpen + 层栈 + 焦点困守）/Button/Input/Textarea/Select/Badge/Skeleton/Icon（零依赖内联 SVG）
+- **弹窗统一**：自制 overlay 全部迁 Modal 底座（ConfirmDialog/编辑弹窗/新建弹窗/移动/批量打标/批量重命名/压缩分享等 20+ 处）
+- **行为增益（Esc/焦点）**：**弹窗新增 Esc 关闭与焦点困守**（此前多数弹窗无 Esc）；**嵌套弹窗 Esc 只关最上层**（如预览内删除确认）；**Modal 内日期/标签下拉 Esc 只关下拉层**；关闭弹窗后焦点还原触发源
+- **过渡纪律**：transition-all 全清零（精确属性化）；加载三态规范（列表初始 Skeleton 不闪空态——Clients/ProductSets 修复）
+- **可访问性**：裸 select/input aria 关联清零；焦点环统一
+- **布局**：页面骨架/密度统一；1024 最小宽度无横向滚动（自动化断言）
+- **大文件拆分**：Invoices 1219→653 / Clients 899→666 行（弹窗/表格/工具栏/纯函数抽离；信号逻辑区按结构极限保留，如实记录）
+- **渲染性能探针**：ui-perf.spec 灾难回归守护（10 路由 <3s）
 
 ## v2.5 — 2026-08-14（插件协议与宿主：协议 v1 冻结 + hello 开源插件）
 
