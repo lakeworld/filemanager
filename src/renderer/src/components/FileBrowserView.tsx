@@ -407,8 +407,11 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         confirmLabel="删除"
         danger
         onConfirm={() => {
+          // Solid props 为惰性 getter：先取 state 快照，再 onDone 置 null（否则 state.kind 重求值为 null 崩溃，
+          // 2026-08-15 实测：产品集文档/图包/证书 tab 删除无反应 + 页面冻结，根因即此）
+          const s = props.state;
           props.onDone();
-          void (props.state.kind === "files" ? doDeleteFiles(props.state.paths) : doDeleteSubfolder(props.state.folder));
+          void (s.kind === "files" ? doDeleteFiles(s.paths) : doDeleteSubfolder(s.folder));
         }}
         onCancel={props.onDone}
       />

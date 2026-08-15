@@ -28,6 +28,9 @@ export const HOST_EVENT_WHITELIST = [
   'customerCreated',
   'customerUpdated',
   'fileArchived',
+  // v2.5.1（登录增强 D24 落地）：登录/登出即时广播——闭源插件使用锁（未登录零装配）据此
+  // 即时恢复/停止服务，不必等 5min 探针（探针保留为兜底）
+  'accountChanged',
 ] as const
 export type HostEventChannel = (typeof HOST_EVENT_WHITELIST)[number]
 
