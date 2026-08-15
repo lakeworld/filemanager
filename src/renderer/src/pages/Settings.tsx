@@ -412,8 +412,11 @@ export default function Settings() {
         confirmLabel={props.orphan ? "清除" : "删除"}
         danger
         onConfirm={() => {
+          // Solid props 惰性 getter：先取快照再 onDone（同 FileBrowserView/Search 2026-08-15 修复；
+          // 此前 onDone 置 null 后读 props.orphan/props.name 重求值为 null → TypeError，删除不执行）
+          const { name, orphan } = props;
           props.onDone();
-          void (props.orphan ? doRemoveOrphan(props.name) : doDeleteTag(props.name));
+          void (orphan ? doRemoveOrphan(name) : doDeleteTag(name));
         }}
         onCancel={props.onDone}
       />

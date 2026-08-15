@@ -190,6 +190,14 @@ export function registerPluginHost(
       }
       const r = await installer.install(source?.filePath)
       broadcastPluginsChanged()
+      // v2.5.1（再定位方案 A，动作-2026-08-15）：安装成功且启用 → 立即激活（装完即用）。
+      // 此前新装插件在用户登录时收不到 accountChanged（事件只达已激活订阅者，安装不激活、
+      // onStartupFinished 已过）→「装插件后登录没反映」；activate 自检登录态可兜底起服务。
+      if (registry.get(r.id)?.enabled) {
+        void loader.ensureActive(r.id).catch((err) => {
+          void log('error', `插件安装后激活失败（${r.id}）: ${String(err)}`)
+        })
+      }
       return registry.info(r.id) ?? null
     }),
   )

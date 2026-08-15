@@ -279,6 +279,15 @@ export async function buildHelloPlugin(opts = {}) {
     target: 'es2022',
     splitting: false,
     nodePaths: NODE_PATHS,
+    // 外部插件目录经 nodePaths 回退解析 solid-js 时，esbuild 会命中 package.json 的
+    // module/main（server.js），导致插件渲染层拿到 Solid server 空实现（createEffect 不执行）。
+    // 这里显式把 solid-js 主包别名到浏览器端 client 入口，确保插件页面使用真正的响应式实现。
+    alias: {
+      'solid-js': path.join(ROOT, 'node_modules/solid-js/dist/solid.js'),
+      'solid-js/h': path.join(ROOT, 'node_modules/solid-js/h/dist/h.js'),
+      'solid-js/web': path.join(ROOT, 'node_modules/solid-js/web/dist/web.js'),
+    },
+    mainFields: ['browser', 'module', 'main'],
     logLevel: 'silent',
     write: false,
   })
