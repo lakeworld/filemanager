@@ -480,3 +480,8 @@
 - **渲染性能探针（D4）**：ui-perf.spec 10 条懒加载路由首渲染全部 <3000ms（阈值 = 基线×3；实际 <900ms）
 - **1024 无横向滚动**：ui-consistency.spec 15 静态路由断言全过（T5）
 - **单测/e2e**：单测 524（+26：文档 10/previewKind 4/mdImages 5/md-sanitize 3/invoices-utils 4）／e2e 96（+17：docs 3/open 2/md 4/ui-modal 4/ui-consistency 3/ui-perf 1）
+
+## 2026-08-15（v2.5.1 登录增强轮：帐号登录体验，Deepin）
+- **进程内存三态（复测 ×2）**：醒着 **487-488MB**（renderer 172 高态档，vs 阶段二 501-512 高态档偏低；低态档 467-471 见上——环境双稳态，本轮零常驻新增：仅 App onMount 一次读盘 IPC，main 245MB 与阶段二 240-249 一致）/ 托盘常驻 **294-295MB**（≤310 ✓，vs 阶段二 295-297 持平）
+- **CSS 产物 gzip**：**35,823B**（阶段二 35,153B，+670B = 登录表单 ui 底座；门禁 44,230B ✓）
+- **单测/e2e**：单测 **528**（+4：account 错误透传群）／e2e **99**（+3：profile-account 账号区）

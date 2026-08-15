@@ -128,13 +128,47 @@ describe('AccountService', () => {
     expect(svc.isLoggedIn()).toBe(false)
   })
 
-  it('登录失败：返回错误且不落盘', async () => {
+  it('登录失败：返回服务端 message 透传且不落盘（v2.5.1 登录增强）', async () => {
     const fetchImpl = mockFetchStatus(401, { message: 'invalid credentials' })
     svc = new AccountService({ ...deps, fetchImpl })
     const r = await svc.login('a@b.com', 'bad')
     expect(r.ok).toBe(false)
-    expect((r as { error?: string }).error).toContain('官网')
+    // D9：401+message → 透传服务端 message（不再笼统引导官网）
+    expect((r as { error?: string }).error).toBe('invalid credentials')
     expect(fs.existsSync(accountFile)).toBe(false)
+  })
+
+  it('登录失败：400 + message（凭据错误）→ 透传（v2.5.1 登录增强）', async () => {
+    const fetchImpl = mockFetchStatus(400, { message: '邮箱或密码错误.' })
+    svc = new AccountService({ ...deps, fetchImpl })
+    const r = await svc.login('a@b.com', 'bad')
+    expect(r.ok).toBe(false)
+    expect((r as { error?: string }).error).toBe('邮箱或密码错误.')
+  })
+
+  it('登录失败：非 JSON 响应体 → 兜底文案（v2.5.1 登录增强）', async () => {
+    const fetchImpl = vi.fn(async () => new Response('Internal Server Error', { status: 500 })) as unknown as typeof fetch
+    svc = new AccountService({ ...deps, fetchImpl })
+    const r = await svc.login('a@b.com', 'pw')
+    expect(r.ok).toBe(false)
+    expect((r as { error?: string }).error).toBe('登录失败，请稍后重试')
+  })
+
+  it('登录失败：429 限流 → 固定文案（忽略 body message）（v2.5.1 登录增强）', async () => {
+    const fetchImpl = mockFetchStatus(429, { message: 'too many requests' })
+    svc = new AccountService({ ...deps, fetchImpl })
+    const r = await svc.login('a@b.com', 'pw')
+    expect(r.ok).toBe(false)
+    expect((r as { error?: string }).error).toBe('登录过于频繁，请稍后再试')
+  })
+
+  it('登录失败：500 + message → 透传且限长 200 字符（v2.5.1 登录增强）', async () => {
+    const fetchImpl = mockFetchStatus(500, { message: 'x'.repeat(300) })
+    svc = new AccountService({ ...deps, fetchImpl })
+    const r = await svc.login('a@b.com', 'pw')
+    expect(r.ok).toBe(false)
+    const err = (r as { error?: string }).error ?? ''
+    expect(err.length).toBe(200)
   })
 
   it('网络异常：登录返回网络错误', async () => {
