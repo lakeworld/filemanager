@@ -184,7 +184,7 @@ export default function Search() {
                     <div class="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center text-lg">📦</div>
                     <div>
                       <div class="font-medium">{ps.name}</div>
-                      <div class="text-sm text-surface-400">{ps.image_count} 图 / {ps.cert_count} 证</div>
+                      <div class="text-sm text-surface-400">{ps.image_count} 图 / {ps.cert_count} 证 / {ps.doc_count ?? 0} 文</div>
                     </div>
                   </div>
                   {/* v2.4.4（验收修复 T2）：搜索结果产品集卡片展示标签 chips */}

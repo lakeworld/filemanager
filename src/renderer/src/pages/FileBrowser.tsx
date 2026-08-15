@@ -35,7 +35,7 @@ export default function FileBrowser() {
       scope={isCustomer() ? "customer" : isSupplier() ? "supplier" : "productSet"}
       entity={entity()}
       subFolder={subFolder()}
-      fileType={params.type === "cert" ? "cert" : "image"}
+      fileType={params.type === "cert" ? "cert" : params.type === "doc" ? "doc" : "image"}
     />
   );
 }

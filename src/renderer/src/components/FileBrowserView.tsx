@@ -29,6 +29,10 @@ const CUSTOMER_DEFAULT_SUBFOLDERS = ["报价", "合同", "沟通", "其他"];
 
 /** 供应商子文件夹固定集（core SUPPLIER_SUBFOLDERS 镜像；决策 1：固定集不做 config 键，create/restore 建齐） */
 const SUPPLIER_DEFAULT_SUBFOLDERS = ["合同", "对账单", "往来文件"];
+/** v2.5.1（F2）：文档子文件夹默认集（core defaultWorkspaceConfig.doc_subfolders 镜像；缺省已由 loadConfig 合并写回，此处仅为防御） */
+const DOC_DEFAULT_SUBFOLDERS = ["说明书", "参数表", "质检报告"];
+/** v2.5.1（F2）：产品集区文件类型三态（图包/证书/文档） */
+export type ProductSetFileType = "image" | "cert" | "doc";
 
 export interface FileBrowserViewProps {
   scope: FileBrowserScope;
@@ -36,8 +40,8 @@ export interface FileBrowserViewProps {
   entity: string;
   /** 当前子文件夹（已解码） */
   subFolder: string;
-  /** 产品集区的文件类型（图包/证书）；scope=customer 时忽略 */
-  fileType?: "image" | "cert";
+  /** 产品集区的文件类型（图包/证书/文档）；scope=customer 时忽略 */
+  fileType?: ProductSetFileType;
 }
 
 function formatBytes(bytes: number): string {
@@ -108,7 +112,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   const scopeLabel = () => (isCustomer() ? "客户" : isSupplier() ? "供应商" : "");
   const fileType = () => props.fileType ?? "image";
   const typeLabel = () =>
-    isCustomer() ? "客户文件" : isSupplier() ? "供应商文件" : fileType() === "image" ? "图包" : "证书";
+    isCustomer() ? "客户文件" : isSupplier() ? "供应商文件" : fileType() === "image" ? "图包" : fileType() === "cert" ? "证书" : "文档";
   const subFolders = () =>
     isCustomer()
       ? workspaceConfig()?.customer_subfolders || CUSTOMER_DEFAULT_SUBFOLDERS
@@ -116,7 +120,10 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         ? SUPPLIER_DEFAULT_SUBFOLDERS
         : fileType() === "image"
           ? workspaceConfig()?.image_subfolders || ["主图", "详情页", "白底图", "素材"]
-          : workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"];
+          : fileType() === "cert"
+            ? workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"]
+            : // v2.5.1（F2）：文档子文件夹（config 缺省已由 loadConfig 合并，此处镜像兜底）
+              workspaceConfig()?.doc_subfolders || DOC_DEFAULT_SUBFOLDERS;
 
   // v2.4.7：子文件夹路由路径按 scope 生成（customer → /files/customer/:name/:subFolder；v2.4.9 S2：supplier 同构）
   const folderPath = (sub: string) =>
@@ -333,7 +340,9 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
             ? SUPPLIER_DEFAULT_SUBFOLDERS[0]
             : fileType() === "image"
               ? "主图"
-              : "3C");
+              : fileType() === "cert"
+                ? "3C"
+                : "说明书");
       navigate(folderPath(next));
       loadWorkspaceConfig();
     } else {
@@ -458,7 +467,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
               class="btn-secondary text-sm"
               onClick={() => setShowNewFolder(true)}
             >
-              ➕ 新建{isCustomer() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : "证书类型"}
+              ➕ 新建{isCustomer() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : fileType() === "cert" ? "证书类型" : "文档类型"}
             </button>
           </Show>
         </div>
@@ -599,11 +608,11 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       <Show when={showNewFolder()}>
         <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowNewFolder(false)}>
           <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 class="text-xl font-bold mb-4">新建{isCustomer() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : "证书类型"}</h2>
+            <h2 class="text-xl font-bold mb-4">新建{isCustomer() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : fileType() === "cert" ? "证书类型" : "文档类型"}</h2>
             <input
               type="text"
               class="w-full px-3 py-2 border border-surface-200 rounded-lg mb-4"
-              placeholder={isCustomer() ? "如：报价" : fileType() === "image" ? "如：场景图" : "如：FDA认证"}
+              placeholder={isCustomer() ? "如：报价" : fileType() === "image" ? "如：场景图" : fileType() === "cert" ? "如：FDA认证" : "如：使用说明"}
               value={newFolderName()}
               disabled={creatingFolder()}
               onInput={(e) => setNewFolderName(e.currentTarget.value)}
