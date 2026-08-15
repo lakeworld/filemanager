@@ -1,6 +1,8 @@
 import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
+import Modal from "~/components/ui/Modal";
+import FileBrowserToolbar from "./file-browser/FileBrowserToolbar";
 import { workspaceConfig, loadWorkspaceConfig, currentWorkspace, fileBrowserRefreshTrigger, defaultNamingTemplate } from "~/stores/workspace";
 import { openPreview, openFileSmart } from "~/stores/preview";
 import { showToast } from "~/stores/notifyBanner";
@@ -442,37 +444,17 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         </Show>
       </div>
 
-      <div class="flex items-center justify-between mb-6">
-        <div class="flex bg-surface-100 rounded-lg p-1">
-          <For each={subFolders()}>
-            {(sub) => (
-              <button
-                class={`px-4 py-2 text-sm rounded-md transition-colors ${props.subFolder === sub ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500 hover:text-surface-700"}`}
-                onClick={() => navigate(folderPath(sub))}
-              >
-                {sub}
-              </button>
-            )}
-          </For>
-        </div>
-        <div class="flex gap-2">
-          {/* v2.4.9 S2：supplier 子文件夹为固定集（决策 1），隐藏新建/删除按钮保持不变式 */}
-          <Show when={!isSupplier()}>
-            <button
-              class="btn-secondary text-sm text-red-600 hover:bg-red-50 hover:border-red-200"
-              onClick={handleDeleteSubfolder}
-            >
-              🗑️ 删除当前{isCustomer() ? "子文件夹" : `${typeLabel()}类型`}
-            </button>
-            <button
-              class="btn-secondary text-sm"
-              onClick={() => setShowNewFolder(true)}
-            >
-              ➕ 新建{isCustomer() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : fileType() === "cert" ? "证书类型" : "文档类型"}
-            </button>
-          </Show>
-        </div>
-      </div>
+      <FileBrowserToolbar
+        subFolders={subFolders()}
+        currentSub={props.subFolder}
+        typeLabel={typeLabel()}
+        isCustomer={isCustomer()}
+        isSupplier={isSupplier()}
+        onNavigate={(sub) => navigate(folderPath(sub))}
+        onDeleteSubfolder={handleDeleteSubfolder}
+        onNewSubfolder={() => setShowNewFolder(true)}
+      />
+
 
       <Show when={selectedFilePaths().length > 0}>
         <div class="flex items-center justify-between mb-4 p-3 bg-primary-50 border border-primary-100 rounded-xl">
@@ -514,7 +496,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
               📦 压缩分享
             </button>
             <button
-              class="px-3 py-1.5 text-sm text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
+              class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg transition-colors"
               onClick={handleBatchDelete}
             >
               删除选中
@@ -527,7 +509,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         class="border-2 border-dashed rounded-2xl p-8 transition-colors border-surface-200 bg-surface-0 flex-1 min-h-0 flex flex-col"
       >
         <Show when={loadError()}>
-          <div class="mb-3 px-3 py-2 rounded-xl bg-red-50 border border-red-200 text-sm text-red-600 flex items-center justify-between shrink-0">
+          <div class="mb-3 px-3 py-2 rounded-xl bg-danger-50 border border-danger-200 text-sm text-danger-600 flex items-center justify-between shrink-0">
             <span>文件列表加载失败：{loadError()}</span>
             <button class="text-primary-600 hover:text-primary-700 whitespace-nowrap" onClick={() => void loadFiles()}>重试</button>
           </div>
@@ -570,7 +552,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
               scrollResetKey={`${props.scope}/${props.entity}/${props.subFolder}`}
               renderItem={(file) => (
                 <div
-                  class={`card p-3 cursor-pointer hover:shadow-card-hover transition-all select-none ${selectedFilePaths().includes(file.path) ? "border-primary-500 bg-primary-50" : ""}`}
+                  class={`card p-3 cursor-pointer hover:shadow-card-hover select-none ${selectedFilePaths().includes(file.path) ? "border-primary-500 bg-primary-50" : ""}`}
                   draggable={true}
                   onDragStart={(e) => handleDragOut(e, file.path, selectedFilePaths())}
                   onContextMenu={(e) => {
@@ -605,14 +587,13 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         </Show>
       </div>
 
-      {/* New Folder Modal */}
+      {/* New Folder Modal（v2.5.1 T3 波2：overlay→Modal 底座） */}
       <Show when={showNewFolder()}>
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowNewFolder(false)}>
-          <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 class="text-xl font-bold mb-4">新建{isCustomer() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : fileType() === "cert" ? "证书类型" : "文档类型"}</h2>
+        <Modal open title={`新建${isCustomer() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : fileType() === "cert" ? "证书类型" : "文档类型"}`} size="md" onClose={() => setShowNewFolder(false)}>
+          <div class="p-6">
             <input
               type="text"
-              class="w-full px-3 py-2 border border-surface-200 rounded-lg mb-4"
+              class="input w-full mb-4"
               placeholder={isCustomer() ? "如：报价" : fileType() === "image" ? "如：场景图" : fileType() === "cert" ? "如：FDA认证" : "如：使用说明"}
               value={newFolderName()}
               disabled={creatingFolder()}
@@ -624,7 +605,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
               <button class="btn-primary" onClick={handleCreateFolder} disabled={creatingFolder()}>创建</button>
             </div>
           </div>
-        </div>
+        </Modal>
       </Show>
 
       {/* Context Menu（统一组件，v2.3.x 由 builder 生成） */}

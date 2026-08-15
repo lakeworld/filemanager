@@ -1,4 +1,5 @@
 import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
+import Modal from "~/components/ui/Modal";
 import { api } from "~/wails/api";
 import {
   currentWorkspace,
@@ -85,10 +86,7 @@ export default function MoveDialog(props: {
   };
 
   return (
-    <div
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      onClick={props.onClose}
-    >
+    <Modal open title="移动到…" size="md" onClose={props.onClose}>
       <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h2 class="text-xl font-bold mb-4">移动到…</h2>
 
@@ -149,7 +147,7 @@ export default function MoveDialog(props: {
         </div>
 
         <Show when={status() === "error" && errorMsg()}>
-          <div class="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
+          <div class="mt-4 p-3 bg-danger-50 border border-danger-100 rounded-lg text-sm text-danger-700">
             {errorMsg()}
           </div>
         </Show>
@@ -167,6 +165,6 @@ export default function MoveDialog(props: {
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

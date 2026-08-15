@@ -385,7 +385,7 @@ export default function Certs() {
             <button class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg" onClick={() => void handleCompress(selectedPaths())}>
               📦 压缩分享
             </button>
-            <button class="px-3 py-1.5 text-sm text-white bg-red-500 hover:bg-red-600 rounded-lg" onClick={() => handleDelete(selectedPaths())}>
+            <button class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg" onClick={() => handleDelete(selectedPaths())}>
               🗑️ 删除
             </button>
           </div>
@@ -409,7 +409,7 @@ export default function Certs() {
             gap={12}
             renderItem={(cert) => (
               <div
-                class={`card p-4 flex items-center gap-4 cursor-pointer select-none hover:shadow-card-hover transition-all ${selectedPaths().includes(cert.path) ? "border-primary-500 bg-primary-50" : ""}`}
+                class={`card p-4 flex items-center gap-4 cursor-pointer select-none hover:shadow-card-hover ${selectedPaths().includes(cert.path) ? "border-primary-500 bg-primary-50" : ""}`}
                 draggable={true}
                 onDragStart={(e) => handleDragOut(e, cert.path, selectedPaths())}
                 onContextMenu={(e) => {
@@ -420,7 +420,7 @@ export default function Certs() {
                 onClick={() => toggleSelection(cert.path)}
                 onDblClick={() => openFileSmart(cert, { onDelete: loadAllCerts })}
               >
-                <div class="w-12 h-12 rounded-lg bg-orange-50 flex items-center justify-center text-2xl overflow-hidden shrink-0">
+                <div class="w-12 h-12 rounded-lg bg-cert-50 flex items-center justify-center text-2xl overflow-hidden shrink-0">
                   <FileThumbnail filePath={cert.path} fileType={cert.file_type} class="w-full h-full object-cover" />
                 </div>
                 <div class="flex-1 min-w-0">
@@ -429,7 +429,7 @@ export default function Certs() {
                   <div class="text-xs text-surface-400">{formatBytes(cert.size)} · {cert.modified}</div>
                   <Show when={expiryInfo(cert.path)}>
                     {(info) => (
-                      <div class={`text-xs mt-1 ${info().urgent ? "text-red-600 font-medium" : "text-amber-600"}`}>
+                      <div class={`text-xs mt-1 ${info().urgent ? "text-danger-600 font-medium" : "text-warning-600"}`}>
                         ⚠️ {info().label}
                       </div>
                     )}

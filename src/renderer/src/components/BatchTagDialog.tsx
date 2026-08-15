@@ -1,4 +1,5 @@
 import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
+import Modal from "~/components/ui/Modal";
 import { api } from "~/wails/api";
 import { showToast } from "~/stores/notifyBanner";
 import { loadTagDefs, tagList } from "~/stores/tags";
@@ -89,7 +90,7 @@ export default function BatchTagDialog(props: {
   };
 
   return (
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={props.onClose}>
+    <Modal open title={`打标（${props.paths.length} 个文件）`} onClose={props.onClose}>
       <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h2 class="text-xl font-bold mb-4">打标（{props.paths.length} 个文件）</h2>
 
@@ -143,6 +144,6 @@ export default function BatchTagDialog(props: {
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
