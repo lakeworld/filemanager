@@ -627,12 +627,14 @@ export interface PluginInfo {
     /** 可见性过滤：仅匹配的文件类型出现该命令 */
     when?: { exts?: string[] }
   }>
-  /** 声明式权限（仅展示，v1 不强制拦截，见 PLUGIN.md §2.6；account 为 v2.5 增量） */
+  /** 声明式权限（仅展示，v1 不强制拦截，见 PLUGIN.md §2.6；account 为 v2.5 增量，customers/share 为 v2.5.1 A 流增量） */
   permissions?: {
     network?: string[]
     clipboard?: boolean
     notification?: boolean
     account?: boolean
+    customers?: boolean
+    share?: boolean
   }
   /** 最近一次激活耗时（毫秒，管理页可观测） */
   activationMs?: number

@@ -55,12 +55,14 @@ const PUBLIC_PLUGIN_MD = path.join(repoRoot, 'docs/PLUGIN.md')
 const HOST_WHITELIST = [
   'account',
   'apiVersion',
+  'customer', // v2.5.1（A1）：customers 能力域
   'dialog',
   'entitlement',
   'events',
   'files',
   'log',
   'notify',
+  'share', // v2.5.1（A2）：share 能力域
   'storage',
   'workspace',
 ]
@@ -238,6 +240,27 @@ async function makeLoader(mainJs: string): Promise<{ loader: PluginLoader }> {
         emitToRenderer: () => {},
         account: { getToken: () => null, isLoggedIn: () => false },
         accountAccess: false,
+        customers: {
+          list: async () => [],
+          get: async () => null,
+          writeErpExt: async () => {},
+          syncProfile: async () => ({ applied: true }),
+          relation: { link: async () => {}, unlink: async () => {} },
+        },
+        customersAccess: false,
+        share: {
+          listProductSets: async () => [],
+          listCustomers: async () => [],
+          listTree: async () => [],
+          getMetadata: async () => ({ tags: [], notes: '' }),
+          statFile: async () => ({ size: 0, mtime: '' }),
+          readFileChunk: async () => new Uint8Array(0),
+          writePulledFile: async () => {},
+          ensureProductSet: async () => 'exists' as const,
+          ensureCustomer: async () => 'exists' as const,
+          mergePulledMetadata: async () => ({ conflicts: [] }),
+        },
+        shareAccess: false,
       }),
     importer: (url) => Promise.resolve(cjsRequire(fileURLToPath(url))),
     log: () => {},

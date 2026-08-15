@@ -103,6 +103,10 @@ export interface AppIpcHooks {
   isTrayReady: () => boolean
   /** v2.5（P1-A4）：files 导入完成（含取消/失败）→ 宿主事件 importComplete 投递回调（装配层注入） */
   onImportComplete?: (payload: { success: boolean; count: number; cancelled: boolean }) => void
+  /** v2.5.1（A1，D9）：客户变更 → 宿主事件 customerCreated/customerUpdated 投递回调（装配层注入；只投成功路径） */
+  onCustomerEvent?: (event: 'customerCreated' | 'customerUpdated', payload: { name: string; oldName?: string }) => void
+  /** v2.5.1（A1，D20）：文件归档 → 宿主事件 fileArchived 投递回调（装配层注入；只投成功路径，批量逐条） */
+  onFileArchived?: (payload: { region: 'invoice' | 'inbound' | 'exchange' | 'quote'; path: string; name: string }) => void
 }
 
 export function registerIpc(
@@ -140,19 +144,44 @@ export function registerIpc(
   ipcMain.handle('qihebox:productSets:updateInfo', (_e, req) => handle(() => box.workspace.updateProductSetInfo(req)))
 
   // —— v2.4.7：客户（客户/ 目录 + customers.json 档案，PLAN §5）——
+  // v2.5.1（A1，D9）：成功路径投递 customerCreated/customerUpdated（失败/取消不投）
   ipcMain.handle('qihebox:clients:list', () => handle(() => box.clients.list()))
-  ipcMain.handle('qihebox:clients:create', (_e, req) => handle(() => box.clients.create(req)))
-  ipcMain.handle('qihebox:clients:update', (_e, req) => handle(() => box.clients.update(req)))
+  ipcMain.handle('qihebox:clients:create', (_e, req) =>
+    handle(async () => {
+      const created = await box.clients.create(req)
+      hooks.onCustomerEvent?.('customerCreated', { name: created.name })
+      return created
+    }),
+  )
+  ipcMain.handle('qihebox:clients:update', (_e, req) =>
+    handle(async () => {
+      const updated = await box.clients.update(req)
+      hooks.onCustomerEvent?.('customerUpdated', { name: updated.name })
+      return updated
+    }),
+  )
   // v2.4.9（S3b r3 P1-5）：客户改名编排——clients.rename（目录/档案）+ quotes.renameCustomer（报价台账 customer 级联）
   ipcMain.handle('qihebox:clients:rename', (_e, oldName: string, newName: string) =>
-    handle(() => box.renameCustomer(oldName, newName)),
+    handle(async () => {
+      await box.renameCustomer(oldName, newName)
+      // D9：rename payload 带 oldName 防仓迹按旧名 find-or-create 建重复客户
+      hooks.onCustomerEvent?.('customerUpdated', { name: newName, oldName })
+    }),
   )
   ipcMain.handle('qihebox:clients:delete', (_e, name: string) => handle(() => box.deleteCustomer(name)))
   ipcMain.handle('qihebox:clients:linkRelation', (_e, customer: string, productSet: string) =>
-    handle(() => box.clients.linkRelation(customer, productSet)),
+    handle(async () => {
+      const info = await box.clients.linkRelation(customer, productSet)
+      hooks.onCustomerEvent?.('customerUpdated', { name: info.name })
+      return info
+    }),
   )
   ipcMain.handle('qihebox:clients:unlinkRelation', (_e, customer: string, productSet: string) =>
-    handle(() => box.clients.unlinkRelation(customer, productSet)),
+    handle(async () => {
+      const info = await box.clients.unlinkRelation(customer, productSet)
+      hooks.onCustomerEvent?.('customerUpdated', { name: info.name })
+      return info
+    }),
   )
 
   // —— v2.4.9 S2：供应商（供应商/ 目录 + suppliers.json 档案，镜像客户；get 省略——list 已含全量，与客户同形态）——
@@ -181,7 +210,12 @@ export function registerIpc(
   )
   ipcMain.handle('qihebox:quotes:delete', (_e, quotationNo: string) => handle(() => box.quotes.removeEntry(quotationNo)))
   ipcMain.handle('qihebox:quotes:archiveFile', (_e, sourcePath: string, date: string) =>
-    handle(() => box.quotes.archiveFile(sourcePath, date)),
+    handle(async () => {
+      // v2.5.1（D20）：成功路径投递 fileArchived（region=quote）
+      const r = await box.quotes.archiveFile(sourcePath, date)
+      hooks.onFileArchived?.({ region: 'quote', path: sourcePath, name: path.basename(sourcePath) })
+      return r
+    }),
   )
 
   // —— v2.4.7：发票台账（invoices.json，PLAN §6）——
@@ -198,7 +232,12 @@ export function registerIpc(
     handle(() => box.invoices.remove(number, opts)),
   )
   ipcMain.handle('qihebox:invoices:archiveFile', (_e, sourcePath: string, date: string) =>
-    handle(() => box.invoices.archiveFile(sourcePath, date)),
+    handle(async () => {
+      // v2.5.1（D20）：成功路径投递 fileArchived（region=invoice）
+      const r = await box.invoices.archiveFile(sourcePath, date)
+      hooks.onFileArchived?.({ region: 'invoice', path: sourcePath, name: path.basename(sourcePath) })
+      return r
+    }),
   )
   ipcMain.handle('qihebox:invoices:exportXlsx', (_e, filePath: string, records) =>
     handle(() => box.invoices.exportXlsx(filePath, records)),
@@ -217,7 +256,12 @@ export function registerIpc(
     handle(() => box.inbound.remove(id, opts)),
   )
   ipcMain.handle('qihebox:inbound:archiveFile', (_e, sourcePath: string, date: string) =>
-    handle(() => box.inbound.archiveFile(sourcePath, date)),
+    handle(async () => {
+      // v2.5.1（D20）：成功路径投递 fileArchived（region=inbound）
+      const r = await box.inbound.archiveFile(sourcePath, date)
+      hooks.onFileArchived?.({ region: 'inbound', path: sourcePath, name: path.basename(sourcePath) })
+      return r
+    }),
   )
 
   // —— 文件 ——

@@ -20,7 +20,8 @@ import { ok, fail, handle, sendTo } from '../ipc'
 import { PluginRegistry, PLUGINS_DIR, STATE_DIR } from './registry'
 import { PluginLoader } from './loader'
 import { PluginInstaller } from './installer'
-import { createPluginHost, HostEventBus, HOST_EVENT_WHITELIST } from './host'
+import { createPluginHost, HostEventBus, HOST_EVENT_WHITELIST, fileError, mapCoreError } from './host'
+import { ShareViewService } from '../core/shareView'
 
 // ApiResult 包装（ok/fail/handle/sendTo）自 src/main/ipc.ts 复用（薄壳纪律单点）
 
@@ -35,6 +36,18 @@ async function openDialog(kind: 'file' | 'directory', opts: unknown): Promise<st
   if (kind === 'file' && Array.isArray(o.filters)) base.filters = o.filters as Electron.FileFilter[]
   const r = win ? await dialog.showOpenDialog(win, base) : await dialog.showOpenDialog(base)
   return r.canceled || r.filePaths.length === 0 ? '' : r.filePaths[0]
+}
+
+/**
+ * v2.5.1（A1/A2）：core 调用错误码映射包装——catch 回调返回 PluginBusinessError
+ * 会让 TS 把错误并入成功分支类型，故用显式包装：捕获后重抛映射错误（不返回值）。
+ */
+async function mapReject<T>(p: Promise<T>): Promise<T> {
+  try {
+    return await p
+  } catch (err) {
+    throw mapCoreError(err)
+  }
 }
 
 /** 系统通知（与 src/main/index.ts sendSystemNotification 同语义）：返回是否真实发出；点击唤起主窗口 */
@@ -73,6 +86,8 @@ export function registerPluginHost(
   registry.scan() // 装配期同步登记（微秒级：仅读 manifest 清单），不加载任何插件代码
 
   const bus = new HostEventBus((level, msg) => void log(level, msg))
+  // v2.5.1（A2）：share 能力域 core 实例（装配层单例，host.share 适配器注入）
+  const shareView = new ShareViewService(box)
   const loader = new PluginLoader({
     registry,
     root,
@@ -102,6 +117,37 @@ export function registerPluginHost(
           isLoggedIn: () => account.isLoggedIn(),
         },
         accountAccess: manifest.permissions?.account === true,
+        // v2.5.1（A1/A2，PLAN-v2.6-v2.7 §3.1/§3.2）：customers/share 能力域适配器 + 门控
+        // core 裸错误经 mapCoreError 映射为契约错误码（不计熔断）
+        customers: {
+          list: (since) => mapReject(box.clients.listSince(since)),
+          get: async (name) => mapReject(box.clients.get(name)),
+          writeErpExt: (name, ext) => mapReject(box.clients.writeErpExt(name, ext)),
+          syncProfile: async (req) => {
+            const r = await mapReject(box.clients.syncProfile(req))
+            // D6：applied:false = STALE（回显式乐观锁：req.updated_at ≤ 档案 updated_at）
+            if (!r.applied) throw fileError('STALE', '档案 updated_at 不早于请求，拒绝写入（STALE）')
+            return r
+          },
+          relation: {
+            link: (c, p) => mapReject(box.clients.linkRelation(c, p)).then(() => undefined),
+            unlink: (c, p) => mapReject(box.clients.unlinkRelation(c, p)).then(() => undefined),
+          },
+        },
+        customersAccess: manifest.permissions?.customers === true,
+        share: {
+          listProductSets: () => mapReject(shareView.listProductSets()),
+          listCustomers: () => mapReject(shareView.listCustomers()),
+          listTree: (p) => mapReject(shareView.listTree(p)),
+          getMetadata: (p) => mapReject(shareView.getMetadata(p)),
+          statFile: (p) => mapReject(shareView.statFile(p)),
+          readFileChunk: (p, o, l) => mapReject(shareView.readFileChunk(p, o, l)),
+          writePulledFile: (p, c, o) => mapReject(shareView.writePulledFile(p, c, o)),
+          ensureProductSet: (n) => mapReject(shareView.ensureProductSet(n)),
+          ensureCustomer: (n) => mapReject(shareView.ensureCustomer(n)),
+          mergePulledMetadata: (e) => mapReject(shareView.mergePulledMetadata(e)),
+        },
+        shareAccess: manifest.permissions?.share === true,
       }),
     log: (level, msg) => void log(level, msg),
   })

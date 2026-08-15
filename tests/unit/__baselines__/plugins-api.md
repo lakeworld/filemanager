@@ -2,7 +2,7 @@
   qihe-box API 兼容性守护基线（API_VERSION=1 · 只增不删）
   生成器：tests/unit/helpers/apiSurface.ts · 更新：npm run api:update
   TypeScript: 5.9.3
-  break-reason: （无）
+  break-reason: v2.5.1 A1/A2 能力域增量（只增不删）：PluginManifest.permissions 增 customers/share 可选布尔；PluginHost 增 customer/share 命名空间（11+6 方法）
 -->
 
 # qihe-box 插件协议 API 面（types / preload / ipc）
@@ -16,6 +16,14 @@
 - PluginHost.account.isLoggedIn(): boolean
 - PluginHost.account: { getToken(): string | null; isLoggedIn(): boolean; }
 - PluginHost.apiVersion: number
+- PluginHost.customer.get(name: string): Promise<unknown | null>
+- PluginHost.customer.list(since?: string): Promise<unknown[]>
+- PluginHost.customer.relation.link(customerName: string, productSetName: string): Promise<void>
+- PluginHost.customer.relation.unlink(customerName: string, productSetName: string): Promise<void>
+- PluginHost.customer.relation: { link(customerName: string, productSetName: string): Promise<void>; unlink(customerName: string, productSetName: string): Promise<void>; }
+- PluginHost.customer.syncProfile(req: { name: string; fields?: { type?: '企业' | '个人'; contact?: string; phone?: string; email?: string; address?: string; notes?: string; }; erp_ext?: Record<string, unknown>; updated_at: string; }): Promise<{ applied: boolean; }>
+- PluginHost.customer.writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
+- PluginHost.customer: { list(since?: string): Promise<unknown[]>; get(name: string): Promise<unknown | null>; writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>; syncProfile(req: { name: string; fields?: { type?: '企业' | '个人'; contact?: string; phone?: string; email?: string; address?: string; notes?: string; }; erp_ext?: Record<string, unknown>; updated_at: string; }): Promise<{ applied: boolean; }>; relation: { link(customerName: string, productSetName: string): Promise<void>; unlink(customerName: string, productSetName: string): Promise<void>; }; }
 - PluginHost.dialog.openDirectory(opts: unknown): Promise<string>
 - PluginHost.dialog.openFile(opts: unknown): Promise<string>
 - PluginHost.dialog: { openFile(opts: unknown): Promise<string>; openDirectory(opts: unknown): Promise<string>; }
@@ -30,6 +38,17 @@
 - PluginHost.files: { readText(relPath: string): Promise<string>; readBuffer(relPath: string): Promise<Uint8Array>; writeExport(fileName: string, data: string | Uint8Array): Promise<void>; }
 - PluginHost.log(level: 'info' | 'warn' | 'error', msg: string): void
 - PluginHost.notify(title: string, body: string): boolean
+- PluginHost.share.ensureCustomer(name: string): Promise<'created' | 'exists'>
+- PluginHost.share.ensureProductSet(name: string): Promise<'created' | 'exists'>
+- PluginHost.share.getMetadata(relPath: string): Promise<{ tags: string[]; notes: string; }>
+- PluginHost.share.listCustomers(): Promise<unknown[]>
+- PluginHost.share.listProductSets(): Promise<unknown[]>
+- PluginHost.share.listTree(relPath?: string): Promise<unknown[]>
+- PluginHost.share.mergePulledMetadata(entries: { path: string; tags: string[]; notes: string; }[]): Promise<{ conflicts: string[]; }>
+- PluginHost.share.readFileChunk(relPath: string, offset: number, length: number): Promise<Uint8Array>
+- PluginHost.share.statFile(relPath: string): Promise<{ size: number; mtime: string; }>
+- PluginHost.share.writePulledFile(targetRelPath: string, chunk: Uint8Array, offset: number): Promise<void>
+- PluginHost.share: { listProductSets(): Promise<unknown[]>; listCustomers(): Promise<unknown[]>; listTree(relPath?: string): Promise<unknown[]>; getMetadata(relPath: string): Promise<{ tags: string[]; notes: string; }>; statFile(relPath: string): Promise<{ size: number; mtime: string; }>; readFileChunk(relPath: string, offset: number, length: number): Promise<Uint8Array>; writePulledFile(targetRelPath: string, chunk: Uint8Array, offset: number): Promise<void>; ensureProductSet(name: string): Promise<'created' | 'exists'>; ensureCustomer(name: string): Promise<'created' | 'exists'>; mergePulledMetadata(entries: { path: string; tags: string[]; notes: string; }[]): Promise<{ conflicts: string[]; }>; }
 - PluginHost.storage.get(key: string): Promise<unknown>
 - PluginHost.storage.set(key: string, value: unknown): Promise<void>
 - PluginHost.storage: { get(key: string): Promise<unknown>; set(key: string, value: unknown): Promise<void>; }
@@ -65,9 +84,11 @@
 - PluginManifest.pages[].path: string
 - PluginManifest.permissions.account?: boolean
 - PluginManifest.permissions.clipboard?: boolean
+- PluginManifest.permissions.customers?: boolean
 - PluginManifest.permissions.network?: string[]
 - PluginManifest.permissions.notification?: boolean
-- PluginManifest.permissions?: { network?: string[]; clipboard?: boolean; notification?: boolean; account?: boolean; }
+- PluginManifest.permissions.share?: boolean
+- PluginManifest.permissions?: { network?: string[]; clipboard?: boolean; notification?: boolean; account?: boolean; customers?: boolean; share?: boolean; }
 - PluginManifest.syncScope?: 'global' | 'local'
 - PluginManifest.transport?: 'inproc'
 - PluginManifest.version: string
