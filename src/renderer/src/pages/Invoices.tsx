@@ -611,6 +611,7 @@ export default function Invoices() {
         <InboundTable
           rows={inboundRecords()}
           suppliers={suppliers()}
+          onCreate={openInboundCreate}
           onPreview={previewInboundFile}
           onEdit={openInboundEdit}
           onDelete={(rec) => requestDelete("inbound", rec.id, rec.id)}

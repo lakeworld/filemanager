@@ -15,11 +15,11 @@ type QuoteStatus = QuoteRecord["status"];
 export function statusChipClass(s: QuoteStatus): string {
   switch (s) {
     case "草稿":
-      return "bg-amber-50 text-amber-700";
+      return "bg-warning-50 text-warning-700";
     case "已确认":
-      return "bg-emerald-50 text-emerald-700";
+      return "bg-success-50 text-success-700";
     case "修订中":
-      return "bg-blue-50 text-blue-700";
+      return "bg-info-50 text-info-700";
   }
 }
 
@@ -61,7 +61,7 @@ export default function QuoteStatusActions(props: {
         </button>
       </Show>
       <Show when={props.status === "修订中"}>
-        <button class={`${btnBase} bg-surface-100 text-surface-600 hover:bg-amber-50 hover:text-amber-700`} onClick={() => void go("草稿")}>
+        <button class={`${btnBase} bg-surface-100 text-surface-600 hover:bg-warning-50 hover:text-warning-700`} onClick={() => void go("草稿")}>
           转草稿
         </button>
         <button class={`${btnBase} bg-primary-50 text-primary-700 hover:bg-primary-100`} onClick={() => void go("已确认")}>

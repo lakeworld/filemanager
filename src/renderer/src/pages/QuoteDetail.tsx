@@ -117,7 +117,7 @@ export default function QuoteDetail() {
                   ✏️ 编辑
                 </button>
                 <button
-                  class="btn-secondary text-sm text-red-600 hover:bg-red-50 hover:border-red-200"
+                  class="btn-secondary text-sm text-danger-600 hover:bg-danger-50 hover:border-danger-200"
                   onClick={() => setConfirmDelete(true)}
                 >
                   🗑️ 删除报价

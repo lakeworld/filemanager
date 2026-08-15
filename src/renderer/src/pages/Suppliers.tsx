@@ -1,6 +1,7 @@
 import { Show, For, createSignal, createEffect } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
+import Modal from "~/components/ui/Modal";
 import { tagList, loadTagDefs } from "~/stores/tags";
 import { currentWorkspace } from "~/stores/workspace";
 import { suppliers, loadSuppliers } from "~/stores/suppliers";
@@ -136,7 +137,7 @@ export default function Suppliers() {
 
   const renderCard = (s: SupplierInfo) => (
     <div
-      class="card p-5 cursor-pointer hover:shadow-card-hover transition-all group relative"
+      class="card p-5 cursor-pointer hover:shadow-card-hover group relative"
       onClick={() => navigate(`/suppliers/${encodeURIComponent(s.name)}`)}
       onContextMenu={(e) => contextMenu.open(e, s)}
     >
@@ -149,7 +150,7 @@ export default function Suppliers() {
             {s.file_count} 文件
           </span>
           <button
-            class="text-surface-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+            class="text-surface-400 hover:text-danger-500 opacity-0 group-hover:opacity-100 transition-opacity"
             onClick={(e) => handleCardDelete(s, e)}
             title="删除供应商"
           >
@@ -222,7 +223,7 @@ export default function Suppliers() {
 
       {/* 新建供应商弹窗（字段：名称/联系人/电话/邮箱/地址/标签/备注） */}
       <Show when={showCreateModal()}>
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-hidden" onClick={() => setShowCreateModal(false)}>
+        <Modal open title="新建供应商" size="xl" onClose={() => setShowCreateModal(false)}>
           <div class="bg-white rounded-2xl w-full max-w-xl p-6 shadow-xl max-h-[90vh] overflow-y-auto overflow-x-hidden" onClick={(e) => e.stopPropagation()}>
             <h2 class="text-xl font-bold mb-4">新建供应商</h2>
             <div class="mb-4">
@@ -301,12 +302,12 @@ export default function Suppliers() {
               <button class="btn-primary" onClick={handleCreate}>确认创建</button>
             </div>
           </div>
-        </div>
+        </Modal>
       </Show>
 
       {/* 重命名弹窗（入口：卡片右键菜单；改名后 inbound 级联在 core BoxService.renameSupplier） */}
       <Show when={renameTarget()}>
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setRenameTarget(null)}>
+        <Modal open title="重命名供应商" size="md" onClose={() => setRenameTarget(null)}>
           <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h2 class="text-xl font-bold mb-4">重命名供应商</h2>
             <p class="text-sm text-surface-500 mb-3">
@@ -325,7 +326,7 @@ export default function Suppliers() {
               <button class="btn-primary" onClick={() => void handleRename()}>确认重命名</button>
             </div>
           </div>
-        </div>
+        </Modal>
       </Show>
 
       {/* Context Menu（统一组件） */}

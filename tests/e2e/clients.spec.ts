@@ -181,7 +181,7 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
 
     // 打开编辑档案弹窗（弹窗内唯一 select = 客户类型下拉；placeholder 区分三个输入框）
     await page.getByRole('button', { name: /编辑档案/ }).click()
-    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '编辑客户档案' }) })
+    const modal = page.getByRole('dialog', { name: '编辑客户档案' })
     await expect(modal).toBeVisible()
 
     await modal.locator('select').selectOption('企业')
@@ -241,7 +241,7 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
     await expect(page.getByRole('button', { name: /新建客户/ }).first()).toBeVisible({ timeout: 15000 })
     await page.getByRole('button', { name: /新建客户/ }).first().click()
 
-    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '新建客户' }) })
+    const modal = page.getByRole('dialog', { name: '新建客户' })
     await expect(modal).toBeVisible()
 
     await modal.getByPlaceholder('如：张三').fill('M2新建客户')

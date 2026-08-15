@@ -272,14 +272,14 @@ export default function Quotes() {
                     <span class="text-right tabular-nums text-surface-900">{fmtMoney(rec.total_amount)}</span>
                     <div class="flex items-center justify-end gap-1.5 min-w-0">
                       <Show when={missingFiles()[rec.file_path]}>
-                        <span class="text-xs text-red-600 shrink-0" title="归档文件已缺失（不影响记录）">缺失</span>
+                        <span class="text-xs text-danger-600 shrink-0" title="归档文件已缺失（不影响记录）">缺失</span>
                       </Show>
                       <Show when={rec.file_path}>
                         <button class="text-surface-400 hover:text-primary-600 text-sm shrink-0" title="预览归档文件" onClick={() => previewFile(rec)}>
                           👁
                         </button>
                       </Show>
-                      <button class="text-surface-400 hover:text-red-500 text-sm shrink-0" title="删除" onClick={() => setDeleteTarget({ no: rec.quotation_no })}>
+                      <button class="text-surface-400 hover:text-danger-500 text-sm shrink-0" title="删除" onClick={() => setDeleteTarget({ no: rec.quotation_no })}>
                         🗑️
                       </button>
                     </div>

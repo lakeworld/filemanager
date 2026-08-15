@@ -1,6 +1,7 @@
 import { Show, For, createSignal, createEffect } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
+import Modal from "~/components/ui/Modal";
 import { tagList, loadTagDefs } from "~/stores/tags";
 import { currentWorkspace, productSets, loadProductSets } from "~/stores/workspace";
 import { suppliers, loadSuppliers } from "~/stores/suppliers";
@@ -170,7 +171,7 @@ export default function SupplierDetail() {
           <p class="text-surface-500 mt-1">供应商档案与文件管理</p>
         </div>
         <button
-          class="btn-secondary text-red-600 hover:bg-red-50 hover:border-red-200"
+          class="btn-secondary text-danger-600 hover:bg-danger-50 hover:border-danger-200"
           onClick={handleDelete}
         >
           🗑️ 删除供应商
@@ -250,7 +251,7 @@ export default function SupplierDetail() {
                     >
                       {ps}
                       <button
-                        class="text-surface-400 hover:text-red-500"
+                        class="text-surface-400 hover:text-danger-500"
                         title="解除关联"
                         onClick={(e) => { e.stopPropagation(); void handleUnlink(ps); }}
                       >
@@ -286,7 +287,7 @@ export default function SupplierDetail() {
 
       {/* 编辑档案弹窗 */}
       <Show when={editingInfo()}>
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-hidden" onClick={() => setEditingInfo(null)}>
+        <Modal open title="编辑供应商档案" size="xl" onClose={() => setEditingInfo(null)}>
           <div class="bg-white rounded-2xl w-full max-w-xl p-6 shadow-xl max-h-[90vh] overflow-y-auto overflow-x-hidden" onClick={(e) => e.stopPropagation()}>
             <h2 class="text-xl font-bold mb-4">编辑供应商档案</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -354,7 +355,7 @@ export default function SupplierDetail() {
               <button class="btn-primary" onClick={() => void handleSaveInfo()}>保存</button>
             </div>
           </div>
-        </div>
+        </Modal>
       </Show>
 
       {/* 删除供应商确认弹窗（照客户：「移入回收站」可在回收站恢复） */}
