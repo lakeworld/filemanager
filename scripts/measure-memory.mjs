@@ -69,6 +69,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 // 以 `--autostart` 启动（延迟建窗、无渲染进程、托盘常驻），仅测单一稳态，实测 3 次取稳定值。
 const AUTOSTART = process.argv.includes('--autostart')
 
+// v2.5.1（D12）：插件内存测量——`node scripts/measure-memory.mjs --seed-plugins <qbox>[,<qbox>...]`
+// 醒着档启动后经渲染层侧载安装指定 .qbox（开发者模式自动开），空闲 8s 采样；
+// 用于「插件未启用零内存 / 启用后按需加载」档位实测（PLAN-v2.6-v2.7 §4.5 D12）。
+const seedIdx = process.argv.indexOf('--seed-plugins')
+const SEED_PLUGINS =
+  seedIdx >= 0 && process.argv[seedIdx + 1] ? process.argv[seedIdx + 1].split(',').map((s) => s.trim()).filter(Boolean) : []
+
 const app = await electron.launch({
   args: ['.', ...PROD_ARGS, ...(AUTOSTART ? ['--autostart'] : [])],
   cwd: ROOT,
@@ -84,6 +91,16 @@ try {
   } else {
     const page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
+    await page.waitForFunction(() => !!(window).qihebox, null, { timeout: 10000 })
+    // D12：seed 插件（侧载安装，与 conformance 同链路；安装后插件自动激活）
+    if (SEED_PLUGINS.length > 0) {
+      await page.evaluate(() => (window).qihebox.settings.setDevMode(true))
+      for (const fp of SEED_PLUGINS) {
+        const r = await page.evaluate(async (p) => (window).qihebox.plugins.install({ filePath: p }), fp)
+        console.log(`[seed] ${fp} → ${r.success ? `安装成功（${r.data?.id}）` : `失败：${r.error}`}`)
+      }
+      await page.evaluate(() => (window).qihebox.settings.setDevMode(false))
+    }
     await sleep(8000)
     snapshot('醒着（窗口打开，空闲 8s）', mainPid)
 
