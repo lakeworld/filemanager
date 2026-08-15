@@ -16,6 +16,7 @@ import { currentWorkspace } from "~/stores/workspace";
 import { showToast } from "~/stores/notifyBanner";
 import { openPreview } from "~/stores/preview";
 import DatePicker from "~/components/DatePicker";
+import Modal from "~/components/ui/Modal";
 import type { QuoteRecord, CustomerInfo, FileEntry } from "~/types";
 
 /** 明细行表单态（qty/unit_price 字符串输入，保存时校验转换；amount 实时计算） */
@@ -214,14 +215,11 @@ export default function QuoteFormModal(props: {
   const labelCls = "block text-sm font-medium text-surface-700 mb-1";
 
   return (
-    <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={close}>
-      <div
-        class="bg-white rounded-2xl w-full max-w-3xl p-6 shadow-xl max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal open title={isEdit ? "编辑报价单" : "新建报价单"} size="3xl" onClose={close}>
+      <div class="p-6">
         <h2 class="text-xl font-bold mb-4">{isEdit ? "编辑报价单" : "新建报价单"}</h2>
         <Show when={locked}>
-          <p class="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-4">
+          <p class="text-sm text-warning-700 bg-warning-50 rounded-lg px-3 py-2 mb-4">
             报价单已确认，明细行已锁定。如需修改明细，请先转「修订中」。
           </p>
         </Show>
@@ -333,7 +331,7 @@ export default function QuoteFormModal(props: {
                   <Show when={!locked}>
                     <button
                       type="button"
-                      class="text-surface-300 hover:text-red-500 text-sm disabled:opacity-30"
+                      class="text-surface-300 hover:text-danger-500 text-sm disabled:opacity-30"
                       title="删除该行"
                       disabled={lines().length <= 1}
                       onClick={() => removeLine(i())}
@@ -405,6 +403,6 @@ export default function QuoteFormModal(props: {
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

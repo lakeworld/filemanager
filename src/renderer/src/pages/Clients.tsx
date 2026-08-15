@@ -377,7 +377,7 @@ export default function Clients() {
             <For each={filteredCustomers()}>
               {(c) => (
                 <div
-                  class="card p-5 cursor-pointer hover:shadow-card-hover transition-all group relative"
+                  class="card p-5 cursor-pointer hover:shadow-card-hover group relative"
                   onClick={() => navigate(`/clients/${encodeURIComponent(c.name)}`)}
                   onContextMenu={(e) => contextMenu.open(e, c)}
                 >
@@ -390,7 +390,7 @@ export default function Clients() {
                         {c.file_count} 文件
                       </span>
                       <button
-                        class="text-surface-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                        class="text-surface-400 hover:text-danger-500 opacity-0 group-hover:opacity-100 transition-opacity"
                         onClick={(e) => handleCardDelete(c, e)}
                         title="删除客户"
                       >
@@ -457,7 +457,7 @@ export default function Clients() {
               <p class="text-surface-500 mt-1">客户档案与文件管理</p>
             </div>
             <button
-              class="btn-secondary text-red-600 hover:bg-red-50 hover:border-red-200"
+              class="btn-secondary text-danger-600 hover:bg-danger-50 hover:border-danger-200"
               onClick={handleDeleteCustomer}
             >
               🗑️ 删除客户
@@ -540,7 +540,7 @@ export default function Clients() {
                         >
                           {ps}
                           <button
-                            class="text-surface-400 hover:text-red-500"
+                            class="text-surface-400 hover:text-danger-500"
                             title="解除关联"
                             onClick={(e) => { e.stopPropagation(); void handleUnlink(ps); }}
                           >

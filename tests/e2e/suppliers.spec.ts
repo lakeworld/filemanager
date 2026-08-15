@@ -67,7 +67,7 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
 
     // 新建弹窗（字段：名称/联系人/电话/邮箱/地址/备注）——header 按钮（带 ➕；EmptyState 内同名按钮同时存在）
     await page.getByRole('button', { name: '➕ 新建供应商' }).click()
-    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '新建供应商' }) })
+    const modal = page.getByRole('dialog', { name: '新建供应商' })
     await expect(modal).toBeVisible()
     await modal.getByPlaceholder('如：义乌恒通供应链').fill('E2E供应商甲')
     await modal.getByPlaceholder('如：王经理').fill('王经理')
@@ -157,7 +157,7 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     // 卡片右键 → 重命名弹窗 → 新名称
     await page.getByText('旧名供应商', { exact: true }).click({ button: 'right' })
     await page.getByRole('button', { name: /重命名/ }).click()
-    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '重命名供应商' }) })
+    const modal = page.getByRole('dialog', { name: '重命名供应商' })
     await expect(modal).toBeVisible()
     await modal.getByRole('textbox').fill('新名供应商')
     await modal.getByRole('button', { name: '确认重命名' }).click()
@@ -170,7 +170,7 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     // Tab 按钮文本含 emoji（「📥 入库单」），exact 匹配不到，用子串
     await page.getByRole('button', { name: /入库单/ }).click()
     await page.getByRole('button', { name: /新建入库单/ }).click()
-    const ibModal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '新建入库单' }) })
+    const ibModal = page.getByRole('dialog', { name: '新建入库单' })
     await expect(ibModal).toBeVisible()
     const supplierSelect = ibModal.locator('select').first()
     // option 在收起 select 内为 hidden，用存在性断言（toHaveCount）代替可见性
@@ -197,7 +197,7 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     // Tab 按钮文本含 emoji（「📥 入库单」），exact 匹配不到，用子串
     await page.getByRole('button', { name: /入库单/ }).click()
     await page.getByRole('button', { name: /新建入库单/ }).click()
-    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '新建入库单' }) })
+    const modal = page.getByRole('dialog', { name: '新建入库单' })
     await expect(modal).toBeVisible()
 
     // 下拉含供应商名 → 选择 → 供应商自由文本联动填入（option 收起态 hidden，用存在性断言）
@@ -235,7 +235,7 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
 
     // 新建弹窗：名称 + 标签输入（TagInput 回车新建标签，无已定义匹配 → 走「新建标签」流程）
     await page.getByRole('button', { name: '➕ 新建供应商' }).click()
-    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '新建供应商' }) })
+    const modal = page.getByRole('dialog', { name: '新建供应商' })
     await expect(modal).toBeVisible()
     await modal.getByPlaceholder('如：义乌恒通供应链').fill('标签供应商')
     const tagInput = modal.getByPlaceholder('如：重点供应商、外贸')

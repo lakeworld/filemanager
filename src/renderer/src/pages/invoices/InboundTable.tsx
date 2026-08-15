@@ -13,6 +13,7 @@ import type { InboundRecord, SupplierBrief } from "./types";
 export default function InboundTable(props: {
   rows: InboundRecord[];
   suppliers: SupplierBrief[];
+  onCreate: () => void;
   onPreview: (rec: InboundRecord) => void;
   onEdit: (rec: InboundRecord) => void;
   onDelete: (rec: InboundRecord) => void;
@@ -22,6 +23,12 @@ export default function InboundTable(props: {
     <Show when={props.rows.length === 0} fallback={
       <div class="flex-1 min-h-0 flex flex-col">
         <div class="card p-2 flex flex-col flex-1 min-h-0">
+          <div class="flex items-center justify-between px-3 py-2 shrink-0">
+            <span class="text-sm text-surface-500">共 {props.rows.length} 条入库单</span>
+            <button class="btn-primary text-sm" onClick={props.onCreate}>
+              <span>➕</span> 新建入库单
+            </button>
+          </div>
           <div
             class="px-3 py-2 text-xs text-surface-400 grid items-center gap-2 shrink-0"
             style={{ "grid-template-columns": INBOUND_COL_TEMPLATE }}
@@ -89,7 +96,9 @@ export default function InboundTable(props: {
       </div>
     }>
       <div class="flex-1 flex items-center justify-center">
-        <EmptyState icon="📥" title="暂无入库单" desc="点击「新建入库单」登记第一条记录" />
+        <EmptyState icon="📥" title="暂无入库单" desc="点击「新建入库单」登记第一条记录">
+          <button class="btn-primary" onClick={props.onCreate}>新建入库单</button>
+        </EmptyState>
       </div>
     </Show>
   );

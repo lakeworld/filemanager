@@ -73,7 +73,7 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     await gotoRoute('/quotes')
     await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
     await page.getByRole('button', { name: '➕ 新建报价' }).click()
-    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '新建报价单' }) })
+    const modal = page.getByRole('dialog', { name: '新建报价单' })
     await expect(modal).toBeVisible()
 
     // 2+ 明细行：2×10.50=21.00 + 3×4.25=12.75 → 合计 33.75（round2 口径）
@@ -109,7 +109,7 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
 
     // 第一张：不填单号 → 自动生成（核心断言格式 QT-YYYYMMDD-序号）
     await page.getByRole('button', { name: '➕ 新建报价' }).click()
-    let modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '新建报价单' }) })
+    let modal = page.getByRole('dialog', { name: '新建报价单' })
     await expect(modal).toBeVisible()
     await fillLine(modal, 0, { product: '自动生成单号品', sku: '', qty: '1', unit_price: '1' })
     await modal.getByRole('button', { name: '确认创建' }).click()
@@ -122,7 +122,7 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
 
     // 第二张：手输同号 → 查重拦截（core 拒绝 + toast 提示已有记录摘要，不提供强制继续）
     await page.getByRole('button', { name: '➕ 新建报价' }).click()
-    modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '新建报价单' }) })
+    modal = page.getByRole('dialog', { name: '新建报价单' })
     await expect(modal).toBeVisible()
     await modal.getByPlaceholder('如：QT-20260812-001').fill(autoNo)
     await fillLine(modal, 0, { product: '重名品', sku: '', qty: '1', unit_price: '1' })
@@ -151,7 +151,7 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     await gotoRoute('/quotes')
     await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
     await page.getByRole('button', { name: '➕ 新建报价' }).click()
-    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '新建报价单' }) })
+    const modal = page.getByRole('dialog', { name: '新建报价单' })
     await expect(modal).toBeVisible()
     await fillLine(modal, 0, { product: '归档品', sku: '', qty: '1', unit_price: '2' })
     await modal.getByRole('button', { name: /选择本地文件并归档/ }).click()
@@ -198,7 +198,7 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
 
     // 已确认时明细只读锁定（编辑弹窗内明细行 disabled，无添加行按钮）
     await page.getByRole('button', { name: '✏️ 编辑' }).click()
-    const modal = page.locator('.fixed.inset-0', { has: page.getByRole('heading', { name: '编辑报价单' }) })
+    const modal = page.getByRole('dialog', { name: '编辑报价单' })
     await expect(modal).toBeVisible()
     await expect(modal.getByText(/明细行已锁定/)).toBeVisible()
     await expect(modal.locator('input[placeholder="品名"]').first()).toBeDisabled()
