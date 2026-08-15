@@ -80,7 +80,7 @@ test.describe('批量重命名复用命名模板（v2.4.9 S5）', () => {
     await page.getByRole('button', { name: /批量重命名/ }).click()
 
     // 预览名 = 产品集_子文件夹_原文件名_序号（新默认模板 4 字段；批序随 mtime/选中序 → 断言集合与单文件模式）
-    const dialog = page.locator('.fixed.inset-0.bg-black\\/50')
+    const dialog = page.getByRole('dialog', { name: /批量重命名/ })
     await dialog.getByText('批量重命名 2 个文件').waitFor({ timeout: 10000 })
     const previewTargets = await dialog.locator('span.text-surface-900').allTextContents()
     const renPat = /^重命名集_主图_(banner|detail)_([12])\.(png|jpg)$/
@@ -167,7 +167,7 @@ test.describe('批量重命名复用命名模板（v2.4.9 S5）', () => {
     await page.getByRole('button', { name: /批量重命名/ }).click()
 
     // 预览名 = 嵌套：<集>_<子夹>_<集>_<子夹>_<原名>_<导入编号>_<新编号>.<ext>
-    const dialog = page.locator('.fixed.inset-0.bg-black\\/50')
+    const dialog = page.getByRole('dialog', { name: /批量重命名/ })
     await dialog.getByText('批量重命名 2 个文件').waitFor({ timeout: 10000 })
     const previewTargets = await dialog.locator('span.text-surface-900').allTextContents()
     const nestPat = /^嵌套集_主图_嵌套集_主图_(banner|detail)_([12])_([12])\.(png|jpg)$/
