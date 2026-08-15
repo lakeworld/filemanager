@@ -12,7 +12,7 @@ interface TextareaProps {
   error?: boolean;
   disabled?: boolean;
   class?: string;
-  onInput?: (e: InputEvent) => void;
+  onInput?: (e: InputEvent & { currentTarget: HTMLTextAreaElement }) => void;
 }
 
 export default function Textarea(props: TextareaProps) {

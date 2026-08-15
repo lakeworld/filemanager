@@ -12,7 +12,7 @@ interface InputProps {
   error?: boolean;
   disabled?: boolean;
   class?: string;
-  onInput?: (e: InputEvent) => void;
+  onInput?: (e: InputEvent & { currentTarget: HTMLInputElement }) => void;
   onKeyDown?: (e: KeyboardEvent) => void;
   onFocus?: (e: FocusEvent) => void;
   onBlur?: (e: FocusEvent) => void;
