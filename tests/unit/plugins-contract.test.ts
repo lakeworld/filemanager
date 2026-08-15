@@ -53,7 +53,7 @@ function readSource(rel: string): string {
 
 // —— 锚点提取（机器可读锚点：<!-- contract:<stage>:<id> -->）——
 
-const ANCHOR_RE = /<!--\s*(contract:(?:v1|v2\.7):[a-z0-9][a-z0-9.-]*)\s*-->/g
+const ANCHOR_RE = /<!--\s*(contract:(?:v1|v2\.6|v2\.7):[a-z0-9][a-z0-9.-]*)\s*-->/g
 
 /** 从 markdown 文本提取锚点集合（阶段 + id 全量，如 contract:v1:host.storage）。 */
 function extractAnchors(md: string): Set<string> {
@@ -140,6 +140,28 @@ async function makeContractHost(
       },
       account: { getToken: () => 'jwt-abc', isLoggedIn: () => true },
       accountAccess: overrides.accountAccess ?? false,
+      // v2.5.1（A1/A2）：customers/share 适配器桩（契约测试不涉及这两个域）
+      customers: {
+        list: async () => [],
+        get: async () => null,
+        writeErpExt: async () => {},
+        syncProfile: async () => ({ applied: true }),
+        relation: { link: async () => {}, unlink: async () => {} },
+      },
+      customersAccess: false,
+      share: {
+        listProductSets: async () => [],
+        listCustomers: async () => [],
+        listTree: async () => [],
+        getMetadata: async () => ({ tags: [], notes: '' }),
+        statFile: async () => ({ size: 0, mtime: '' }),
+        readFileChunk: async () => new Uint8Array(0),
+        writePulledFile: async () => {},
+        ensureProductSet: async () => 'exists' as const,
+        ensureCustomer: async () => 'exists' as const,
+        mergePulledMetadata: async () => ({ conflicts: [] }),
+      },
+      shareAccess: false,
     },
     overrides.limits,
   )
@@ -210,6 +232,27 @@ async function makeLoaderFixture(mainJs: string): Promise<{
         emitToRenderer: () => {},
         account: { getToken: () => null, isLoggedIn: () => false },
         accountAccess: false,
+        customers: {
+          list: async () => [],
+          get: async () => null,
+          writeErpExt: async () => {},
+          syncProfile: async () => ({ applied: true }),
+          relation: { link: async () => {}, unlink: async () => {} },
+        },
+        customersAccess: false,
+        share: {
+          listProductSets: async () => [],
+          listCustomers: async () => [],
+          listTree: async () => [],
+          getMetadata: async () => ({ tags: [], notes: '' }),
+          statFile: async () => ({ size: 0, mtime: '' }),
+          readFileChunk: async () => new Uint8Array(0),
+          writePulledFile: async () => {},
+          ensureProductSet: async () => 'exists' as const,
+          ensureCustomer: async () => 'exists' as const,
+          mergePulledMetadata: async () => ({ conflicts: [] }),
+        },
+        shareAccess: false,
       }),
     importer: (url) => Promise.resolve(cjsRequire(fileURLToPath(url))),
     log: () => {},
@@ -404,6 +447,66 @@ const CONTRACT: Record<string, ContractEntry> = {
     check: (deps) => {
       // 恒 free 占位 + 字段形状（红线 4：本体零订阅逻辑）
       expect(deps.host.entitlement.status()).toEqual({ tier: 'free', expiresAt: null, quota: null })
+    },
+  },
+
+  // —— v2.5.1（A1/A2，PLAN-v2.6-v2.7 §3.1/§3.2）：customers / share 能力域 ——
+  'contract:v1:host.customer': {
+    stage: 'v1',
+    check: async () => {
+      // 契约锚点 = 实现存在性（方法签名面由 API surface 基线守护）+ 权限门控源包含
+      const hostSrc = readSource('src/main/plugins/host.ts')
+      expect(hostSrc).toContain('customer = deps.customersAccess')
+      expect(hostSrc).toContain('PERMISSION_DENIED')
+      const typesSrc = readSource('src/plugins/types.ts')
+      expect(typesSrc).toContain('customer: {')
+      expect(typesSrc).toContain('syncProfile(req: {')
+      // 门控行为：customersAccess=false → 全部方法抛 PERMISSION_DENIED（含读方法）
+      const ctx = await makeContractHost()
+      try {
+        const h = ctx.deps.host as unknown as {
+          customer: {
+            list(): Promise<unknown>
+            get(n: string): Promise<unknown>
+            writeErpExt(n: string, e: Record<string, unknown>): Promise<void>
+            syncProfile(r: { name: string; updated_at: string }): Promise<{ applied: boolean }>
+            relation: { link(c: string, p: string): Promise<void>; unlink(c: string, p: string): Promise<void> }
+          }
+        }
+        expect(await codeOf(h.customer.list())).toBe('PERMISSION_DENIED')
+        expect(await codeOf(h.customer.get('x'))).toBe('PERMISSION_DENIED')
+        expect(await codeOf(h.customer.relation.link('x', 'y'))).toBe('PERMISSION_DENIED')
+      } finally {
+        ctx.dispose()
+      }
+    },
+  },
+  'contract:v1:host.share': {
+    stage: 'v1',
+    check: async () => {
+      const hostSrc = readSource('src/main/plugins/host.ts')
+      expect(hostSrc).toContain('share = deps.shareAccess')
+      const typesSrc = readSource('src/plugins/types.ts')
+      expect(typesSrc).toContain('share: {')
+      expect(typesSrc).toContain('writePulledFile(targetRelPath: string')
+      // 门控行为：shareAccess=false → PERMISSION_DENIED
+      const ctx = await makeContractHost()
+      try {
+        const h = ctx.deps.host as unknown as { share: { listProductSets(): Promise<unknown> } }
+        expect(await codeOf(h.share.listProductSets())).toBe('PERMISSION_DENIED')
+      } finally {
+        ctx.dispose()
+      }
+    },
+  },
+  'contract:v1:event.customer-file-archived': {
+    stage: 'v1',
+    check: () => {
+      // 事件白名单 +3（customerCreated/customerUpdated/fileArchived）
+      const hostSrc = readSource('src/main/plugins/host.ts')
+      expect(hostSrc).toContain("'customerCreated'")
+      expect(hostSrc).toContain("'customerUpdated'")
+      expect(hostSrc).toContain("'fileArchived'")
     },
   },
 

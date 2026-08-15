@@ -18,9 +18,48 @@ import { API_VERSION } from '../../plugins/types'
 import type { EntitlementStatus, PluginBusinessError, PluginHost } from '../../plugins/types'
 import { EXPORTS_DIR, assertSafeFileName, isPathInsideWorkspaceReal, writeJsonAtomic } from '../core/paths'
 
-/** 宿主事件白名单（插件 host.events.on 仅可订阅这些通道；装配层在此发事件） */
-export const HOST_EVENT_WHITELIST = ['workspaceChanged', 'importComplete', 'certExpiring', 'updateAvailable'] as const
+/** 宿主事件白名单（插件 host.events.on 仅可订阅这些通道；装配层在此发事件）。
+ *  v2.5.1 A1（PLAN-v2.6-v2.7 §3.1）：+ customerCreated / customerUpdated / fileArchived */
+export const HOST_EVENT_WHITELIST = [
+  'workspaceChanged',
+  'importComplete',
+  'certExpiring',
+  'updateAvailable',
+  'customerCreated',
+  'customerUpdated',
+  'fileArchived',
+] as const
 export type HostEventChannel = (typeof HOST_EVENT_WHITELIST)[number]
+
+/** 带 code 的业务错误构造（loader 熔断对带 code 的错误不计数，PLAN §3.3 r2-性能P1-2） */
+export function fileError(code: string, msg: string): PluginBusinessError {
+  const e = new Error(msg) as PluginBusinessError
+  e.code = code
+  return e
+}
+
+/**
+ * core 裸错误 → 契约错误码（v2.5.1 A1/A2，装配层适配器包装用）。
+ * core 层（clients/shareView）抛中文裸错误，插件契约要求错误带 code（不计熔断）——
+ * 按消息模式映射；已带 code 的错误原样保留；无法识别 → IO_ERROR。
+ */
+export function mapCoreError(err: unknown): PluginBusinessError {
+  if (err instanceof Error) {
+    const withCode = err as Error & { code?: string }
+    if (typeof withCode.code === 'string' && withCode.code.length > 0) return withCode as PluginBusinessError
+    const msg = err.message
+    if (msg.includes('客户不存在') || msg.includes('文件不存在') || (msg.includes('产品集「') && msg.includes('不存在'))) {
+      return fileError('NOT_FOUND', msg)
+    }
+    if (msg.includes('未打开工作区')) return fileError('NO_WORKSPACE', msg)
+    if (msg.includes('白名单')) return fileError('FIELD_DENIED', msg)
+    if (msg.includes('隐藏目录')) return fileError('HIDDEN', msg)
+    if (msg.includes('超出工作区') || msg.includes('路径超出')) return fileError('OUT_OF_WORKSPACE', msg)
+    if (msg.includes('不能为空') || msg.includes('非法') || msg.includes('超限')) return fileError('INVALID_NAME', msg)
+    return fileError('IO_ERROR', msg)
+  }
+  return fileError('IO_ERROR', String(err))
+}
 
 /** 存储限界（PLUGIN.md §2.6 规则 2）：单 key ≤ 1MB、总容量 ≤ 64MB；
  *  文件能力域限界（PLAN §3.3）：readText ≤ 10MB、readBuffer ≤ 50MB、writeExport ≤ 50MB（可注入缩小便于测试） */
@@ -104,6 +143,40 @@ export interface PluginHostDeps {
   account: { getToken(): string | null; isLoggedIn(): boolean }
   /** manifest.permissions.account === true 时才接通真实账号；否则 host.account 恒 null/false（PLAN §3.2） */
   accountAccess: boolean
+  /** customers 能力域适配器（v2.5.1 A1，PLAN-v2.6-v2.7 §3.1）：装配层注入 ClientsService 委托。
+   *  业务错误抛带 code 的 Error（NOT_FOUND/STALE/FIELD_DENIED 等），薄壳原样透传 */
+  customers: {
+    list(since?: string): Promise<unknown[]>
+    get(name: string): Promise<unknown | null>
+    writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
+    syncProfile(req: {
+      name: string
+      fields?: Record<string, unknown>
+      erp_ext?: Record<string, unknown>
+      updated_at: string
+    }): Promise<{ applied: boolean }>
+    relation: {
+      link(customerName: string, productSetName: string): Promise<void>
+      unlink(customerName: string, productSetName: string): Promise<void>
+    }
+  }
+  /** manifest.permissions.customers === true 时才接通；否则 host.customer.* 全部抛 PERMISSION_DENIED（读方法亦抛） */
+  customersAccess: boolean
+  /** share 能力域适配器（v2.5.1 A2，PLAN-v2.6-v2.7 §3.2）：装配层注入 ShareViewService 委托 */
+  share: {
+    listProductSets(): Promise<unknown[]>
+    listCustomers(): Promise<unknown[]>
+    listTree(relPath?: string): Promise<unknown[]>
+    getMetadata(relPath: string): Promise<{ tags: string[]; notes: string }>
+    statFile(relPath: string): Promise<{ size: number; mtime: string }>
+    readFileChunk(relPath: string, offset: number, length: number): Promise<Uint8Array>
+    writePulledFile(targetRelPath: string, chunk: Uint8Array, offset: number): Promise<void>
+    ensureProductSet(name: string): Promise<'created' | 'exists'>
+    ensureCustomer(name: string): Promise<'created' | 'exists'>
+    mergePulledMetadata(entries: { path: string; tags: string[]; notes: string }[]): Promise<{ conflicts: string[] }>
+  }
+  /** manifest.permissions.share === true 时才接通；否则 host.share.* 全部抛 PERMISSION_DENIED */
+  shareAccess: boolean
 }
 
 export interface PluginHostInstance {
@@ -239,13 +312,7 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
   }
 
   // —— v2.5 增量（PLAN §3.3）：工作区文件能力域（host.files，host.ts 内实现）——
-
-  /** 带 code 的业务错误（loader 熔断对带 code 的错误不计数，PLAN §3.3 r2-性能P1-2） */
-  function fileError(code: string, msg: string): PluginBusinessError {
-    const e = new Error(msg) as PluginBusinessError
-    e.code = code
-    return e
-  }
+  // fileError 为模块级导出（带 code 业务错误，不计熔断计数）
 
   /** relPath → 工作区内绝对路径：无工作区 / 非字符串 / realpath 逃逸分别抛 NO_WORKSPACE / INVALID_NAME / OUT_OF_WORKSPACE */
   async function resolveInWorkspace(relPath: unknown): Promise<string> {
@@ -323,6 +390,75 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
     },
   }
 
+  // —— v2.5.1（A1/A2，PLAN-v2.6-v2.7 §3.1/§3.2）：customers / share 能力域薄壳 ——
+  // 门控：manifest.permissions.customers/share !== true → 全部方法抛 PERMISSION_DENIED（读方法亦抛，
+  // 与 account 恒 null 静默不同——customers 含写，显式拒绝更诚实，PLAN §3.1 附录明示差异）
+
+  /** 门控拒绝错误（带 code → 不计熔断） */
+  function permissionDenied(domain: string): PluginBusinessError {
+    return fileError('PERMISSION_DENIED', `插件未声明 permissions.${domain} 权限`)
+  }
+
+  const customer = deps.customersAccess
+    ? deps.customers
+    : {
+        list: async (): Promise<unknown[]> => {
+          throw permissionDenied('customers')
+        },
+        get: async (): Promise<unknown> => {
+          throw permissionDenied('customers')
+        },
+        writeErpExt: async (): Promise<void> => {
+          throw permissionDenied('customers')
+        },
+        syncProfile: async (): Promise<{ applied: boolean }> => {
+          throw permissionDenied('customers')
+        },
+        relation: {
+          link: async (): Promise<void> => {
+            throw permissionDenied('customers')
+          },
+          unlink: async (): Promise<void> => {
+            throw permissionDenied('customers')
+          },
+        },
+      }
+
+  const share = deps.shareAccess
+    ? deps.share
+    : {
+        listProductSets: async (): Promise<unknown[]> => {
+          throw permissionDenied('share')
+        },
+        listCustomers: async (): Promise<unknown[]> => {
+          throw permissionDenied('share')
+        },
+        listTree: async (): Promise<unknown[]> => {
+          throw permissionDenied('share')
+        },
+        getMetadata: async (): Promise<{ tags: string[]; notes: string }> => {
+          throw permissionDenied('share')
+        },
+        statFile: async (): Promise<{ size: number; mtime: string }> => {
+          throw permissionDenied('share')
+        },
+        readFileChunk: async (): Promise<Uint8Array> => {
+          throw permissionDenied('share')
+        },
+        writePulledFile: async (): Promise<void> => {
+          throw permissionDenied('share')
+        },
+        ensureProductSet: async (): Promise<'created' | 'exists'> => {
+          throw permissionDenied('share')
+        },
+        ensureCustomer: async (): Promise<'created' | 'exists'> => {
+          throw permissionDenied('share')
+        },
+        mergePulledMetadata: async (): Promise<{ conflicts: string[] }> => {
+          throw permissionDenied('share')
+        },
+      }
+
   // —— v2.5 增量（PLAN §3.2）：account 权限门控（permissions.account !== true → 空实现恒 null）——
   const account = deps.accountAccess
     ? deps.account
@@ -346,6 +482,8 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
     notify: deps.notify,
     account,
     files,
+    customer,
+    share,
     entitlement,
   }
 

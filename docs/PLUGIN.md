@@ -291,7 +291,7 @@ window.qihebox.settings = {
 
 <!-- contract:v1:ipc.channels -->
 
-### 5.5 customers 能力域与 `erp_ext` 契约（v2.4.9 定稿，v2.7 实装）
+### 5.5 customers 能力域与 `erp_ext` 契约（v2.4.9 定稿，**v2.5.1 实装**）
 
 **customers 能力域**（插件协议 `PluginHost` 白名单，供桥接插件使用；白名单收窄，不给通用文件读写）：
 
@@ -299,19 +299,50 @@ window.qihebox.settings = {
 |---|---|---|
 | `customer.list` / `customer.get` | ERP 读 | 客户档案全量/增量 |
 | `customer.writeErpExt` | ERP 写 | 仅写 `erp_ext` 命名空间 |
-| `customer.syncProfile` | ERP 写 | 双向同步：写本体对齐字段（type/contact/phone/email/address/notes）+ `erp_ext`（v2.7 实装，本版本只定稿协议与类型） |
+| `customer.syncProfile` | ERP 写 | 双向同步：写本体对齐字段（type/contact/phone/email/address/notes）+ `erp_ext`（**v2.5.1 实装**） |
 | `relation.link` / `relation.unlink` | ERP 写 | 建立/解除客户↔产品集关联 |
 | 事件 `customerCreated` / `customerUpdated` / `fileArchived` | box → ERP | 复用 `host.events` 总线，增量同步不靠轮询 |
 
+<!-- contract:v1:host.customer -->
 <!-- contract:v2.7:customer.list -->
 <!-- contract:v2.7:customer.get -->
 <!-- contract:v2.7:customer.write-erp-ext -->
 <!-- contract:v2.7:customer.sync-profile -->
 <!-- contract:v2.7:relation.link -->
 <!-- contract:v2.7:relation.unlink -->
+<!-- contract:v1:event.customer-file-archived -->
 <!-- contract:v2.7:event.customer-created -->
 <!-- contract:v2.7:event.customer-updated -->
 <!-- contract:v2.7:event.file-archived -->
+
+**方法签名**（v2.5.1 实装，`host.customer`；权限门控：`manifest.permissions.customers !== true` → 全部方法抛 `PERMISSION_DENIED`，**含读方法**——与 `host.account` 未声明时恒 null 的静默不同，customers 含写，显式拒绝更诚实）：
+
+```ts
+customer: {
+  /** 客户档案全量/增量列表；since = updated_at 严大于过滤（ISO 串，Date.parse 归一化），缺省全量 */
+  list(since?: string): Promise<unknown[]>
+  /** 单客户档案；不存在（以目录为准）→ null */
+  get(name: string): Promise<unknown | null>
+  /** 仅写 erp_ext 命名空间（整体替换）；目录有而 JSON 无条目 → 补最小条目后写；目录亦无 → NOT_FOUND */
+  writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
+  /** 双向同步：写本体对齐字段（type/contact/phone/email/address/notes）+ erp_ext；
+   *  回显式乐观锁：req.updated_at ≤ 档案 updated_at → STALE；较新 → 仅写白名单差异字段；
+   *  box 权威字段（alias/country/source/related_product_sets/tags）入参 → FIELD_DENIED */
+  syncProfile(req: {
+    name: string
+    fields?: { type?: '企业' | '个人'; contact?: string; phone?: string; email?: string; address?: string; notes?: string }
+    erp_ext?: Record<string, unknown>
+    updated_at: string
+  }): Promise<{ applied: boolean }>
+  relation: {
+    /** 客户↔产品集关联（related_product_sets 增删）；幂等；产品集不存在 → NOT_FOUND */
+    link(customerName: string, productSetName: string): Promise<void>
+    unlink(customerName: string, productSetName: string): Promise<void>
+  }
+}
+```
+
+**错误码**（v2.5.1 实装，全部带 code → 不计入熔断计数）：`PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / INVALID_NAME / FIELD_DENIED / STALE / IO_ERROR`；`syncProfile` 的 `{ applied: false }` 即 STALE（回显式乐观锁：请求方回填的 `updated_at` 须严大于档案值，「同时」亦判 STALE 不后写）。
 
 **字段归属规则**（v2.4.9 定稿，替换 v2.4.7「ERP 不可写本体字段」表述）：
 
@@ -344,6 +375,57 @@ erp_ext?: {
 - **命名空间通用约定（`erp_ext` / `ocr_ext`）**：插件写回本体不拥有的数据，一律写入命名空间字段，本体只读不校验；命名空间内字段由写入方（桥接插件）定义并版本化，本体不解析——`erp_ext` 由 erp-bridge 写（客户/供应商档案），`ocr_ext` 由 OCR 查验插件写（发票台账，v2.7 写入目标），均只读展示。
 - **冲突裁决通用规则**：同步冲突沿用本节记录级裁决——整条档案 `updated_at` 较新者为准，方向确定后仅写对方能力域白名单内的差异字段（见上「冲突规则」）。
 - **新增能力域 = 协议增量**：新增业务能力域遵循 §四「API 演进政策」（只增不删），随宿主版本发布；不删除、不改写既有能力域契约。
+
+### 5.6 share 能力域（局域网共享与拉取，v2.5.1 实装）
+
+**定位**：为「把工作区发布到局域网 + 拉取进工作区」提供**契约内**通道。通用域（非 LAN 专属，协议地位平等）。本域与 v2.7 `com.qihe.share`（P2P 直传插件）**无关**。
+
+**权限门控**：`manifest.permissions.share !== true` → 全部方法抛 `PERMISSION_DENIED`（同 §5.5 customers 口径）。
+
+<!-- contract:v1:host.share -->
+
+```ts
+share: {
+  /** 只读实体视图（字段白名单见下；不含 erp_ext / ocr_ext 命名空间） */
+  listProductSets(): Promise<unknown[]>
+  listCustomers(): Promise<unknown[]>
+  /** 目录树一层（名称/类型/大小/mtime）；relPath 缺省 = 工作区根；
+   *  .qihefilemanager/（含 trash）拒绝（HIDDEN）；5s 短缓存由插件侧自管 */
+  listTree(relPath?: string): Promise<unknown[]>
+  /** tags/notes 元数据（无记录 → 空 tags + 空 notes）；文件路径 → metadata store；
+   *  产品集根路径 → product_sets.json（两级粒度） */
+  getMetadata(relPath: string): Promise<{ tags: string[]; notes: string }>
+  statFile(relPath: string): Promise<{ size: number; mtime: string }>
+  /** Range 读：length ≤ 4MB/次；宿主侧定位读（fs.read position，禁止全量载入）；
+   *  offset+length 越界截断到 EOF（返回短读） */
+  readFileChunk(relPath: string, offset: number, length: number): Promise<Uint8Array>
+  /** 拉取写：offset=0 新建截断、>0 定位写（fs.write position）；单 chunk ≤ 4MB；
+   *  拒绝清单（HIDDEN）：.qihefilemanager/（含 trash）、导出/、交换区/；
+   *  realpath 逃逸 → OUT_OF_WORKSPACE；写入后失效目标目录索引快照 */
+  writePulledFile(targetRelPath: string, chunk: Uint8Array, offset: number): Promise<void>
+  /** 同名合并：存在 → 'exists'（零覆盖）；不存在 → 复用产品集/客户创建 → 'created' */
+  ensureProductSet(name: string): Promise<'created' | 'exists'>
+  ensureCustomer(name: string): Promise<'created' | 'exists'>
+  /** 元数据合并导入：path 粒度两级——文件路径 → metadata store；产品集根路径 → product_sets.json；
+   *  tags 并集；notes 本地为空采纳远端、本地非空且不同 → 保留本地（计入冲突清单）；
+   *  单批 ≤ 500 条；返回冲突清单供插件提示 */
+  mergePulledMetadata(entries: { path: string; tags: string[]; notes: string }[]): Promise<{ conflicts: string[] }>
+}
+```
+
+**错误码**（v2.5.1 实装，全部带 code → 不计入熔断计数）：`PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / INVALID_NAME / HIDDEN / OUT_OF_WORKSPACE / IO_ERROR`。
+
+**字段白名单**：
+
+- `listProductSets`：name / image_count / cert_count / doc_count / created_at / tags / notes（**不含** erp_ext / ocr_ext 命名空间）
+- `listCustomers`：name / file_count / alias / country / contact / source / type / phone / email / address / tags / notes / related_product_sets / created_at / updated_at（**不含** erp_ext）
+- `getThumb` 不在本域（v2.5.1 未实装缩略图通道；视频/预览档尺寸 `size?: 256 | 2048` 列为 v2.7 增强，LAN 插件 v0.1 经 `files.readBuffer` 自行降采样或直发缓存文件）
+
+**明确不做**（共享面边界）：
+
+- 共享面**无任何写端点**——对端写 = 拉取方主动 `writePulledFile` 进**自己**工作区；`.qihefilemanager/`（含 trash）永不暴露
+- `erp_ext` / `ocr_ext` 不进共享视图
+- **与 files 域分工**：`files` = 单文件读 + 导出写（插件自身操作）；`share` = 结构化视图 + Range 读 + 拉取写（跨机协作契约）。收窄张力取舍：share 域不为「通用文件浏览」开放，实体视图是协作语义的主通道
 
 ---
 

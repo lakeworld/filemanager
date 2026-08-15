@@ -1,5 +1,22 @@
 # 更新日志
 
+## v2.5.1 A 流能力域 — 2026-08-15（插件协议 customers/share 能力域实装）
+
+> 插件宿主能力域增量（内部版随 v2.5.1 交付，正式 v2.6/v2.7 发版口径不变）：customers 域（客户档案读写 + erp_ext 写回 + 关联 + 事件）与 share 域（工作区只读实体视图 + 拉取写）按公开契约 `docs/PLUGIN.md` §5.5/§5.6 实装。协议 v1 只增不删。设计见 `docs/INTERNAL/PLAN-v2.6-v2.7-插件提前内部版.md` §3.1/§3.2。
+
+### 插件协议增量
+
+- **`permissions.customers` / `permissions.share`**：manifest 布尔权限声明（规则⑩）；未声明对应能力域 → 全部方法抛 `PERMISSION_DENIED`（customers 含读方法，显式拒绝）
+- **customers 能力域**（`host.customer`）：`list(since?)` 增量列表 / `get` 单档案（目录基准）/ `writeErpExt` 仅写命名空间（D8 补最小条目）/ `syncProfile` 双向同步（回显式乐观锁：`updated_at` 严大于才写，STALE / FIELD_DENIED 语义）/ `relation.link|unlink` 客户↔产品集关联
+- **share 能力域**（`host.share`）：只读实体视图（产品集/客户，字段白名单不含 erp_ext/ocr_ext）+ 目录树 + 两级元数据（文件 → metadata store / 产品集根 → product_sets.json）+ Range 定位读（≤4MB）+ 拉取写（拒绝清单 `.qihefilemanager/`、`导出/`、`交换区/`）+ 同名合并 + 元数据合并导入（tags 并集 / notes 冲突保留本地）
+- **事件白名单 +3**：`customerCreated` / `customerUpdated` / `fileArchived`（客户变更全入口投递；文件归档四 region：发票/入库/报价/交换区，成功路径投递）
+- **错误码契约**：`PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / INVALID_NAME / FIELD_DENIED / STALE / HIDDEN / OUT_OF_WORKSPACE / IO_ERROR`（带 code 不计熔断）
+
+### 测试与文档
+
+- 单测 **576**（+48：customers erp 21 / shareView 14 / host 域 13）；契约对账 48 全绿（锚点 +3 含 self-check、ANCHOR_RE 扩 v2.6、双份同步）；API 面基线更新；fuzz 规则⑩
+- e2e 99 全绿（内部版口径不新增插件 e2e）
+
 ## v2.5.1 登录增强 — 2026-08-15（帐号登录体验完善）
 
 > 登录链路生产实测验证（登录 200 + 心跳 200）；修复登录态不恢复缺陷、删除红线 4 遗留文案、错误如实展示。设计见 `docs/INTERNAL/PLAN-v2.5.1-登录增强.md`（v0.2，4 视角审查：无 P0 / P1×4 全闭环）。

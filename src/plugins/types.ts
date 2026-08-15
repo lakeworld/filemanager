@@ -47,6 +47,11 @@ export interface PluginManifest {
     notification?: boolean
     /** 账号能力（v2.5 增量，PLAN §3.2）：声明后 host.account 返回真实登录态；未声明恒 null */
     account?: boolean
+    /** customers 能力域（v2.5.1 A1，PLAN-v2.6-v2.7 §3.1）：声明后 host.customer.* 可用；
+     *  未声明 → 全部方法抛 PERMISSION_DENIED（含读方法，与 account 恒 null 静默不同） */
+    customers?: boolean
+    /** share 能力域（v2.5.1 A2，PLAN-v2.6-v2.7 §3.2）：声明后 host.share.* 可用；未声明 → PERMISSION_DENIED */
+    share?: boolean
   }
   /** 激活事件（惰性加载的触发点补充）：onView/onCommand 由 pages/commands 声明自动推断，无需手写；
    *  仅事件订阅类/后台类插件必须显式声明，否则永远不激活（见 PLUGIN.md §2.3） */
@@ -130,6 +135,57 @@ export interface PluginHost {
     readBuffer(relPath: string): Promise<Uint8Array>
     /** 写导出物：平铺写入 工作区/导出/<pluginId>_<fileName>（exports:list 自动展示），大小 ≤ 50MB */
     writeExport(fileName: string, data: string | Uint8Array): Promise<void>
+  }
+
+  /** customers 能力域（v2.5.1 A1，PLAN-v2.6-v2.7 §3.1）：客户档案读 + erp 写 + 关联。
+   *  权限门控：manifest.permissions.customers !== true → 全部方法（含读）抛 PERMISSION_DENIED。
+   *  错误码：PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / INVALID_NAME / FIELD_DENIED / STALE / IO_ERROR */
+  customer: {
+    /** 客户档案全量/增量列表；since = updated_at 严大于过滤（ISO 串，Date.parse 归一化），缺省全量 */
+    list(since?: string): Promise<unknown[]>
+    /** 单客户档案；不存在（以目录为准）→ null */
+    get(name: string): Promise<unknown | null>
+    /** 仅写 erp_ext 命名空间（整体替换）；目录有而 JSON 无条目 → 补最小条目后写；目录亦无 → NOT_FOUND */
+    writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
+    /** 双向同步：写本体对齐字段（type/contact/phone/email/address/notes）+ erp_ext；
+     *  回显式乐观锁：req.updated_at ≤ 档案 updated_at → STALE；较新 → 仅写白名单差异字段；
+     *  box 权威字段（alias/country/source/related_product_sets/tags）入参 → FIELD_DENIED */
+    syncProfile(req: {
+      name: string
+      fields?: { type?: '企业' | '个人'; contact?: string; phone?: string; email?: string; address?: string; notes?: string }
+      erp_ext?: Record<string, unknown>
+      updated_at: string
+    }): Promise<{ applied: boolean }>
+    relation: {
+      /** 客户↔产品集关联（related_product_sets 增删）；幂等；产品集不存在 → NOT_FOUND */
+      link(customerName: string, productSetName: string): Promise<void>
+      unlink(customerName: string, productSetName: string): Promise<void>
+    }
+  }
+
+  /** share 能力域（v2.5.1 A2，PLAN-v2.6-v2.7 §3.2）：工作区只读实体视图 + 拉取写（局域网共享契约通道）。
+   *  权限门控：manifest.permissions.share !== true → 全部方法抛 PERMISSION_DENIED。
+   *  错误码：PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / INVALID_NAME / HIDDEN / OUT_OF_WORKSPACE / IO_ERROR */
+  share: {
+    /** 只读实体视图（字段白名单，不含 erp_ext/ocr_ext 命名空间） */
+    listProductSets(): Promise<unknown[]>
+    listCustomers(): Promise<unknown[]>
+    /** 目录树一层（名称/类型/大小/mtime）；relPath 缺省 = 工作区根；隐藏目录拒绝（HIDDEN） */
+    listTree(relPath?: string): Promise<unknown[]>
+    /** tags/notes 元数据（无记录 → 空 tags + 空 notes）；文件路径 → metadata store；产品集根 → product_sets.json */
+    getMetadata(relPath: string): Promise<{ tags: string[]; notes: string }>
+    statFile(relPath: string): Promise<{ size: number; mtime: string }>
+    /** Range 读：≤4MB/次；host 侧定位读（fs.read position，禁止全量载入）；越界截断到 EOF（短读） */
+    readFileChunk(relPath: string, offset: number, length: number): Promise<Uint8Array>
+    /** 拉取写：offset=0 新建截断、>0 定位写；单 chunk ≤4MB；拒绝清单（.qihefilemanager/、导出/、交换区/）→ HIDDEN；
+     *  realpath 逃逸 → OUT_OF_WORKSPACE；写入后失效目标目录索引快照 */
+    writePulledFile(targetRelPath: string, chunk: Uint8Array, offset: number): Promise<void>
+    /** 同名合并：存在 → 'exists'（零覆盖）；不存在 → 复用产品集/客户创建 → 'created' */
+    ensureProductSet(name: string): Promise<'created' | 'exists'>
+    ensureCustomer(name: string): Promise<'created' | 'exists'>
+    /** 元数据合并导入：两级粒度；tags 并集；notes 本地为空采纳远端、本地非空且不同 → 保留本地（计入冲突清单）；
+     *  单批 ≤ 500 条；返回冲突清单供插件提示 */
+    mergePulledMetadata(entries: { path: string; tags: string[]; notes: string }[]): Promise<{ conflicts: string[] }>
   }
 
   /** 权益占位（v2.5 增量，PLAN §3.4）：恒 free、零逻辑（红线 4：本体不做任何订阅实现），
@@ -333,6 +389,13 @@ export function validateManifest(input: unknown): { ok: boolean; errors: string[
       // —— 规则 ⑨（v2.5 增量，PLAN §3.2）：permissions.account 布尔校验 ——
       if (permissions.account !== undefined && typeof permissions.account !== 'boolean') {
         errors.push('permissions.account 须为布尔值')
+      }
+      // —— 规则 ⑩（v2.5.1 A1/A2，PLAN-v2.6-v2.7 §3.1/§3.2）：permissions.customers / permissions.share 布尔校验 ——
+      if (permissions.customers !== undefined && typeof permissions.customers !== 'boolean') {
+        errors.push('permissions.customers 须为布尔值')
+      }
+      if (permissions.share !== undefined && typeof permissions.share !== 'boolean') {
+        errors.push('permissions.share 须为布尔值')
       }
     }
   }

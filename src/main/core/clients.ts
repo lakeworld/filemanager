@@ -5,6 +5,8 @@
  * - 子文件夹默认集来自 config.customer_subfolders（旧 config 缺省由 loadConfig 合并默认值）
  * - erp_ext 为 v2.7 erp-bridge 预留命名空间：本体只读不校验、API 面不含入参
  *   （CustomerUpdateRequest 无此字段 → 物理不可写；读写档案时原样保留）
+ * - v2.5.1（A1，PLAN-v2.6-v2.7 §3.1）：customers 能力域实装——writeErpExt / syncProfile
+ *   （resolveSyncProfile 纯函数，D6 记录级裁决 + D7 tags 归属 + D8 目录基准）
  * 纯 TS：不 import electron，可在 node 环境直接测试。
  */
 import fs from 'node:fs'
@@ -26,6 +28,72 @@ import { globalWorkspaceIndex } from './indexCache'
 import type { CustomerInfo, CustomerExtraInfo, CustomerCreateRequest, CustomerUpdateRequest } from '../../shared/types'
 
 export type { CustomerInfo, CustomerExtraInfo, CustomerCreateRequest, CustomerUpdateRequest } from '../../shared/types'
+
+// —— v2.5.1（A1，D6/D7）：syncProfile 记录级裁决纯函数 ——
+
+/** syncProfile 可写白名单（本体对齐字段）：box 权威字段（alias/country/contact/source/related_product_sets/tags）拒绝 */
+const SYNC_PROFILE_FIELDS = ['type', 'contact', 'phone', 'email', 'address', 'notes'] as const
+
+export interface SyncProfileResult {
+  applied: boolean
+  /** 白名单外字段入参（或空白 phone）→ 拒绝，host 层据此抛 FIELD_DENIED */
+  denied?: boolean
+  /** applied 时的新档案（供 host 层写回） */
+  next?: CustomerExtraInfo
+}
+
+/**
+ * D6 记录级裁决纯函数：req.updated_at ≤ 档案 updated_at → STALE（不写）；
+ * 较新 → 仅合并白名单差异字段 + erp_ext；白名单外字段入参 → denied。
+ * Date.parse 归一化为毫秒（仓迹 PB 空格格式兼容）；非法时间 → STALE。
+ */
+export function resolveSyncProfile(
+  local: CustomerExtraInfo,
+  req: { fields?: Partial<Record<string, unknown>>; erp_ext?: Record<string, unknown>; updated_at: string },
+): SyncProfileResult {
+  const localMs = Date.parse(local.updated_at ?? '')
+  const reqMs = Date.parse(req.updated_at)
+  if (!Number.isFinite(localMs) || !Number.isFinite(reqMs) || reqMs <= localMs) {
+    return { applied: false }
+  }
+  const fields = req.fields ?? {}
+  if (fields && typeof fields === 'object') {
+    for (const key of Object.keys(fields)) {
+      if (!(SYNC_PROFILE_FIELDS as readonly string[]).includes(key as (typeof SYNC_PROFILE_FIELDS)[number])) {
+        return { applied: false, denied: true }
+      }
+    }
+  }
+  const next: CustomerExtraInfo = { ...local }
+  let changed = false
+  if (fields && typeof fields === 'object') {
+    for (const key of SYNC_PROFILE_FIELDS) {
+      const raw = (fields as Record<string, unknown>)[key]
+      if (raw === undefined) continue
+      if (key === 'type') {
+        if (raw !== '企业' && raw !== '个人') return { applied: false, denied: true }
+        if (next.type !== raw) {
+          next.type = raw
+          changed = true
+        }
+        continue
+      }
+      const trimmed = String(raw).trim()
+      if (key === 'phone' && !trimmed) return { applied: false, denied: true }
+      if (next[key] !== trimmed) {
+        ;(next as Record<string, unknown>)[key] = trimmed
+        changed = true
+      }
+    }
+  }
+  if (req.erp_ext !== undefined) {
+    next.erp_ext = req.erp_ext
+    changed = true
+  }
+  if (!changed) return { applied: false }
+  next.updated_at = new Date(reqMs).toISOString()
+  return { applied: true, next }
+}
 
 export class ClientsService {
   constructor(private workspace: WorkspaceService) {}
@@ -74,6 +142,30 @@ export class ClientsService {
     }
     customers.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     return customers
+  }
+
+  /** 增量列表（v2.5.1 A1，host.customer.list）：since = updated_at 严大于过滤（ISO 串，Date.parse 归一化），缺省全量 */
+  async listSince(since?: string): Promise<CustomerInfo[]> {
+    const all = await this.list()
+    if (!since) return all
+    const sinceMs = Date.parse(since)
+    if (!Number.isFinite(sinceMs)) return all
+    return all.filter((c) => {
+      const ms = Date.parse(c.updated_at ?? '')
+      return Number.isFinite(ms) && ms > sinceMs
+    })
+  }
+
+  /** 单客户档案（v2.5.1 A1，host.customer.get）：目录不存在（D8 目录基准）→ null */
+  async get(name: string): Promise<CustomerInfo | null> {
+    const ws = this.requireWS()
+    const n = name.trim()
+    if (!n) return null
+    const dir = customerRootPath(ws, n)
+    const ok = await fsp.stat(dir).then(() => true).catch(() => false)
+    if (!ok) return null
+    const extra = await this.loadCustomersInfo()
+    return this.buildInfo(ws, n, await countFiles(dir), extra[n])
   }
 
   /** 新建客户：名称校验 → 建目录 + 默认子文件夹（config.customer_subfolders）→ customers.json 条目 */
@@ -247,6 +339,61 @@ export class ClientsService {
     if (!store[name]) return
     delete store[name]
     await this.saveCustomersInfo(ws, store)
+  }
+
+  // —— v2.5.1（A1，PLAN-v2.6-v2.7 §3.1）：customers 能力域写路径（host.customer.* 的 core 委托）——
+
+  /** 目录基准（D8）：目录不存在 → 抛「客户不存在」（NOT_FOUND 由 host 层映射） */
+  private async assertCustomerDir(ws: string, name: string): Promise<string> {
+    const dir = customerRootPath(ws, name)
+    await fsp.stat(dir).catch(() => {
+      throw new Error('客户不存在')
+    })
+    return dir
+  }
+
+  /**
+   * writeErpExt：仅写 erp_ext 命名空间（整体替换）。
+   * D8 目录基准：目录有而 JSON 无条目 → 补最小条目后写；目录亦无 → NOT_FOUND。
+   */
+  async writeErpExt(name: string, ext: Record<string, unknown>): Promise<void> {
+    const ws = this.requireWS()
+    const n = name.trim()
+    await this.assertCustomerDir(ws, n)
+    const store = await this.loadCustomersInfo()
+    const entry: CustomerExtraInfo = store[n] ?? { created_at: currentTimeString() }
+    entry.erp_ext = ext ?? {}
+    entry.updated_at = currentTimeString()
+    store[n] = entry
+    await this.saveCustomersInfo(ws, store)
+  }
+
+  /**
+   * syncProfile：双向同步（D6 回显式乐观锁）。
+   * req.updated_at ≤ 档案 updated_at → 返回 { applied:false }（host 层抛 STALE）；
+   * 白名单外字段 → 返回 { applied:false, denied:true }（host 层抛 FIELD_DENIED）；
+   * 较新 → 仅写白名单差异字段 + erp_ext，updated_at 回填。
+   */
+  async syncProfile(req: {
+    name: string
+    fields?: Partial<Record<string, unknown>>
+    erp_ext?: Record<string, unknown>
+    updated_at: string
+  }): Promise<{ applied: boolean }> {
+    const ws = this.requireWS()
+    const name = req.name.trim()
+    if (!name) throw new Error('客户名称不能为空')
+    await this.assertCustomerDir(ws, name)
+    const store = await this.loadCustomersInfo()
+    const entry: CustomerExtraInfo = store[name] ?? { created_at: currentTimeString() }
+    const verdict = resolveSyncProfile(entry, req)
+    if (!verdict.applied) {
+      if (verdict.denied) throw new Error('syncProfile 含白名单外字段（box 权威字段不可由 ERP 写）')
+      return { applied: false }
+    }
+    store[name] = verdict.next as CustomerExtraInfo
+    await this.saveCustomersInfo(ws, store)
+    return { applied: true }
   }
 
   /** 合并目录扫描与 JSON 档案，构造对外 CustomerInfo（created_at/updated_at 优先档案 ISO，缺省回退目录 mtime） */

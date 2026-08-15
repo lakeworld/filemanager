@@ -485,6 +485,12 @@ app.whenReady().then(() => {
     // （查重等账务规则单点落在台账服务，§6.2「三入口同函数」）；此处只做生命周期装配：
     // 工作区打开/切换时 stop + start（watch 句柄与防抖定时器成对释放重建）+ 启动补扫
     const exchange = svc.exchange
+    // v2.5.1（D20）：交换区归集成功 → 插件宿主 fileArchived 桥（region=exchange，逐条投递）
+    svc.onExchangeArchived = (archived) => {
+      for (const p of archived) {
+        pluginHost?.emitHostEvent('fileArchived', { region: 'exchange', path: p, name: path.basename(p) })
+      }
+    }
 
     // —— IPC / 协议 / 插件宿主 / 设置注册：各自失败仅 log 降级，不阻断装配（P1-D1）——
     try {
@@ -492,6 +498,10 @@ app.whenReady().then(() => {
         isTrayReady: () => tray !== null,
         // v2.5（P1-A4）：files 导入完成 → 宿主事件 importComplete 投递桥
         onImportComplete: (payload) => pluginHost?.emitHostEvent('importComplete', payload),
+        // v2.5.1（A1，D9）：客户变更 → 宿主事件投递桥（成功路径）
+        onCustomerEvent: (event, payload) => pluginHost?.emitHostEvent(event, payload),
+        // v2.5.1（A1，D20）：文件归档 → 宿主事件 fileArchived 投递桥（成功路径）
+        onFileArchived: (payload) => pluginHost?.emitHostEvent('fileArchived', payload),
       })
     } catch (err) {
       void log('error', `IPC 注册失败（降级继续，窗口仍创建）: ${String(err)}`)

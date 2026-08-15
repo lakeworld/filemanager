@@ -67,7 +67,8 @@ function PluginIcon(props: { p: PluginInfo }): JSX.Element {
 function PermissionsView(props: { p: PluginInfo }): JSX.Element {
   const perms = props.p.permissions
   const network = perms?.network ?? []
-  const declared = network.length > 0 || perms?.clipboard || perms?.notification || perms?.account
+  const declared =
+    network.length > 0 || perms?.clipboard || perms?.notification || perms?.account || perms?.customers || perms?.share
   return (
     <div>
       <div class="text-xs font-medium text-surface-400 mb-1.5">权限声明</div>
@@ -95,6 +96,12 @@ function PermissionsView(props: { p: PluginInfo }): JSX.Element {
           </Show>
           <Show when={perms?.account}>
             <div class="text-xs text-surface-600">👤 可读取账号登录态（token）</div>
+          </Show>
+          <Show when={perms?.customers}>
+            <div class="text-xs text-surface-600">🧾 可读写客户档案（customers 能力域）</div>
+          </Show>
+          <Show when={perms?.share}>
+            <div class="text-xs text-surface-600">📡 可发布工作区只读视图并拉取文件（share 能力域）</div>
           </Show>
         </div>
       </Show>

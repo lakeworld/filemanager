@@ -49,6 +49,8 @@ export class BoxService {
   inbound: InboundService
   /** v2.4.7：交换区投递（PLAN §8）——文件归集内置；发票/入库台账经 ledger sink 接入（见构造器） */
   exchange: ExchangeService
+  /** v2.5.1（D20）：交换区归集成功回调（装配层注入插件宿主 fileArchived 桥；core 零依赖，未注入静默） */
+  onExchangeArchived?: (archived: string[]) => void
   private thumbs: ThumbnailProvider
 
   constructor(thumbs: ThumbnailProvider, workspace?: WorkspaceService, logger?: Logger) {
@@ -94,6 +96,8 @@ export class BoxService {
           file_path: archived[0] ?? '',
         })
       },
+      // v2.5.1（D20）：交换区归集成功 → 装配层桥（插件宿主 fileArchived 投递；零依赖，无回调时静默）
+      onArchived: (archived) => this.onExchangeArchived?.(archived),
     })
     this.tags = new TagService(this.workspace, this.metadata)
     this.archive = new ArchiveService(this.workspace)

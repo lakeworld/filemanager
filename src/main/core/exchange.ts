@@ -92,6 +92,8 @@ export interface ExchangeLedgerSinks {
   createInvoice(d: ExchangeInvoiceFields, archived: string[]): Promise<void>
   /** 入库单：建台账记录；单据编号查重失败抛 Error（同上） */
   createInbound(d: ExchangeInboundFields, archived: string[]): Promise<void>
+  /** v2.5.1（A1，D20）：归集成功回调（装配层注入；成功路径逐条投递 fileArchived，region=exchange） */
+  onArchived?: (archived: string[]) => void
 }
 
 /** 簿记滚动上限（§3.5：保留最近 500 条已处理投递 id） */
@@ -325,6 +327,8 @@ export class ExchangeService {
     const archived = await this.copyFiles(sourceFiles, targetDir, cfg, sanitizeName(f.number), year)
     try {
       await this.ledger.createInvoice(f, archived)
+      // v2.5.1（D20）：台账成功 → 归集事件逐条投递（成功路径）
+      this.ledger.onArchived?.(archived)
     } catch (err) {
       // v2.5（P1-C3）：台账写入失败 → 回滚已归档副本，不留孤儿文件（账物一致）
       await this.rollbackArchived(targetDir, archived)
@@ -352,6 +356,8 @@ export class ExchangeService {
     const archived = await this.copyFiles(sourceFiles, targetDir, cfg, sanitizeName(f.id), year)
     try {
       await this.ledger.createInbound(f, archived)
+      // v2.5.1（D20）：台账成功 → 归集事件逐条投递（成功路径）
+      this.ledger.onArchived?.(archived)
     } catch (err) {
       // v2.5（P1-C3）：台账写入失败 → 回滚已归档副本，不留孤儿文件（账物一致）
       await this.rollbackArchived(targetDir, archived)

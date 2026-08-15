@@ -69,6 +69,8 @@ const RULE_CASES: RuleCase[] = [
   { rule: 7, keyword: 'onEvent', input: base({ activation: ['onEvent:workspaceChanged'] }) },
   { rule: 8, keyword: 'syncScope', input: base({ syncScope: 'cloud' }) },
   { rule: 9, keyword: 'permissions.account', input: base({ permissions: { account: 'yes' } }) },
+  { rule: 10, keyword: 'permissions.customers', input: base({ permissions: { customers: 'yes' } }) },
+  { rule: 10, keyword: 'permissions.share', input: base({ permissions: { share: 1 } }) },
 ]
 
 /** 合法 manifest 组合（fc.record，全部必需字段 + 布尔随机 enabled） */
@@ -162,6 +164,27 @@ describe('host.files 模糊（工作区受限读写）', () => {
       emitToRenderer: () => {},
       account: { getToken: () => null, isLoggedIn: () => false },
       accountAccess: false,
+      customers: {
+        list: async () => [],
+        get: async () => null,
+        writeErpExt: async () => {},
+        syncProfile: async () => ({ applied: true }),
+        relation: { link: async () => {}, unlink: async () => {} },
+      },
+      customersAccess: false,
+      share: {
+        listProductSets: async () => [],
+        listCustomers: async () => [],
+        listTree: async () => [],
+        getMetadata: async () => ({ tags: [], notes: '' }),
+        statFile: async () => ({ size: 0, mtime: '' }),
+        readFileChunk: async () => new Uint8Array(0),
+        writePulledFile: async () => {},
+        ensureProductSet: async () => 'exists' as const,
+        ensureCustomer: async () => 'exists' as const,
+        mergePulledMetadata: async () => ({ conflicts: [] }),
+      },
+      shareAccess: false,
     })
   })
 
