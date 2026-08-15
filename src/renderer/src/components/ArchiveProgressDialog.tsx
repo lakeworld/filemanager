@@ -147,7 +147,7 @@ export default function ArchiveProgressDialog(props: { token: string; onClose: (
         <Show when={status() === "running"}>
           <div class="h-2.5 w-full bg-surface-200 rounded-full overflow-hidden">
             <div
-              class="h-full bg-primary-500 rounded-full transition-all duration-200"
+              class="h-full bg-primary-500 rounded-full transition-[width] duration-200"
               style={{ width: `${percent()}%` }}
             />
           </div>

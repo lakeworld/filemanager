@@ -472,6 +472,7 @@ export default function Settings() {
               />
               <select
                 class="px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                aria-label="标签父级"
                 value={newTagParent() ?? ""}
                 onChange={(e) => setNewTagParent(e.currentTarget.value || null)}
               >

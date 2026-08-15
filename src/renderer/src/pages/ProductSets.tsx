@@ -25,6 +25,13 @@ export default function ProductSets() {
   const navigate = useNavigate();
   const params = useParams();
   const [showCreateModal, setShowCreateModal] = createSignal(false);
+  // v2.5.1（T4）：列表加载守卫——初始 Skeleton 不闪空态（T0 坐实违规 ProductSets:310）
+  const [loadingProductSets, setLoadingProductSets] = createSignal(true);
+  const reloadProductSets = async () => {
+    setLoadingProductSets(true);
+    await loadProductSets();
+    setLoadingProductSets(false);
+  };
   const [newPsName, setNewPsName] = createSignal("");
   const [newPsTags, setNewPsTags] = createSignal<string[]>([]);
   const [newPsNotes, setNewPsNotes] = createSignal("");
@@ -96,7 +103,7 @@ export default function ProductSets() {
 
   createEffect(() => {
     if (currentWorkspace()) {
-      loadProductSets();
+      void reloadProductSets();
     }
   });
 
@@ -179,7 +186,7 @@ export default function ProductSets() {
       setNewPsName("");
       setNewPsTags([]);
       setNewPsNotes("");
-      loadProductSets();
+      void reloadProductSets();
     } else {
       showToast("error", "创建失败", result.error || undefined);
     }
@@ -215,7 +222,7 @@ export default function ProductSets() {
     if (path) {
       const result = await api.xlsx.import(path);
       if (result.success) {
-        loadProductSets();
+        void reloadProductSets();
       } else {
         showToast("error", "导入失败", result.error || undefined);
       }
@@ -231,7 +238,7 @@ export default function ProductSets() {
     const result = await api.productSets.rename(ps, editingPsName());
     if (result.success) {
       setEditingPs(false);
-      loadProductSets();
+      void reloadProductSets();
       navigate(`/product-sets/${encodeURIComponent(editingPsName())}`);
     } else {
       showToast("error", "重命名失败", result.error || undefined);
@@ -244,10 +251,10 @@ export default function ProductSets() {
     const result = await api.productSets.delete(name);
     if (result.success) {
       if (fromCard) {
-        loadProductSets();
+        void reloadProductSets();
       } else {
         navigate("/product-sets");
-        loadProductSets();
+        void reloadProductSets();
       }
     } else {
       showToast("error", "删除产品集失败", result.error || undefined);
@@ -276,7 +283,7 @@ export default function ProductSets() {
     });
     if (result.success) {
       setEditingInfoPs(null);
-      loadProductSets();
+      void reloadProductSets();
     } else {
       showToast("error", "保存失败", result.error || undefined);
     }
@@ -311,6 +318,13 @@ export default function ProductSets() {
         </div>
       </div>
 
+      <Show when={!loadingProductSets()} fallback={
+        <div class="flex flex-col gap-3 py-8">
+          <div class="skeleton h-20 w-full rounded-xl" />
+          <div class="skeleton h-20 w-full rounded-xl" />
+          <div class="skeleton h-20 w-full rounded-xl" />
+        </div>
+      }>
       <Show when={productSets().length > 0} fallback={
         <EmptyState icon="📦" title="暂无产品集" desc="创建您第一个产品集来开始管理">
           <button class="btn-primary" onClick={() => setShowCreateModal(true)}>新建产品集</button>
@@ -602,6 +616,7 @@ export default function ProductSets() {
           </div>
           </div>
         </Show>
+      </Show>
       </Show>
 
       <CreatePsModal open={showCreateModal()} onClose={() => setShowCreateModal(false)} onCreated={loadProductSets} />
