@@ -16,7 +16,9 @@
 
 @layer base {
   html {
-    font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+    /* v2.5.2（视觉升级，参考仓迹 ERP）：思源黑体（Noto Sans SC）中文字体优先，西文/数字保持 Inter 清晰度；
+       字重映射：正文 400、强调 500-600、标题/数字 700（fontsource 按 unicode-range 分片按需加载） */
+    font-family: "Noto Sans SC", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }

@@ -132,7 +132,7 @@ export default function CreateClientModal(props: {
             </div>
             <div class="mb-4">
               <label class="block text-sm font-medium text-surface-700 mb-1">电话</label>
-              <Input value={newPhone()} placeholder="如：13800000000" onInput={(e) => setNewPhone(e.currentTarget.value)} class="w-full" />
+              <Input value={newPhone()} placeholder="如：13800138000" onInput={(e) => setNewPhone(e.currentTarget.value)} class="w-full" />
             </div>
             <div class="mb-4">
               <label class="block text-sm font-medium text-surface-700 mb-1">邮箱</label>
@@ -140,7 +140,7 @@ export default function CreateClientModal(props: {
             </div>
             <div class="mb-4">
               <label class="block text-sm font-medium text-surface-700 mb-1">地址</label>
-              <Input value={newAddress()} placeholder="如：广东省深圳市" onInput={(e) => setNewAddress(e.currentTarget.value)} class="w-full" />
+              <Input value={newAddress()} placeholder="如：浙江省义乌市…" onInput={(e) => setNewAddress(e.currentTarget.value)} class="w-full" />
             </div>
           </div>
           <div class="mb-4">
@@ -154,7 +154,7 @@ export default function CreateClientModal(props: {
           <div class="flex gap-3 justify-end">
             <button class="btn-secondary" onClick={props.onClose}>取消</button>
             <button class="btn-primary" disabled={saving()} onClick={() => void handleCreate()}>
-              {saving() ? "创建中..." : "创建"}
+              {saving() ? "创建中..." : "确认创建"}
             </button>
           </div>
         </div>
