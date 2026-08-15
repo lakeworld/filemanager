@@ -160,6 +160,8 @@ export default function ProductSets() {
 
   const imageFolders = () => workspaceConfig()?.image_subfolders || ["主图", "详情页", "白底图", "素材"];
   const certFolders = () => workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"];
+  // v2.5.1（F2）：文档子文件夹（config 缺省已由 loadConfig 合并，此处镜像兜底）
+  const docFolders = () => workspaceConfig()?.doc_subfolders || ["说明书", "参数表", "质检报告"];
 
   const handleCreate = async () => {
     const name = newPsName().trim();
@@ -346,7 +348,7 @@ export default function ProductSets() {
                     </div>
                     <div class="flex items-center gap-2">
                       <span class="text-xs px-2 py-1 rounded-full bg-surface-100 text-surface-500">
-                        {ps.image_count} 图 / {ps.cert_count} 证
+                        {ps.image_count} 图 / {ps.cert_count} 证 / {ps.doc_count ?? 0} 文
                       </span>
                       {/* v2.4.7（F9）：打包整个产品集目录 */}
                       <button
@@ -464,7 +466,7 @@ export default function ProductSets() {
             )}
           </Show>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Image entry card */}
             <div
               class="card p-8 cursor-pointer hover:shadow-card-hover transition-all bg-gradient-to-br from-blue-50 to-white"
@@ -508,6 +510,29 @@ export default function ProductSets() {
                 <For each={certFolders()}>
                   {(folder) => (
                     <span class="text-xs px-3 py-1.5 rounded-full bg-orange-100 text-orange-700">{folder}</span>
+                  )}
+                </For>
+              </div>
+            </div>
+            {/* v2.5.1（F2）：文档入口卡——中性色（文档域无专属色族，D17）；点击进 文档/<首个子文件夹> */}
+            <div
+              class="card p-8 cursor-pointer hover:shadow-card-hover transition-all bg-gradient-to-br from-surface-100 to-white"
+              onClick={() => {
+                const folders = docFolders();
+                navigate(`/files/doc/${encodeURIComponent(psName())}/${folders[0]}`);
+              }}
+            >
+              <div class="flex items-center gap-4">
+                <div class="w-16 h-16 rounded-2xl bg-surface-200 flex items-center justify-center text-4xl">📄</div>
+                <div>
+                  <h3 class="text-xl font-bold text-surface-900">文档</h3>
+                  <p class="text-sm text-surface-500 mt-1">说明书、参数表与质检资料</p>
+                </div>
+              </div>
+              <div class="mt-6 flex gap-3 flex-wrap">
+                <For each={docFolders()}>
+                  {(folder) => (
+                    <span class="text-xs px-3 py-1.5 rounded-full bg-surface-200 text-surface-700">{folder}</span>
                   )}
                 </For>
               </div>
