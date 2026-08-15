@@ -19,7 +19,9 @@
  *
  * 用法：
  *   node scripts/build-hello-plugin.mjs                # 默认 src=src/plugins/hello out=out/plugins
- *   node scripts/build-hello-plugin.mjs --src <dir> --out <dir>
+ *   node scripts/build-hello-plugin.mjs --src <dir> --out <dir> [--externals a,b,c]
+ *   --externals：main 构建的 external 包名（逗号分隔，如 bufferutil,utf-8-validate——ws 的
+ *   native 可选依赖，esbuild 无 node 内置解析时需 external；ws 有纯 JS fallback，运行期自动降级）
  */
 import { build } from 'esbuild'
 import zlib from 'node:zlib'
@@ -230,6 +232,8 @@ export async function buildHelloPlugin(opts = {}) {
   const srcDir = opts.srcDir ?? DEFAULT_SRC_DIR
   const outDir = opts.outDir ?? DEFAULT_OUT_DIR
   const log = opts.log ?? (() => {})
+  /** v2.5.1（波 0，D19）：main 构建 externals（字符串数组；默认空 = hello 不声明） */
+  const externals = Array.isArray(opts.externals) ? opts.externals : []
 
   // —— manifest：存在 + JSON 可解析 + id 可用（完整校验由宿主登记期执行）——
   const manifestPath = path.join(srcDir, 'manifest.json')
@@ -246,6 +250,8 @@ export async function buildHelloPlugin(opts = {}) {
   }
 
   // —— esbuild：main（CJS，node 平台，宿主动态 import 取 default=module.exports）——
+  // v2.5.1（波 0，D19）：externals 注入——ws 的 native 可选依赖（bufferutil/utf-8-validate）需 external
+  //（esbuild 尝试解析失败即报错；ws 运行期有纯 JS fallback），由调用方 --externals 声明
   const mainEntry = await findMainEntry(srcDir)
   const mainBuild = await build({
     entryPoints: [mainEntry],
@@ -255,6 +261,7 @@ export async function buildHelloPlugin(opts = {}) {
     format: 'cjs',
     target: 'node18',
     nodePaths: NODE_PATHS,
+    external: externals.length > 0 ? externals : undefined,
     logLevel: 'silent',
     write: false,
   })
@@ -325,15 +332,17 @@ if (isMain()) {
   const args = process.argv.slice(2)
   let src
   let out
+  let externals
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--src' && args[i + 1]) src = args[++i]
     else if (args[i] === '--out' && args[i + 1]) out = args[++i]
+    else if (args[i] === '--externals' && args[i + 1]) externals = args[++i].split(',').map((s) => s.trim()).filter(Boolean)
     else {
-      console.error(`未知参数：${args[i]}（用法：--src <dir> --out <dir>）`)
+      console.error(`未知参数：${args[i]}（用法：--src <dir> --out <dir> [--externals a,b,c]）`)
       process.exit(2)
     }
   }
-  buildHelloPlugin({ srcDir: src, outDir: out }).catch((err) => {
+  buildHelloPlugin({ srcDir: src, outDir: out, externals }).catch((err) => {
     console.error(`✗ 构建失败：${err.message}`)
     process.exit(1)
   })
