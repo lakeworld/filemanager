@@ -98,6 +98,7 @@ interface QiheboxApi {
     startDrag: (paths: string[]) => Promise<unknown>
     workspaceUrl: (filePath: string) => Promise<unknown>
     openWithDefaultApp: (filePath: string) => Promise<unknown>
+    readTextFile: (filePath: string) => Promise<unknown>
     videoThumbnail: (filePath: string) => Promise<unknown>
     saveVideoFrame: (filePath: string, buf: ArrayBuffer) => Promise<unknown>
   }

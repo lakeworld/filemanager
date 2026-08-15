@@ -398,6 +398,10 @@ export function registerIpc(
       return openFileWithDefaultApp(filePath)
     }),
   )
+  // v2.5.1（F4，D26）：读取工作区内文本文件（MD 预览用；校验与 2MB 上限在 core readTextFile）
+  ipcMain.handle('qihebox:files:readTextFile', (_e, filePath: string) =>
+    handle(() => box.files.readTextFile(String(filePath ?? ''))),
+  )
 
   // —— 元数据 ——
   // v2.4.2（D3+D4）：按文件绝对路径读写（key 含子文件夹、跨平台分隔符统一）

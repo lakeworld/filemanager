@@ -189,6 +189,7 @@ export const api = {
     workspaceUrl: (path: string) => qb.files.workspaceUrl(path) as Promise<ApiResult<string>>,
     openWithDefaultApp: (path: string) =>
       qb.files.openWithDefaultApp(path) as Promise<ApiResult<boolean>>,
+    readTextFile: (path: string) => qb.files.readTextFile(path) as Promise<ApiResult<string>>,
     videoThumbnail: (path: string) =>
       qb.files.videoThumbnail(path) as Promise<ApiResult<string>>,
     saveVideoFrame: (path: string, buf: ArrayBuffer) =>
