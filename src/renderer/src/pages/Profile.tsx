@@ -205,7 +205,7 @@ export default function Profile() {
                   const isActive = () => active() === item.key;
                   return (
                     <button
-                      class="group w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left transition-all"
+                      class="group w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors"
                       classList={{
                         "bg-primary-50 shadow-sm": isActive(),
                         "hover:bg-surface-50": !isActive(),
@@ -232,7 +232,7 @@ export default function Profile() {
                           {item.label}
                           {/* v2.4.0：有可用更新时点亮红点徽标 */}
                           <Show when={item.key === "update" && updatePhase() === "available"}>
-                            <span class="ml-1 align-middle text-xs leading-none text-red-500">●</span>
+                            <span class="ml-1 align-middle text-xs leading-none text-danger-500">●</span>
                           </Show>
                         </div>
                         <div class="truncate text-xs text-surface-400">{item.desc}</div>
@@ -290,9 +290,9 @@ export default function Profile() {
                 </div>
 
                 <Show when={updatePhase() === "latest"}>
-                  <div class="rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700">
+                  <div class="rounded-xl bg-success-50 px-4 py-3 text-sm text-success-700">
                     <div class="font-semibold">当前已是最新版本 v{displayVersion()} 🎉</div>
-                    <p class="mt-1 text-xs text-green-600">
+                    <p class="mt-1 text-xs text-success-600">
                       自动更新安装通道尚未开放，需要全新安装包请前往官网下载。
                     </p>
                     <button
@@ -321,17 +321,17 @@ export default function Profile() {
                 </Show>
 
                 <Show when={updatePhase() === "error" || updateError()}>
-                  <div class="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
+                  <div class="rounded-xl bg-danger-50 px-4 py-3 text-sm text-danger-600">
                     <div>{updateError() || "检查更新失败，请确认网络连接后重试。"}</div>
                     <div class="mt-3 flex items-center gap-3">
                       <button
-                        class="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-700"
+                        class="rounded-md bg-danger-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-danger-700"
                         onClick={() => checkUpdate()}
                       >
                         重试
                       </button>
                       <button
-                        class="rounded-md border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                        class="rounded-md border border-danger-200 bg-white px-3 py-1.5 text-xs font-semibold text-danger-600 transition hover:bg-danger-50"
                         onClick={openDownloadPage}
                       >
                         前往官网
@@ -374,10 +374,10 @@ export default function Profile() {
                   </button>
                 </div>
                 <Show when={logMsg()}>
-                  <div class="mt-4 rounded-xl bg-green-50 px-4 py-3 text-sm text-green-700 break-all">{logMsg()}</div>
+                  <div class="mt-4 rounded-xl bg-success-50 px-4 py-3 text-sm text-success-700 break-all">{logMsg()}</div>
                 </Show>
                 <Show when={logErr()}>
-                  <div class="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{logErr()}</div>
+                  <div class="mt-4 rounded-xl bg-danger-50 px-4 py-3 text-sm text-danger-600">{logErr()}</div>
                 </Show>
               </div>
             </Show>
@@ -465,7 +465,7 @@ function AccountSection() {
                 onInput={(e) => setPassword(e.currentTarget.value)}
               />
               <Show when={error()}>
-                <div class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error()}</div>
+                <div class="rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-600">{error()}</div>
               </Show>
               <div class="flex items-center justify-between">
                 <button type="submit" class="btn-primary px-5" disabled={busy()}>
@@ -499,7 +499,7 @@ function AccountSection() {
           </button>
         </div>
         <Show when={accountStatus().sessionExpired}>
-          <div class="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+          <div class="mt-4 rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-600">
             登录已过期，请重新登录。
           </div>
         </Show>

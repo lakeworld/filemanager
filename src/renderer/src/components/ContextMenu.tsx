@@ -1,6 +1,7 @@
-import { Show, For, onMount, onCleanup, createSignal } from "solid-js";
+import { Show, For, onMount, onCleanup, createSignal, createEffect } from "solid-js";
 import { Portal } from "solid-js/web";
 import { clampMenuPos } from "~/utils/clampMenuPos";
+import { pushLayer } from "~/components/ui/layerStack";
 
 export interface ContextMenuItem {
   label: string;
@@ -58,7 +59,7 @@ export default function ContextMenu(props: {
     }
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (e.key === "Escape" && !e.defaultPrevented) close();
     };
     const onClick = (e: MouseEvent) => {
       // 点击菜单外部关闭（菜单自身点击冒泡由 stopPropagation 阻止）
@@ -90,7 +91,7 @@ export default function ContextMenu(props: {
               <Show when={item.show !== false}>
                 <button
                   class={`block w-full px-4 py-2 text-left text-sm hover:bg-surface-100 transition-colors ${
-                    item.danger ? "text-red-600 hover:bg-red-50" : "text-surface-700"
+                    item.danger ? "text-danger-600 hover:bg-danger-50" : "text-surface-700"
                   }`}
                   onClick={() => {
                     item.action();

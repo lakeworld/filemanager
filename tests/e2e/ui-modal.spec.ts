@@ -148,4 +148,35 @@ test.describe('Modal 底座（v2.5.1 T2）', () => {
       await fsp.rm(wsDir, { recursive: true, force: true })
     }
   })
+
+  test('弹出层分层：Modal 内 DatePicker 弹出时 Esc 只关日期层（D2）', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-modal-e2e-'))
+    try {
+      await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+      await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: '分层系列' }))
+      await navigateTo('/files/doc/分层系列/说明书')
+      // 需要 Modal 内有 DatePicker 的场景：发票编辑弹窗（开票日期）
+      await navigateTo('/invoices')
+      await page.getByRole('button', { name: /新建发票/ }).first().click()
+      const dialog = page.getByRole('dialog', { name: '新建发票' })
+      await expect(dialog).toBeVisible({ timeout: 15000 })
+      // 打开日期面板（DatePicker 触发为 button；开票日期有默认值 → 文本为日期）
+      // 打开日期面板（DatePicker 触发为 button，开票日期有默认值 → 文本为日期）
+      // force：普通 click 会被 Playwright actionability 预检与 Modal 进入动画的相互作用拦截
+      // （elementFromPoint 实测可点击无遮挡，非产品 bug；DatePicker 弹层内交互既有 e2e 不覆盖）
+      await dialog.getByRole('button', { name: /\d{4}-\d{2}-\d{2}/ }).first().click({ force: true })
+      // 日期面板是 Portal 弹出层（fixed 定位）
+      const panel = page.locator('[class*="z-[70]"]').first()
+      await expect(panel).toBeVisible({ timeout: 10000 })
+      // Esc：只关日期层，弹窗仍在
+      await page.keyboard.press('Escape')
+      await expect(panel).toHaveCount(0)
+      await expect(dialog).toBeVisible()
+      // 再 Esc 关弹窗
+      await page.keyboard.press('Escape')
+      await expect(dialog).toHaveCount(0)
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true })
+    }
+  })
 })

@@ -68,7 +68,7 @@ export default function TitleBar() {
           </svg>
         </button>
         <button
-          class="h-full w-11 flex items-center justify-center text-surface-500 hover:bg-red-500 hover:text-white transition-colors"
+          class="h-full w-11 flex items-center justify-center text-surface-500 hover:bg-danger-500 hover:text-white transition-colors"
           onClick={handleClose}
           title="关闭到托盘"
           style={{ "-webkit-app-region": "no-drag" }}

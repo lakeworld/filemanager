@@ -239,10 +239,10 @@ export default function App(props: RouteSectionProps) {
         <div
           class={`fixed top-14 left-1/2 -translate-x-1/2 z-[60] rounded-lg px-4 py-3 text-sm shadow-lg max-w-xl ${
             banner()!.tone === "success"
-              ? "bg-green-50 border border-green-200 text-green-700"
+              ? "bg-success-50 border border-success-200 text-success-700"
               : banner()!.tone === "info"
-                ? "bg-blue-50 border border-blue-200 text-blue-700"
-                : "bg-red-50 border border-red-200 text-red-700"
+                ? "bg-info-50 border border-info-200 text-info-700"
+                : "bg-danger-50 border border-danger-200 text-danger-700"
           }`}
         >
           <div class="font-semibold mb-0.5">{banner()!.title}</div>

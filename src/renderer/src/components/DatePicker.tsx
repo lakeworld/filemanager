@@ -1,5 +1,6 @@
-import { Show, For, createSignal, onMount, onCleanup } from "solid-js";
+import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
+import { pushLayer } from "~/components/ui/layerStack";
 
 /**
  * 日期选择器（v2.3.x UI 统一批，复刻 ERP DateField + CalendarPicker 交互）。
@@ -115,10 +116,20 @@ export default function DatePicker(props: {
     return result;
   };
 
+  // v2.5.1（T3 波3，D2）：弹出层入层栈——Esc 归属栈顶（弹出层 > 弹窗 > 页面）；
+  // 自身 Esc 监听仅在层栈未消费（defaultPrevented=false）时兜底关闭
+  createEffect(() => {
+    if (!isOpen()) return;
+    const layer = pushLayer({ onEscape: () => setIsOpen(false) });
+    onCleanup(() => layer.remove());
+  });
+
   // 点击外部 / ESC / 滚动（捕获内层滚动容器）/ 窗口变化 → 关闭
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsOpen(false);
+      if (e.key !== "Escape") return;
+      if (e.defaultPrevented) return; // 层栈已消费（如 Modal 栈顶）
+      setIsOpen(false);
     };
     const onDown = (e: MouseEvent) => {
       const target = e.target as Node;
@@ -153,7 +164,7 @@ export default function DatePicker(props: {
         </span>
         <Show when={props.value}>
           <span
-            class="text-surface-400 hover:text-red-600 shrink-0 px-1"
+            class="text-surface-400 hover:text-danger-600 shrink-0 px-1"
             role="button"
             aria-label="清空日期"
             onClick={(e) => {
@@ -229,7 +240,7 @@ export default function DatePicker(props: {
             <div class="flex justify-end pt-2 mt-2 border-t border-surface-100">
               <button
                 type="button"
-                class="text-xs text-surface-400 px-2 py-1 rounded-md hover:bg-red-50 hover:text-red-600 transition-colors"
+                class="text-xs text-surface-400 px-2 py-1 rounded-md hover:bg-danger-50 hover:text-danger-600 transition-colors"
                 onClick={clearDate}
               >
                 清空日期
