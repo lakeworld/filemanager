@@ -50,6 +50,10 @@ import {
 import ArchiveField from "./invoices/ArchiveField";
 import InvoiceEditorModal from "./invoices/InvoiceEditorModal";
 import InboundEditorModal from "./invoices/InboundEditorModal";
+import InvoiceTable from "./invoices/InvoiceTable";
+import InboundTable from "./invoices/InboundTable";
+import InvoiceToolbar from "./invoices/InvoiceToolbar";
+import DeleteRecordModal from "./invoices/DeleteRecordModal";
 import { loadTagDefs, tagList } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
 import DatePicker from "~/components/DatePicker";
@@ -551,43 +555,17 @@ export default function Invoices() {
 
       {/* ============ 台账 Tab ============ */}
       <Show when={tab() === "invoices"}>
-        <div class="flex flex-col md:flex-row gap-3 mb-4 shrink-0">
-          <input
-            type="text"
-            class="flex-1 px-3 py-2 border border-surface-200 rounded-lg text-sm"
-            placeholder="搜索发票号码 / 开票方 / 购买方..."
-            value={query()}
-            onInput={(e) => setQuery(e.currentTarget.value)}
-          />
-          <select
-            class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
-            value={statusFilter()}
-            onChange={(e) => setStatusFilter(e.currentTarget.value)}
-          >
-            <option value="">全部状态</option>
-            <For each={STATUSES}>
-              {(s) => <option value={s}>{s}</option>}
-            </For>
-          </select>
-          <select
-            class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
-            value={customerFilter()}
-            onChange={(e) => setCustomerFilter(e.currentTarget.value)}
-          >
-            <option value="">全部客户</option>
-            <For each={customers()}>
-              {(c) => <option value={c.name}>{c.name}</option>}
-            </For>
-          </select>
-          <select
-            class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
-            value={dueSoonOnly() ? "1" : ""}
-            onChange={(e) => setDueSoonOnly(e.currentTarget.value === "1")}
-          >
-            <option value="">全部待办</option>
-            <option value="1">⏰ 仅 30 天待办</option>
-          </select>
-        </div>
+        <InvoiceToolbar
+          query={query()}
+          statusFilter={statusFilter()}
+          customerFilter={customerFilter()}
+          dueSoonOnly={dueSoonOnly()}
+          onQuery={setQuery}
+          onStatusFilter={setStatusFilter}
+          onCustomerFilter={setCustomerFilter}
+          onDueSoonOnly={setDueSoonOnly}
+          customers={customers()}
+        />
 
         <Show when={invoices().length === 0} fallback={
           <div class="flex-1 min-h-0 flex flex-col">
@@ -607,115 +585,16 @@ export default function Invoices() {
                 </div>
               </div>
 
-              <Show when={filteredInvoices().length === 0} fallback={
-                <>
-                  <div
-                    class="px-3 py-2 text-xs text-surface-400 grid items-center gap-2 shrink-0"
-                    style={{ "grid-template-columns": INVOICE_COL_TEMPLATE }}
-                  >
-                    <span>号码</span>
-                    <span>日期</span>
-                    <span>开票方</span>
-                    <span>购买方</span>
-                    <span class="text-right">金额</span>
-                    <span>状态</span>
-                    <span>客户</span>
-                    <span>待办日期</span>
-                    <span class="text-right">操作</span>
-                  </div>
-                  <div class="flex-1 min-h-0">
-                    <VirtualGrid
-                      items={filteredInvoices()}
-                      itemHeight={48}
-                      columns={1}
-                      gap={8}
-                      // v2.4.7（评审 P2）：筛选/搜索变化时滚动归零（VirtualGrid scrollResetKey 约定）
-                      scrollResetKey={`${statusFilter()}|${customerFilter()}|${dueSoonOnly()}|${query()}`}
-                      renderItem={(rec) => (
-                        <div
-                          class={`px-3 py-2 rounded-lg grid items-center gap-2 text-sm transition-colors hover:bg-surface-50 ${missingFiles()[rec.file_path] ? "opacity-60" : ""}`}
-                          style={{ "grid-template-columns": INVOICE_COL_TEMPLATE }}
-                        >
-                          <span class="font-medium text-surface-900 truncate min-w-0" title={rec.file_path}>
-                            {rec.number}
-                          </span>
-                          <span class="text-surface-500 truncate min-w-0">{rec.date}</span>
-                          <span class="truncate min-w-0">{rec.seller}</span>
-                          <span class="truncate min-w-0">{rec.buyer}</span>
-                          <span class="text-right tabular-nums text-surface-900">{fmtMoney(rec.amount)}</span>
-                          <div class="flex items-center gap-1 min-w-0">
-                            <span class={`text-xs px-2 py-0.5 rounded-full shrink-0 ${statusChipClass(rec.status)}`}>
-                              {rec.status}
-                            </span>
-                            <Show when={rec.status !== "已入账"}>
-                              <button
-                                class="text-primary-600 hover:text-primary-700 text-xs shrink-0 px-0.5"
-                                title={`流转为「${nextStatusOf(rec.status)}」`}
-                                onClick={() => void handleSetStatus(rec.number, nextStatusOf(rec.status))}
-                              >
-                                →
-                              </button>
-                            </Show>
-                            <select
-                              class="text-xs border border-surface-200 rounded bg-white text-surface-600 shrink-0"
-                              value={rec.status}
-                              title="直接选择状态（可回退）"
-                              onChange={(e) => void handleSetStatus(rec.number, e.currentTarget.value as InvoiceStatus)}
-                            >
-                              <For each={STATUSES}>
-                                {(s) => <option value={s}>{s}</option>}
-                              </For>
-                            </select>
-                          </div>
-                          <div class="min-w-0">
-                            <Show when={rec.customer} fallback={<span class="text-surface-300">-</span>}>
-                              {(name) => (
-                                <button
-                                  class={`text-xs px-2 py-0.5 rounded-full transition-colors ${
-                                    customerExists(name())
-                                      ? "bg-surface-100 text-surface-700 hover:bg-primary-50 hover:text-primary-700"
-                                      : "bg-surface-50 text-surface-400"
-                                  }`}
-                                  title={customerExists(name()) ? "前往客户详情" : "客户已删除（字面值保留）"}
-                                  onClick={() => {
-                                    if (customerExists(name())) navigate(`/clients/${encodeURIComponent(name())}`);
-                                  }}
-                                >
-                                  {name()}
-                                </button>
-                              )}
-                            </Show>
-                          </div>
-                          <div class="flex items-center gap-1 min-w-0">
-                            <span class="truncate text-surface-600 min-w-0">{rec.due_date || "-"}</span>
-                            <Show when={isDueSoon(rec)}>
-                              <span class="text-red-500 shrink-0" title="30 天内待办">⏰</span>
-                            </Show>
-                          </div>
-                          <div class="flex items-center justify-end gap-1.5 min-w-0">
-                            <Show when={missingFiles()[rec.file_path]}>
-                              <span class="text-xs text-red-600 shrink-0" title="归档文件已缺失（不影响记录）">文件缺失</span>
-                            </Show>
-                            <button class="text-surface-400 hover:text-primary-600 text-sm shrink-0" title="预览文件" onClick={() => previewInvoiceFile(rec)}>
-                              👁
-                            </button>
-                            <button class="text-surface-400 hover:text-primary-600 text-sm shrink-0" title="编辑" onClick={() => openInvoiceEdit(rec)}>
-                              ✏️
-                            </button>
-                            <button class="text-surface-400 hover:text-red-500 text-sm shrink-0" title="删除" onClick={() => requestDelete("invoice", rec.number, rec.number)}>
-                              🗑️
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    />
-                  </div>
-                </>
-              }>
-                <div class="flex-1 flex items-center justify-center">
-                  <EmptyState icon="🧾" title="没有匹配的发票" desc="调整筛选条件或点击「新建发票」登记" />
-                </div>
-              </Show>
+              <InvoiceTable
+                rows={filteredInvoices()}
+                missing={missingFiles()}
+                customerExists={customerExists}
+                onSetStatus={(number, status) => void handleSetStatus(number, status)}
+                onPreview={previewInvoiceFile}
+                onEdit={openInvoiceEdit}
+                onDelete={(rec) => requestDelete("invoice", rec.number, rec.number)}
+                scrollResetKey={`${statusFilter()}|${customerFilter()}|${dueSoonOnly()}|${query()}`}
+              />
             </div>
           </div>
         }>
@@ -729,87 +608,13 @@ export default function Invoices() {
 
       {/* ============ 入库单 Tab ============ */}
       <Show when={tab() === "inbound"}>
-        <Show when={inboundRecords().length === 0} fallback={
-          <div class="flex-1 min-h-0 flex flex-col">
-            <div class="card p-2 flex flex-col flex-1 min-h-0">
-              <div class="flex items-center justify-between px-3 py-2 shrink-0">
-                <span class="text-sm text-surface-500">共 {inboundRecords().length} 条入库单</span>
-                <button class="btn-primary text-sm" onClick={openInboundCreate}>
-                  <span>➕</span> 新建入库单
-                </button>
-              </div>
-              <div
-                class="px-3 py-2 text-xs text-surface-400 grid items-center gap-2 shrink-0"
-                style={{ "grid-template-columns": INBOUND_COL_TEMPLATE }}
-              >
-                <span>单据编号</span>
-                <span>日期</span>
-                <span>供应商</span>
-                <span>关联产品集</span>
-                <span class="text-right">金额</span>
-                <span>备注</span>
-                <span class="text-right">操作</span>
-              </div>
-              <div class="flex-1 min-h-0">
-                <VirtualGrid
-                  items={inboundRecords()}
-                  itemHeight={48}
-                  columns={1}
-                  gap={8}
-                  renderItem={(rec) => (
-                    <div
-                      class="px-3 py-2 rounded-lg grid items-center gap-2 text-sm transition-colors hover:bg-surface-50"
-                      style={{ "grid-template-columns": INBOUND_COL_TEMPLATE }}
-                    >
-                      <span class="font-medium text-surface-900 truncate min-w-0" title={rec.file_path}>{rec.id}</span>
-                      <span class="text-surface-500 truncate min-w-0">{rec.date}</span>
-                      {/* v2.4.9 S2：供应商已删除 → 灰显占位（字面值保留，不可选但显示名称，同客户删除后灰显范式） */}
-                      <Show when={rec.supplier_id && !suppliers().some((s) => s.name === rec.supplier_id)} fallback={<span class="truncate min-w-0">{rec.supplier}</span>}>
-                        <span class="truncate min-w-0 text-surface-300" title="供应商已删除，名称仅作记录保留">
-                          {rec.supplier}
-                        </span>
-                      </Show>
-                      <div class="min-w-0">
-                        <Show when={rec.product_set} fallback={<span class="text-surface-300">-</span>}>
-                          {(name) => (
-                            <button
-                              class="text-xs px-2 py-0.5 rounded-full bg-surface-100 text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors"
-                              title="前往产品集"
-                              onClick={() => navigate(`/product-sets/${encodeURIComponent(name())}`)}
-                            >
-                              {name()}
-                            </button>
-                          )}
-                        </Show>
-                      </div>
-                      <span class="text-right tabular-nums text-surface-900">
-                        {rec.amount !== undefined ? fmtMoney(rec.amount) : "-"}
-                      </span>
-                      <span class="truncate min-w-0 text-surface-500">{rec.notes || "-"}</span>
-                      <div class="flex items-center justify-end gap-1.5 min-w-0">
-                        <button class="text-surface-400 hover:text-primary-600 text-sm shrink-0" title="预览文件" onClick={() => previewInboundFile(rec)}>
-                          👁
-                        </button>
-                        <button class="text-surface-400 hover:text-primary-600 text-sm shrink-0" title="编辑" onClick={() => openInboundEdit(rec)}>
-                          ✏️
-                        </button>
-                        <button class="text-surface-400 hover:text-red-500 text-sm shrink-0" title="删除" onClick={() => requestDelete("inbound", rec.id, rec.id)}>
-                          🗑️
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                />
-              </div>
-            </div>
-          </div>
-        }>
-          <div class="flex-1 flex items-center justify-center">
-            <EmptyState icon="📥" title="暂无入库单" desc="点击「新建入库单」登记第一条记录">
-              <button class="btn-primary" onClick={openInboundCreate}>新建入库单</button>
-            </EmptyState>
-          </div>
-        </Show>
+        <InboundTable
+          rows={inboundRecords()}
+          suppliers={suppliers()}
+          onPreview={previewInboundFile}
+          onEdit={openInboundEdit}
+          onDelete={(rec) => requestDelete("inbound", rec.id, rec.id)}
+        />
       </Show>
 
       {/* ============ 发票 新建/编辑 弹窗 ============ */}
@@ -837,40 +642,12 @@ export default function Invoices() {
         suppliers={suppliers()}
         productSets={productSets()}
       />
-      {/* ============ 删除确认（账物分离：默认只删记录） ============ */}
-      <Show when={deleteTarget()}>
-        {(t) => (
-          <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setDeleteTarget(null)}>
-            <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-              <h3 class="text-lg font-semibold mb-2">
-                删除{t().kind === "invoice" ? "发票" : "入库单"}记录
-              </h3>
-              <p class="text-sm text-surface-600 mb-4">
-                确定删除「{t().name}」的{t().kind === "invoice" ? "发票台账" : "入库单"}记录吗？
-                账物分离：删除记录不影响归档文件。
-              </p>
-              <label class="flex items-center gap-2 text-sm text-surface-700 mb-6 cursor-pointer">
-                <input
-                  type="checkbox"
-                  class="w-4 h-4 accent-red-600"
-                  checked={t().withFile}
-                  onChange={() => setDeleteTarget((p) => (p ? { ...p, withFile: !p.withFile } : p))}
-                />
-                同时删除归档文件（移入回收站）
-              </label>
-              <div class="flex gap-3 justify-end">
-                <button class="btn-secondary" onClick={() => setDeleteTarget(null)}>取消</button>
-                <button
-                  class="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-500 text-white font-medium rounded-lg transition-all duration-200 hover:bg-red-600 active:scale-95"
-                  onClick={() => void confirmDelete()}
-                >
-                  删除
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </Show>
+      <DeleteRecordModal
+        target={deleteTarget()}
+        onToggleWithFile={() => setDeleteTarget((p) => (p ? { ...p, withFile: !p.withFile } : p))}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }
