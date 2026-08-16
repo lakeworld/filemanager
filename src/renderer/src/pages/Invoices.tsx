@@ -60,6 +60,7 @@ import DatePicker from "~/components/DatePicker";
 import TagInput from "~/components/TagInput";
 import VirtualGrid from "~/components/VirtualGrid";
 import EmptyState from "~/components/EmptyState";
+import Loading from "~/components/Loading";
 import type { InvoiceRecord, InboundRecord, FileEntry } from "~/types";
 import type { InvoiceFormState, InboundFormState } from "./invoices/types";
 
@@ -145,6 +146,8 @@ export default function Invoices() {
 
   // —— 台账 ——
   const [invoices, setInvoices] = createSignal<InvoiceRecord[]>([]);
+  // v2.5.2：首载 loading——空态不闪现（照 FileBrowserView 先例）
+  const [loading, setLoading] = createSignal(true);
   // 文件缺失表：file_path → 不存在（账物分离灰显）
   const [missingFiles, setMissingFiles] = createSignal<Record<string, boolean>>({});
   const [statusFilter, setStatusFilter] = createSignal("");
@@ -195,11 +198,17 @@ export default function Invoices() {
 
   const loadInvoices = async () => {
     const seq = ++invoiceSeq;
-    const result = await api.invoices.list();
-    if (seq !== invoiceSeq) return;
-    if (result.success && result.data) {
-      setInvoices(result.data);
-      void checkFilesExistence(result.data, seq);
+    setLoading(true);
+    try {
+      const result = await api.invoices.list();
+      if (seq !== invoiceSeq) return;
+      if (result.success && result.data) {
+        setInvoices(result.data);
+        void checkFilesExistence(result.data, seq);
+      }
+    } finally {
+      // 仅当前链仍最新时复位（过期链的 finally 不得关闭新链的 loading）
+      if (seq === invoiceSeq) setLoading(false);
     }
   };
 
@@ -599,9 +608,12 @@ export default function Invoices() {
           </div>
         }>
           <div class="flex-1 flex items-center justify-center">
-            <EmptyState icon="🧾" title="暂无发票" desc="点击「新建发票」登记第一张发票">
-              <button class="btn-primary" onClick={openInvoiceCreate}>新建发票</button>
-            </EmptyState>
+            {/* v2.5.2：首载 loading 兜底，空态不闪现 */}
+            <Show when={!loading()} fallback={<Loading text="发票加载中…" />}>
+              <EmptyState icon="🧾" title="暂无发票" desc="点击「新建发票」登记第一张发票">
+                <button class="btn-primary" onClick={openInvoiceCreate}>新建发票</button>
+              </EmptyState>
+            </Show>
           </div>
         </Show>
       </Show>

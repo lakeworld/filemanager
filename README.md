@@ -96,8 +96,8 @@ src/
 npm install          # 安装依赖（.npmrc 已配置国内镜像加速）
 
 npm run dev          # 开发模式（热更新 + 应用窗口）
-npm test             # 单元测试（vitest，仅 tests/unit，295 用例）
-npm run test:e2e     # 端到端测试（Playwright，77 用例，e2e 模式 QIHEBOX_E2E=1）
+npm test             # 单元测试（vitest，仅 tests/unit，584 用例，随版本增长以 AGENTS.md 为准则）
+npm run test:e2e     # 端到端测试（Playwright，105 用例，e2e 模式 QIHEBOX_E2E=1）
 npm run bench        # 性能基准（结果追加 docs/PERF.md，公开维护）
 npm run build        # 构建三段产物到 out/
 npm run build:linux  # 打包 Linux（AppImage + deb）

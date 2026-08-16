@@ -120,6 +120,32 @@ test.describe('休眠唤醒自愈', () => {
     expect(after).toMatch(/\[wake\] L1 已调度全量重绘|\[wake\] 画面正常（L1 复检通过）/)
   })
 
+  test('时钟跳变（轮询兜底）触发自愈且不误 reload（v2.5.2）', async () => {
+    // v2.5.2 轮询兜底：Windows 实测 powerMonitor resume/unlock-screen 从不触发（electron#32576），
+    // 自愈链入口依赖轮询时钟跳变检测。本用例验证：
+    // 1) 首轮 tick 只建基线不判定；伪造 3min 时钟跳变 → 轮询判定「刚经历睡眠」→ 走自愈链
+    // 2) 正常画面不被误 reload（L1 invalidate + 复检通过即停，页面状态保留）
+    await page.evaluate(() => {
+      ;(window as any).__wakeMarker = 'alive'
+    })
+    // 首轮 tick：建立基线（不判定）
+    await app.evaluate(() => (globalThis as any).__wakePollTick(Date.now()))
+    // 伪造 3 分钟时钟跳变（模拟睡眠冻结 → 唤醒）
+    await app.evaluate(() => (globalThis as any).__wakePollTick(Date.now() + 3 * 60 * 1000))
+    // 等 1.5s settle + L1 invalidate + 2s 复检
+    await page.waitForTimeout(4500)
+
+    const marker = await page.evaluate(() => (window as any).__wakeMarker ?? null)
+    expect(marker).toBe('alive')
+    const hasApi = await page.evaluate(() => typeof (window as any).qihebox?.app?.version === 'function')
+    expect(hasApi).toBe(true)
+    // 日志佐证轮询路径确实触发（该日志行只在轮询检测命中时出现）
+    const userData = await app.evaluate(({ app }) => app.getPath('userData'))
+    const logPath = path.join(userData, 'logs', `main-${new Date().toISOString().slice(0, 10)}.log`)
+    const log = await fsp.readFile(logPath, 'utf8')
+    expect(log).toMatch(/\[wake\] 轮询检测到系统休眠恢复/)
+  })
+
   test('渲染进程崩溃后 resume → 自动 reload 恢复', async () => {
     // 环境适配：崩溃模拟（SIGKILL 渲染进程）在 GitHub runner 上时序不可靠（本地 xvfb 实测连续跑
     // 也偶发 flaky，CI 更甚）——本用例在 CI 跳过，由本地/开发机 xvfb 完整验证 F10 崩溃恢复路径

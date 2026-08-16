@@ -6,6 +6,7 @@ import FileThumbnail from "~/components/FileThumbnail";
 import VirtualGrid from "~/components/VirtualGrid";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import EmptyState from "~/components/EmptyState";
+import Loading from "~/components/Loading";
 import type { TrashEntry } from "~/types";
 
 function formatBytes(bytes: number): string {
@@ -71,6 +72,8 @@ const TRASH_ROW_HEIGHT = 104;
 
 export default function Trash() {
   const [entries, setEntries] = createSignal<TrashEntry[]>([]);
+  // v2.5.2：首载 loading——空态不闪现（照 FileBrowserView 先例；刷新时列表已有内容不闪）
+  const [loading, setLoading] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
   const [actionMsg, setActionMsg] = createSignal("");
   // v2.4.7：彻底删除 / 清空确认弹窗（替代 window.confirm；title/message 触发时算好，JSX 只读）
@@ -83,8 +86,13 @@ export default function Trash() {
   } | null>(null);
 
   const loadTrash = async () => {
-    const r = await api.trash.list();
-    if (r.success && r.data) setEntries(r.data);
+    setLoading(true);
+    try {
+      const r = await api.trash.list();
+      if (r.success && r.data) setEntries(r.data);
+    } finally {
+      setLoading(false);
+    }
   };
 
   createEffect(() => {
@@ -231,7 +239,10 @@ export default function Trash() {
       <Show
         when={entries().length > 0}
         fallback={
-          <EmptyState icon="🕳️" title="回收站是空的" desc="删除的文件会先移到这里，可随时恢复" />
+          // v2.5.2：首载 loading 兜底，空态不闪现
+          <Show when={!loading()} fallback={<Loading text="回收站加载中…" />}>
+            <EmptyState icon="🕳️" title="回收站是空的" desc="删除的文件会先移到这里，可随时恢复" />
+          </Show>
         }
       >
         <Show

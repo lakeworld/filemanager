@@ -56,11 +56,15 @@ export default function Settings() {
     }
   });
 
+  // v2.5.2（PERF-SOP §四）：保存成功提示定时器句柄化 + 卸载清理（照 FileBrowserView 先例）
+  let savedTimer: number | undefined;
+  onCleanup(() => window.clearTimeout(savedTimer));
   const handleSave = async () => {
     const success = await updateWorkspaceConfig(config());
     if (success) {
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      window.clearTimeout(savedTimer);
+      savedTimer = window.setTimeout(() => setSaved(false), 2000);
     } else {
       showToast("error", "保存失败", "设置未能保存到工作区，请重试");
     }

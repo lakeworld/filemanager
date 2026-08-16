@@ -140,11 +140,15 @@ export default function Profile() {
 
   // v2.4.9：用户群邮箱反馈（复制到剪贴板；不调外部 API，红线合规）
   const [emailCopied, setEmailCopied] = createSignal(false);
+  // v2.5.2（PERF-SOP §四）：复制提示定时器句柄化 + 卸载清理
+  let copiedTimer: number | undefined;
+  onCleanup(() => window.clearTimeout(copiedTimer));
   const copyEmail = async () => {
     try {
       await navigator.clipboard.writeText("1252235854@qq.com");
       setEmailCopied(true);
-      setTimeout(() => setEmailCopied(false), 2000);
+      window.clearTimeout(copiedTimer);
+      copiedTimer = window.setTimeout(() => setEmailCopied(false), 2000);
     } catch {
       // 剪贴板不可用时静默（邮箱文本仍可见可手输）
     }

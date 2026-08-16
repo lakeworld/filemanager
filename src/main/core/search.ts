@@ -98,11 +98,13 @@ export class SearchService {
         seenSet.add(setName)
       }
 
-      const [imgFiles, certFiles] = await Promise.all([
+      const [imgFiles, certFiles, docFiles] = await Promise.all([
         this.files.listDirFilesRecursive(path.join(setsDir, setName, IMAGES_DIR)),
         this.files.listDirFilesRecursive(path.join(setsDir, setName, CERTS_DIR)),
+        // v2.5.2（D7）：产品集「文档」目录纳入全局搜索（v2.5.1 文档域新增后遗漏，动作-2026-08-15-删除崩溃与登录事件再定位）
+        this.files.listDirFilesRecursive(path.join(setsDir, setName, DOCS_DIR)),
       ])
-      for (const f of [...imgFiles, ...certFiles]) {
+      for (const f of [...imgFiles, ...certFiles, ...docFiles]) {
         const tags = this.fileTags(f, tagsByKey)
         if (f.name.toLowerCase().includes(q) || tagHit(tags)) {
           if (tags.length > 0) f.tags = tags

@@ -66,9 +66,10 @@ export default function QuoteDetail() {
   };
 
   let seq = 0;
-  const loadQuote = async () => {
+  const loadQuote = async (no: string) => {
     const s = ++seq;
-    const r = await api.quotes.get(quotationNo());
+    if (!no) return;
+    const r = await api.quotes.get(no);
     if (s !== seq) return;
     if (r.success) setRecord(r.data ?? null);
   };
@@ -76,7 +77,9 @@ export default function QuoteDetail() {
   createEffect(() => {
     if (currentWorkspace()) {
       loadCustomers();
-      loadQuote();
+      // v2.5.2：参数同步读入 effect 体内（受 Solid 追踪）——/quotes/A → /quotes/B 路由参数变化时
+      // 组件实例复用不重载、详情页停留在旧记录（照 ProductSets psName 先例）
+      loadQuote(quotationNo());
     }
   });
 
@@ -129,7 +132,7 @@ export default function QuoteDetail() {
             <div class="card p-6 mb-6 shrink-0">
               <div class="flex items-center justify-between mb-4">
                 <h3 class="text-lg font-semibold text-surface-900">报价信息</h3>
-                <QuoteStatusActions quotationNo={rec().quotation_no} status={rec().status} onChanged={() => void loadQuote()} />
+                <QuoteStatusActions quotationNo={rec().quotation_no} status={rec().status} onChanged={() => void loadQuote(quotationNo())} />
               </div>
               <div class="grid grid-cols-1 md:grid-cols-4 gap-x-6 gap-y-3">
                 <InfoRow label="报价日期" value={rec().date} />
@@ -151,7 +154,7 @@ export default function QuoteDetail() {
                     class="text-primary-600 hover:text-primary-700 text-xs shrink-0"
                     onClick={() => {
                       const entry = fileEntryOf(rec().file_path);
-                      if (entry) openPreview(entry, { onDelete: () => void loadQuote() });
+                      if (entry) openPreview(entry, { onDelete: () => void loadQuote(quotationNo()) });
                     }}
                   >
                     预览
@@ -209,7 +212,7 @@ export default function QuoteDetail() {
           onClose={() => setEditing(false)}
           onSaved={() => {
             setEditing(false);
-            void loadQuote();
+            void loadQuote(quotationNo());
           }}
         />
       </Show>

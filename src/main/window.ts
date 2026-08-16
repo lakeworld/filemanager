@@ -20,6 +20,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { log } from './log'
 import { isBlankFrameLike, BLANK_TARGETS_WAKE } from './core/frame'
+import { isSuspectedWake } from './core/wake'
 
 let mainWindow: BrowserWindow | null = null
 let quitting = false
@@ -231,9 +232,12 @@ export function createMainWindow(): BrowserWindow {
   })
   mainWindow.on('maximize', () => {
     if (mainWindow && !mainWindow.isDestroyed()) writeWindowState(mainWindow)
+    // v2.5.2（打磨）：最大化态广播——TitleBar 图标同步（双击标题栏/Win+方向键等系统路径不经 toggleMaximize IPC）
+    sendMaximizedChanged(true)
   })
   mainWindow.on('unmaximize', () => {
     if (mainWindow && !mainWindow.isDestroyed()) writeWindowState(mainWindow)
+    sendMaximizedChanged(false)
   })
   mainWindow.on('close', () => {
     if (mainWindow && !mainWindow.isDestroyed()) writeWindowState(mainWindow)
@@ -334,21 +338,55 @@ const WAKE_RECHECK_L2_MS = 3000 // reload 后含重新加载耗时
 const WAKE_RECHECK_L3_MS = 2000
 const WAKE_HIDE_SHOW_GAP_MS = 150
 
+// —— v2.5.2：唤醒轮询兜底 ——
+// Windows 实测 powerMonitor resume/unlock-screen 从不触发（2026-08-16 用户日志；electron#32576），
+// 「窗口可见时睡眠→唤醒白屏」的自愈链失去入口。兜底：30s 轮询时钟跳变——系统睡眠时进程被
+// 冻结，唤醒后首个 tick 的 Δ 突跳（> 间隔×3）即判定刚经历睡眠，复用 onWakeSignal 走既有自愈链。
+// 平时一次减法零开销；env 覆盖同 F6 惯例（QIHEBOX_WAKE_POLL_MS）。
+const WAKE_POLL_MS = Number(process.env.QIHEBOX_WAKE_POLL_MS) || 30 * 1000
+let wakeLastPollAt = 0 // 0 = 首轮基线，不判定（启动即建基线，防误判启动延迟）
+
+/** 唤醒信号统一入口（resume/unlock-screen 事件 + 轮询兜底 idle-poll）：窗口守卫 + settle 延迟 + 自愈互斥 */
+function onWakeSignal(source: string): void {
+  const win = getMainWindow()
+  if (!win || win.isDestroyed() || quitting) return
+  void log('info', `[wake] 系统休眠恢复（${source}），启动自愈检查`)
+  setTimeout(() => {
+    if (!win.isDestroyed() && !quitting && !wakeRecoveryInFlight) {
+      void recoverAfterWake(win)
+    }
+  }, WAKE_SETTLE_MS)
+}
+
+/**
+ * 单次轮询 tick（v2.5.2）：Δ > 间隔×3 判定刚经历睡眠 → 复用 onWakeSignal 自愈链。
+ * now 可注入（e2e 探针 / 单测），默认 Date.now()。
+ */
+export function wakePollTick(now: number = Date.now()): void {
+  if (wakeLastPollAt === 0) {
+    wakeLastPollAt = now // 首轮：建立基线，不判定
+    return
+  }
+  const delta = now - wakeLastPollAt
+  wakeLastPollAt = now
+  if (isSuspectedWake(delta, WAKE_POLL_MS)) {
+    void log('info', `[wake] 轮询检测到系统休眠恢复（Δ=${delta}ms），启动自愈检查`)
+    onWakeSignal('idle-poll')
+  }
+}
+
 export function setupWakeRecovery(): void {
   if (wakeRecoveryRegistered) return
   wakeRecoveryRegistered = true
-  const onWake = (source: string) => {
-    const win = getMainWindow()
-    if (!win || win.isDestroyed() || quitting) return
-    void log('info', `[wake] 系统休眠恢复（${source}），启动自愈检查`)
-    setTimeout(() => {
-      if (!win.isDestroyed() && !quitting && !wakeRecoveryInFlight) {
-        void recoverAfterWake(win)
-      }
-    }, WAKE_SETTLE_MS)
+  powerMonitor.on('resume', () => onWakeSignal('powerMonitor resume'))
+  powerMonitor.on('unlock-screen', () => onWakeSignal('unlock-screen'))
+  // v2.5.2 轮询兜底：常驻 30s interval（进程冻结→唤醒后首 tick 即触发）；首轮基线即刻建立
+  wakeLastPollAt = Date.now()
+  setInterval(() => wakePollTick(), WAKE_POLL_MS)
+  // e2e 探针：wake-recovery.spec.ts 伪造时钟跳变触发轮询自愈（QIHEBOX_E2E 门控，同 setupCloseToTray 惯例）
+  if (process.env.QIHEBOX_E2E === '1') {
+    ;(globalThis as { __wakePollTick?: (now?: number) => void }).__wakePollTick = wakePollTick
   }
-  powerMonitor.on('resume', () => onWake('powerMonitor resume'))
-  powerMonitor.on('unlock-screen', () => onWake('unlock-screen'))
 }
 
 const wakeDelay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
@@ -466,6 +504,17 @@ async function recoverAfterWake(win: BrowserWindow): Promise<void> {
 export function windowHideToTray(): void {
   mainWindow?.hide()
   scheduleDestroy() // 第三层：隐藏后启动销毁倒计时
+}
+
+/** v2.5.2：最大化态广播（TitleBar 图标同步）；窗口销毁/加载中发送失败静默——TitleBar onMount 查询兜底 */
+function sendMaximizedChanged(maximized: boolean): void {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('qihebox:event:window:maximized-changed', maximized)
+    }
+  } catch {
+    /* 窗口销毁竞态，静默 */
+  }
 }
 
 /** 第三层：隐藏（关闭到托盘）后 30 秒无活跃 → 销毁窗口（v2.4.5 T3：2 分钟 → 30 秒） */

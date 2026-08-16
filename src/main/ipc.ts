@@ -380,7 +380,6 @@ export function registerIpc(
   )
   ipcMain.handle('qihebox:files:createSubfolder', (_e, req) => handle(() => box.files.createSubfolder(req)))
   ipcMain.handle('qihebox:files:deleteSubfolder', (_e, req) => handle(() => box.files.deleteSubfolder(req)))
-  ipcMain.handle('qihebox:files:dataUrl', (_e, filePath: string) => handle(() => box.files.getFileDataUrl(filePath)))
   ipcMain.handle('qihebox:files:ensureThumbnail', (_e, filePath: string) =>
     handle(() => box.ensureThumbnailFor(filePath)),
   )

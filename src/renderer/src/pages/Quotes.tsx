@@ -18,6 +18,7 @@ import { showToast } from "~/stores/notifyBanner";
 import { openPreview } from "~/stores/preview";
 import VirtualGrid from "~/components/VirtualGrid";
 import EmptyState from "~/components/EmptyState";
+import Loading from "~/components/Loading";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import QuoteStatusActions from "~/components/QuoteStatusActions";
 import QuoteFormModal from "~/components/QuoteFormModal";
@@ -59,6 +60,8 @@ export default function Quotes() {
   const [searchParams] = useSearchParams();
 
   const [quotes, setQuotes] = createSignal<QuoteRecord[]>([]);
+  // v2.5.2：首载 loading——空态不闪现（照 FileBrowserView 先例）
+  const [loading, setLoading] = createSignal(true);
   const [missingFiles, setMissingFiles] = createSignal<Record<string, boolean>>({});
   const [creating, setCreating] = createSignal(false);
   const [deleteTarget, setDeleteTarget] = createSignal<{ no: string } | null>(null);
@@ -92,11 +95,17 @@ export default function Quotes() {
 
   const loadQuotes = async () => {
     const s = ++seq;
-    const result = await api.quotes.list();
-    if (s !== seq) return;
-    if (result.success && result.data) {
-      setQuotes(result.data);
-      void checkFilesExistence(result.data, s);
+    setLoading(true);
+    try {
+      const result = await api.quotes.list();
+      if (s !== seq) return;
+      if (result.success && result.data) {
+        setQuotes(result.data);
+        void checkFilesExistence(result.data, s);
+      }
+    } finally {
+      // 仅当前链仍最新时复位（过期链的 finally 不得关闭新链的 loading）
+      if (s === seq) setLoading(false);
     }
   };
 
@@ -297,9 +306,12 @@ export default function Quotes() {
         </div>
       }>
         <div class="flex-1 flex items-center justify-center">
-          <EmptyState icon="📄" title="暂无报价" desc="点击「新建报价」登记第一张报价单">
-            <button class="btn-primary" onClick={() => setCreating(true)}>新建报价</button>
-          </EmptyState>
+          {/* v2.5.2：首载 loading 兜底，空态不闪现 */}
+          <Show when={!loading()} fallback={<Loading text="报价加载中…" />}>
+            <EmptyState icon="📄" title="暂无报价" desc="点击「新建报价」登记第一张报价单">
+              <button class="btn-primary" onClick={() => setCreating(true)}>新建报价</button>
+            </EmptyState>
+          </Show>
         </div>
       </Show>
 

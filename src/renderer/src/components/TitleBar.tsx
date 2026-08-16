@@ -1,4 +1,4 @@
-import { createSignal, onMount } from "solid-js";
+import { createSignal, onMount, onCleanup } from "solid-js";
 import { api } from "~/wails/api";
 import Logo from "./Logo";
 
@@ -11,6 +11,12 @@ export default function TitleBar() {
     } catch {
       // ignore
     }
+    // v2.5.2（打磨）：订阅最大化态变化——双击标题栏/Win+方向键等系统路径不经 toggleMaximize IPC，
+    // 仅挂载时查询一次会不同步；返回的取消函数进 onCleanup
+    const unsubscribe = window.qihebox?.events?.on("window:maximized-changed", (v: unknown) => {
+      setIsMaximized(v === true);
+    });
+    onCleanup(() => unsubscribe?.());
   });
 
   const handleMinimize = () => api.window.minimize();
