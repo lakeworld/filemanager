@@ -74,8 +74,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2 ffmpeg
 
+      # v2.5.2：--reporter=github——失败用例名/摘要进 check annotations（API 可读），
+      # 无 xvfb 的本地环境也能从 annotations 定位 CI 独有失败（list 保留完整输出）
       - name: Run Playwright tests (xvfb)
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test --reporter=list,github
 
       # v2.5（PLAN-v2.5-测试 Task 4）：一致性套件自检（hello 自检 = 套件健康证明）——
       # hello 构建产物已由上一步「Build hello plugin (e2e fixture)」就位；套件内部自建正负夹具
