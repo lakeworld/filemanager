@@ -5,7 +5,7 @@
  * - 注册 IPC 与 qihebox:// 文件协议
  * - 系统托盘 + 关闭隐藏到托盘 + 崩溃自愈骨架
  */
-import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage, Notification, ipcMain } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage, Notification, ipcMain, shell } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -312,6 +312,12 @@ async function runUpdateCheck(): Promise<void> {
       sendSystemNotification(
         `发现新版本 v${info.version}`,
         '点击查看更新说明并前往官网下载',
+        // v2.5.2（打磨）：通知点击死路径修复——此前只唤起主窗口，文案承诺的「前往官网下载」未兑现；
+        // 应用内下载通道未就绪（Profile 注释），点击直接打开官网下载页（唤起窗口 + openExternal）
+        () => {
+          windowShow()
+          void shell.openExternal(info.download_url)
+        },
       )
     }
   } catch (err) {
@@ -319,8 +325,11 @@ async function runUpdateCheck(): Promise<void> {
   }
 }
 
-/** v2.4.2（C3）：系统通知——返回是否真实发出；点击通知唤起主窗口；不可用时降级给应用内事件，不假成功 */
-function sendSystemNotification(title: string, body: string): boolean {
+/**
+ * v2.4.2（C3）：系统通知——返回是否真实发出；点击通知唤起主窗口；不可用时降级给应用内事件，不假成功。
+ * v2.5.2（打磨）：onClick 可选——更新通知传打开官网下载页的点击处理（兑现文案），其余通知保持唤起窗口。
+ */
+function sendSystemNotification(title: string, body: string, onClick?: () => void): boolean {
   if (!Notification.isSupported()) {
     void log('warn', `系统通知不受支持，已降级为应用内提醒: ${title}`)
     return false
@@ -328,7 +337,7 @@ function sendSystemNotification(title: string, body: string): boolean {
   try {
     const n = new Notification({ title, body })
     // v2.4.2（批次二）：点击通知 → 唤起主窗口（休眠销毁后自动重建）
-    n.on('click', () => windowShow())
+    n.on('click', onClick ?? (() => windowShow()))
     n.show()
     return true
   } catch (err) {

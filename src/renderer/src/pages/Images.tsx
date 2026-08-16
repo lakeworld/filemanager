@@ -20,6 +20,8 @@ import MoveDialog from "~/components/MoveDialog";
 import BatchTagDialog from "~/components/BatchTagDialog";
 import ArchiveProgressDialog from "~/components/ArchiveProgressDialog";
 import EmptyState from "~/components/EmptyState";
+import Loading from "~/components/Loading";
+import RenameDialog from "~/components/RenameDialog";
 import type { FileEntry, ProductSetInfo } from "~/types";
 import { handleDragOut } from "~/utils/dragout";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
@@ -74,6 +76,12 @@ export default function Images() {
   // 卡片固定行高（图 160px + 文本区），行高常量与卡片 CSS 保持一致
   const ITEM_HEIGHT = 252;
 
+  // v2.5.2：聚合加载请求序号——N×M 链期间切工作区/切类型会并发新链，旧链返回必须丢弃
+  // （照 Certs certLoadSeq 先例：切工作区后旧结果覆盖新数据是已修过的高频 bug）
+  let imageLoadSeq = 0;
+  // v2.5.2：首载 loading——空态不闪现（照 FileBrowserView 先例；N×M 聚合链期间置位）
+  const [loading, setLoading] = createSignal(true);
+
   createEffect(() => {
     if (currentWorkspace()) {
       loadWorkspaceConfig();
@@ -85,28 +93,37 @@ export default function Images() {
 
   const loadAllImages = async () => {
     if (!currentWorkspace()) return;
-    const result = await api.productSets.list();
-    if (!result.success || !result.data) return;
+    const seq = ++imageLoadSeq;
+    setLoading(true);
+    try {
+      const result = await api.productSets.list();
+      if (!result.success || !result.data) return;
 
-    const all: ImageItem[] = [];
-    for (const ps of result.data) {
-      for (const sub of imageFolders()) {
-        const fileResult = await api.files.list({
-          product_set: ps.name,
-          // v2.4.4：视频与图片同居图包目录（file_type 定目录），media_type 定「图片/视频」筛选
-          file_type: "image",
-          media_type: typeFilter(),
-          sub_folder: sub,
-        });
-        if (fileResult.success && fileResult.data) {
-          for (const f of fileResult.data) {
-            all.push({ ...f, productSet: ps.name, subFolder: sub });
+      const all: ImageItem[] = [];
+      for (const ps of result.data) {
+        for (const sub of imageFolders()) {
+          const fileResult = await api.files.list({
+            product_set: ps.name,
+            // v2.4.4：视频与图片同居图包目录（file_type 定目录），media_type 定「图片/视频」筛选
+            file_type: "image",
+            media_type: typeFilter(),
+            sub_folder: sub,
+          });
+          if (fileResult.success && fileResult.data) {
+            for (const f of fileResult.data) {
+              all.push({ ...f, productSet: ps.name, subFolder: sub });
+            }
           }
         }
       }
+      // v2.5.2：过期链（期间发起了新加载）直接丢弃，防止旧工作区数据覆盖新数据
+      if (seq !== imageLoadSeq) return;
+      setItems(all);
+      setSelectedPaths([]);
+    } finally {
+      // 仅当前链仍最新时复位（过期链的 finally 不得关闭新链的 loading）
+      if (seq === imageLoadSeq) setLoading(false);
     }
-    setItems(all);
-    setSelectedPaths([]);
   };
 
   createEffect(() => {
@@ -210,15 +227,31 @@ export default function Images() {
     }
   };
 
-  const handleRename = async (file: ImageItem) => {
-    const newName = window.prompt("请输入新文件名：", file.name);
-    if (!newName || newName.trim() === "" || newName.trim() === file.name) return;
-    const result = await api.files.rename({ path: file.path, newName: newName.trim() });
-    if (result.success) {
-      setSelectedPaths([]);
-      loadAllImages();
-    } else {
-      showToast("error", "重命名失败", result.error || "未知错误");
+  // v2.5.2：单文件重命名弹窗（替代 window.prompt；服务端校验错误回传展示）
+  const [renameTarget, setRenameTarget] = createSignal<ImageItem | null>(null);
+  const [renameError, setRenameError] = createSignal("");
+  const [renameBusy, setRenameBusy] = createSignal(false);
+
+  const handleRename = (file: ImageItem) => {
+    setRenameError("");
+    setRenameTarget(file);
+  };
+
+  const doRename = async (newName: string) => {
+    const file = renameTarget();
+    if (!file) return;
+    setRenameBusy(true);
+    try {
+      const result = await api.files.rename({ path: file.path, newName });
+      if (result.success) {
+        setRenameTarget(null);
+        setSelectedPaths([]);
+        loadAllImages();
+      } else {
+        setRenameError(result.error || "未知错误");
+      }
+    } finally {
+      setRenameBusy(false);
     }
   };
 
@@ -370,11 +403,14 @@ export default function Images() {
       </Show>
 
       <Show when={visibleCount() > 0} fallback={
-        <EmptyState
-          icon={typeFilter() === "video" ? "🎬" : "🖼️"}
-          title={typeFilter() === "video" ? "暂无视频" : "暂无图片"}
-          desc={typeFilter() === "video" ? "导入视频到图包子文件夹中" : "导入图片到产品集中"}
-        />
+        // v2.5.2：首载 loading 兜底，空态不闪现
+        <Show when={!loading()} fallback={<Loading text={typeFilter() === "video" ? "视频加载中…" : "图片加载中…"} />}>
+          <EmptyState
+            icon={typeFilter() === "video" ? "🎬" : "🖼️"}
+            title={typeFilter() === "video" ? "暂无视频" : "暂无图片"}
+            desc={typeFilter() === "video" ? "导入视频到图包子文件夹中" : "导入图片到产品集中"}
+          />
+        </Show>
       }>
         <div class="flex items-center justify-between mb-3 shrink-0">
           <span class="text-sm text-surface-500">{visibleCount()} 个文件</span>
@@ -473,6 +509,17 @@ export default function Images() {
       {/* 压缩分享 / 解压 进度（v2.4.4） */}
       <Show when={archiveState()}>
         <ArchiveProgressDialog token={archiveState()!.token} onClose={() => setArchiveState(null)} />
+      </Show>
+
+      {/* 单文件重命名（v2.5.2：替代 window.prompt；服务端校验错误回传展示） */}
+      <Show when={renameTarget()}>
+        <RenameDialog
+          currentName={renameTarget()!.name}
+          busy={renameBusy()}
+          error={renameError()}
+          onConfirm={(n) => void doRename(n)}
+          onCancel={() => setRenameTarget(null)}
+        />
       </Show>
 
       {/* 删除确认弹窗（v2.4.7 替代 window.confirm） */}

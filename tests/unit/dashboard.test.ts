@@ -1,7 +1,7 @@
 /**
  * 仪表盘单测（v2.4.0）：产品集/文件统计、checkExpiringCerts 30 天窗口边界。
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { buildTestBox } from './helpers'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -108,6 +108,47 @@ describe('仪表盘（DashboardService）', () => {
     expect(names).not.toContain('31天.jpg')
     expect(names).not.toContain('无期限.jpg')
     expect(names).not.toContain('格式坏.jpg')
+  })
+
+  it('checkExpiringCerts 探活并发闸 ≤8（v2.5.2：Promise.all 全量 → 8 并发 worker）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    const dir = path.join(ws, '产品集', '系列A', '证书', '3C')
+    await fsp.mkdir(dir, { recursive: true })
+    const names: string[] = []
+    for (let i = 0; i < 20; i++) {
+      const name = `并发${i}.jpg`
+      names.push(name)
+      const p = path.join(dir, name)
+      await fsp.writeFile(p, 'x')
+      await box.metadata.update({ file_path: p, expiry_date: dateInDays(3) })
+    }
+
+    // 并发峰值测量：mock stat 计数 in-flight（node 内置模块单例——dashboard.ts 的 fsp 同一对象，spy 生效）
+    let inFlight = 0
+    let peak = 0
+    const orig = fsp.stat.bind(fsp)
+    const spy = vi
+      .spyOn(fsp, 'stat')
+      .mockImplementation((async (p: Parameters<typeof orig>[0]) => {
+        inFlight++
+        peak = Math.max(peak, inFlight)
+        try {
+          return await orig(p)
+        } finally {
+          inFlight--
+        }
+      }) as typeof fsp.stat)
+    try {
+      const expiring = await box.dashboard.checkExpiringCerts()
+      expect(expiring.length).toBe(20) // 全部命中（布尔数组语义不变）
+      expect(peak).toBeLessThanOrEqual(8) // 并发闸生效
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('M5 统计：供应商目录扫描口径（回收站中供应商不计）+ 报价.json 缺失按 0', async () => {

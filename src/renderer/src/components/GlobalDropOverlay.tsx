@@ -104,13 +104,6 @@ export default function GlobalDropOverlay() {
     const folder = decodedSubFolder();
     const type = params.type as "image" | "cert";
 
-    console.log("[GlobalDropOverlay] direct import", {
-      ps,
-      folder,
-      type,
-      paths: dropPaths,
-      rawParams: { ...params },
-    });
     if (!ps || !folder) {
       console.warn("[GlobalDropOverlay] missing product set or folder, aborting direct import");
       setImportError("缺少产品集或子文件夹信息");
@@ -133,7 +126,6 @@ export default function GlobalDropOverlay() {
         sub_folder: folder,
         cancelToken: token,
       });
-      console.log("[GlobalDropOverlay] import API result", result);
       if (!result.success) {
         console.error("[GlobalDropOverlay] import API error", result.error);
         setImportError(result.error || "导入失败");
@@ -159,7 +151,6 @@ export default function GlobalDropOverlay() {
       }
     });
     unsubImport = window.qihebox.events.on("import:complete", (data: any) => {
-      console.log("[GlobalDropOverlay] import:complete", data);
       setImportProgress(null);
       setCancelToken(null);
       if (data && data.success) {
@@ -276,10 +267,8 @@ export default function GlobalDropOverlay() {
       // 必须异步触发，避免在事件循环中直接调用导致卡顿
       setTimeout(() => {
         if (params.productSet && params.subFolder) {
-          console.log("[GlobalDropOverlay] taking direct import path");
           handleDirectImport(dropPaths);
         } else {
-          console.log("[GlobalDropOverlay] taking dialog path");
           setPaths(dropPaths);
           // v2.4.7：弹窗打开时刷新客户列表（拖入前可能新建过客户）
           void loadCustomers();

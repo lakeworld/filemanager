@@ -184,7 +184,6 @@ export const api = {
       qb.files.createSubfolder(req as any) as Promise<ApiResult<boolean>>,
     deleteSubfolder: (req: DeleteSubfolderRequest) =>
       qb.files.deleteSubfolder(req as any) as Promise<ApiResult<boolean>>,
-    dataUrl: (path: string) => qb.files.dataUrl(path) as Promise<ApiResult<string>>,
     previewUrl: (path: string) => qb.files.previewUrl(path) as Promise<ApiResult<string>>,
     workspaceUrl: (path: string) => qb.files.workspaceUrl(path) as Promise<ApiResult<string>>,
     openWithDefaultApp: (path: string) =>

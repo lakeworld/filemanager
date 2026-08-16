@@ -754,20 +754,6 @@ export class FilesService {
     return fsp.readFile(p, 'utf-8')
   }
 
-  /** 读取文件为 base64 data URL（保留兼容；新前端走协议流式，此方法保留供测试） */
-  async getFileDataUrl(filePath: string): Promise<string> {
-    const p = await this.resolveWorkspaceFile(filePath)
-    const data = await fsp.readFile(p)
-    const ext = path.extname(p).toLowerCase()
-    let mime = 'application/octet-stream'
-    if (['.jpg', '.jpeg'].includes(ext)) mime = 'image/jpeg'
-    else if (ext === '.png') mime = 'image/png'
-    else if (ext === '.gif') mime = 'image/gif'
-    else if (ext === '.webp') mime = 'image/webp'
-    else if (ext === '.pdf') mime = 'application/pdf'
-    return `data:${mime};base64,${data.toString('base64')}`
-  }
-
   // —— 编排辅助（供 BoxService 跨服务操作使用）——
   thumbnailPathFor(filePath: string): string {
     const ws = this.requireWS()

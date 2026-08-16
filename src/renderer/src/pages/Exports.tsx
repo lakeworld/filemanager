@@ -4,6 +4,7 @@ import { currentWorkspace } from "~/stores/workspace";
 import { showToast } from "~/stores/notifyBanner";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import EmptyState from "~/components/EmptyState";
+import Loading from "~/components/Loading";
 import type { ExportEntry } from "~/types";
 
 function formatBytes(bytes: number): string {
@@ -30,14 +31,21 @@ function formatTime(iso: string): string {
  */
 export default function Exports() {
   const [entries, setEntries] = createSignal<ExportEntry[]>([]);
+  // v2.5.2：首载 loading——空态不闪现（照 FileBrowserView 先例）
+  const [loading, setLoading] = createSignal(true);
   const [busy, setBusy] = createSignal(false);
   const [actionMsg, setActionMsg] = createSignal("");
   // 删除确认弹窗（替代原生 confirm；title/message 触发时算好，JSX 只读）
   const [confirmDelete, setConfirmDelete] = createSignal<{ entry: ExportEntry } | null>(null);
 
   const loadExports = async () => {
-    const r = await api.exports.list();
-    if (r.success && r.data) setEntries(r.data);
+    setLoading(true);
+    try {
+      const r = await api.exports.list();
+      if (r.success && r.data) setEntries(r.data);
+    } finally {
+      setLoading(false);
+    }
   };
 
   createEffect(() => {
@@ -90,7 +98,12 @@ export default function Exports() {
 
       <Show
         when={entries().length > 0}
-        fallback={<EmptyState icon="📤" title="暂无导出文件" desc="压缩分享的产物会出现在这里" />}
+        fallback={
+          // v2.5.2：首载 loading 兜底，空态不闪现
+          <Show when={!loading()} fallback={<Loading text="导出区加载中…" />}>
+            <EmptyState icon="📤" title="暂无导出文件" desc="压缩分享的产物会出现在这里" />
+          </Show>
+        }
       >
         <div class="space-y-2">
           <For each={entries()}>

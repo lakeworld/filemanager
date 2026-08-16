@@ -19,12 +19,15 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 test.describe('批量重命名复用命名模板（v2.4.9 S5）', () => {
   let app: ElectronApplication
   let page: Page
+  /** 应用初始入口 URL（file:// index.html）；既有测试 pushState 会改 history URL，重载需回初始入口 */
+  let baseUrl: string
 
   test.beforeAll(async () => {
     app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT, env: { ...process.env, QIHEBOX_E2E: '1' } })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
+    baseUrl = page.url()
   })
 
   test.afterAll(async () => {
@@ -109,6 +112,62 @@ test.describe('批量重命名复用命名模板（v2.4.9 S5）', () => {
     for (const n of renamed) await expect(fsp.stat(path.join(mainDir, n))).resolves.toBeTruthy()
     await expect(fsp.stat(path.join(mainDir, 'banner.png'))).rejects.toThrow()
     await expect(fsp.stat(path.join(mainDir, 'detail.jpg'))).rejects.toThrow()
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('单文件重命名弹窗（v2.5.2 RenameDialog）：同名禁用 / 非法名服务端错误展示 / 成功改名落盘', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-renamedlg-e2e-'))
+    const createRes = await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    expect(createRes.success).toBe(true)
+    await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: '重命名集' }))
+
+    // 裸 IPC 只切主进程 currentWS，渲染层 signal 需整页重载对齐（照 smoke 基建同款口径）
+    await page.goto(baseUrl)
+    await page.waitForLoadState('domcontentloaded')
+    await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
+
+    const mainDir = path.join(wsDir, '产品集', '重命名集', '图包', '主图')
+    await fsp.mkdir(mainDir, { recursive: true })
+    const PNG_1PX = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    )
+    await fsp.writeFile(path.join(mainDir, '原图.png'), PNG_1PX)
+
+    // 进入文件浏览器
+    await page.evaluate(async () => {
+      const route = `/files/image/${encodeURIComponent('重命名集')}/${encodeURIComponent('主图')}`
+      window.history.pushState({}, '', route)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    const cards = page.locator('.card')
+    await cards.first().waitFor({ timeout: 15000 })
+
+    // 右键 → 重命名（单文件；菜单根 id=ctx-menu-root 限定——页面「重命名集」按钮同名避免 strict 冲突；
+    // 「批量重命名」为多选菜单项，单文件场景不渲染）→ 弹窗预填原名
+    await cards.first().click({ button: 'right' })
+    await page.locator('#ctx-menu-root').getByRole('button', { name: /重命名/ }).click()
+    const dialog = page.getByRole('dialog', { name: '重命名' })
+    await dialog.waitFor({ timeout: 10000 })
+    const input = dialog.getByLabel('新文件名')
+    await expect(input).toHaveValue('原图.png')
+
+    // 同名未变更 → 确定禁用（同名重命名无意义）
+    await expect(dialog.getByRole('button', { name: '确定' })).toBeDisabled()
+
+    // 非法名（含 /）→ 服务端校验错误展示在弹窗内（不再静默 toast）
+    await input.fill('非法/名.png')
+    await dialog.getByRole('button', { name: '确定' }).click()
+    await dialog.getByText(/文件名|非法|冲突/).waitFor({ timeout: 10000 })
+    await expect(dialog).toBeVisible() // 错误态弹窗不关闭
+
+    // 合法新名 → 成功关闭 + 磁盘落盘名变化
+    await input.fill('新名字.png')
+    await dialog.getByRole('button', { name: '确定' }).click()
+    await dialog.waitFor({ state: 'detached', timeout: 10000 })
+    await expect(fsp.stat(path.join(mainDir, '新名字.png'))).resolves.toBeTruthy()
+    await expect(fsp.stat(path.join(mainDir, '原图.png'))).rejects.toThrow()
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })

@@ -14,6 +14,7 @@ import ContextMenu from "~/components/ContextMenu";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import MoveDialog from "~/components/MoveDialog";
 import BatchRenameDialog from "~/components/BatchRenameDialog";
+import RenameDialog from "~/components/RenameDialog";
 import BatchTagDialog from "~/components/BatchTagDialog";
 import ArchiveProgressDialog from "~/components/ArchiveProgressDialog";
 import EmptyState from "~/components/EmptyState";
@@ -214,15 +215,31 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     }
   };
 
-  const handleRename = async (file: FileEntry) => {
-    const newName = window.prompt("请输入新文件名：", file.name);
-    if (!newName || newName.trim() === "" || newName.trim() === file.name) return;
-    const result = await api.files.rename({ path: file.path, newName: newName.trim() });
-    if (result.success) {
-      loadFiles();
-      setSelectedFilePaths([]);
-    } else {
-      showToast("error", "重命名失败", result.error ?? undefined);
+  // v2.5.2：单文件重命名弹窗（替代 window.prompt；错误经服务端回传展示）
+  const [renameTarget, setRenameTarget] = createSignal<FileEntry | null>(null);
+  const [renameError, setRenameError] = createSignal("");
+  const [renameBusy, setRenameBusy] = createSignal(false);
+
+  const handleRename = (file: FileEntry) => {
+    setRenameError("");
+    setRenameTarget(file);
+  };
+
+  const doRename = async (newName: string) => {
+    const file = renameTarget();
+    if (!file) return;
+    setRenameBusy(true);
+    try {
+      const result = await api.files.rename({ path: file.path, newName });
+      if (result.success) {
+        setRenameTarget(null);
+        loadFiles();
+        setSelectedFilePaths([]);
+      } else {
+        setRenameError(result.error ?? "未知错误");
+      }
+    } finally {
+      setRenameBusy(false);
     }
   };
 
@@ -662,6 +679,17 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
             loadFiles();
             setSelectedFilePaths([]);
           }}
+        />
+      </Show>
+
+      {/* 单文件重命名（v2.5.2：替代 window.prompt；服务端校验错误回传展示） */}
+      <Show when={renameTarget()}>
+        <RenameDialog
+          currentName={renameTarget()!.name}
+          busy={renameBusy()}
+          error={renameError()}
+          onConfirm={(n) => void doRename(n)}
+          onCancel={() => setRenameTarget(null)}
         />
       </Show>
 

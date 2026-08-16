@@ -90,7 +90,6 @@ interface QiheboxApi {
     saveTextFile: (filePath: string, content: string) => Promise<unknown>
     createSubfolder: (req: unknown) => Promise<unknown>
     deleteSubfolder: (req: unknown) => Promise<unknown>
-    dataUrl: (filePath: string) => Promise<unknown>
     ensureThumbnail: (filePath: string) => Promise<unknown>
     thumbnailUrl: (filePath: string) => Promise<unknown>
     previewUrl: (filePath: string) => Promise<unknown>

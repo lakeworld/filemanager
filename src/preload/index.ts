@@ -109,7 +109,6 @@ const api = {
       invoke('qihebox:files:saveTextFile', filePath, content),
     createSubfolder: (req: unknown) => invoke('qihebox:files:createSubfolder', req),
     deleteSubfolder: (req: unknown) => invoke('qihebox:files:deleteSubfolder', req),
-    dataUrl: (filePath: string) => invoke('qihebox:files:dataUrl', filePath),
     ensureThumbnail: (filePath: string) => invoke('qihebox:files:ensureThumbnail', filePath),
     thumbnailUrl: (filePath: string) => invoke('qihebox:files:thumbnailUrl', filePath),
     // v2.4.6：图片预览降采样副本 URL（≤2048px JPEG，主进程 sharp 生成并缓存）

@@ -409,4 +409,19 @@ test.describe('qihe-box e2e', () => {
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
+
+  test('TitleBar 最大化图标随主进程状态同步（v2.5.2：系统路径最大化经事件广播刷新）', async () => {
+    // 初始态：非最大化 → 按钮 title=最大化（onMount 查询兜底）
+    const titlebar = page.locator('[data-e2e-titlebar]')
+    await titlebar.waitFor({ timeout: 10000 })
+    await titlebar.locator('button[title="最大化"]').waitFor({ timeout: 5000 })
+
+    // 经 IPC 最大化（模拟双击标题栏/Win+方向键等不经按钮点击的路径）→ 主进程广播 → 图标同步为「还原」
+    await page.evaluate(async () => (window as any).qihebox.window.toggleMaximize())
+    await titlebar.locator('button[title="还原"]').waitFor({ timeout: 5000 })
+
+    // 还原 → 图标回「最大化」
+    await page.evaluate(async () => (window as any).qihebox.window.toggleMaximize())
+    await titlebar.locator('button[title="最大化"]').waitFor({ timeout: 5000 })
+  })
 })

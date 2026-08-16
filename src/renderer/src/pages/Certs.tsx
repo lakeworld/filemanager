@@ -20,6 +20,8 @@ import BatchTagDialog from "~/components/BatchTagDialog";
 import ArchiveProgressDialog from "~/components/ArchiveProgressDialog";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import EmptyState from "~/components/EmptyState";
+import Loading from "~/components/Loading";
+import RenameDialog from "~/components/RenameDialog";
 import { handleDragOut } from "~/utils/dragout";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import { useContextMenu } from "~/hooks/useContextMenu";
@@ -44,6 +46,8 @@ let certLoadSeq = 0;
 export default function Certs() {
   const navigate = useNavigate();
   const [items, setItems] = createSignal<CertItem[]>([]);
+  // v2.5.2：首载 loading——空态不闪现（照 FileBrowserView 先例；N×M 聚合链期间置位）
+  const [loading, setLoading] = createSignal(true);
   const [search, setSearch] = createSignal("");
   const [productSetFilter, setProductSetFilter] = createSignal<string>("");
   const [subFolderFilter, setSubFolderFilter] = createSignal<string>("");
@@ -98,43 +102,49 @@ export default function Certs() {
   const loadAllCerts = async () => {
     if (!currentWorkspace()) return;
     const seq = ++certLoadSeq;
-    const result = await api.productSets.list();
-    if (!result.success || !result.data) return;
-    if (seq !== certLoadSeq) return;
+    setLoading(true);
+    try {
+      const result = await api.productSets.list();
+      if (!result.success || !result.data) return;
+      if (seq !== certLoadSeq) return;
 
-    const all: CertItem[] = [];
-    for (const ps of result.data) {
-      for (const sub of certFolders()) {
-        const fileResult = await api.files.list({
-          product_set: ps.name,
-          file_type: "cert",
-          sub_folder: sub,
-        });
-        if (seq !== certLoadSeq) return;
-        if (fileResult.success && fileResult.data) {
-          for (const f of fileResult.data) {
-            all.push({ ...f, productSet: ps.name, subFolder: sub });
+      const all: CertItem[] = [];
+      for (const ps of result.data) {
+        for (const sub of certFolders()) {
+          const fileResult = await api.files.list({
+            product_set: ps.name,
+            file_type: "cert",
+            sub_folder: sub,
+          });
+          if (seq !== certLoadSeq) return;
+          if (fileResult.success && fileResult.data) {
+            for (const f of fileResult.data) {
+              all.push({ ...f, productSet: ps.name, subFolder: sub });
+            }
           }
         }
       }
-    }
-    setItems(all);
-    setSelectedPaths([]);
+      setItems(all);
+      setSelectedPaths([]);
 
-    // v2.4.2：批量拉取每张证书的到期日（成功且 expiry_date 非空才记录）
-    // v2.4.7（评审 P2）：Promise.all 无并发闸会同时打满 IPC——照 Invoices checkFilesExistence 的 8 并发 worker 模式
-    const map: Record<string, string> = {};
-    const queue = all.map((c) => c.path);
-    const workers = Array.from({ length: 8 }, async () => {
-      while (queue.length > 0) {
-        const p = queue.shift()!;
-        const r = await api.metadata.get(p);
-        if (r.success && r.data?.expiry_date) map[p] = r.data.expiry_date;
-      }
-    });
-    await Promise.all(workers);
-    if (seq !== certLoadSeq) return;
-    setExpiries(map);
+      // v2.4.2：批量拉取每张证书的到期日（成功且 expiry_date 非空才记录）
+      // v2.4.7（评审 P2）：Promise.all 无并发闸会同时打满 IPC——照 Invoices checkFilesExistence 的 8 并发 worker 模式
+      const map: Record<string, string> = {};
+      const queue = all.map((c) => c.path);
+      const workers = Array.from({ length: 8 }, async () => {
+        while (queue.length > 0) {
+          const p = queue.shift()!;
+          const r = await api.metadata.get(p);
+          if (r.success && r.data?.expiry_date) map[p] = r.data.expiry_date;
+        }
+      });
+      await Promise.all(workers);
+      if (seq !== certLoadSeq) return;
+      setExpiries(map);
+    } finally {
+      // 仅当前链仍最新时复位（过期链的 finally 不得关闭新链的 loading）
+      if (seq === certLoadSeq) setLoading(false);
+    }
   };
 
   createEffect(() => {
@@ -236,15 +246,31 @@ export default function Certs() {
     }
   };
 
-  const handleRename = async (file: CertItem) => {
-    const newName = window.prompt("请输入新文件名：", file.name);
-    if (!newName || newName.trim() === "" || newName.trim() === file.name) return;
-    const result = await api.files.rename({ path: file.path, newName: newName.trim() });
-    if (result.success) {
-      setSelectedPaths([]);
-      loadAllCerts();
-    } else {
-      showToast("error", "重命名失败", result.error || "未知错误");
+  // v2.5.2：单文件重命名弹窗（替代 window.prompt；服务端校验错误回传展示）
+  const [renameTarget, setRenameTarget] = createSignal<CertItem | null>(null);
+  const [renameError, setRenameError] = createSignal("");
+  const [renameBusy, setRenameBusy] = createSignal(false);
+
+  const handleRename = (file: CertItem) => {
+    setRenameError("");
+    setRenameTarget(file);
+  };
+
+  const doRename = async (newName: string) => {
+    const file = renameTarget();
+    if (!file) return;
+    setRenameBusy(true);
+    try {
+      const result = await api.files.rename({ path: file.path, newName });
+      if (result.success) {
+        setRenameTarget(null);
+        setSelectedPaths([]);
+        loadAllCerts();
+      } else {
+        setRenameError(result.error || "未知错误");
+      }
+    } finally {
+      setRenameBusy(false);
     }
   };
 
@@ -393,7 +419,10 @@ export default function Certs() {
       </Show>
 
       <Show when={visibleCount() > 0} fallback={
-        <EmptyState icon="📜" title="暂无证书" desc="导入证书到产品集中" />
+        // v2.5.2：首载 loading 兜底，空态不闪现
+        <Show when={!loading()} fallback={<Loading text="证书加载中…" />}>
+          <EmptyState icon="📜" title="暂无证书" desc="导入证书到产品集中" />
+        </Show>
       }>
         <div class="flex items-center justify-between mb-3 shrink-0">
           <span class="text-sm text-surface-500">{visibleCount()} 个文件</span>
@@ -480,6 +509,17 @@ export default function Certs() {
           paths={movePaths()!}
           onClose={() => setMovePaths(null)}
           onMoved={() => void loadAllCerts()}
+        />
+      </Show>
+
+      {/* 单文件重命名（v2.5.2：替代 window.prompt；服务端校验错误回传展示） */}
+      <Show when={renameTarget()}>
+        <RenameDialog
+          currentName={renameTarget()!.name}
+          busy={renameBusy()}
+          error={renameError()}
+          onConfirm={(n) => void doRename(n)}
+          onCancel={() => setRenameTarget(null)}
         />
       </Show>
 

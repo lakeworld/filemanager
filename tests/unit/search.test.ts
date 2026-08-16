@@ -68,6 +68,25 @@ describe('全局搜索（SearchService）', () => {
     expect(blank.files).toHaveLength(0)
     expect(blank.product_sets).toHaveLength(0)
   })
+
+  it('v2.5.2：产品集「文档」目录文件纳入全局搜索（v2.5.1 文档域新增后遗漏，D7）', async () => {
+    const { box, ws } = await buildSearchBox()
+    // 直接落文件到 产品集/系列A/文档/（v2.5.1 文档域目录；绕过导入链路，验证搜索范围而非导入）
+    const docDir = path.join(ws, '产品集', '系列A', '文档')
+    await fsp.mkdir(docDir, { recursive: true })
+    await fsp.writeFile(path.join(docDir, '验收说明.md'), '# 说明')
+    await fsp.writeFile(path.join(docDir, '报价单.pdf'), '%PDF-1.4')
+
+    const r1 = await box.search.search('验收说明')
+    expect(r1.files.map((f) => f.name)).toContain('验收说明.md')
+    const r2 = await box.search.search('报价单')
+    expect(r2.files.map((f) => f.name)).toContain('报价单.pdf')
+    // 命中文档时产品集一并返回（供分组展示，与图包/证书命中同语义）
+    expect(r2.product_sets.map((p) => p.name)).toContain('系列A')
+    // 回归：图包/证书搜索不受影响
+    const r3 = await box.search.search('毛衣')
+    expect(r3.files.map((f) => f.name).some((n) => n.includes('红色毛衣'))).toBe(true)
+  })
 })
 
 describe('供应商/报价区文件命中（v2.4.9 §6.2）', () => {

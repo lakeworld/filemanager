@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createEffect } from "solid-js";
+import { Show, For, createSignal, createEffect, createMemo } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import CreateClientModal from "./clients/CreateClientModal";
@@ -12,6 +12,7 @@ import TagInput from "~/components/TagInput";
 import EmptyState from "~/components/EmptyState";
 import ContextMenu from "~/components/ContextMenu";
 import ConfirmDialog from "~/components/ConfirmDialog";
+import VirtualGrid from "~/components/VirtualGrid";
 // v2.4.7（§5.2）：客户详情文件区——FileBrowser 抽取的共用组件，自含面包屑/子文件夹 Tab/文件区，
 // 与 /files/customer/:name/:subFolder 路由页共用（tab 点击经组件内 navigate 直达完整文件管理页）
 import FileBrowserView from "~/components/FileBrowserView";
@@ -19,6 +20,12 @@ import FileBrowserView from "~/components/FileBrowserView";
 import { statusChipClass } from "~/components/QuoteStatusActions";
 import { useContextMenu } from "~/hooks/useContextMenu";
 import type { CustomerInfo, CustomerCreateRequest, CustomerUpdateRequest, QuoteRecord } from "~/types";
+
+// v2.5.2：客户列表渲染口径——<200 条 For 全量、≥200 条 VirtualGrid 虚拟滚动（照 Suppliers/回收站先例，阈值统一 200）
+const CLIENT_VIRTUAL_THRESHOLD = 200;
+// 卡片高 ≈ p-5 上下 40px + 图标 48 + 标题 ~28 + 可选副行 ~20 + 标签行 ~30 + 备注 2 行 ~32 ≈ 198px，
+// 行间距 16px 计入 itemHeight（估算取整防重叠，同回收站 TRASH_ROW_HEIGHT 做法）
+const CLIENT_ROW_HEIGHT = 208;
 
 /** 档案字段展示行（值为空时显示灰占位符） */
 function InfoRow(props: { label: string; value?: string }) {
@@ -141,7 +148,8 @@ export default function Clients() {
     return Array.from(set).sort();
   };
 
-  const filteredCustomers = () => {
+  // v2.5.2：filteredCustomers 包 createMemo——避免每次渲染重算过滤（列表/详情双态共用）
+  const filteredCustomers = createMemo(() => {
     const term = cSearch().trim().toLowerCase();
     const tag = tagFilter();
     const type = typeFilter();
@@ -152,7 +160,56 @@ export default function Clients() {
       if (type === "__none__" ? c.type !== undefined : type && c.type !== type) return false;
       return true;
     });
-  };
+  });
+
+  // v2.5.2：客户卡片渲染——小列表 For 与超阈值 VirtualGrid 共用（避免两份 JSX 漂移，照 Suppliers renderCard 模式）
+  const renderCard = (c: CustomerInfo) => (
+    <div
+      class="card p-5 cursor-pointer hover:shadow-card-hover group relative"
+      onClick={() => navigate(`/clients/${encodeURIComponent(c.name)}`)}
+      onContextMenu={(e) => contextMenu.open(e, c)}
+    >
+      <div class="flex items-start justify-between">
+        <div class="w-12 h-12 rounded-xl bg-primary-50 flex items-center justify-center text-2xl">
+          🤝
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs px-2 py-1 rounded-full bg-surface-100 text-surface-500">
+            {c.file_count} 文件
+          </span>
+          <button
+            class="text-surface-400 hover:text-danger-500 opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={(e) => handleCardDelete(c, e)}
+            title="删除客户"
+          >
+            🗑️
+          </button>
+        </div>
+      </div>
+      <h3 class="text-lg font-semibold mt-3 text-surface-900">{c.name}</h3>
+      <Show when={c.alias || c.country}>
+        <p class="text-sm text-surface-400 mt-1">
+          {c.alias}{c.alias && c.country ? " · " : ""}{c.country}
+        </p>
+      </Show>
+      <Show when={c.tags && c.tags.length > 0}>
+        <div class="flex flex-wrap gap-1.5 mt-3">
+          <For each={c.tags}>
+            {(tag) => (
+              <TagChip
+                name={tag}
+                warn={!definedTagNames().has(tag)}
+                title={definedTagNames().has(tag) ? undefined : "未在设置中定义，可在设置中转为正式标签"}
+              />
+            )}
+          </For>
+        </div>
+      </Show>
+      <Show when={c.notes}>
+        <p class="text-xs text-surface-400 mt-2 line-clamp-2">{c.notes}</p>
+      </Show>
+    </div>
+  );
 
   // —— 新建 ——
 
@@ -387,57 +444,25 @@ export default function Clients() {
               <option value="个人">个人</option>
             </select>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <For each={filteredCustomers()}>
-              {(c) => (
-                <div
-                  class="card p-5 cursor-pointer hover:shadow-card-hover group relative"
-                  onClick={() => navigate(`/clients/${encodeURIComponent(c.name)}`)}
-                  onContextMenu={(e) => contextMenu.open(e, c)}
-                >
-                  <div class="flex items-start justify-between">
-                    <div class="w-12 h-12 rounded-xl bg-primary-50 flex items-center justify-center text-2xl">
-                      🤝
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <span class="text-xs px-2 py-1 rounded-full bg-surface-100 text-surface-500">
-                        {c.file_count} 文件
-                      </span>
-                      <button
-                        class="text-surface-400 hover:text-danger-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => handleCardDelete(c, e)}
-                        title="删除客户"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </div>
-                  <h3 class="text-lg font-semibold mt-3 text-surface-900">{c.name}</h3>
-                  <Show when={c.alias || c.country}>
-                    <p class="text-sm text-surface-400 mt-1">
-                      {c.alias}{c.alias && c.country ? " · " : ""}{c.country}
-                    </p>
-                  </Show>
-                  <Show when={c.tags && c.tags.length > 0}>
-                    <div class="flex flex-wrap gap-1.5 mt-3">
-                      <For each={c.tags}>
-                        {(tag) => (
-                          <TagChip
-                            name={tag}
-                            warn={!definedTagNames().has(tag)}
-                            title={definedTagNames().has(tag) ? undefined : "未在设置中定义，可在设置中转为正式标签"}
-                          />
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                  <Show when={c.notes}>
-                    <p class="text-xs text-surface-400 mt-2 line-clamp-2">{c.notes}</p>
-                  </Show>
-                </div>
-              )}
-            </For>
-          </div>
+          <Show
+            when={filteredCustomers().length >= CLIENT_VIRTUAL_THRESHOLD}
+            fallback={
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <For each={filteredCustomers()}>{(c) => renderCard(c)}</For>
+              </div>
+            }
+          >
+            {/* v2.5.2：≥200 条走虚拟滚动——只渲染可见行，客户数无上限（照 Suppliers 先例） */}
+            <div class="flex-1 min-h-0">
+              <VirtualGrid
+                items={filteredCustomers()}
+                itemHeight={CLIENT_ROW_HEIGHT}
+                columns={{ base: 1, md: 2, lg: 3 }}
+                gap={16}
+                renderItem={(c) => renderCard(c)}
+              />
+            </div>
+          </Show>
         </Show>
 
         {/* —— 详情态 —— */}

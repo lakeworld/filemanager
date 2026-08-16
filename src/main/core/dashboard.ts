@@ -115,17 +115,23 @@ export class DashboardService {
       console.warn(`[cert] ${badDates} 条证书到期日期无法解析，已跳过（可在元数据中重新填写）`)
     }
     // C2：文件不存在的条目（回收站内 / 外部删除 / 迁移后未匹配）不提醒
-    const alive = await Promise.all(
-      rows.map(async (r) => {
-        if (!r.filePath) return false
+    // v2.5.2：全量并发 stat → 8 并发 worker（PERF-SOP §四「Promise.all 批量即嫌疑」，照渲染层探活先例）
+    const alive: boolean[] = new Array(rows.length).fill(false)
+    const queue = rows.map((_, i) => i)
+    const workers = Array.from({ length: 8 }, async () => {
+      while (queue.length > 0) {
+        const i = queue.shift()!
+        const r = rows[i]
+        if (!r.filePath) continue
         try {
           await fsp.stat(r.filePath)
-          return true
+          alive[i] = true
         } catch {
-          return false
+          alive[i] = false
         }
-      }),
-    )
+      }
+    })
+    await Promise.all(workers)
     const result: [string, string, string][] = []
     rows.forEach((r, i) => {
       if (alive[i]) result.push([r.ps, r.file, r.expiry])

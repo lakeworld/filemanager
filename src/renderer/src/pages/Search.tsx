@@ -11,6 +11,7 @@ import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
 import MoveDialog from "~/components/MoveDialog";
 import ConfirmDialog from "~/components/ConfirmDialog";
+import RenameDialog from "~/components/RenameDialog";
 import EmptyState from "~/components/EmptyState";
 import Loading from "~/components/Loading";
 import { useContextMenu } from "~/hooks/useContextMenu";
@@ -39,6 +40,8 @@ export default function Search() {
   let clickTimer: number | undefined;
   const toggleSelection = (path: string) =>
     setSelectedPaths((prev) => (prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]));
+  // v2.5.2（PERF-SOP §四）：点击防抖定时器句柄化 + 卸载清理（照 Search:69 先例）
+  onCleanup(() => window.clearTimeout(clickTimer));
 
   createEffect(() => {
     if (currentWorkspace()) {
@@ -46,14 +49,18 @@ export default function Search() {
     }
   });
 
+  // v2.5.2：搜索请求序号——切区/连续搜索时旧响应丢弃（防止旧工作区结果覆盖新结果）
+  let searchSeq = 0;
   const doSearch = async (q: string) => {
     if (!q.trim()) return;
     if (!currentWorkspace()) {
       showToast("info", "请先打开工作区");
       return;
     }
+    const s = ++searchSeq;
     setLoading(true);
     const result = await api.search(q);
+    if (s !== searchSeq) return; // 过期搜索丢弃
     if (result.success && result.data) {
       setResults(result.data);
     }
@@ -62,11 +69,17 @@ export default function Search() {
 
   createEffect(() => {
     const q = searchParams.q;
+    void currentWorkspace(); // v2.5.2：依赖工作区——切区时旧区结果残留须清空/重查（切区不刷新是高频 bug）
     if (q && typeof q === "string") {
       setQuery(q);
       // 防抖：连续输入只触发最后一次搜索
       const t = setTimeout(() => doSearch(q), 300);
       onCleanup(() => clearTimeout(t));
+    } else {
+      // 无查询（含切工作区后无查询）：清空旧工作区残留结果与选中集
+      searchSeq++;
+      setResults({ files: [], product_sets: [], customers: [] });
+      setSelectedPaths([]);
     }
   });
 
@@ -126,14 +139,30 @@ export default function Search() {
     );
   };
 
-  const handleRename = async (file: FileEntry) => {
-    const newName = window.prompt("请输入新文件名：", file.name);
-    if (!newName || newName.trim() === "" || newName.trim() === file.name) return;
-    const result = await api.files.rename({ path: file.path, newName: newName.trim() });
-    if (result.success) {
-      doSearch(query());
-    } else {
-      showToast("error", "重命名失败", result.error ?? undefined);
+  // v2.5.2：单文件重命名弹窗（替代 window.prompt；服务端校验错误回传展示）
+  const [renameTarget, setRenameTarget] = createSignal<FileEntry | null>(null);
+  const [renameError, setRenameError] = createSignal("");
+  const [renameBusy, setRenameBusy] = createSignal(false);
+
+  const handleRename = (file: FileEntry) => {
+    setRenameError("");
+    setRenameTarget(file);
+  };
+
+  const doRename = async (newName: string) => {
+    const file = renameTarget();
+    if (!file) return;
+    setRenameBusy(true);
+    try {
+      const result = await api.files.rename({ path: file.path, newName });
+      if (result.success) {
+        setRenameTarget(null);
+        doSearch(query());
+      } else {
+        setRenameError(result.error ?? "未知错误");
+      }
+    } finally {
+      setRenameBusy(false);
     }
   };
 
@@ -266,13 +295,13 @@ export default function Search() {
       </Show>
 
       {/* v2.4.9 打磨 M6：未输入 → 空状态引导（可搜索范围 + 可命中示例）。
-          可命中范围对齐 core/search.ts 索引：产品集名/客户名/别名/标签/文件名/标签 + 客户、供应商、发票、入库、报价区文件本体；
+          可命中范围对齐 core/search.ts 索引：产品集名/客户名/别名/标签/文件名/标签 + 产品集图包/证书/文档（v2.5.2 D7）+ 客户、供应商、发票、入库、报价区文件本体；
           供应商名/报价单号不参与匹配，示例不能用它们（审查 P1） */}
       <Show when={!loading() && !query()}>
         <EmptyState
           icon="🔍"
           title="搜索产品集、客户和文件"
-          desc="可搜索：产品集名、客户名/别名/标签、文件名/标签，以及客户、供应商、发票、入库、报价区中的文件本体"
+          desc="可搜索：产品集名、客户名/别名/标签、文件名/标签，以及产品集图包/证书/文档、客户、供应商、发票、入库、报价区中的文件本体"
         >
           <p class="text-sm text-surface-400">试试搜：夏季T恤 / 客户名 / 产品文件名</p>
         </EmptyState>
@@ -325,6 +354,17 @@ export default function Search() {
         <DeleteConfirm
           paths={confirmDelete()!.paths}
           onDone={() => setConfirmDelete(null)}
+        />
+      </Show>
+
+      {/* 单文件重命名（v2.5.2：替代 window.prompt；服务端校验错误回传展示） */}
+      <Show when={renameTarget()}>
+        <RenameDialog
+          currentName={renameTarget()!.name}
+          busy={renameBusy()}
+          error={renameError()}
+          onConfirm={(n) => void doRename(n)}
+          onCancel={() => setRenameTarget(null)}
         />
       </Show>
     </div>
