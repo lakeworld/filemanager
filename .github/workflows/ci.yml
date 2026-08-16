@@ -109,6 +109,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # v2.5.2：公开 CI 无真实服务地址——生成占位 server.json 使 extraResources 打包不失败；
+      # 发布包的真实地址由发布者本地 build/server.json 注入（gitignore，不进公开仓）
+      - name: Placeholder server config (public CI)
+        run: echo '{}' > build/server.json
+
       - name: Build & package Linux (AppImage + deb)
         if: runner.os == 'Linux'
         shell: bash

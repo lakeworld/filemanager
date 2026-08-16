@@ -38,6 +38,12 @@ electronLanguages:
   - zh-CN
   - en-US
 
+# v2.5.2：登录服务地址随包内置（resources/server.json）——真实地址由发布者维护在
+# 本地 build/server.json（.gitignore，不进公开仓）；公开 CI 打包前生成占位文件
+extraResources:
+  - from: build/server.json
+    to: server.json
+
 # sharp 为 N-API 模块，无需 rebuild；跳过以加速构建
 npmRebuild: false
 
