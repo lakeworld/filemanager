@@ -17,6 +17,7 @@
  */
 import { test, expect, _electron as electron } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
+import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -305,8 +306,38 @@ test.describe('插件协议一致性体检（conformance）', () => {
       })
     }
 
+    // —— e3. 覆盖安装（2026-08-16 方案 A）：同包重装 → 成功、state/ 保留、IPC 恢复 ——
+    await test.step('e3. 覆盖安装（同包重装）→ 成功、state/ 保留、IPC 恢复', async () => {
+      const stateDir = path.join(os.tmpdir(), 'qihebox-e2e-userdata', 'plugins', id, 'state')
+      const hadState = fs.existsSync(stateDir)
+      const before = hadState ? fs.readdirSync(stateDir).sort() : []
+      const ins = await page.evaluate(
+        async (p) => (window as any).qihebox.plugins.install({ filePath: p }),
+        PLUGIN_QBOX,
+      )
+      expect(ins.success, '同 id 覆盖安装应成功（不再抛「插件已安装」）').toBe(true)
+      expect(ins.data.id).toBe(id)
+      const after = fs.existsSync(stateDir) ? fs.readdirSync(stateDir).sort() : []
+      if (hadState) {
+        expect(after, 'state/ 应完整保留（覆盖安装不丢数据）').toEqual(before)
+      }
+      // 覆盖后旧实例已停用、新实例重新激活 → IPC 往返恢复
+      const selfTest = await page.evaluate(
+        async (args) => (window as any).qihebox.plugins.call(args.id, args.action, {}),
+        { id, action: SELF_TEST_ACTION },
+      )
+      if (!selfTest.success) {
+        const ping = await page.evaluate(
+          async (args) => (window as any).qihebox.plugins.call(args.id, 'ping', { text: 'after-replace' }),
+          { id },
+        )
+        expect(ping.success, '覆盖安装后 IPC 应恢复可调用').toBe(true)
+      }
+    })
+
     // —— f. 禁用 → 卸载 → 清场 ——
-    await test.step('f. 禁用 → 卸载 → 清单清空', async () => {
+    await test.step('f. 禁用 → 卸载 → 清单清空（state/ 一并删除）', async () => {
+      const stateDir = path.join(os.tmpdir(), 'qihebox-e2e-userdata', 'plugins', id, 'state')
       const off = await page.evaluate(async (pid) => (window as any).qihebox.plugins.setEnabled(pid, false), id)
       expect(off.success).toBe(true)
       const list = await listPlugins()
@@ -315,6 +346,7 @@ test.describe('插件协议一致性体检（conformance）', () => {
       expect(rm.success).toBe(true)
       const list2 = await listPlugins()
       expect(list2.data.some((p: any) => p.id === id)).toBe(false)
+      expect(fs.existsSync(stateDir), '卸载应删除 state/（卸载 = 彻底清除语义不变）').toBe(false)
     })
   })
 })

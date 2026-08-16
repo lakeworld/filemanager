@@ -640,12 +640,46 @@ describe('PluginInstaller：.qbox 侧载安装 / 卸载', () => {
     expect(fs.existsSync(path.join(path.dirname(root), 'evil.txt'))).toBe(false)
   })
 
-  it('安装冲突：已安装 id 拒绝重复安装', async () => {
+  it('覆盖安装（方案 A）：同 id 重装成功、pkg 替换、state 保留、replaced=true', async () => {
     const qbox = path.join(root, 'com.qihe.dup.qbox')
     await buildQbox(qbox, manifestFor('com.qihe.dup'))
     const { installer } = makeInstaller()
-    await installer.install(qbox)
-    await expect(installer.install(qbox)).rejects.toThrow('插件已安装')
+    const first = await installer.install(qbox)
+    expect(first.replaced).toBeUndefined() // 首次安装非覆盖
+    // 插件业务状态（state/ 与 pkg/ 分离；覆盖安装不得清空）
+    const stateDir = path.join(root, 'com.qihe.dup', 'state')
+    await fsp.mkdir(stateDir, { recursive: true })
+    await fsp.writeFile(path.join(stateDir, 'msg.1.json'), JSON.stringify({ id: 1 }))
+    // 第二次安装同 id → 覆盖成功，state 保留
+    const second = await installer.install(qbox)
+    expect(second.id).toBe('com.qihe.dup')
+    expect(second.replaced).toBe(true)
+    expect(fs.existsSync(path.join(stateDir, 'msg.1.json')), 'state/ 文件应保留').toBe(true)
+    expect(fs.readFileSync(path.join(stateDir, 'msg.1.json'), 'utf-8')).toBe(JSON.stringify({ id: 1 }))
+    // pkg/ 为新包（main 入口存在）
+    expect(fs.existsSync(path.join(root, 'com.qihe.dup', 'pkg', 'main', 'index.js'))).toBe(true)
+    // 无备份残留
+    expect(fs.readdirSync(root).filter((n) => n.startsWith('.pkg-old-'))).toEqual([])
+  })
+
+  it('覆盖安装失败回滚：新包登记 broken → 恢复旧 pkg、state 保留', async () => {
+    // 先写入占位插件（合法 id 且目录名排序在前 → 先扫描占住覆盖包要用的 ipcPrefix → 全局冲突）
+    writePlugin('com.qihe.aaa', { ipcPrefix: 'shared-dup2' })
+    const firstQbox = path.join(root, 'com.qihe.dup2.qbox')
+    await buildQbox(firstQbox, manifestFor('com.qihe.dup2'))
+    const { installer, registry } = makeInstaller()
+    await installer.install(firstQbox)
+    const stateDir = path.join(root, 'com.qihe.dup2', 'state')
+    await fsp.mkdir(stateDir, { recursive: true })
+    await fsp.writeFile(path.join(stateDir, 'k.json'), JSON.stringify({ v: 1 }))
+    // 覆盖包带全局冲突（ipcPrefix 已被 com.qihe.aaa 占用）→ 覆盖被拒并回滚旧 pkg
+    const badQbox = path.join(root, 'com.qihe.dup2b.qbox')
+    await buildQbox(badQbox, manifestFor('com.qihe.dup2', { ipcPrefix: 'shared-dup2' }))
+    await expect(installer.install(badQbox)).rejects.toThrow('覆盖安装被拒绝')
+    expect(fs.existsSync(path.join(stateDir, 'k.json')), '回滚后 state 仍保留').toBe(true)
+    expect(fs.existsSync(path.join(root, 'com.qihe.dup2', 'pkg', 'main', 'index.js')), '旧 pkg 已恢复').toBe(true)
+    expect(registry.get('com.qihe.dup2')?.state).toBe('enabled')
+    expect(fs.readdirSync(root).filter((n) => n.startsWith('.pkg-old-'))).toEqual([])
   })
 
   it('全局冲突回滚：ipcPrefix 被占用 → 拒绝且目录清理、registry 无残留', async () => {
