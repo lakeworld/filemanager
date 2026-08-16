@@ -35,6 +35,8 @@ export interface InstallResult {
   sha256: string
   /** .qbox 字节数 */
   size: number
+  /** 是否为覆盖安装（同 id 已存在 → 替换 pkg/、保留 state/，2026-08-16 方案 A） */
+  replaced?: boolean
 }
 
 export class PluginInstaller {
@@ -50,7 +52,9 @@ export class PluginInstaller {
 
   /**
    * 侧载安装 .qbox：SHA-256 + 清单校验 + 解压到 pkg/ + 重新登记。
-   * 已安装/全局冲突（id / ipcPrefix / 页面路径 / minHostVersion）→ 抛错并回滚（不残留目录）。
+   * 同 id 已安装 → **覆盖安装**（2026-08-16 方案 A）：替换 pkg/、保留 state/（消息/配对/身份等数据不丢），
+   * 覆盖失败回滚旧 pkg；全局冲突（id / ipcPrefix / 页面路径 / minHostVersion）→ 抛错并回滚（不残留目录）。
+   * 旧实例停用由 ipc 层编排（install handler 在 replaced 后 deactivate → ensureActive）。
    */
   async install(filePathRaw: string): Promise<InstallResult> {
     const filePath = String(filePathRaw ?? '').trim()
@@ -82,13 +86,34 @@ export class PluginInstaller {
 
       const pkgDir = path.join(this.root, manifest.id, PKG_DIR)
       if (fs.existsSync(pkgDir) || this.registry.get(manifest.id)) {
-        throw new Error(`插件已安装：${manifest.id}`)
+        // 覆盖安装（方案 A 2026-08-16）：同盘 rename 备份旧 pkg（保留 state/）→ 替换 → 登记；
+        // 登记 broken（全局冲突等）→ 回滚恢复旧 pkg。备份清理放 finally 之外的成功路径。
+        const idDir = path.join(this.root, manifest.id)
+        const backup = path.join(this.root, `.pkg-old-${manifest.id}-${Date.now()}`)
+        if (fs.existsSync(pkgDir)) await fsp.rename(pkgDir, backup)
+        await fsp.mkdir(path.dirname(pkgDir), { recursive: true })
+        await fsp.rename(tmpDir, pkgDir)
+        await fsp
+          .writeFile(path.join(idDir, '.qbox.sha256'), sha256, { encoding: 'utf-8', mode: 0o644 })
+          .catch(() => {})
+        await this.reload()
+        const entry = this.registry.get(manifest.id)
+        if (!entry || entry.state === 'broken') {
+          // 覆盖失败 → 回滚旧 pkg（state/ 始终保留；tmpDir 已在 finally 清理）
+          await fsp.rm(pkgDir, { recursive: true, force: true }).catch(() => {})
+          if (fs.existsSync(backup)) await fsp.rename(backup, pkgDir)
+          await this.reload()
+          throw new Error(`覆盖安装被拒绝：${entry?.brokenReason ?? '未知原因'}`)
+        }
+        await fsp.rm(backup, { recursive: true, force: true }).catch(() => {})
+        this.log('info', `插件已覆盖安装：${manifest.id}@${manifest.version}（sha256=${sha256.slice(0, 12)}…，state/ 保留）`)
+        return { id: manifest.id, sha256, size, replaced: true }
       }
       if (!fs.existsSync(path.join(tmpDir, MAIN_ENTRY))) {
         throw new Error('安装包缺少主进程入口 main/index.js')
       }
 
-      // 移入 pkg/（同盘 rename，原子；state/ 由插件首次写入时创建）
+      // 首次安装：移入 pkg/（同盘 rename，原子；state/ 由插件首次写入时创建）
       await fsp.mkdir(path.dirname(pkgDir), { recursive: true })
       await fsp.rename(tmpDir, pkgDir)
       // 防篡改记录：原始 .qbox 的 SHA-256（PLAN §4.1；官方索引比对 2.6）

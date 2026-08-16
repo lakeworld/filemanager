@@ -159,6 +159,7 @@ export class PluginRegistry {
         .readdirSync(this.root, { withFileTypes: true })
         .filter((d) => d.isDirectory())
         .map((d) => d.name)
+        .filter((d) => !d.startsWith('.')) // 隐藏/临时目录（.tmp-install-*、.pkg-old-* 覆盖备份等）不是插件目录
     } catch {
       return // plugins 目录不存在（默认未安装任何插件）→ 空清单
     }

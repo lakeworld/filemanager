@@ -190,6 +190,12 @@ export function registerPluginHost(
       }
       const r = await installer.install(source?.filePath)
       broadcastPluginsChanged()
+      // 覆盖安装（2026-08-16 方案 A）：旧实例的模块已被替换（pkg/ 换新），
+      // 先 dispose 旧实例（停用回收订阅/端口），再重新激活新实例（state/ 保留，数据不丢）
+      if (r.replaced) {
+        loader.deactivate(r.id)
+        broadcastPluginsChanged()
+      }
       // v2.5.1（再定位方案 A，动作-2026-08-15）：安装成功且启用 → 立即激活（装完即用）。
       // 此前新装插件在用户登录时收不到 accountChanged（事件只达已激活订阅者，安装不激活、
       // onStartupFinished 已过）→「装插件后登录没反映」；activate 自检登录态可兜底起服务。
