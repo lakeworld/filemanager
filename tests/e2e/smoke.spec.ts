@@ -410,18 +410,26 @@ test.describe('qihe-box e2e', () => {
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
 
-  test('TitleBar 最大化图标随主进程状态同步（v2.5.2：系统路径最大化经事件广播刷新）', async () => {
-    // 初始态：非最大化 → 按钮 title=最大化（onMount 查询兜底）
+  test('TitleBar 最大化图标随主进程广播同步（v2.5.2）', async () => {
+    // 测「主进程广播 → 渲染层订阅」链路本体：window.ts on('maximize') → sendMaximizedChanged →
+    // 渲染层 TitleBar 刷新。手动 emit 事件而非真实 maximize()：Linux 无 WM（CI xvfb）下
+    // maximize() 的 _NET_WM_STATE 请求无人处理、maximize 事件不触发（Electron 依赖 WM 确认），
+    // 真实 WM 行为属 Electron 职责不在本用例范围；广播链路即 v2.5.2 修复本体。
     const titlebar = page.locator('[data-e2e-titlebar]')
     await titlebar.waitFor({ timeout: 10000 })
+    // 初始态：非最大化 → 按钮 title=最大化（onMount 查询兜底）
     await titlebar.locator('button[title="最大化"]').waitFor({ timeout: 5000 })
 
-    // 经 IPC 最大化（模拟双击标题栏/Win+方向键等不经按钮点击的路径）→ 主进程广播 → 图标同步为「还原」
-    await page.evaluate(async () => (window as any).qihebox.window.toggleMaximize())
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].emit('maximize')
+      return true
+    })
     await titlebar.locator('button[title="还原"]').waitFor({ timeout: 5000 })
 
-    // 还原 → 图标回「最大化」
-    await page.evaluate(async () => (window as any).qihebox.window.toggleMaximize())
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].emit('unmaximize')
+      return true
+    })
     await titlebar.locator('button[title="最大化"]').waitFor({ timeout: 5000 })
   })
 })
