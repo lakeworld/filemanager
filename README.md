@@ -121,6 +121,10 @@ Windows 安装/运行时提示「未知发布者」或蓝色警告是**正常现
 
 > 本项目免费开源、无商业签名证书。项目正在评估免费代码签名方案（如开源项目免费证书 / Azure Trusted Signing），落地后此提示将消失；目前对安全提示敏感的用户可改用 Linux 版（AppImage / deb，无此步骤）。
 
+## 登录服务地址
+
+应用内置**可选**的账号登录（仅用于匿名活跃统计，不登录不影响任何本地功能）。出于开源纪律，仓库源码不写死任何服务器地址：登录服务地址由**安装包随包携带**（`resources/server.json`，发布者构建时注入；源码构建的测试包不含此文件时登录不可用属预期）。自建/自定义部署的用户可在应用数据目录放置 `server.json`（`{"apiBase": "https://your-server/api"}`）后重启应用覆盖内置配置。
+
 ## 数据兼容性
 
 工作区数据格式与 v1.x（Wails 版）完全兼容：`config.json` / `metadata.json` / `product_sets.json` 结构不变；缩略图 v2.1.0 起缓存于 userData（`app.getPath('userData')/thumbs`），旧工作区 `.thumbnails/` 缓存自动迁移复用，**零迁移直接打开**。
