@@ -166,6 +166,9 @@ test.describe('插件协议一致性体检（conformance）', () => {
 
     await test.step('b. devMode 开 → 侧载安装 → 管理页出现、无 broken', async () => {
       await setDevMode(true)
+      // 跨 spec 共享 e2e userData（$TMPDIR/qihebox-e2e-userdata）：前序 spec
+      // 可能残留同 id 已安装插件 → install 抛「插件已安装」。先卸载兜底。
+      await page.evaluate(async (pid) => (window as any).qihebox.plugins.uninstall(pid), id).catch(() => {})
       const ins = await page.evaluate(
         async (p) => (window as any).qihebox.plugins.install({ filePath: p }),
         PLUGIN_QBOX,
