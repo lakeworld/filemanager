@@ -10,6 +10,9 @@ const PLUGINS_DIST = '/home/lake/Nutstore Files/我的坚果云/启禾/qihe-plug
 // 跨插件互切回归（2026-08-16 用户报「切换会卡住」）——LAN ↔ 启禾云 ↔ 本体页 往返多轮，
 // 断言内容即时替换、无 pageerror、无卡死在「插件页面加载中…」。
 test('跨插件 tab 互切：LAN ↔ 启禾云 ↔ 设置 往返不卡住', async () => {
+  // v2.5.2：注释承诺「不纳入公开 CI」未落实——qbox 产物在内部插件仓（qihe-plugins/dist），
+  // 公开 CI checkout 拿不到 → 安装报「安装包不存在」。与崩溃模拟用例同款 skip 惯例。
+  test.skip(!!process.env.CI, '依赖内部插件仓 .qbox 产物，公开 CI 不可用——本地验证')
   const app: ElectronApplication = await electron.launch({
     args: ['.', '--no-sandbox'],
     cwd: ROOT,

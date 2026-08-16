@@ -9,6 +9,8 @@ const CLOUD_QBOX = '/home/lake/Nutstore Files/我的坚果云/启禾/qihe-plugin
 
 // 本地验证用（依赖外部 cloud qbox，不纳入公开 CI）：启禾云一页双按钮 —— 标题 / 未登录横幅 / 双按钮禁用（未登录门控）
 test('启禾云 Home：标题 + 未登录横幅 + 双按钮禁用（未登录门控）', async () => {
+  // v2.5.2：注释承诺「不纳入公开 CI」未落实——qbox 产物在内部插件仓，公开 CI 拿不到（同 zz-cross-plugin）
+  test.skip(!!process.env.CI, '依赖内部插件仓 .qbox 产物，公开 CI 不可用——本地验证')
   const app: ElectronApplication = await electron.launch({
     args: ['.', '--no-sandbox'],
     cwd: ROOT,
