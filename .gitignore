@@ -2,6 +2,9 @@
 # Dependencies
 node_modules/
 
+# 登录服务地址（发布者私有配置，打包注入 resources/server.json；公开仓不写死服务器地址）
+build/server.json
+
 # Build outputs (electron-vite)
 out/
 src/renderer/dist/

@@ -262,19 +262,24 @@ function decryptToken(encoded: string): string {
 }
 
 /**
- * 解析登录/心跳服务地址。
- * 优先环境变量 QIHE_API_BASE，其次 userData/server.json 的 apiBase 字段；
- * 公开仓库不写死任何服务器地址，由本机私有配置注入。
+ * 解析登录/心跳服务地址（v2.5.2 三级回退）。
+ * 优先环境变量 QIHE_API_BASE，其次 userData/server.json（用户/发布者覆盖），
+ * 再次安装包内置 resources/server.json（随包发布）。公开仓库不写死任何服务器地址：
+ * 真实地址由发布者维护在 gitignore 的 build/server.json，打包时经 extraResources 注入。
  */
 function resolveApiBase(): string {
   const env = process.env.QIHE_API_BASE
   if (env) return env.replace(/\/+$/, '')
-  try {
-    const cfgPath = path.join(app.getPath('userData'), 'server.json')
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as { apiBase?: unknown }
-    if (typeof cfg.apiBase === 'string' && cfg.apiBase) return cfg.apiBase.replace(/\/+$/, '')
-  } catch {
-    // 配置文件不存在或损坏 → 登录不可用，不阻断启动
+  for (const p of [
+    path.join(app.getPath('userData'), 'server.json'),
+    path.join(process.resourcesPath, 'server.json'),
+  ]) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(p, 'utf8')) as { apiBase?: unknown }
+      if (typeof cfg.apiBase === 'string' && cfg.apiBase) return cfg.apiBase.replace(/\/+$/, '')
+    } catch {
+      // 配置文件不存在或损坏 → 尝试下一级；全缺 → 登录不可用，不阻断启动
+    }
   }
   return ''
 }
