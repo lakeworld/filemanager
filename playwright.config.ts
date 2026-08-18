@@ -5,6 +5,10 @@ export default defineConfig({
   // CI（软件渲染首次启动较慢）放宽到 90s；本地不受影响
   timeout: 90000,
   workers: 1,
+  // CI runner 资源/时序抖动（app 进程被环境性终止 → Target closed 型随机死亡，
+  // 2026-08-19 发布轮两轮失败位置漂移取证）：允许 1 次重试，重试起新 app 实例环境重置；
+  // 本地不重试，失败即失败，避免掩盖真实回归
+  retries: process.env.CI ? 1 : 0,
   reporter: [['list']],
   use: {
     trace: 'retain-on-failure',
