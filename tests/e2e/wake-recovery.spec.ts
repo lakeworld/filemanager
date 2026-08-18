@@ -7,16 +7,34 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 /**
- * 休眠唤醒自愈回归（v2.4.7 F10；v2.4.8 根治：监听加固 + 分级自愈链）。
+ * 系统暂停/唤醒回归（v2.5.3 常驻轻壳 T5，改写自 v2.4.7 F10 / v2.5.2 轮询 / v2.5.3 restore 补丁）。
+ * 新语义（设计 §4.4 系统睡眠）：暂停/锁屏信号到达即隐藏窗口（渲染常驻），唤醒后仅在
+ * 「暂停前可见」（wasVisibleBeforeSystemPause）时自动走隐藏预检恢复；旧的可见态 L1→L4 自愈链
+ * 已删除（L3 hide/show 有窗口消失事故证据），崩溃/无响应由状态机在隐藏态 L2 reload 处理。
  * 覆盖：
- * 1. 正常窗口 resume 后不被打扰（L1 invalidate 重绘 + capturePage 复检正常 → 不 reload，保留页面状态）
- * 2. 正常窗口 unlock-screen 后不被打扰（监听加固：resume 之外的唤醒入口，行为同 1）
- * 3. 渲染进程崩溃后 resume → 自动 reload 恢复（launch 时 QIHEBOX_CRASH_RECOVER_MS=10000
- *    拉长既有 crash-recovery 的 500ms 兜底，使恢复只能来自自愈链，真判别而非 false-green）
- * 注：真实「GPU 表面失效蓝/白屏」在 e2e 环境无法构造，L2/L3/L4 升级路径由 core/frame.ts
- * 单测（判定色）+ 每级 [wake] 日志 + 真机合盖验证兜底。
+ * 1. 正常窗口 resume / unlock-screen 后不被打扰（未记录暂停前可见 → 不显示不预检，保留页面状态）
+ * 2. 系统暂停（可见窗口）→ 立即隐藏；唤醒 → 隐藏预检自动恢复（FrameWitness）
+ * 3. 托盘隐藏/恢复：页面状态保留，恢复必须经过 FrameWitness 预检
+ * 4. 时钟跳变（单时钟兜底）→ 可见窗口按「暂停前可见」处理：先隐藏再预检恢复
+ * 5. 系统旁路 restore 只做最小化状态归一化，不是显示入口（无 WM 环境动态跳过）
+ * 6. 渲染进程崩溃 → 状态机隐藏 + L2 reload + 预检恢复（不再依赖 resume 信号）
  */
-test.describe('休眠唤醒自愈', () => {
+/**
+ * 主进程日志文件名 = 本地日期（logger.ts dateStr 语义；toISOString 是 UTC，
+ * 本地 00:00–08:00（UTC+8）窗口会差一天导致 ENOENT——2026-08-18 修复）
+ */
+function localLogDate(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** 业务层是否已挂载（主路由 main 元素出现；parked 卸载后消失） */
+const bizMounted = () => !!document.querySelector('main[class*="overflow-y-auto"]')
+// 取反版必须自包含（函数体只引用页面全局），序列化到页面上下文后不依赖 Node 作用域；
+// waitForFunction(() => !bizMounted()) 会因闭包引用 bizMounted 而 ReferenceError
+const bizUnmounted = () => !document.querySelector('main[class*="overflow-y-auto"]')
+
+test.describe('系统暂停/唤醒与崩溃恢复（常驻轻壳 T5）', () => {
   let app: ElectronApplication
   let page: Page
 
@@ -24,17 +42,12 @@ test.describe('休眠唤醒自愈', () => {
     app = await electron.launch({
       args: ['.', '--no-sandbox'],
       cwd: ROOT,
-      env: {
-        ...process.env,
-        QIHEBOX_E2E: '1',
-        // 评审 P1：把 crash-recovery 的 500ms reload 延迟拉长到 10s——崩溃用例的恢复
-        // 只能来自 F10（resume → 1.5s → isCrashed → reload），排除既有 crash-recovery 兜底
-        QIHEBOX_CRASH_RECOVER_MS: '10000',
-      },
+      env: { ...process.env, QIHEBOX_E2E: '1' },
     })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
+    await page.waitForFunction(bizMounted, null, { timeout: 15000 })
   })
 
   test.afterAll(async () => {
@@ -50,105 +63,157 @@ test.describe('休眠唤醒自愈', () => {
     }
   })
 
-  /** 触发休眠唤醒信号（模拟系统休眠唤醒 / 解锁屏幕） */
-  const fireWake = (signal: 'resume' | 'unlock-screen') =>
+  /** 触发 powerMonitor 信号（模拟系统事件） */
+  const fireWake = (signal: 'resume' | 'unlock-screen' | 'suspend' | 'lock-screen') =>
     app.evaluate(({ powerMonitor }, sig) => {
       powerMonitor.emit(sig)
       return true
     }, signal)
 
-  test('正常窗口 resume 后不被 reload（L1 重绘即恢复，保留页面状态）', async () => {
+  /** 主进程当日日志全文（app.getPath('logs')/main-<本地日期>.log） */
+  async function readLog(): Promise<string> {
+    const logsDir = await app.evaluate(({ app: a }) => a.getPath('logs'))
+    const logPath = path.join(logsDir, `main-${localLogDate()}.log`)
+    try {
+      return await fsp.readFile(logPath, 'utf8')
+    } catch {
+      return ''
+    }
+  }
+
+  test('正常窗口 resume / unlock-screen 后不被打扰（未记录暂停前可见 → 不显示不预检）', async () => {
     // 页面标记：reload 会丢失
     await page.evaluate(() => {
-      (window as any).__wakeMarker = 'alive'
+      ;(window as any).__wakeMarker = 'alive'
     })
+    await fireWake('resume')
+    await page.waitForTimeout(500)
+    await fireWake('unlock-screen')
+    await page.waitForTimeout(500)
+
+    // 窗口仍可见、页面状态保留（未被 reload）
+    const visible = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false)
+    expect(visible, '可见窗口收到 resume 不应被隐藏').toBe(true)
+    const marker = await page.evaluate(() => (window as any).__wakeMarker ?? null)
+    expect(marker).toBe('alive')
+    const hasApi = await page.evaluate(() => typeof (window as any).qihebox?.app?.version === 'function')
+    expect(hasApi).toBe(true)
+    // 观测日志：不自行显示（未记录暂停前可见）
+    expect(await readLog()).toMatch(/窗口原本在托盘\/未记录暂停前可见，不自行显示/)
+  })
+
+  test('系统暂停（可见窗口）→ 立即隐藏；唤醒 → 隐藏预检自动恢复', async () => {
+    await page.evaluate(() => {
+      ;(window as any).__wakeMarker = 'alive'
+    })
+    const before = (await readLog()).length
+
+    await fireWake('suspend')
+    // 暂停：可见窗口立即隐藏 + 业务层卸载（parking → parked）
+    await page.waitForFunction(bizUnmounted, null, { timeout: 10000 })
+    const visibleAfterSuspend = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false)
+    expect(visibleAfterSuspend, '暂停信号到达后窗口应隐藏').toBe(false)
 
     await fireWake('resume')
-    // 等待：1.5s 稳定 + L1 invalidate + 2s 复检（v2.4.8 根治：分级自愈链 L1 完成）
-    await page.waitForTimeout(4500)
-
+    // 暂停前可见 → 自动走隐藏预检恢复（FrameWitness match 后才显示）
+    await page.waitForFunction(bizMounted, null, { timeout: 20000 })
+    const visibleAfterResume = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false)
+    expect(visibleAfterResume, '暂停前可见的窗口唤醒后应自动恢复显示').toBe(true)
     const marker = await page.evaluate(() => (window as any).__wakeMarker ?? null)
-    expect(marker).toBe('alive')
-    const hasApi = await page.evaluate(() => typeof (window as any).qihebox?.app?.version === 'function')
-    expect(hasApi).toBe(true)
+    expect(marker, '恢复路径不得误 reload（页面状态保留）').toBe('alive')
+
+    const log = await readLog()
+    expect(log.slice(before), '暂停/唤醒应记录统一入口与 FrameWitness 验证').toMatch(/FrameWitness 验证/)
+    expect(log.slice(before)).toMatch(/系统唤醒.*隐藏预检恢复/)
+    expect(log.slice(before), '健康暂停/唤醒不得触发 L2 reload').not.toMatch(/L2 reload 渲染进程/)
   })
 
-  test('正常窗口 unlock-screen 后不被 reload（监听加固：resume 之外的唤醒入口）', async () => {
-    await page.evaluate(() => {
-      (window as any).__wakeMarker = 'alive'
-    })
-
-    await fireWake('unlock-screen')
-    await page.waitForTimeout(4500)
-
-    const marker = await page.evaluate(() => (window as any).__wakeMarker ?? null)
-    expect(marker).toBe('alive')
-    const hasApi = await page.evaluate(() => typeof (window as any).qihebox?.app?.version === 'function')
-    expect(hasApi).toBe(true)
-  })
-
-  test('托盘恢复（关窗→托盘→点开）触发画面自愈且不丢页面状态（v2.4.9 修复）', async () => {
-    // v2.4.9 修复回归：用户实测「关窗→托盘→恢复显示」白屏——windowShow 路径此前只做 JS 活性
-    // 检查（pingRenderer），隐藏期间 GPU 合成表面失效时画面空白、JS 活着，白屏无自愈入口。
-    // 修复：windowShow 恢复显示后追加 recoverAfterWake（画面自愈链）。本用例验证：
-    // 1) 托盘恢复路径触发画面自愈（日志出现 L1 重绘，正常画面仅一次无害 invalidate）
-    // 2) 正常画面不被误 reload（页面状态 marker 保留）
+  test('托盘隐藏/恢复：页面状态保留，恢复必须经过 FrameWitness', async () => {
     await page.evaluate(() => {
       ;(window as any).__wakeMarker = 'alive'
     })
-    // 主进程日志探针：记录 windowShow 路径自愈链是否被触发（L1 调度即证明 recoverAfterWake 已挂上）
-    const userData = await app.evaluate(({ app }) => app.getPath('userData'))
-    const logPath = path.join(userData, 'logs', `main-${new Date().toISOString().slice(0, 10)}.log`)
+    const before = (await readLog()).length
+
+    await page.evaluate(() => (window as any).qihebox.window.hideToTray())
+    await page.waitForFunction(bizUnmounted, null, { timeout: 10000 })
+    await page.evaluate(() => (window as any).qihebox.window.show())
+    await page.waitForFunction(bizMounted, null, { timeout: 20000 })
+
+    const marker = await page.evaluate(() => (window as any).__wakeMarker ?? null)
+    expect(marker, '托盘恢复不得误 reload').toBe('alive')
+    const after = (await readLog()).slice(before)
+    expect(after, '托盘恢复必须经过 FrameWitness 验证').toMatch(/FrameWitness 验证/)
+    expect(after, '健康托盘恢复不得触发 L2 reload').not.toMatch(/L2 reload 渲染进程/)
+  })
+
+  test('时钟跳变（单时钟兜底）→ 可见窗口按「暂停前可见」处理：先隐藏再预检恢复', async () => {
+    await page.evaluate(() => {
+      ;(window as any).__wakeMarker = 'alive'
+    })
+    const before = (await readLog()).length
+
+    // 首 tick 建立当前基线（Δ 小，不判定）
+    await app.evaluate(() => (globalThis as any).__wakePollTick(Date.now()))
+    // 伪造 3 分钟时钟跳变（模拟睡眠冻结 → 唤醒）：Δ=180s > 30s×3 → 判定刚经历睡眠
+    await app.evaluate(() => (globalThis as any).__wakePollTick(Date.now() + 3 * 60 * 1000))
+    // 可见窗口：先同步隐藏 → 按暂停前可见恢复链（隐藏预检通过才显示）
+    await page.waitForFunction(bizMounted, null, { timeout: 20000 })
+    const visible = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false)
+    expect(visible, '时钟检测到睡眠后应经预检恢复显示').toBe(true)
+    const marker = await page.evaluate(() => (window as any).__wakeMarker ?? null)
+    expect(marker, '时钟恢复路径不得误 reload').toBe('alive')
+
+    const after = (await readLog()).slice(before)
+    expect(after, '日志应记录时钟检测命中').toMatch(/时钟检测到系统休眠恢复/)
+    expect(after, '时钟恢复应经 FrameWitness 验证').toMatch(/FrameWitness 验证/)
+    expect(after, '健康时钟恢复不得触发 L2 reload').not.toMatch(/L2 reload 渲染进程/)
+  })
+
+  test('系统旁路 restore 只做最小化状态归一化，不是显示入口', async () => {
+    const logsDir = await app.evaluate(({ app: a }) => a.getPath('logs'))
+    const logPath = path.join(logsDir, `main-${localLogDate()}.log`)
     const before = (await fsp.readFile(logPath, 'utf8')).length
 
-    // 关窗→托盘（隐藏窗口 + 30s 销毁倒计时）
-    await page.evaluate(() => (window as any).qihebox.window.hideToTray())
-    await page.waitForTimeout(300)
-
-    // 点托盘恢复显示（windowShow：ensureMainWindow + show + pingRenderer + recoverAfterWake）
-    await page.evaluate(() => (window as any).qihebox.window.show())
-    // 等 L1 invalidate + 2s 复检（正常画面 L1 即通过，不 reload）
-    await page.waitForTimeout(4500)
-
-    // 页面状态保留（未被误 reload）
-    const marker = await page.evaluate(() => (window as any).__wakeMarker ?? null)
-    expect(marker).toBe('alive')
-    const hasApi = await page.evaluate(() => typeof (window as any).qihebox?.app?.version === 'function')
-    expect(hasApi).toBe(true)
-    // 画面自愈链确实在 windowShow 路径触发（新增日志：L1 已调度 / 画面正常）
-    const after = (await fsp.readFile(logPath, 'utf8')).slice(before)
-    expect(after).toMatch(/\[wake\] L1 已调度全量重绘|\[wake\] 画面正常（L1 复检通过）/)
-  })
-
-  test('时钟跳变（轮询兜底）触发自愈且不误 reload（v2.5.2）', async () => {
-    // v2.5.2 轮询兜底：Windows 实测 powerMonitor resume/unlock-screen 从不触发（electron#32576），
-    // 自愈链入口依赖轮询时钟跳变检测。本用例验证：
-    // 1) 首轮 tick 只建基线不判定；伪造 3min 时钟跳变 → 轮询判定「刚经历睡眠」→ 走自愈链
-    // 2) 正常画面不被误 reload（L1 invalidate + 复检通过即停，页面状态保留）
-    await page.evaluate(() => {
-      ;(window as any).__wakeMarker = 'alive'
+    // 真实最小化（无 WM 环境（CI xvfb）窗口不进最小化态 → 动态跳过，本地桌面环境完整验证）
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].minimize()
+      return true
     })
-    // 首轮 tick：建立基线（不判定）
-    await app.evaluate(() => (globalThis as any).__wakePollTick(Date.now()))
-    // 伪造 3 分钟时钟跳变（模拟睡眠冻结 → 唤醒）
-    await app.evaluate(() => (globalThis as any).__wakePollTick(Date.now() + 3 * 60 * 1000))
-    // 等 1.5s settle + L1 invalidate + 2s 复检
-    await page.waitForTimeout(4500)
+    const minimized = await app.evaluate(async ({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      const deadline = Date.now() + 2000
+      while (Date.now() < deadline) {
+        if (!w.isDestroyed() && w.isMinimized()) return true
+        await new Promise((r) => setTimeout(r, 50))
+      }
+      return false
+    })
+    test.skip(!minimized, '无 WM 环境窗口不进入最小化态，跳过（本地桌面/有 WM 环境验证）')
 
-    const marker = await page.evaluate(() => (window as any).__wakeMarker ?? null)
-    expect(marker).toBe('alive')
-    const hasApi = await page.evaluate(() => typeof (window as any).qihebox?.app?.version === 'function')
-    expect(hasApi).toBe(true)
-    // 日志佐证轮询路径确实触发（该日志行只在轮询检测命中时出现）
-    const userData = await app.evaluate(({ app }) => app.getPath('userData'))
-    const logPath = path.join(userData, 'logs', `main-${new Date().toISOString().slice(0, 10)}.log`)
-    const log = await fsp.readFile(logPath, 'utf8')
-    expect(log).toMatch(/\[wake\] 轮询检测到系统休眠恢复/)
+    // 系统旁路最小化 → minimize 事件归一化为隐藏（渲染常驻）
+    await page.waitForFunction(bizUnmounted, null, { timeout: 10000 })
+
+    // 恢复窗口 → restore 事件：只做归一化（保持隐藏），不显示不预检
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].restore()
+      return true
+    })
+    await page.waitForTimeout(800)
+
+    const visible = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false)
+    expect(visible, '旁路 restore 不得触发显示（恢复只走状态机预检入口）').toBe(false)
+    const after = (await fsp.readFile(logPath, 'utf8')).slice(before)
+    expect(after, 'restore 旁路应有归一化日志').toMatch(/系统 restore 旁路/)
+    expect(after, '旁路 restore 不得触发 reload').not.toMatch(/L2 reload 渲染进程/)
+
+    // 收尾：经托盘恢复显示（真实恢复入口）
+    await page.evaluate(() => (window as any).qihebox.window.show())
+    await page.waitForFunction(bizMounted, null, { timeout: 20000 })
   })
 
-  test('渲染进程崩溃后 resume → 自动 reload 恢复', async () => {
+  test('渲染进程崩溃 → 状态机隐藏 + L2 reload + 预检恢复（不依赖 resume 信号）', async () => {
     // 环境适配：崩溃模拟（SIGKILL 渲染进程）在 GitHub runner 上时序不可靠（本地 xvfb 实测连续跑
-    // 也偶发 flaky，CI 更甚）——本用例在 CI 跳过，由本地/开发机 xvfb 完整验证 F10 崩溃恢复路径
+    // 也偶发 flaky，CI 更甚）——本用例在 CI 跳过，由本地/开发机 xvfb 完整验证崩溃恢复路径
     test.skip(!!process.env.CI, '崩溃模拟在 GitHub runner 时序不可靠，本地 xvfb 完整验证')
     // 注册崩溃信号 + 真实 SIGKILL 渲染进程（forcefullyCrashRenderer 模拟 API 在 CI runner 上
     // 不触发 render-process-gone——实测；SIGKILL 必然触发 gone，且更接近真实崩溃场景；
@@ -175,25 +240,30 @@ test.describe('休眠唤醒自愈', () => {
     })
     expect(crashed).toBe(true)
 
-    await fireWake('resume')
-
-    // 等自愈 reload + 重新加载完成（主进程轮询：不崩溃、不加载中、window.qihebox 可用）
+    // 状态机接管：visible → 隐藏 + reload（renderer-gone）→ recovering → ready-to-show →
+    // 重新 prepare-show → FrameWitness 预检（Electron 31 崩溃后合成器不恢复，capture 永久挂起 →
+    // unknown → 升级 L4 销毁重建新窗口）→ 新窗口预检通过 → 显示。全程不需要 resume 信号。
+    // L2/L4 后窗口/渲染层重建，轮询需接受「原窗口销毁、取现存窗口」。
     const recovered = await app.evaluate(async ({ BrowserWindow }) => {
-      const w = BrowserWindow.getAllWindows()[0]
-      const deadline = Date.now() + 20000
+      const deadline = Date.now() + 25000
       while (Date.now() < deadline) {
-        if (!w || w.isDestroyed()) return false
-        const wc = w.webContents
-        if (!wc.isCrashed() && !wc.isLoading()) {
-          try {
-            const v = await wc.executeJavaScript('typeof window.qihebox', true)
-            if (v === 'object') return true
-          } catch { /* 仍在加载 */ }
+        const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed())
+        if (w) {
+          const wc = w.webContents
+          if (!wc.isCrashed() && !wc.isLoading()) {
+            try {
+              const v = await wc.executeJavaScript('typeof window.qihebox', true)
+              if (v === 'object' && w.isVisible()) return true
+            } catch { /* 仍在加载 */ }
+          }
         }
         await new Promise((r) => setTimeout(r, 200))
       }
       return false
     })
-    expect(recovered).toBe(true)
+    expect(recovered, '崩溃后应由状态机在隐藏态 reload 并经预检恢复显示').toBe(true)
+    const log = await readLog()
+    expect(log).toMatch(/renderer gone/)
+    expect(log, '崩溃恢复应经 FrameWitness 验证').toMatch(/FrameWitness 验证/)
   })
 })

@@ -411,7 +411,18 @@ export default function ProductSets() {
           </div>
         </Show>
 
-        <Show when={params.name}>
+        {/* v2.5.3（P2-14）：详情守卫——产品集已删除/工作区切换后不再渲染碎页，兜底「产品集不存在」（照 Clients detailCustomer 先例） */}
+        <Show
+          when={params.name && productSets().find((p) => p.name === psName())}
+          fallback={
+            // 列表态（params.name 为空）原样走上方列表分支，此处渲染空；仅详情态且产品集不存在时兜底
+            <Show when={params.name}>
+              <EmptyState icon="📦" title="产品集不存在" desc="该产品集可能已被删除，或工作区已切换">
+                <button class="btn-primary" onClick={() => navigate("/product-sets")}>返回产品集列表</button>
+              </EmptyState>
+            </Show>
+          }
+        >
           <div class="flex items-center gap-2 mb-2 text-sm text-surface-500">
             <button class="hover:text-primary-600" onClick={() => navigate("/product-sets")}>产品集</button>
             <span>/</span>

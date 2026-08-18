@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "frozenAt": "2026-08-16",
+  "source": "v2.5.2/开发前同机基数（Deepin Linux，out/ 三段产物，QIHEBOX_E2E=1）：performance.now 打点 + 路由专属 H1 ready，每路由连续三次取中位数（ms）",
+  "platform": "linux",
+  "comparisonRatio": 1.25,
+  "routeMediansMs": {
+    "/": 32.1,
+    "/product-sets": 30.2,
+    "/images": 30.5,
+    "/certs": 31.0,
+    "/search": 30.0,
+    "/settings": 28.0,
+    "/profile": 33.3,
+    "/trash": 29.6,
+    "/clients": 32.3,
+    "/invoices": 28.0
+  }
+}

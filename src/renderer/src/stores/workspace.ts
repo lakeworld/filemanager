@@ -11,9 +11,14 @@ import type {
 export const [currentWorkspace, setCurrentWorkspace] = createSignal<WorkspaceInfo | null>(null);
 export const [workspaces, setWorkspaces] = createSignal<WorkspaceInfo[]>([]);
 export const [productSets, setProductSets] = createSignal<ProductSetInfo[]>([]);
+// v2.5.3（P2-13）：产品集首载 loading——初值 true 兜住挂载后首个渲染 tick（页面侧自带 loading 信号时也可不用）
+export const [productSetsLoading, setProductSetsLoading] = createSignal(true);
 export const [selectedProductSet, setSelectedProductSet] = createSignal<string>("");
 export const [workspaceConfig, setWorkspaceConfig] = createSignal<WorkspaceConfig | null>(null);
 export const [fileBrowserRefreshTrigger, setFileBrowserRefreshTrigger] = createSignal(0);
+
+// v2.5.3（P2-13）：产品集加载序号（模块级）——切工作区/并发调用时过期结果丢弃（照 Certs certLoadSeq 先例）
+let productSetsLoadSeq = 0;
 
 export async function loadWorkspaces() {
   const result = await api.workspace.list();
@@ -65,9 +70,17 @@ export async function switchWorkspace(path: string) {
 }
 
 export async function loadProductSets() {
-  const result = await api.productSets.list();
-  if (result.success && result.data) {
-    setProductSets(result.data);
+  const s = ++productSetsLoadSeq;
+  setProductSetsLoading(true);
+  try {
+    const result = await api.productSets.list();
+    if (s !== productSetsLoadSeq) return;
+    if (result.success && result.data) {
+      setProductSets(result.data);
+    }
+  } finally {
+    // 仅当前链仍最新时复位（过期链的 finally 不得关闭新链的 loading）
+    if (s === productSetsLoadSeq) setProductSetsLoading(false);
   }
 }
 

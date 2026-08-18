@@ -90,7 +90,8 @@ export default function BatchTagDialog(props: {
   };
 
   return (
-    <Modal open title={`打标（${props.paths.length} 个文件）`} onClose={props.onClose}>
+    // v2.5.3（P2-7）：请求在途时 lockOpen——Esc/遮罩均不触发 onClose（照 ArchiveProgressDialog 先例）
+    <Modal open title={`打标（${props.paths.length} 个文件）`} lockOpen={busy()} onClose={props.onClose}>
       <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h2 class="text-xl font-bold mb-4">打标（{props.paths.length} 个文件）</h2>
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { buildTestBox, WorkspaceService } from './helpers'
+import { buildTestBox, FakeThumbs, WorkspaceService } from './helpers'
 import { ImportCancelledError, ThumbnailProvider } from '../../src/main/core/files'
 import { BoxService } from '../../src/main/core'
 import type { FileEntry } from '../../src/main/core/files'
@@ -304,6 +304,66 @@ describe('文件删除 / 重命名 / 越界防护', () => {
     expect(Object.keys(store.files)).toContain('R系列/图包/主图/newname.jpg')
     expect(Object.keys(store.files)).not.toContain('R系列/图包/主图/old.jpg')
   })
+
+  it('v2.5.3（P1-3）：rename 元数据迁移挂起期间并发的 metadata.update 不丢（两写都落盘）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '并发R' })
+
+    const src = path.join(ws, '..', 'gate-old.jpg')
+    await fsp.writeFile(src, PNG_1PX)
+    const imported = (await box.files.importFiles({
+      source_paths: [src],
+      target_product_set: '并发R',
+      target_folder: '主图',
+      target_type: 'image',
+      sub_folder: '主图',
+    })).imported
+    const oldPath = imported[0].path
+    await box.metadata.update({ file_path: oldPath, tags: ['旧'], notes: '迁移前' })
+    // 另一路并发 update 的目标文件（与迁移文件不同 key）
+    const other = path.join(ws, '产品集', '并发R', '图包', '主图', 'other.jpg')
+    await fsp.writeFile(other, PNG_1PX)
+    await box.metadata.update({ file_path: other, notes: '并发前' })
+
+    // 门闩：renameFile 的第一次 mutateStore（迁移）挂起在锁外，让另一路 update 先行完成，
+    // 再放行迁移——模拟「迁移读旧快照期间并发写」的丢失更新场景。
+    let entered!: () => void
+    const enteredP = new Promise<void>((r) => (entered = r))
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    let calls = 0
+    const origMutateStore = box.metadata.mutateStore.bind(box.metadata)
+    const spy = vi.spyOn(box.metadata, 'mutateStore').mockImplementation(async (wsArg, mutate) => {
+      calls++
+      if (calls === 1) {
+        entered()
+        await gate
+      }
+      return origMutateStore(wsArg, mutate)
+    })
+
+    try {
+      const renameP = box.files.renameFile({ path: oldPath, newName: 'renamed.jpg' })
+      await enteredP
+      // 迁移挂起期间，另一路 update 不同文件先行完成
+      await box.metadata.update({ file_path: other, notes: '并发后' })
+      release()
+      await renameP
+
+      const store = await box.metadata.loadMetadataStore()
+      // 迁移落盘：新 key 有数据、旧 key 已删除
+      const newPath = path.join(path.dirname(oldPath), 'renamed.jpg')
+      expect(store.files[box.metadata.fileMetadataKey(newPath)]?.notes).toBe('迁移前')
+      expect(store.files[box.metadata.fileMetadataKey(oldPath)]).toBeUndefined()
+      // 并发 update 的写入未被迁移动作抹掉（整档替换的丢失更新窗口已消除）
+      expect(store.files[box.metadata.fileMetadataKey(other)]?.notes).toBe('并发后')
+    } finally {
+      spy.mockRestore()
+    }
+  })
 })
 
 /** 记录缩略图调用（验证移动时旧缩略图清理 + 图片新路径重生） */
@@ -405,6 +465,35 @@ describe('文件移动（moveFiles）', () => {
     const store = await box.metadata.loadMetadataStore()
     expect(store.files[`系列乙/图包/主图/${entry.name}`]).toBeTruthy()
     expect(store.files[`系列甲/图包/主图/${entry.name}`]).toBeUndefined()
+  })
+
+  it('v2.5.3（P1-3）：move 元数据迁移与其他 metadata.update 并发不互丢（两写都落盘）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '并发甲' })
+    await box.workspace.productSetCreate({ name: '并发乙' })
+
+    const { entry } = await importInto(box, ws, '并发甲', '主图', 'cm.jpg')
+    await box.metadata.update({ file_path: entry.path, notes: '迁移中' })
+    // 另一路并发 update 的目标文件（工作区内、与迁移文件不同 key）
+    const other = path.join(ws, '产品集', '并发甲', '图包', '主图', 'other.jpg')
+    await fsp.writeFile(other, PNG_1PX)
+    await box.metadata.update({ file_path: other, notes: '并发前' })
+
+    const targetDir = path.join(ws, '产品集', '并发乙', '图包', '主图')
+    await Promise.all([
+      box.files.moveFiles({ paths: [entry.path], targetDir }),
+      box.metadata.update({ file_path: other, notes: '并发后' }),
+    ])
+
+    const store = await box.metadata.loadMetadataStore()
+    // 迁移落盘：新 key 有数据、旧 key 已删除
+    expect(store.files[`并发乙/图包/主图/${entry.name}`]?.notes).toBe('迁移中')
+    expect(store.files[`并发甲/图包/主图/${entry.name}`]).toBeUndefined()
+    // 并发 update 的写入未被迁移整档替换抹掉
+    expect(store.files['并发甲/图包/主图/other.jpg']?.notes).toBe('并发后')
   })
 
   it('目标目录同名冲突：自动加 _1 序号', async () => {
@@ -722,5 +811,45 @@ describe('v2.5（P1-B3）：symlink 越界目录 realpath 边界', () => {
     // 正常目录（详情页 为空目录）仍可正常枚举，不报错
     const ok = await box.files.fileList({ product_set: '越界链接', file_type: 'image', sub_folder: '详情页' })
     expect(ok).toHaveLength(0)
+  })
+})
+
+describe('v2.5.3（P1-4）：listDirFilesRecursive resolveThumb', () => {
+  /** 计数 thumbnailUrl 调用的假缩略图：验证 resolveThumb:false 跳过缩略图解析 */
+  class CountingThumbs extends FakeThumbs {
+    calls = 0
+    async thumbnailUrl(): Promise<string> {
+      this.calls++
+      return `thumb-${this.calls}`
+    }
+  }
+
+  it('resolveThumb:false 跳过 thumbnailUrl、thumbnail_path 置空串；默认行为不变', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const workspace = new WorkspaceService(home)
+    const counting = new CountingThumbs()
+    const box = new BoxService(counting, workspace)
+    await workspace.create(ws)
+    await workspace.productSetCreate({ name: '系列A' })
+
+    const dir = path.join(ws, '产品集', '系列A', '图包', '主图')
+    await fsp.mkdir(dir, { recursive: true })
+    await fsp.writeFile(path.join(dir, 'a.jpg'), PNG_1PX)
+    await fsp.writeFile(path.join(dir, 'b.jpg'), PNG_1PX)
+
+    // resolveThumb:false：完全不调用 thumbnailUrl，thumbnail_path 为空串（每文件 5 stat → 1 stat）
+    let before = counting.calls
+    const noThumb = await box.files.listDirFilesRecursive(dir, { resolveThumb: false })
+    expect(noThumb).toHaveLength(2)
+    expect(noThumb.every((f) => f.thumbnail_path === '')).toBe(true)
+    expect(counting.calls - before).toBe(0)
+
+    // 默认（不传 opts）：行为不变，仍逐文件解析缩略图（保既有调用方兼容）
+    before = counting.calls
+    const withThumb = await box.files.listDirFilesRecursive(dir)
+    expect(withThumb).toHaveLength(2)
+    expect(withThumb.every((f) => f.thumbnail_path !== '')).toBe(true)
+    expect(counting.calls - before).toBe(2)
   })
 })

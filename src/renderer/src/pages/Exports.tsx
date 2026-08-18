@@ -5,7 +5,13 @@ import { showToast } from "~/stores/notifyBanner";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import EmptyState from "~/components/EmptyState";
 import Loading from "~/components/Loading";
+import VirtualGrid from "~/components/VirtualGrid";
 import type { ExportEntry } from "~/types";
+
+// v2.5.3（P2-15）：导出记录渲染口径——<200 条 For 全量、≥200 条 VirtualGrid 虚拟滚动（照 Trash/Suppliers 先例，阈值统一 200）
+const EXPORT_VIRTUAL_THRESHOLD = 200;
+// 卡片高 ≈ p-4 上下 32px + 图标 56（高于两行文本 ~40px）≈ 88px，行间距 8px 计入 itemHeight（估算取整防重叠）
+const EXPORT_ROW_HEIGHT = 96;
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -82,6 +88,42 @@ export default function Exports() {
     }
   };
 
+  // v2.5.3（P2-15）：条目卡片渲染——小列表 For 与超阈值 VirtualGrid 共用（照 Trash renderEntry 模式，避免两份 JSX 漂移）
+  const renderEntry = (e: ExportEntry) => (
+    <div class="card p-4 flex items-center gap-4 hover:shadow-card-hover">
+      <div class="w-14 h-14 rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden shrink-0">
+        <span class="text-2xl">🗜️</span>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-medium text-surface-900 truncate">{e.name}</div>
+        <div class="text-xs text-surface-400 mt-0.5">
+          {formatBytes(e.size)} · 生成于 {formatTime(e.mtime)}
+        </div>
+      </div>
+      <div class="flex gap-2 shrink-0">
+        <button
+          class="px-3 py-1.5 text-sm text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors"
+          onClick={() => handleOpen(e)}
+        >
+          打开
+        </button>
+        <button
+          class="px-3 py-1.5 text-sm text-surface-600 hover:bg-surface-100 rounded-lg transition-colors"
+          onClick={() => handleReveal(e)}
+        >
+          定位
+        </button>
+        <button
+          class="px-3 py-1.5 text-sm text-danger-600 hover:bg-danger-50 rounded-lg transition-colors"
+          onClick={() => setConfirmDelete({ entry: e })}
+          disabled={busy()}
+        >
+          删除
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div class="p-6 max-w-7xl mx-auto flex flex-col h-full">
       <div class="flex items-center justify-between mb-6 shrink-0">
@@ -105,44 +147,25 @@ export default function Exports() {
           </Show>
         }
       >
-        <div class="space-y-2">
-          <For each={entries()}>
-            {(e) => (
-              <div class="card p-4 flex items-center gap-4 hover:shadow-card-hover">
-                <div class="w-14 h-14 rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden shrink-0">
-                  <span class="text-2xl">🗜️</span>
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="text-sm font-medium text-surface-900 truncate">{e.name}</div>
-                  <div class="text-xs text-surface-400 mt-0.5">
-                    {formatBytes(e.size)} · 生成于 {formatTime(e.mtime)}
-                  </div>
-                </div>
-                <div class="flex gap-2 shrink-0">
-                  <button
-                    class="px-3 py-1.5 text-sm text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors"
-                    onClick={() => handleOpen(e)}
-                  >
-                    打开
-                  </button>
-                  <button
-                    class="px-3 py-1.5 text-sm text-surface-600 hover:bg-surface-100 rounded-lg transition-colors"
-                    onClick={() => handleReveal(e)}
-                  >
-                    定位
-                  </button>
-                  <button
-                    class="px-3 py-1.5 text-sm text-danger-600 hover:bg-danger-50 rounded-lg transition-colors"
-                    onClick={() => setConfirmDelete({ entry: e })}
-                    disabled={busy()}
-                  >
-                    删除
-                  </button>
-                </div>
-              </div>
-            )}
-          </For>
-        </div>
+        <Show
+          when={entries().length >= EXPORT_VIRTUAL_THRESHOLD}
+          fallback={
+            <div class="space-y-2">
+              <For each={entries()}>{(e) => renderEntry(e)}</For>
+            </div>
+          }
+        >
+          {/* v2.5.3（P2-15）：≥200 条走虚拟滚动——只渲染可见行，导出记录数无上限（照 Trash 先例） */}
+          <div class="flex-1 min-h-0">
+            <VirtualGrid
+              items={entries()}
+              itemHeight={EXPORT_ROW_HEIGHT}
+              columns={1}
+              gap={8}
+              renderItem={(e) => renderEntry(e)}
+            />
+          </div>
+        </Show>
       </Show>
 
       {/* 删除确认（删除会移入回收站，可恢复） */}

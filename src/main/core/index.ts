@@ -71,30 +71,36 @@ export class BoxService {
     // v2.4.7（§8.2）：交换区 ledger sink 由台账服务提供——查重等账务规则单点落在台账服务
     // （PLAN §6.2「创建/编辑/交换区三入口同函数」）；投递发票默认状态 待报销（§6.3 流转起点）
     this.exchange = new ExchangeService(this.workspace, {
-      createInvoice: async (d, archived) => {
-        await this.invoices.create({
-          number: d.number,
-          code: d.code,
-          date: d.date,
-          amount: d.amount,
-          seller: d.seller,
-          buyer: d.buyer,
-          customer: d.customer,
-          due_date: d.due_date,
-          status: '待报销',
-          file_path: archived[0] ?? '',
-        })
+      createInvoice: async (ws, d, archived) => {
+        await this.invoices.create(
+          {
+            number: d.number,
+            code: d.code,
+            date: d.date,
+            amount: d.amount,
+            seller: d.seller,
+            buyer: d.buyer,
+            customer: d.customer,
+            due_date: d.due_date,
+            status: '待报销',
+            file_path: archived[0] ?? '',
+          },
+          ws,
+        )
       },
-      createInbound: async (d, archived) => {
-        await this.inbound.create({
-          id: d.id,
-          date: d.date,
-          supplier: d.supplier,
-          product_set: d.product_set,
-          amount: d.amount,
-          notes: d.notes,
-          file_path: archived[0] ?? '',
-        })
+      createInbound: async (ws, d, archived) => {
+        await this.inbound.create(
+          {
+            id: d.id,
+            date: d.date,
+            supplier: d.supplier,
+            product_set: d.product_set,
+            amount: d.amount,
+            notes: d.notes,
+            file_path: archived[0] ?? '',
+          },
+          ws,
+        )
       },
       // v2.5.1（D20）：交换区归集成功 → 装配层桥（插件宿主 fileArchived 投递；零依赖，无回调时静默）
       onArchived: (archived) => this.onExchangeArchived?.(archived),
@@ -118,17 +124,20 @@ export class BoxService {
       save: async (entries) => {
         const ws = this.workspace.currentWorkspacePath()
         if (!ws) return
-        const store = await this.clients.loadCustomersInfo()
-        let changed = false
-        for (const { name, tags } of entries) {
-          const ex = store[name]
-          if (!ex) continue
-          if (JSON.stringify(ex.tags ?? []) !== JSON.stringify(tags)) {
-            ex.tags = tags
-            changed = true
+        // v2.5.3（P1-3）：改走 mutateCustomers 锁内读改写——旧实现「锁外读旧快照 + 整档替换」在
+        // 标签传播与客户档案其他写并发时抹掉锁内最新值。mutate 返回是否变更：无变化不写盘（不刷 mtime）。
+        await this.clients.mutateCustomers(ws, (store) => {
+          let changed = false
+          for (const { name, tags } of entries) {
+            const ex = store[name]
+            if (!ex) continue
+            if (JSON.stringify(ex.tags ?? []) !== JSON.stringify(tags)) {
+              ex.tags = tags
+              changed = true
+            }
           }
-        }
-        if (changed) await this.clients.saveCustomersInfo(ws, store)
+          return changed
+        })
       },
     })
   }

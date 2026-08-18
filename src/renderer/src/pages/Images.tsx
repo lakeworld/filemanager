@@ -32,6 +32,11 @@ interface ImageItem extends FileEntry {
   subFolder: string;
 }
 
+// v2.5.2：聚合加载请求序号——N×M 链期间切工作区/切类型会并发新链，旧链返回必须丢弃
+// v2.5.3（T7）D4：模块级（对齐 Certs certLoadSeq 先例）——卸载清理递增后跨挂载延续计数，
+// 重新挂载不再从 0 计数：旧实例在途链持有的旧值永远不会与新实例的计数撞号，过期结果必被丢弃
+let imageLoadSeq = 0;
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;
@@ -77,10 +82,14 @@ export default function Images() {
   const ITEM_HEIGHT = 252;
 
   // v2.5.2：聚合加载请求序号——N×M 链期间切工作区/切类型会并发新链，旧链返回必须丢弃
-  // （照 Certs certLoadSeq 先例：切工作区后旧结果覆盖新数据是已修过的高频 bug）
-  let imageLoadSeq = 0;
+  // （照 Certs certLoadSeq 先例；切工作区后旧结果覆盖新数据是已修过的高频 bug）
+  // 注：序号本体是模块级（D4），此处不再声明，onCleanup 递增同一模块级计数
   // v2.5.2：首载 loading——空态不闪现（照 FileBrowserView 先例；N×M 聚合链期间置位）
   const [loading, setLoading] = createSignal(true);
+  // v2.5.3（T7）：卸载即递增加载代——未完成的 N×M 链在每轮 IPC 返回后校验失效，不再空转/写入
+  onCleanup(() => {
+    imageLoadSeq++;
+  });
 
   createEffect(() => {
     if (currentWorkspace()) {
@@ -97,7 +106,13 @@ export default function Images() {
     setLoading(true);
     try {
       const result = await api.productSets.list();
-      if (!result.success || !result.data) return;
+      // v2.5.3（P2-9）：首查失败不再静默——toast 提示（空态兜底仍显示，但用户知道为何为空）
+      if (!result.success || !result.data) {
+        showToast("error", "加载图包失败", result.error || "未知错误");
+        return;
+      }
+      // v2.5.3（T7）：每轮 IPC 返回后校验代际——组件卸载/新链发起后旧链立即退出
+      if (seq !== imageLoadSeq) return;
 
       const all: ImageItem[] = [];
       for (const ps of result.data) {
@@ -109,6 +124,8 @@ export default function Images() {
             media_type: typeFilter(),
             sub_folder: sub,
           });
+          // v2.5.3（T7）：每轮 IPC 返回后校验代际——过期链不再向 all 收集数据
+          if (seq !== imageLoadSeq) return;
           if (fileResult.success && fileResult.data) {
             for (const f of fileResult.data) {
               all.push({ ...f, productSet: ps.name, subFolder: sub });
@@ -291,6 +308,7 @@ export default function Images() {
   };
 
   const handleExtract = async (file: ImageItem, mode: "here" | "folder") => {
+    if (archiveState()) return; // 单任务守卫（同 handleCompress：防重复触发顶掉进行中任务的进度弹窗）
     const token = newArchiveToken();
     setArchiveState({ token, phase: "extract" });
     const r = await api.archive.extract({ zipPath: file.path, mode, cancelToken: token });
@@ -424,6 +442,8 @@ export default function Images() {
             itemHeight={ITEM_HEIGHT}
             columns={{ base: 2, md: 4, lg: 5, xl: 6 }}
             gap={16}
+            // v2.5.3（P2-11）：筛选/搜索/类型切换时滚动归零（照 Quotes/Invoices scrollResetKey 先例）
+            scrollResetKey={`${typeFilter()}|${search()}|${tagFilter()}|${productSetFilter()}|${subFolderFilter()}|${sortBy()}`}
             renderItem={(img) => (
               <div
                 class={`card p-2 cursor-pointer select-none hover:shadow-card-hover ${selectedPaths().includes(img.path) ? "border-primary-500 bg-primary-50" : ""}`}

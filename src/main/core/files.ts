@@ -184,9 +184,18 @@ export class FilesService {
    * v2.4.2（D6）：单文件 stat 失败（同步中文件被替换/移除/坏符号链接）跳过，不拖垮整个列表。
    */
   async listRaw(dir: string): Promise<CompactItem[]> {
+    const ws = this.workspace.currentWorkspacePath()
+    return this.listRawForWorkspace(ws, dir)
+  }
+
+  /**
+   * v2.5.3（T5）：显式工作区的目录列表——索引重建全程用捕获的 ws 调用本函数，
+   * 不能透过 listRaw() 在异步恢复期读取 current workspace（切换竞态下会读到新工作区）。
+   * ws 为空时跳过边界校验（与旧 listRaw 在无工作区时的行为一致）。
+   */
+  async listRawForWorkspace(ws: string, dir: string): Promise<CompactItem[]> {
     // v2.5（审查 P1-B3）：目录 realpath 边界校验——工作区内 symlink 指向区外的目录跳过不枚举
     // （安全边界一律用 isPathInsideWorkspaceReal；每目录仅校验一次，不逐文件，开销可忽略）
-    const ws = this.workspace.currentWorkspacePath()
     if (ws && !(await isPathInsideWorkspaceReal(ws, dir))) return []
     let entries: import('node:fs').Dirent[]
     try {
@@ -210,8 +219,14 @@ export class FilesService {
     return items
   }
 
-  /** 递归列出目录内所有非隐藏文件（供 dashboard/search 复用） */
-  async listDirFilesRecursive(dir: string): Promise<FileEntry[]> {
+  /**
+   * 递归列出目录内所有非隐藏文件（供 dashboard/search 复用）。
+   * v2.5.3（P1-4）：新增 opts.resolveThumb——false 时跳过每文件的 thumbnailUrl（每文件 ~5 stat → 1 stat，仅 stat 一次），
+   * thumbnail_path 置空串；dashboard/search 批量扫描用（渲染层按 file.path 经 IPC 按需取缩略图，不消费 thumbnail_path）。
+   * 默认（undefined / true）保持既有行为不变。
+   */
+  async listDirFilesRecursive(dir: string, opts?: { resolveThumb?: boolean }): Promise<FileEntry[]> {
+    const resolveThumb = opts?.resolveThumb !== false
     const items: FileWithTime[] = []
     const walk = async (d: string): Promise<void> => {
       let entries: import('node:fs').Dirent[]
@@ -229,7 +244,7 @@ export class FilesService {
         } else {
           const info = await fsp.stat(full).catch(() => null)
           if (!info) continue
-          const thumb = await this.thumbs.thumbnailUrl(full).catch(() => '')
+          const thumb = resolveThumb ? await this.thumbs.thumbnailUrl(full).catch(() => '') : ''
           items.push({
             entry: {
               name,
@@ -586,16 +601,19 @@ export class FilesService {
     globalWorkspaceIndex.invalidate(path.dirname(oldPath))
 
     // v2.4.2（D3+D4）：元数据迁移改为路径推导 key（含子文件夹，跨平台一致）
+    // v2.5.3（P1-3）：改走 mutateKeys 锁内读改写——旧实现「锁外读旧快照 + 整档替换」在迁移
+    // 期间会抹掉其他并发的 metadata 更新（丢失更新窗口）。mutateKeys 恒落盘：旧实现仅当
+    // 旧 key 已有数据才写盘，现在「无变化也原子重写一次」，PLAN 已接受该多一次重写。
     const oldKey = this.metadata.fileMetadataKey(oldPath)
     if (oldKey) {
-      const store = await this.metadata.loadMetadataStore()
-      if (store.files[oldKey]) {
-        const newKey = this.metadata.fileMetadataKey(newPath)
-        if (newKey) {
-          store.files[newKey] = store.files[oldKey]
-          delete store.files[oldKey]
-          await this.metadata.saveMetadataStore(store)
-        }
+      const newKey = this.metadata.fileMetadataKey(newPath)
+      if (newKey) {
+        await this.metadata.mutateKeys(ws, (files) => {
+          if (files[oldKey]) {
+            files[newKey] = files[oldKey]
+            delete files[oldKey]
+          }
+        })
       }
     }
 
@@ -684,15 +702,18 @@ export class FilesService {
         }
 
         // v2.4.2（D3+D4）：元数据迁移按路径推导 key（含子文件夹），新 key 已有内容则保留
+        // v2.5.3（P1-3）：改走 mutateKeys 锁内读改写——旧实现「锁外读旧快照 + 整档替换」在移动
+        // 多文件或与其他 metadata 写并发时会抹掉锁内最新值。回调内保留「旧 key 无数据 / 新 key
+        // 已有内容则跳过迁移」的原语义；无变化时多一次原子重写（PLAN 已接受）。
         const oldKey = this.metadata.fileMetadataKey(p)
         const newKey = this.metadata.fileMetadataKey(finalDest)
         if (oldKey && newKey && oldKey !== newKey) {
-          const store = await this.metadata.loadMetadataStore()
-          if (store.files[oldKey] && !store.files[newKey]) {
-            store.files[newKey] = store.files[oldKey]
-            delete store.files[oldKey]
-            await this.metadata.saveMetadataStore(store)
-          }
+          await this.metadata.mutateKeys(ws, (files) => {
+            if (files[oldKey] && !files[newKey]) {
+              files[newKey] = files[oldKey]
+              delete files[oldKey]
+            }
+          })
         }
 
         // 缩略图：清理旧路径，图片新路径重生
@@ -727,10 +748,12 @@ export class FilesService {
    * 预热工作区索引：遍历各产品集 图包/证书 目录下的所有子文件夹，
    * 逐个构建快照（listRaw 构建进索引）——切换文件夹时命中索引，不再全量扫描。
    * 不可读/不存在的目录静默跳过。返回成功构建的目录数。
+   * v2.5.3（T5）：仅测试用（生产无调用方）——用显式 ws 的 listRawForWorkspace 构建，
+   * 避免索引重建在异步恢复期透过 listRaw() 读到新的 current workspace。
    */
   async warmup(): Promise<number> {
     const ws = this.requireWS()
-    return globalWorkspaceIndex.build(ws, (d) => this.listRaw(d))
+    return globalWorkspaceIndex.build(ws, (d) => this.listRawForWorkspace(ws, d))
   }
 
   // —— 预览/打开辅助 ——

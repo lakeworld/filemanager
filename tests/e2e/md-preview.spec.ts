@@ -151,4 +151,69 @@ test.describe('Markdown 预览（v2.5.1 F4）', () => {
       await fsp.rm(wsDir, { recursive: true, force: true })
     }
   })
+
+  /** 双文件工作区（快速切换用例用）：快.md 即时渲染，慢.md 正文较大拉长读取+解析 */
+  const setupTwo = async (quickContent: string, slowContent: string): Promise<string> => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-md-switch-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: 'MD切换' }))
+    const dir = path.join(wsDir, '产品集', 'MD切换', '文档', '说明书')
+    await fsp.mkdir(dir, { recursive: true })
+    await fsp.writeFile(path.join(dir, '快.md'), Buffer.from(quickContent))
+    await fsp.writeFile(path.join(dir, '慢.md'), Buffer.from(slowContent))
+    return wsDir
+  }
+
+  test('两个 md 快速切换：最终显示新文件，旧读取/解析结果不覆盖（v2.5.3 T7）', async () => {
+    // 慢.md 正文 ~600KB（未超 2MB 上限），read+parse 需数百 ms，可被中途关闭打断
+    const slowBody = Array.from({ length: 8000 }, (_, i) => `段落 ${i}：快速切换竞态验证文本内容。`).join('\n\n')
+    const wsDir = await setupTwo('# 快速文档\n\n快的内容', '# 慢速文档\n\n' + slowBody)
+    try {
+      await navigateTo('/files/doc/MD切换/说明书')
+      await expect(page.getByText('慢.md')).toBeVisible({ timeout: 15000 })
+
+      // 打开慢文件，骨架屏出现、加载未完成时立即关闭
+      await page.getByText('慢.md').dblclick()
+      await expect(page.locator('.skeleton').first()).toBeVisible({ timeout: 15000 })
+      await page.keyboard.press('Escape')
+      await expect(page.locator('.md-prose')).toHaveCount(0)
+
+      // 立即打开快文件——慢文件的旧读取/解析结果不得覆盖新文件
+      await page.getByText('快.md').dblclick()
+      const prose = page.locator('.md-prose')
+      await expect(prose).toBeVisible({ timeout: 15000 })
+      await expect(prose).toContainText('快速文档')
+      // 等待远超慢文件加载时长——旧结果若覆盖，此处会翻转为慢速文档
+      await page.waitForTimeout(4000)
+      await expect(page.locator('.md-prose')).toHaveCount(1)
+      await expect(page.locator('.md-prose')).toContainText('快速文档')
+      await expect(page.locator('.md-prose')).not.toContainText('慢速文档')
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true })
+    }
+  })
+
+  test('关闭后再次打开：不残留旧 HTML（v2.5.3 T7）', async () => {
+    const wsDir = await setup('# 唯一内容\n\n正文段落')
+    try {
+      await navigateTo('/files/doc/MD系列/说明书')
+      await expect(page.getByText('说明.md')).toBeVisible({ timeout: 15000 })
+      await page.getByText('说明.md').dblclick()
+      const prose = page.locator('.md-prose')
+      await expect(prose).toBeVisible({ timeout: 15000 })
+      await expect(prose).toContainText('唯一内容')
+
+      // 关闭后渲染结果整体卸载（无残留 DOM / 大字符串）
+      await page.keyboard.press('Escape')
+      await expect(page.locator('.md-prose')).toHaveCount(0)
+
+      // 再次打开：仅一份渲染结果，内容正确，无叠加/重复旧 HTML
+      await page.getByText('说明.md').dblclick()
+      await expect(page.locator('.md-prose')).toBeVisible({ timeout: 15000 })
+      await expect(page.locator('.md-prose')).toHaveCount(1)
+      await expect(page.locator('.md-prose')).toContainText('唯一内容')
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true })
+    }
+  })
 })

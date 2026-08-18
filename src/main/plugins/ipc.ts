@@ -6,7 +6,7 @@
  * 宿主事件入口：emitHostEvent(channel, data)（装配层在 workspaceChanged / certExpiring / updateAvailable /
  * importComplete 发生时调用，channel 白名单强校验）。
  * v2.5 增量：不移植 qihebox:ai:call / aiCall（v2.4.7 时代残留）；install 的 devMode 校验在本层 handler。
- * 退出清理：dispose() → 全部已激活插件 dispose()（尽力，超时 2s 不强等，PLAN §六.4）。
+ * 退出清理：dispose() → 同步触发全部已激活插件 dispose（v2.5.3 T3：disposeAll 同步完成，第一拍不延后）。
  */
 import { app, ipcMain, dialog, BrowserWindow, Notification } from 'electron'
 import path from 'node:path'
@@ -66,7 +66,7 @@ function sendSystemNotification(title: string, body: string): boolean {
 export interface PluginHostHandle {
   /** 宿主事件入口（装配层桥接 workspaceChanged 等；channel 白名单强校验，白名单外忽略） */
   emitHostEvent(channel: string, data: unknown): void
-  /** 退出清理：全部已激活插件 dispose()（尽力，超时 2s 不强等）+ 事件总线清理（无泄漏） */
+  /** 退出清理：同步触发全部已激活插件 dispose + 事件总线清理（无泄漏） */
   dispose(): Promise<void>
 }
 
@@ -232,7 +232,8 @@ export function registerPluginHost(
   return {
     emitHostEvent,
     async dispose(): Promise<void> {
-      await loader.disposeAll(2000)
+      // disposeAll 同步完成全部同步 dispose（第一拍不延后到微任务，退出窗口内已执行）
+      loader.disposeAll()
       bus.clear()
     },
   }

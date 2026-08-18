@@ -1,7 +1,14 @@
 /**
  * window.qihebox 类型声明（由 preload contextBridge 暴露）
  */
-import type { ApiResult } from '../../shared/types'
+import type {
+  ApiResult,
+  WindowFirstFrameAckMessage,
+  WindowParkedAckMessage,
+  WindowPrepareHideMessage,
+  WindowPrepareShowMessage,
+  WindowRestoredMessage,
+} from '../../shared/types'
 
 interface QiheboxApi {
   account: {
@@ -15,7 +22,8 @@ interface QiheboxApi {
     create: (path: string) => Promise<unknown>
     open: (path: string) => Promise<unknown>
     switch: (path: string) => Promise<unknown>
-    renameSubfolder: (type: string, oldName: string, newName: string) => Promise<unknown>
+    // v2.5.3（P2-19）：renameSubfolder 类型收口（与 main core workspace.ts 联合一致）
+    renameSubfolder: (type: "image" | "cert" | "customer" | "doc", oldName: string, newName: string) => Promise<unknown>
   }
   config: {
     get: () => Promise<unknown>
@@ -162,6 +170,14 @@ interface QiheboxApi {
     setSize: (w: number, h: number) => Promise<unknown>
     getPosition: () => Promise<{ x: number; y: number }>
     setPosition: (x: number, y: number) => Promise<unknown>
+  }
+  // v2.5.3 常驻轻壳：窗口生命周期（preload windowLifecycle 白名单；事件订阅返回退订函数）
+  windowLifecycle: {
+    parked: (generation: number) => Promise<ApiResult<boolean>>
+    firstFrame: (generation: number, frameToken?: number) => Promise<ApiResult<boolean>>
+    onPrepareHide: (cb: (msg: WindowPrepareHideMessage) => void) => () => void
+    onPrepareShow: (cb: (msg: WindowPrepareShowMessage) => void) => () => void
+    onRestored: (cb: (msg: WindowRestoredMessage) => void) => () => void
   }
   app: {
     version: () => Promise<unknown>

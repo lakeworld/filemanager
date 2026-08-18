@@ -1,4 +1,4 @@
-import { Show, Switch, Match, createSignal, onMount, onCleanup } from "solid-js";
+import { Show, Switch, Match, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { api } from "~/wails/api";
 import { tagList } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
@@ -16,6 +16,8 @@ import {
   previewError,
   setPreviewError,
   previewContext,
+  previewSessionKey,
+  currentPreviewGen,
   metadata,
   setMetadata,
   closePreview,
@@ -83,8 +85,11 @@ export default function FilePreviewModal() {
   const handleCopyFile = async () => {
     const file = previewFile();
     if (!file) return;
+    const gen = currentPreviewGen();
     const result = await api.files.copyFilesToClipboard([file.path]);
-    if (!result.success) {
+    // v2.5.3（T7）O1：复制为异步 IPC——期间已关闭/切换预览时，
+    // 失败文案不得写进新预览（代际不一致直接丢弃）
+    if (!result.success && gen === currentPreviewGen()) {
       setPreviewError(result.error || "复制失败");
     }
   };
@@ -102,10 +107,22 @@ export default function FilePreviewModal() {
 
   const doDeleteFile = async () => {
     const res = await deleteCurrentFile();
-    if (!res.ok) {
+    // v2.5.3（T7）O1：删除失败的返回携带 stale（期间已关闭/切换预览）——
+    // 过期失败不写进当前预览的错误面
+    if (!res.ok && !res.stale) {
       setPreviewError(res.error || "删除失败，请重试");
     }
   };
+
+  // v2.5.3（T7）D5：复位条件由「关闭时」改为「会话变化时」——openPreview/closePreview
+  // 每次递增 previewSessionKey；删除确认/右键菜单/保存中 随会话切换立即复位。
+  // 「开→开」切换文件（当前遮罩阻断 UI 路径不可达，但契约语义要求常驻 signal 复位）同样触发。
+  createEffect(() => {
+    void previewSessionKey();
+    setConfirmDelete(null);
+    setSaving(false);
+    closeContextMenu();
+  });
 
   const onContextMenu = (e: MouseEvent) => {
     e.preventDefault();

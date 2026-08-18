@@ -1,4 +1,4 @@
-import { Show, For, createSignal, createEffect, createMemo } from "solid-js";
+import { Show, For, createSignal, createEffect, createMemo, onCleanup } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import CreateClientModal from "./clients/CreateClientModal";
@@ -45,6 +45,10 @@ function fmtMoney(n: number): string {
     ? n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : "-";
 }
+
+// v2.5.3（P2-12）：报价加载序号模块级（照 Images imageLoadSeq 先例）——卸载清理递增后跨挂载延续计数，
+// 旧实例在途链持有的旧值永远不会与新实例的计数撞号，过期结果必被丢弃
+let clientQuoteLoadSeq = 0;
 
 export default function Clients() {
   const navigate = useNavigate();
@@ -96,7 +100,10 @@ export default function Clients() {
 
   // v2.4.9 S3b：该客户报价（quotes.list 按 customer 名字引用过滤；改名级联由 core renameCustomer 编排）
   const [customerQuotes, setCustomerQuotes] = createSignal<QuoteRecord[]>([]);
-  let quoteSeq = 0;
+  // v2.5.3（P2-12）：卸载即递增加载代（模块级）——未完成的报价加载链校验失效后立即退出
+  onCleanup(() => {
+    clientQuoteLoadSeq++;
+  });
 
   // v2.4.7：删除客户确认弹窗状态（替代 window.confirm；fromDetail 区分详情页/卡片删除，成功后的处理不同）
   const [confirmDelete, setConfirmDelete] = createSignal<{ name: string; fromDetail: boolean } | null>(null);
@@ -130,11 +137,11 @@ export default function Clients() {
 
   /** 该客户报价列表（名字引用过滤；改名成功后须重载——filter 依据跟随新名） */
   const loadCustomerQuotes = async () => {
-    const s = ++quoteSeq;
+    const s = ++clientQuoteLoadSeq;
     const name = customerName();
     if (!name) return;
     const r = await api.quotes.list();
-    if (s !== quoteSeq) return;
+    if (s !== clientQuoteLoadSeq) return;
     if (r.success && r.data) setCustomerQuotes(r.data.filter((q) => q.customer === name));
   };
 
@@ -459,6 +466,8 @@ export default function Clients() {
                 itemHeight={CLIENT_ROW_HEIGHT}
                 columns={{ base: 1, md: 2, lg: 3 }}
                 gap={16}
+                // v2.5.3（P2-11）：搜索/筛选切换时滚动归零（照 Quotes/Invoices scrollResetKey 先例）
+                scrollResetKey={`${cSearch()}|${tagFilter()}|${typeFilter()}`}
                 renderItem={(c) => renderCard(c)}
               />
             </div>

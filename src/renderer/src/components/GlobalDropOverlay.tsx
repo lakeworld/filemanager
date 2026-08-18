@@ -185,6 +185,8 @@ export default function GlobalDropOverlay() {
   // route params change, which could cause missed drop events.
   onMount(() => {
     let hideTimeout: number | undefined;
+    // v2.5.3（P2-4）：onDrop 尾部的 0ms 延迟触发句柄化——与 importIdleTimer 同例，卸载时清除
+    let dropAsyncTimer: number | undefined;
 
     const isFileDrag = (e: DragEvent) =>
       e.dataTransfer?.types.includes("Files") ?? false;
@@ -265,7 +267,7 @@ export default function GlobalDropOverlay() {
       clearInternalDrag();
 
       // 必须异步触发，避免在事件循环中直接调用导致卡顿
-      setTimeout(() => {
+      dropAsyncTimer = window.setTimeout(() => {
         if (params.productSet && params.subFolder) {
           handleDirectImport(dropPaths);
         } else {
@@ -295,6 +297,7 @@ export default function GlobalDropOverlay() {
       window.removeEventListener("drop", onDrop);
       window.removeEventListener("keydown", onKey);
       clearHideTimeout();
+      window.clearTimeout(dropAsyncTimer); // v2.5.3（P2-4）：卸载时清除延后触发，防触碰已卸载组件
       window.clearTimeout(importIdleTimer);
       unsubImport?.();
       unsubProgress?.();

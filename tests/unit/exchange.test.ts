@@ -6,6 +6,8 @@
  * - 客户/产品集目标不存在 → error 回执（不自动建目录）
  * - 台账 sink 查重失败 → error 回执；台账未接入 → error 回执且文件不落盘
  * - sweep 批量补扫（跳过非 json）；簿记 500 条滚动截断；start/stop 生命周期
+ * - v2.5.3 找bug轮 D4：SKIPPED kind 标记判定（不依赖文案）、簿记 mutateJsonFile 锁内并发不丢 id、
+ *   簿记失败（state 损坏）收尾回滚本次副本（customer/productSet 无台账路径）、双会话竞争不覆盖 ok 回执
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { buildTestBox } from './helpers'
@@ -17,6 +19,15 @@ import os from 'node:os'
 
 function tmp(): Promise<string> {
   return fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-exchange-'))
+}
+
+/** 轮询等待条件（替代固定 setTimeout 等待，稳定无脆弱窗口；v2.5.3 T6-S4） */
+async function waitFor(cond: () => boolean, timeoutMs = 3000): Promise<void> {
+  const start = Date.now()
+  while (!cond()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor 超时')
+    await new Promise((r) => setTimeout(r, 5))
+  }
 }
 
 /** 写一个投递：描述 JSON + 文件本体 */
@@ -33,15 +44,15 @@ async function placeDelivery(
   }
 }
 
-/** 构造记账 sink（记录调用参数；可注入失败行为） */
+/** 构造记账 sink（记录调用参数；可注入失败行为）。v2.5.3（T6）：sink 接收显式 ws */
 function makeLedger() {
-  const calls: { kind: 'invoice' | 'inbound'; payload: unknown; archived: string[] }[] = []
+  const calls: { kind: 'invoice' | 'inbound'; ws: string; payload: unknown; archived: string[] }[] = []
   const ledger: ExchangeLedgerSinks = {
-    createInvoice: async (d, archived) => {
-      calls.push({ kind: 'invoice', payload: d, archived })
+    createInvoice: async (ws, d, archived) => {
+      calls.push({ kind: 'invoice', ws, payload: d, archived })
     },
-    createInbound: async (d, archived) => {
-      calls.push({ kind: 'inbound', payload: d, archived })
+    createInbound: async (ws, d, archived) => {
+      calls.push({ kind: 'inbound', ws, payload: d, archived })
     },
   }
   return { calls, ledger }
@@ -552,5 +563,334 @@ describe('交换区投递（v2.4.7）', () => {
     expect(dup.error).toContain('已存在')
     expect((await box.invoices.list())).toHaveLength(1)
     expect((await readReceipt(ws, 'inv-real-dup')).status).toBe('error')
+  })
+
+  // —— v2.5.3 T6：交换区切换治理 ——
+
+  it('队列中尚未开始的任务在 stop 后直接退出（跳过，不落盘不操作）', async () => {
+    const { ledger } = makeLedger()
+    let releaseFirst!: () => void
+    const gate = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const ledgerCalls: string[] = []
+    ledger.createInvoice = async (sinkWs, d, archived) => {
+      ledgerCalls.push('invoice')
+      await gate
+    }
+    const exchange = newExchange(ledger)
+    await placeDelivery(ws, 'inv-first', { id: 'inv-first', kind: 'invoice', files: ['a.pdf'], invoice: { number: '1000', date: '2026-08-01', amount: 1, seller: 'a', buyer: 'b' } }, { 'a.pdf': 'x' })
+    await placeDelivery(ws, 'inv-queued', { id: 'inv-queued', kind: 'invoice', files: ['b.pdf'], invoice: { number: '1001', date: '2026-08-01', amount: 1, seller: 'a', buyer: 'b' } }, { 'b.pdf': 'y' })
+
+    // 第一个任务入队并开始（卡在台账挂起）；第二个任务排在队列后，尚未开始
+    const first = exchange.processFile(path.join(ws, '交换区', 'inv-first.json'))
+    await waitFor(() => ledgerCalls.length === 1) // 确定性：first 已走到台账挂起
+    const queued = exchange.processFile(path.join(ws, '交换区', 'inv-queued.json'))
+    exchange.stop() // 队列中尚未开始的 inv-queued 应直接退出
+    releaseFirst()
+
+    const r1 = await first
+    const rq = await queued
+    expect(r1.status).toBe('ok') // 已开始任务在捕获 ws 完整收尾
+    expect(rq.status).toBe('error')
+    expect(rq.error).toContain('工作区已切换')
+    expect(ledgerCalls).toHaveLength(1) // 仅 first 调用台账
+
+    // inv-queued 未被消费：描述仍在、无回执、源文件仍在
+    await expect(fsp.stat(path.join(ws, '交换区', 'inv-queued.json'))).resolves.toBeTruthy()
+    await expect(fsp.stat(path.join(ws, '交换区', 'b.pdf'))).resolves.toBeTruthy()
+    const done = await fsp.readdir(path.join(ws, '交换区', '已处理')).catch(() => [] as string[])
+    expect(done.filter((n) => n.startsWith('inv-queued'))).toHaveLength(0)
+  })
+
+  it('台账挂起期间切换工作区：已开始任务用捕获 ws 完整收尾，回滚也用捕获 ws（不误删新区文件）', async () => {
+    let releaseLedger!: () => void
+    const ledgerGate = new Promise<void>((resolve) => { releaseLedger = resolve })
+    const calls: string[] = []
+    const ledger = makeLedger().ledger
+    ledger.createInvoice = async (sinkWs, d, archived) => {
+      calls.push(`create@${sinkWs}`)
+      await ledgerGate
+      throw new Error('台账写入失败（模拟）') // 挂起后失败 → 触发回滚
+    }
+    const exchange = newExchange(ledger)
+    await placeDelivery(ws, 'inv-slow', { id: 'inv-slow', kind: 'invoice', files: ['f.pdf'], invoice: { number: '999', date: '2026-08-01', amount: 1, seller: 'a', buyer: 'b' } }, { 'f.pdf': 'x' })
+
+    const processing = exchange.processFile(path.join(ws, '交换区', 'inv-slow.json')) // 入队捕获 ws（当前 ws）
+    await waitFor(() => calls.length === 1) // 确定性：处理已走到台账挂起
+
+    // 切换工作区（新 ws 上放同结构文件，验证回滚不会误删新区文件）
+    const ws2 = await tmp()
+    await box.workspace.create(ws2)
+    exchange.stop()
+    await fsp.mkdir(path.join(ws2, '发票', '2026'), { recursive: true })
+    await fsp.writeFile(path.join(ws2, '发票', '2026', 'fake-user-file.pdf'), 'keep me')
+
+    releaseLedger() // 台账完成：旧 ws 的归档副本已复制，此刻回滚失败
+    const receipt = await processing
+    expect(receipt.status).toBe('error') // 台账失败路径
+    // 回滚只删旧 ws 归档副本，不影响新工作区的同名文件
+    const oldLeftovers = await fsp.readdir(path.join(ws, '发票', '2026')).catch(() => [] as string[])
+    expect(oldLeftovers.filter((n) => n.endsWith('.pdf'))).toHaveLength(0)
+    const newLeftovers = await fsp.readdir(path.join(ws2, '发票', '2026')).catch(() => [] as string[])
+    expect(newLeftovers).toContain('fake-user-file.pdf')
+  })
+
+  it('session 非当前时归档完成通知（onArchived）不发送', async () => {
+    let releaseLedger!: () => void
+    let ledgerCalled = false
+    const ledgerGate = new Promise<void>((resolve) => { releaseLedger = resolve })
+    const archivedEvents: string[][] = []
+    const ledger = makeLedger().ledger
+    ledger.createInvoice = async (sinkWs, d, archived) => {
+      ledgerCalled = true
+      await ledgerGate
+    }
+    ledger.onArchived = (archived) => archivedEvents.push(archived)
+    const exchange = newExchange(ledger)
+    await placeDelivery(ws, 'inv-notify', { id: 'inv-notify', kind: 'invoice', files: ['f.pdf'], invoice: { number: '777', date: '2026-08-01', amount: 1, seller: 'a', buyer: 'b' } }, { 'f.pdf': 'x' })
+
+    const processing = exchange.processFile(path.join(ws, '交换区', 'inv-notify.json'))
+    await waitFor(() => ledgerCalled) // 确定性：台账已挂起
+    exchange.stop() // 会话已过期
+    releaseLedger()
+
+    const receipt = await processing
+    expect(receipt.status).toBe('ok') // 已开始任务在捕获 ws 完整收尾
+    expect(archivedEvents).toHaveLength(0) // 但通知不发
+  })
+
+  // —— v2.5.3 T6-S1/S2/S4：旧 sweep 不补扫、跳过不计入、成功路径跨区收尾 ——
+
+  it('sweep 在入队点捕获会话：stop 后未开始的旧 sweep 开始前直接退出，跳过任务不计入处理数（T6-S1/S2）', async () => {
+    const { calls, ledger } = makeLedger()
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    ledger.createInvoice = async (sinkWs, d, archived) => {
+      calls.push({ kind: 'invoice', ws: sinkWs, payload: d, archived })
+      await gate
+    }
+    const exchange = newExchange(ledger)
+    await placeDelivery(
+      ws,
+      'sweep-1',
+      { id: 'sweep-1', kind: 'invoice', files: ['a.pdf'], invoice: { number: '10', date: '2026-08-01', amount: 1, seller: 'a', buyer: 'b' } },
+      { 'a.pdf': 'x' },
+    )
+    await placeDelivery(
+      ws,
+      'sweep-2',
+      { id: 'sweep-2', kind: 'invoice', files: ['b.pdf'], invoice: { number: '11', date: '2026-08-01', amount: 1, seller: 'a', buyer: 'b' } },
+      { 'b.pdf': 'y' },
+    )
+
+    // 第一个 sweep 入队并开始（sweep-1 卡在台账挂起）；第二个无参 sweep 在 stop 前入队（入队点捕获旧代会话）
+    const first = exchange.sweep()
+    await waitFor(() => calls.length === 1) // 确定性：sweep-1 已开始处理
+    const second = exchange.sweep() // 入队点捕获 gen（仍为旧代）
+    exchange.stop() // 换代：两个 sweep 的会话全部过期
+    release()
+
+    const c1 = await first
+    const c2 = await second
+    expect(c1).toBe(1) // sweep-1 已开始 → 在捕获 ws 完整收尾，计 1
+    expect(c2).toBe(0) // sweep-2 未开始 → 直接退出，跳过任务不计入
+    expect(calls).toHaveLength(1) // 仅 sweep-1 调用台账
+    // sweep-2 的投递未被消费：描述仍在、无回执、源文件仍在
+    await expect(fsp.stat(path.join(ws, '交换区', 'sweep-2.json'))).resolves.toBeTruthy()
+    await expect(fsp.stat(path.join(ws, '交换区', 'b.pdf'))).resolves.toBeTruthy()
+    const done = await fsp.readdir(path.join(ws, '交换区', '已处理')).catch(() => [] as string[])
+    expect(done.filter((n) => n.startsWith('sweep-2'))).toHaveLength(0)
+  })
+
+  it('台账成功路径：处理中切区后收尾只写捕获 ws 的簿记/回执，不碰新区（T6-S4b）', async () => {
+    let release!: () => void
+    let ledgerCalled = false
+    const gate = new Promise<void>((r) => { release = r })
+    const archivedEvents: string[][] = []
+    const ledger = makeLedger().ledger
+    ledger.createInvoice = async (sinkWs, d, archived) => {
+      ledgerCalled = true
+      await gate // 成功路径：挂起后正常返回（不抛错）
+    }
+    ledger.onArchived = (archived) => archivedEvents.push(archived)
+    const exchange = newExchange(ledger)
+    await placeDelivery(
+      ws,
+      'inv-sw',
+      { id: 'inv-sw', kind: 'invoice', files: ['f.pdf'], invoice: { number: '321', date: '2026-08-01', amount: 1, seller: 'a', buyer: 'b' } },
+      { 'f.pdf': 'x' },
+    )
+
+    const processing = exchange.processFile(path.join(ws, '交换区', 'inv-sw.json'))
+    await waitFor(() => ledgerCalled) // 确定性：台账已挂起
+
+    // 处理中切换工作区（新 ws 上无任何交换区活动）
+    const ws2 = await tmp()
+    await box.workspace.create(ws2)
+    exchange.stop()
+    release()
+
+    const receipt = await processing
+    expect(receipt.status).toBe('ok') // 已开始任务在捕获 ws 完整收尾
+    // 簿记/回执/描述消费只发生在捕获的旧 ws
+    const state1 = JSON.parse(await fsp.readFile(path.join(ws, '.qihefilemanager', 'exchange_state.json'), 'utf-8')) as { processed: { id: string }[] }
+    expect(state1.processed.some((p) => p.id === 'inv-sw')).toBe(true)
+    await expect(fsp.stat(path.join(ws, '交换区', '已处理', 'inv-sw.receipt.json'))).resolves.toBeTruthy()
+    await expect(fsp.stat(path.join(ws, '交换区', 'inv-sw.json'))).rejects.toThrow()
+    // 新 ws 无任何簿记/回执痕迹
+    await expect(fsp.stat(path.join(ws2, '.qihefilemanager', 'exchange_state.json'))).rejects.toThrow()
+    await expect(fsp.stat(path.join(ws2, '交换区', '已处理', 'inv-sw.receipt.json'))).rejects.toThrow()
+    // 通知不发（session 非当前）
+    expect(archivedEvents).toHaveLength(0)
+  })
+
+  // —— v2.5.3 找bug轮 D4：SKIPPED kind 判定 / 簿记锁内读改写 / 收尾补偿 / 双会话竞争加固 ——
+
+  it('SKIPPED 回执携带专用 kind 标记（判定不依赖中止文案）', async () => {
+    const { ledger } = makeLedger()
+    let releaseFirst!: () => void
+    const gate = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const ledgerCalls: string[] = []
+    ledger.createInvoice = async (sinkWs, d, archived) => {
+      ledgerCalls.push('invoice')
+      await gate
+    }
+    const exchange = newExchange(ledger)
+    await placeDelivery(ws, 'sk-1', { id: 'sk-1', kind: 'invoice', files: ['a.pdf'], invoice: { number: '100', date: '2026-08-01', amount: 1, seller: 'a', buyer: 'b' } }, { 'a.pdf': 'x' })
+    await placeDelivery(ws, 'sk-2', { id: 'sk-2', kind: 'invoice', files: ['b.pdf'], invoice: { number: '101', date: '2026-08-01', amount: 1, seller: 'a', buyer: 'b' } }, { 'b.pdf': 'y' })
+
+    // 第一个任务入队并开始（卡在台账挂起）；第二个任务排在队列后，stop 后尚未开始 → SKIPPED
+    const first = exchange.processFile(path.join(ws, '交换区', 'sk-1.json'))
+    await waitFor(() => ledgerCalls.length === 1)
+    const queued = exchange.processFile(path.join(ws, '交换区', 'sk-2.json'))
+    exchange.stop()
+    releaseFirst()
+
+    const r1 = await first
+    const skipped = await queued
+    expect(r1.status).toBe('ok')
+    // 兼容既有语义：中止回执仍为 error + 中止文案
+    expect(skipped.status).toBe('error')
+    expect(skipped.error).toContain('工作区已切换')
+    // D4：带去重用的专用 kind 标记，判定不靠固定文案
+    expect((skipped as { kind?: string }).kind).toBe('skipped')
+  })
+
+  it('业务 error 回执文案与中止文案完全相同 → 不被误判为 SKIPPED（sweep 正常计数）', async () => {
+    const ledger = makeLedger().ledger
+    // 业务失败文案碰巧与中止文案逐字相同——旧实现（文案匹配）会误判为跳过不计入处理数
+    ledger.createInvoice = async () => { throw new Error('工作区已切换，投递中止') }
+    const exchange = newExchange(ledger)
+    await placeDelivery(
+      ws,
+      'tw-1',
+      { id: 'tw-1', kind: 'invoice', files: ['a.pdf'], invoice: { number: '1', date: '2026-08-01', amount: 1, seller: 'a', buyer: 'b' } },
+      { 'a.pdf': 'x' },
+    )
+
+    const count = await exchange.sweep()
+
+    expect(count).toBe(1) // 作为业务 error 计入处理数
+    const receipt = await readReceipt(ws, 'tw-1')
+    expect(receipt.status).toBe('error')
+    expect(receipt.error).toContain('工作区已切换')
+  })
+
+  it('并发簿记不丢 id：双实例同时处理 20 个投递，全部 id 入账（mutateJsonFile 锁内读改写）', async () => {
+    const exA = newExchange(makeLedger().ledger)
+    const exB = newExchange(makeLedger().ledger)
+    const n = 10
+    const descs: string[] = []
+    for (let i = 0; i < n; i++) {
+      const nameA = `并发客户A${i}`
+      const nameB = `并发客户B${i}`
+      await fsp.mkdir(path.join(ws, '客户', nameA, '报价'), { recursive: true })
+      await fsp.mkdir(path.join(ws, '客户', nameB, '报价'), { recursive: true })
+      await placeDelivery(ws, `cc-a${i}`, { id: `cc-a${i}`, kind: 'customer', files: [`src-a${i}.pdf`], customer: { name: nameA, sub_folder: '报价' } }, { [`src-a${i}.pdf`]: 'x' })
+      await placeDelivery(ws, `cc-b${i}`, { id: `cc-b${i}`, kind: 'customer', files: [`src-b${i}.pdf`], customer: { name: nameB, sub_folder: '报价' } }, { [`src-b${i}.pdf`]: 'y' })
+      descs.push(path.join(ws, '交换区', `cc-a${i}.json`), path.join(ws, '交换区', `cc-b${i}.json`))
+    }
+    // 两实例各处理一半、全部并发：同一 exchange_state.json 的簿记写相互交错
+    const results = await Promise.all([
+      ...descs.filter((_, idx) => idx % 2 === 0).map((d) => exA.processFile(d)),
+      ...descs.filter((_, idx) => idx % 2 === 1).map((d) => exB.processFile(d)),
+    ])
+    expect(results.every((r) => r.status === 'ok')).toBe(true)
+
+    const state = JSON.parse(await fsp.readFile(path.join(ws, '.qihefilemanager', 'exchange_state.json'), 'utf-8')) as { processed: { id: string }[] }
+    for (let i = 0; i < n; i++) {
+      expect(state.processed.some((p) => p.id === `cc-a${i}`), `并发簿记丢 id：cc-a${i}`).toBe(true)
+      expect(state.processed.some((p) => p.id === `cc-b${i}`), `并发簿记丢 id：cc-b${i}`).toBe(true)
+    }
+  })
+
+  it('簿记失败（exchange_state 损坏，D3 拒绝覆盖）→ ok 收尾中止：本次归档回滚、原文件保留、无带序号孤儿', async () => {
+    const exchange = newExchange(makeLedger().ledger)
+    const statePath = path.join(ws, '.qihefilemanager', 'exchange_state.json')
+    // customer 投递（无台账查重兜底——必须靠收尾补偿回滚）
+    await fsp.mkdir(path.join(ws, '客户', '客户甲', '报价'), { recursive: true })
+    await placeDelivery(
+      ws,
+      'rb-cust',
+      { id: 'rb-cust', kind: 'customer', files: ['a.pdf'], customer: { name: '客户甲', sub_folder: '报价' } },
+      { 'a.pdf': 'x' },
+    )
+    await fsp.writeFile(statePath, '{ 损坏的簿记 !!!')
+
+    const receipt = await exchange.processFile(path.join(ws, '交换区', 'rb-cust.json'))
+
+    expect(receipt.status).toBe('error')
+    expect(receipt.error).toContain('损坏') // 簿记失败原因如实进入 error 回执
+    // 本次复制副本被回滚：归档目录无残留（也无 _1 带序号孤儿副本）
+    expect((await fsp.readdir(path.join(ws, '客户', '客户甲', '报价'))).filter((n) => n.endsWith('.pdf'))).toHaveLength(0)
+    // 原文件仍在源目录（removeSourceFiles 未执行）
+    await expect(fsp.stat(path.join(ws, '交换区', 'a.pdf'))).resolves.toBeTruthy()
+    // 描述已被消费（error 回执路径），不会形成补扫重复复制循环
+    await expect(fsp.stat(path.join(ws, '交换区', 'rb-cust.json'))).rejects.toThrow()
+
+    // productSet 同法复验（无台账路径必须回滚）
+    await box.workspace.productSetCreate({ name: '系列X' })
+    await fsp.mkdir(path.join(ws, '产品集', '系列X', '图包', '主图'), { recursive: true })
+    await fsp.writeFile(statePath, '{ 再次损坏 !!!')
+    await placeDelivery(
+      ws,
+      'rb-ps',
+      { id: 'rb-ps', kind: 'productSet', files: ['b.jpg'], productSet: { name: '系列X', file_type: 'image', sub_folder: '主图' } },
+      { 'b.jpg': 'img' },
+    )
+    const receiptPs = await exchange.processFile(path.join(ws, '交换区', 'rb-ps.json'))
+    expect(receiptPs.status).toBe('error')
+    expect((await fsp.readdir(path.join(ws, '产品集', '系列X', '图包', '主图'))).filter((n) => n.endsWith('.jpg'))).toHaveLength(0)
+    await expect(fsp.stat(path.join(ws, '交换区', 'b.jpg'))).resolves.toBeTruthy()
+  })
+
+  it('双会话竞争（同 ws stop+start）：新 sweep 排到已被旧会话消费的描述 → 不写 error 回执覆盖 ok 回执', async () => {
+    const ledger = makeLedger().ledger
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let ledgerCalled = false
+    ledger.createInvoice = async () => { ledgerCalled = true; await gate }
+    const exchange = newExchange(ledger)
+    await placeDelivery(
+      ws,
+      'race-1',
+      { id: 'race-1', kind: 'invoice', files: ['f.pdf'], invoice: { number: '42', date: '2026-08-01', amount: 1, seller: 'a', buyer: 'b' } },
+      { 'f.pdf': 'x' },
+    )
+
+    // 旧会话（gen1）处理中：复制完成、台账挂起——描述仍在交换区根
+    const p1 = exchange.processFile(path.join(ws, '交换区', 'race-1.json'))
+    await waitFor(() => ledgerCalled)
+    exchange.stop() // 换代
+    const sweepP = exchange.start() // 新会话补扫：readdir 快照仍含 race-1 描述
+    await new Promise((r) => setTimeout(r, 150)) // 确保新 sweep 已完成 readdir 并排入处理队列（描述仍未被消费）
+    release() // 旧会话收尾：写 ok 回执 + 移描述 → 新 sweep 排到的文件已被消费
+
+    await expect(p1).resolves.toMatchObject({ status: 'ok' })
+    await expect(sweepP).resolves.toBeDefined() // 新 sweep 正常完成，不因 ENOENT 抛错
+
+    // 关键断言：ok 回执未被 error 回执覆盖；描述已被消费
+    expect((await readReceipt(ws, 'race-1')).status).toBe('ok')
+    await expect(fsp.stat(path.join(ws, '交换区', 'race-1.json'))).rejects.toThrow()
+    await expect(fsp.stat(path.join(ws, '交换区', '已处理', 'race-1.json'))).resolves.toBeTruthy()
   })
 })

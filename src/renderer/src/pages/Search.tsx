@@ -25,6 +25,10 @@ function parseModified(s: string): number {
   return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
 }
 
+// v2.5.3（P2-12）：模块级搜索请求序号——跨挂载撞号防护（组件卸载后重挂载，旧响应不得
+// 误判为最新）；卸载时 onCleanup 递增作废在途请求（照 Images/Certs 先例）
+let searchSeq = 0;
+
 export default function Search() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -42,6 +46,10 @@ export default function Search() {
     setSelectedPaths((prev) => (prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]));
   // v2.5.2（PERF-SOP §四）：点击防抖定时器句柄化 + 卸载清理（照 Search:69 先例）
   onCleanup(() => window.clearTimeout(clickTimer));
+  // v2.5.3（P2-12）：卸载时递增 searchSeq——在途搜索响应作废，防触碰已销毁组件
+  onCleanup(() => {
+    searchSeq++;
+  });
 
   createEffect(() => {
     if (currentWorkspace()) {
@@ -50,7 +58,7 @@ export default function Search() {
   });
 
   // v2.5.2：搜索请求序号——切区/连续搜索时旧响应丢弃（防止旧工作区结果覆盖新结果）
-  let searchSeq = 0;
+  // v2.5.3（P2-12）：序号已提升为模块级 searchSeq（跨挂载撞号防护）
   const doSearch = async (q: string) => {
     if (!q.trim()) return;
     if (!currentWorkspace()) {
@@ -59,12 +67,23 @@ export default function Search() {
     }
     const s = ++searchSeq;
     setLoading(true);
-    const result = await api.search(q);
-    if (s !== searchSeq) return; // 过期搜索丢弃
-    if (result.success && result.data) {
-      setResults(result.data);
+    try {
+      const result = await api.search(q);
+      if (s !== searchSeq) return; // 过期搜索丢弃（新搜索/清空已接管 loading 复位职责）
+      if (result.success && result.data) {
+        setResults(result.data);
+      } else {
+        // v2.5.3（P2-8）：搜索失败不再静默——错误横幅提示（loading 由 finally 复位）
+        showToast("error", "搜索失败", result.error ?? undefined);
+      }
+    } catch (e) {
+      if (s !== searchSeq) return;
+      // v2.5.3（P1-5）：api 抛错路径 loading 必须复位（旧实现无 finally，异常后永久卡死）且给出失败反馈
+      showToast("error", "搜索失败", e instanceof Error ? e.message : "未知错误");
+    } finally {
+      // v2.5.3（P1-5）：stale（s !== searchSeq）时不复位——loading 由接管方（新搜索/清空分支）负责
+      if (s === searchSeq) setLoading(false);
     }
-    setLoading(false);
   };
 
   createEffect(() => {
@@ -77,9 +96,11 @@ export default function Search() {
       onCleanup(() => clearTimeout(t));
     } else {
       // 无查询（含切工作区后无查询）：清空旧工作区残留结果与选中集
+      // v2.5.3（P1-5）：loading 必须同步复位——否则搜索中清空 q 时在途响应被 seq 丢弃后永久卡死
       searchSeq++;
       setResults({ files: [], product_sets: [], customers: [] });
       setSelectedPaths([]);
+      setLoading(false);
     }
   });
 
@@ -129,6 +150,8 @@ export default function Search() {
             const result = await api.files.delete(paths);
             if (result.success) {
               doSearch(query());
+              // v2.5.3（P2-8）：删除成功后清空选中集，避免残留引用已删文件的选中态
+              setSelectedPaths([]);
             } else {
               showToast("error", "删除失败", result.error ?? undefined);
             }
@@ -158,6 +181,8 @@ export default function Search() {
       if (result.success) {
         setRenameTarget(null);
         doSearch(query());
+        // v2.5.3（P2-8）：改名成功后清空选中集，避免残留旧路径选中态
+        setSelectedPaths([]);
       } else {
         setRenameError(result.error ?? "未知错误");
       }

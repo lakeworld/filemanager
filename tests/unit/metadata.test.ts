@@ -105,7 +105,7 @@ describe('文件元数据（MetadataService）', () => {
     expect(await fsp.readFile(path.join(ws, '.qihefilemanager', backup!), 'utf-8')).toBe(corrupt)
   })
 
-  it('损坏降级后仍可正常写入', async () => {
+  it('损坏降级后写入：首次拒绝覆盖（隔离备份），隔离后重建成功', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -113,10 +113,80 @@ describe('文件元数据（MetadataService）', () => {
     await fsp.writeFile(metadataPath(ws), 'not-json', 'utf-8')
 
     const filePath = await setupFile(box, ws)
+    // 损坏文件在写路径上不得被当空库静默覆盖：首次写入抛出并保留备份
+    await expect(box.metadata.setFileMetadata(filePath, meta({ tags: ['T'], notes: '恢复' }))).rejects.toThrow(
+      /损坏|覆盖/,
+    )
+    const dir = await fsp.readdir(path.join(ws, '.qihefilemanager'))
+    expect(dir.some((n) => n.startsWith('metadata.json.corrupt-'))).toBe(true)
+
+    // 隔离后原路径缺失 → 重建成功（只响亮地失败一次，证据已留存）
     await box.metadata.setFileMetadata(filePath, meta({ tags: ['T'], notes: '恢复' }))
     const m = await box.metadata.get(filePath)
     expect(m.tags).toEqual(['T'])
     expect(m.notes).toBe('恢复')
+  })
+
+  it('v2.5.3（T2）：并发 update 不同文件互不覆盖，全部落盘', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const files: string[] = []
+    for (let i = 0; i < 8; i++) files.push(await setupFile(box, ws, '主图', `c${i}.jpg`))
+    await Promise.all(
+      files.map((f, i) => box.metadata.update({ file_path: f, tags: ['T'], notes: `note-${i}` })),
+    )
+    const store = await box.metadata.loadMetadataStore()
+    for (let i = 0; i < files.length; i++) {
+      expect(store.files[box.metadata.fileMetadataKey(files[i])].notes).toBe(`note-${i}`)
+    }
+    expect(Object.keys(store.files)).toHaveLength(files.length)
+  })
+
+  it('v2.5.3（T2）：并发 setTagsBatch 对同一文件加不同标签不互丢', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const f = await setupFile(box, ws)
+    const tags = ['红', '蓝', '绿', '黄', '紫', '橙', '青', '粉']
+    await Promise.all(tags.map((t) => box.metadata.setTagsBatch({ paths: [f], add: [t] })))
+    const m = await box.metadata.get(f)
+    expect(m.tags).toHaveLength(tags.length)
+    for (const t of tags) expect(m.tags).toContain(t)
+    // 磁盘与内存一致（缓存深拷贝，读回不丢更新）
+    const raw = JSON.parse(await fsp.readFile(metadataPath(ws), 'utf-8'))
+    expect(raw.files['系列A/图包/主图/b.jpg'].tags).toHaveLength(tags.length)
+  })
+
+  it('v2.5.3（T2）：保存失败后缓存不更新（回读旧值，无假成功）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const f = await setupFile(box, ws)
+    await box.metadata.update({ file_path: f, tags: ['旧'] })
+    expect((await box.metadata.get(f)).tags).toEqual(['旧'])
+
+    // 注入持久化失败（单测私有钩子：save 回调抛错即模拟写盘失败）
+    const svc = box.metadata as unknown as { beforePersist?: (ws: string) => void | Promise<void> }
+    svc.beforePersist = async () => {
+      throw new Error('模拟写盘失败')
+    }
+
+    await expect(box.metadata.update({ file_path: f, tags: ['新'] })).rejects.toThrow('模拟写盘失败')
+    // 内存缓存未被污染、磁盘未被改写：全部回读旧值
+    expect((await box.metadata.get(f)).tags).toEqual(['旧'])
+    const store = await box.metadata.loadMetadataStore()
+    expect(store.files[box.metadata.fileMetadataKey(f)].tags).toEqual(['旧'])
+    const raw = JSON.parse(await fsp.readFile(metadataPath(ws), 'utf-8'))
+    expect(raw.files[box.metadata.fileMetadataKey(f)].tags).toEqual(['旧'])
+
+    // 解除注入后恢复写
+    svc.beforePersist = undefined
+    await box.metadata.update({ file_path: f, tags: ['新'] })
+    expect((await box.metadata.get(f)).tags).toEqual(['新'])
   })
 
   it('fileMetadataKey：按文件路径推导 产品集/图包|证书/子文件夹/文件名', async () => {
@@ -231,6 +301,131 @@ describe('文件元数据（MetadataService）', () => {
     // f1 已有标签被保留（只补 added_at）；f2 新建
     expect(store.files['系列A/图包/主图/a.jpg'].tags).toEqual(['原标签'])
     expect(store.files['系列A/图包/主图/b.jpg'].added_at).toBe('2025-01-01T00:00:00Z')
+  })
+})
+
+describe('v2.5.3（P1-3）：metadata.mutateKeys 锁内增量（files/trash/tags 引用源迁移用）', () => {
+  it('并发 move/remove 不同 key 不互丢（锁内读改写，替代整档替换）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    // 预置 8 个 key：4 个将被 move（src-0..3 → dst-0..3），4 个将被 remove（src-4..7）
+    const seed: Record<string, FileMetadata> = {}
+    for (let i = 0; i < 8; i++) seed[`src-${i}.jpg`] = meta({ tags: ['T'], notes: `src-${i}` })
+    await box.metadata.saveMetadataStore({ files: seed })
+
+    const tasks: Promise<unknown>[] = []
+    for (let i = 0; i < 4; i++) {
+      const s = `src-${i}.jpg`
+      const d = `dst-${i}.jpg`
+      tasks.push(
+        box.metadata.mutateKeys(ws, (files) => {
+          files[d] = files[s]
+          delete files[s]
+        }),
+      )
+    }
+    for (let i = 4; i < 8; i++) {
+      const s = `src-${i}.jpg`
+      tasks.push(
+        box.metadata.mutateKeys(ws, (files) => {
+          delete files[s]
+        }),
+      )
+    }
+    await Promise.all(tasks)
+
+    // 全部落盘：move 旧 key 消失、新 key 数据完整；remove 的 key 消失；无互丢
+    const store = await box.metadata.loadMetadataStore()
+    for (let i = 0; i < 4; i++) {
+      expect(store.files[`src-${i}.jpg`]).toBeUndefined()
+      expect(store.files[`dst-${i}.jpg`]?.notes).toBe(`src-${i}`)
+    }
+    for (let i = 4; i < 8; i++) expect(store.files[`src-${i}.jpg`]).toBeUndefined()
+    expect(Object.keys(store.files)).toHaveLength(4)
+  })
+
+  it('mutateKeys 返回值透传；保存失败（beforePersist 注入）后缓存与磁盘都不更新（无假成功）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.metadata.saveMetadataStore({ files: { 'a.jpg': meta({ tags: ['旧'], notes: 'keep' }) } })
+
+    // 返回值透传（R），且回调内读到的是磁盘最新值（不改动状态）
+    const r = await box.metadata.mutateKeys(ws, (files) => {
+      expect(files['a.jpg']?.tags).toEqual(['旧'])
+      return 'R'
+    })
+    expect(r).toBe('R')
+    expect((await box.metadata.loadMetadataStore()).files['a.jpg']?.notes).toBe('keep')
+
+    // 注入持久化失败 → mutateKeys 抛错，磁盘与内存缓存均保持旧值
+    const svc = box.metadata as unknown as { beforePersist?: (ws: string) => void | Promise<void> }
+    svc.beforePersist = async () => {
+      throw new Error('模拟写盘失败')
+    }
+    await expect(
+      box.metadata.mutateKeys(ws, (files) => {
+        files['a.jpg'] = meta({ tags: ['新'] })
+      }),
+    ).rejects.toThrow('模拟写盘失败')
+    let store = await box.metadata.loadMetadataStore()
+    expect(store.files['a.jpg']?.tags).toEqual(['旧'])
+    expect(store.files['a.jpg']?.notes).toBe('keep')
+    const raw = JSON.parse(await fsp.readFile(metadataPath(ws), 'utf-8'))
+    expect(raw.files['a.jpg'].tags).toEqual(['旧'])
+
+    // 解除注入后恢复写
+    svc.beforePersist = undefined
+    await box.metadata.mutateKeys(ws, (files) => {
+      files['a.jpg'] = meta({ tags: ['新'] })
+    })
+    expect((await box.metadata.loadMetadataStore()).files['a.jpg']?.tags).toEqual(['新'])
+  })
+
+  it('前缀清理正确（客户/供应商前缀，兼容 / 与 \\ 分隔符；同区域其他名与产品集 key 保留）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.metadata.saveMetadataStore({
+      files: {
+        '客户/张三/报价/a.pdf': meta({ tags: ['x'] }),
+        '客户\\张三\\合同\\b.pdf': meta({ tags: [] }),
+        '客户/李四/报价/c.pdf': meta({ tags: [] }),
+        '供应商/甲厂/对账单/d.pdf': meta({ tags: [] }),
+        '供应商\\甲厂\\往来文件\\e.pdf': meta({ tags: [] }),
+        '供应商/乙厂/合同/f.pdf': meta({ tags: [] }),
+        '系列A/图包/主图/g.jpg': meta({ tags: [] }),
+      },
+    })
+
+    // 客户前缀清理（trash purge kind='customer' 同款回调语义）
+    const customerPrefixes = ['客户/张三/', '客户\\张三\\']
+    await box.metadata.mutateKeys(ws, (files) => {
+      for (const key of Object.keys(files)) {
+        if (customerPrefixes.some((p) => key.startsWith(p))) delete files[key]
+      }
+    })
+    // 供应商前缀清理（trash purge kind='supplier' 同款回调语义）
+    const supplierPrefixes = ['供应商/甲厂/', '供应商\\甲厂\\']
+    await box.metadata.mutateKeys(ws, (files) => {
+      for (const key of Object.keys(files)) {
+        if (supplierPrefixes.some((p) => key.startsWith(p))) delete files[key]
+      }
+    })
+
+    const store = await box.metadata.loadMetadataStore()
+    expect(store.files['客户/张三/报价/a.pdf']).toBeUndefined()
+    expect(store.files['客户\\张三\\合同\\b.pdf']).toBeUndefined()
+    expect(store.files['客户/李四/报价/c.pdf']).toBeTruthy()
+    expect(store.files['供应商/甲厂/对账单/d.pdf']).toBeUndefined()
+    expect(store.files['供应商\\甲厂\\往来文件\\e.pdf']).toBeUndefined()
+    expect(store.files['供应商/乙厂/合同/f.pdf']).toBeTruthy()
+    expect(store.files['系列A/图包/主图/g.jpg']).toBeTruthy()
   })
 })
 

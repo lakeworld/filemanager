@@ -321,3 +321,46 @@ describe('标签引用源注册机制（v2.4.4 T7）', () => {
     expect(orphan?.count).toBe(1)
   })
 })
+describe('标签体系（v2.5.3 T2：tags.json 事务化写路径 / 损坏拒写 / 无变化不写盘）', () => {
+  it('损坏 tags.json：写路径拒绝覆盖并隔离留证（.corrupt-* 备份），隔离后重建成功', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.tags.list() // 迁移完成（写入 _migrated_builtin 标记）
+    await box.workspace.productSetCreate({ name: '系列A', tags: ['野生'], notes: '' })
+
+    const p = path.join(ws, '.qihefilemanager', 'tags.json')
+    const corrupt = '{"重要":'
+    await fsp.writeFile(p, corrupt)
+    const dir = path.join(ws, '.qihefilemanager')
+
+    await expect(box.tags.create('新标签', '#000000')).rejects.toThrow(/损坏|覆盖/)
+    const backups = (await fsp.readdir(dir)).filter((n) => n.startsWith('tags.json.corrupt-'))
+    expect(backups).toHaveLength(1)
+    expect(await fsp.readFile(path.join(dir, backups[0]), 'utf-8')).toBe(corrupt)
+    // 隔离后重建成功（迁移标记 + 新标签均落盘）
+    await box.tags.create('新标签', '#000000')
+    const t = (await box.tags.list()).find((x) => x.name === '新标签')
+    expect(t?.defined).toBe(true)
+  })
+
+  it('无变化不写盘：setColor 同色 / setParent 同父均不触碰磁盘（mtime 不变）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.tags.list()
+    await box.tags.create('甲', '#123456')
+    await box.tags.create('乙', '#654321', '甲')
+    const p = path.join(ws, '.qihefilemanager', 'tags.json')
+    const mtime1 = (await fsp.stat(p)).mtimeMs
+    await new Promise((r) => setTimeout(r, 30))
+    await box.tags.setColor('甲', '#123456') // 同色
+    await box.tags.setParent('乙', '甲') // 同父
+    expect((await fsp.stat(p)).mtimeMs).toBe(mtime1)
+    // 实际变化 → 落盘
+    await box.tags.setColor('甲', '#000000')
+    expect((await fsp.stat(p)).mtimeMs).not.toBe(mtime1)
+  })
+})

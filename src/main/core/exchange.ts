@@ -33,6 +33,7 @@ import {
   assertSafePathSegment,
   isPathInsideWorkspaceReal,
 } from './paths'
+import { mutateJsonFile } from './jsonStore'
 import { WorkspaceService } from './workspace'
 import { currentTimeString } from './metadata'
 import { sanitizeName, composeTargetName, resolveConflictName } from './naming'
@@ -88,10 +89,11 @@ export interface ExchangeDescription {
 
 /** 台账写入 sink（发票/入库投递的账务动作；由台账服务实现，未注入则对应 kind 投递记为 error 回执） */
 export interface ExchangeLedgerSinks {
-  /** 发票：建台账记录；查重失败抛 Error → 上层记为 error 回执（不建记录）。archived = 已归档的工作区相对路径 */
-  createInvoice(d: ExchangeInvoiceFields, archived: string[]): Promise<void>
-  /** 入库单：建台账记录；单据编号查重失败抛 Error（同上） */
-  createInbound(d: ExchangeInboundFields, archived: string[]): Promise<void>
+  /** 发票：建台账记录；查重失败抛 Error → 上层记为 error 回执（不建记录）。archived = 已归档的工作区相对路径。
+   *  v2.5.3（T6）：ws 显式传入——归集全程使用捕获工作区，本 sink 内部不得回读 current workspace。 */
+  createInvoice(ws: string, d: ExchangeInvoiceFields, archived: string[]): Promise<void>
+  /** 入库单：建台账记录；单据编号查重失败抛 Error（同上）；ws 同 invoice */
+  createInbound(ws: string, d: ExchangeInboundFields, archived: string[]): Promise<void>
   /** v2.5.1（A1，D20）：归集成功回调（装配层注入；成功路径逐条投递 fileArchived，region=exchange） */
   onArchived?: (archived: string[]) => void
 }
@@ -107,6 +109,44 @@ interface ExchangeState {
   processed: { id: string; at: string }[]
 }
 
+/** v2.5.3（找bug轮 D4）：簿记结构校验——processed 非数组即视为损坏，写入路径拒绝覆盖并留证（D3 语义） */
+function validateExchangeState(value: unknown): ExchangeState | null {
+  if (typeof value !== 'object' || value === null) return null
+  const processed = (value as { processed?: unknown }).processed
+  if (!Array.isArray(processed)) return null
+  return { processed: processed as ExchangeState['processed'] }
+}
+
+/** 交换区会话（v2.5.3 T6）：捕获代数 + 工作区；isCurrent 判停（stop/切换后旧会话失效） */
+export interface ExchangeSession {
+  readonly gen: number
+  readonly ws: string
+  isCurrent(): boolean
+}
+
+/** SKIPPED 回执（v2.5.3 找bug轮 D4）：带专用 kind 标记——判定只查字段，不依赖固定文案 */
+interface SkippedExchangeReceipt extends ExchangeReceipt {
+  kind: 'skipped'
+}
+
+/** 交换区切换后未开始任务的中止回执（纯内存，不落盘；D4 起带专用 kind 标记） */
+const SKIPPED_RECEIPT: SkippedExchangeReceipt = {
+  id: '',
+  kind: 'skipped',
+  status: 'error',
+  target_paths: [],
+  error: '工作区已切换，投递中止',
+  processed_at: '',
+}
+
+/**
+ * v2.5.3（找bug轮 D4）：中止回执判定——只认 `kind: 'skipped'` 字段，不比对文案；
+ * 业务 error 回执文案碰巧与中止文案相同（或文案未来变更）不会误判为跳过。
+ */
+function isSkippedReceipt(receipt: ExchangeReceipt): boolean {
+  return (receipt as Partial<SkippedExchangeReceipt>).kind === 'skipped'
+}
+
 export class ExchangeService {
   private watcher: fs.FSWatcher | null = null
   private debounceTimer: NodeJS.Timeout | null = null
@@ -114,6 +154,11 @@ export class ExchangeService {
   private sweepTail: Promise<number> = Promise.resolve(0)
   /** 单投递处理串行链：sweep 与外部直调 processFile 共用 */
   private processTail: Promise<unknown> = Promise.resolve()
+  /**
+   * v2.5.3（T6）：交换区会话代数——start()/stop() 切换时递增；
+   * 旧代数的队列任务在开始前直接退出，已开始的任务完整在捕获工作区收尾。
+   */
+  private generation = 0
 
   constructor(private workspace: WorkspaceService, private ledger?: ExchangeLedgerSinks) {}
 
@@ -123,35 +168,65 @@ export class ExchangeService {
     return ws
   }
 
+  /** v2.5.3（T6）：捕获交换区会话（代数 + 工作区 + 当前性判定）；入队时调用，全程使用捕获的 ws */
+  private captureSession(ws?: string): ExchangeSession {
+    const gen = this.generation
+    const resolvedWs = ws ?? this.requireWS()
+    return {
+      gen,
+      ws: resolvedWs,
+      isCurrent: () => this.generation === gen,
+    }
+  }
+
+  /**
+   * v2.5.3（T6-S3）：索引失效门控——「捕获 ws 与当前工作区相同」才向全局索引写失效标记：
+   * - 跨 ws：旧 session 的归档/回滚落在旧工作区，绝不污染新工作区索引（契约不变）；
+   * - 同 ws 快速 stop+start：旧 session 处理中复制的文件仍落在当前 ws 归档目录，
+   *   必须失效其索引快照——此场景 session 已过期但目录变化属于当前工作区。
+   */
+  private sameWorkspaceAsCurrent(session: ExchangeSession): boolean {
+    const cur = this.workspace.currentWorkspacePath()
+    return !!cur && path.resolve(cur) === path.resolve(session.ws)
+  }
+
   // —— 生命周期：start()/stop() 成对，watch 与防抖定时器随切换关闭重建（PLAN §8.2）——
 
   /**
    * 启动交换区监听（交换区根非递归 fs.watch，500ms 防抖）并立即补扫一次（覆盖离线投递与崩溃恢复）。
-   * 返回本次补扫处理的投递数。监听不可用（平台限制等）→ 降级为仅补扫模式，功能不失效。
+   * v2.5.3（T6）：先停止旧 session（递增代数/关闭旧 watch 与防抖）再启动新 session；
+   * watcher 回调与补扫均捕获 session——旧 watcher 的迟到事件/错误不能作用于新 session。
+   * 监听不可用（平台限制等）→ 降级为仅补扫模式，功能不失效。
    */
   start(): Promise<number> {
-    const ws = this.requireWS()
-    ensureWorkspaceDirs(ws)
+    this.stop()
+    const session = this.captureSession()
+    ensureWorkspaceDirs(session.ws)
     try {
-      this.watcher = fs.watch(exchangeDir(ws), { recursive: false }, () => this.scheduleSweep())
-      this.watcher.on('error', () => {
-        if (this.watcher) {
-          try {
-            this.watcher.close()
-          } catch {
-            // 忽略
-          }
-          this.watcher = null
-        }
+      const watcher = fs.watch(exchangeDir(session.ws), { recursive: false }, () => {
+        if (!session.isCurrent()) return // 旧 watcher 迟到事件不得作用于新 session
+        // v2.5.3（T6-S1）：防抖携带当前会话——stop 换代后旧事件的补扫不得作用于新工作区
+        this.scheduleSweep(session)
       })
+      watcher.on('error', () => {
+        if (this.watcher !== watcher) return // 身份校验：失效的旧 watcher 错误不处理
+        try {
+          watcher.close()
+        } catch {
+          // 忽略
+        }
+        this.watcher = null
+      })
+      this.watcher = watcher
     } catch {
       this.watcher = null
     }
-    return this.sweep()
+    return this.sweep(session)
   }
 
-  /** 关闭监听与防抖定时器（工作区切换 / 应用退出时调用；幂等） */
+  /** 关闭监听与防抖定时器（工作区切换 / 应用退出时调用；幂等）。v2.5.3（T6）：递增代数使旧队列任务失效 */
   stop(): void {
+    this.generation += 1
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer)
       this.debounceTimer = null
@@ -166,22 +241,32 @@ export class ExchangeService {
     }
   }
 
-  private scheduleSweep(): void {
+  /**
+   * 防抖补扫调度（watch 事件合并窗口 WATCH_DEBOUNCE_MS）。
+   * v2.5.3（T6-S1）：调度点捕获会话（缺省取当前；watcher 回调直接传入其捕获的 session）——
+   * 防抖到期执行时若会话已过期（stop+start 换代）则直接退出，
+   * 旧 watcher 的迟到事件不会补扫到新工作区。
+   */
+  private scheduleSweep(session?: ExchangeSession): void {
+    const s = session ?? this.captureSession()
     if (this.debounceTimer) clearTimeout(this.debounceTimer)
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null
-      void this.sweep()
+      void this.sweep(s)
     }, WATCH_DEBOUNCE_MS)
   }
 
   /**
    * 补扫：扫描交换区根目录下所有 *.json 描述文件（跳过目录与 已处理/），逐文件处理。
    * 串行化执行（并发调用排队）；单投递意外失败不中断整体；返回处理数。
+   * v2.5.3（T6）：session 在入队点捕获（缺省取调用点的当前会话）——stop 后尚未开始的
+   * 旧队列任务在开始前直接退出，不会捕获到新 gen/当前工作区后照常执行。
    */
-  sweep(): Promise<number> {
+  sweep(session?: ExchangeSession): Promise<number> {
+    const s = session ?? this.captureSession() // 入队点捕获（同步）：stop 后本任务即失效
     const run = this.sweepTail.then(async () => {
-      const ws = this.requireWS()
-      const dir = exchangeDir(ws)
+      if (!s.isCurrent()) return 0 // 旧代数队列任务：开始前直接退出
+      const dir = exchangeDir(s.ws)
       let entries: fs.Dirent[]
       try {
         entries = await fsp.readdir(dir, { withFileTypes: true })
@@ -191,11 +276,14 @@ export class ExchangeService {
       let count = 0
       for (const e of entries) {
         if (!e.isFile() || !e.name.endsWith('.json')) continue
-        await this.processFile(path.join(dir, e.name)).catch((err) => {
+        // 逐个入队：每个文件捕获同一 session；若期间已 stop，后续文件在开始前退出
+        const receipt = await this.processFile(path.join(dir, e.name), s).catch((err) => {
           // 进程级异常（描述文件路径校验失败等）：记录但不中断补扫
           console.warn('[exchange] 投递处理异常:', err)
+          return undefined
         })
-        count++
+        // v2.5.3（T6-S2）：被跳过的任务（工作区已切换）不计入处理数
+        if (receipt && !isSkippedReceipt(receipt)) count++
       }
       return count
     })
@@ -206,9 +294,11 @@ export class ExchangeService {
   /**
    * 处理单个投递（watch 与 sweep 共用入口；业务失败一律转为 error 回执，不抛出）。
    * 崩溃重入语义见类注释；幂等判定 = exchange_state.json 簿记含 id。
+   * v2.5.3（T6）：session 在入队时捕获；已开始的处理完整在捕获工作区收尾。
    */
-  processFile(descPath: string): Promise<ExchangeReceipt> {
-    const run = this.processTail.then(() => this.processFileInner(descPath))
+  processFile(descPath: string, session?: ExchangeSession): Promise<ExchangeReceipt> {
+    const s = session ?? this.captureSession()
+    const run = this.processTail.then(() => this.processFileInner(s, descPath))
     this.processTail = run.then(
       () => undefined,
       () => undefined,
@@ -216,8 +306,12 @@ export class ExchangeService {
     return run
   }
 
-  private async processFileInner(descPath: string): Promise<ExchangeReceipt> {
-    const ws = this.requireWS()
+  private async processFileInner(session: ExchangeSession, descPath: string): Promise<ExchangeReceipt> {
+    const ws = session.ws
+    // 尚未开始的任务（队列中等待）：工作区已切换 → 中止（纯内存，不落盘）
+    if (!session.isCurrent()) {
+      return { ...SKIPPED_RECEIPT, id: path.basename(descPath, '.json') }
+    }
     const dir = exchangeDir(ws)
     // 描述文件必须在交换区根目录内（realpath 边界校验 + 词法校验，防符号链接/穿越）
     if (!(await isPathInsideWorkspaceReal(ws, descPath))) throw new Error('描述文件不在交换区内')
@@ -258,8 +352,11 @@ export class ExchangeService {
     // 2. 幂等检查：id 已簿记 → duplicate 回执，不重复归集（§8.2）
     if (await this.isProcessed(ws, id)) {
       const receipt: ExchangeReceipt = { id, status: 'duplicate', target_paths: [], processed_at: currentTimeString() }
-      await this.writeReceipt(ws, id, receipt)
-      await this.moveToDone(ws, id, descPath)
+      // v2.5.3（找bug轮 D4）：描述已被其他会话消费时不覆盖既有回执、不做 ENOENT 的 moveToDone
+      if (await this.descStillExists(descPath)) {
+        await this.writeReceipt(ws, id, receipt)
+        await this.moveToDone(ws, id, descPath)
+      }
       return receipt
     }
 
@@ -287,13 +384,13 @@ export class ExchangeService {
     try {
       switch (kind) {
         case 'invoice':
-          return await this.handleInvoice(ws, id, descPath, sourceFiles, cfg, d)
+          return await this.handleInvoice(session, id, descPath, sourceFiles, cfg, d)
         case 'inbound':
-          return await this.handleInbound(ws, id, descPath, sourceFiles, cfg, d)
+          return await this.handleInbound(session, id, descPath, sourceFiles, cfg, d)
         case 'customer':
-          return await this.handleCustomer(ws, id, descPath, sourceFiles, cfg, d)
+          return await this.handleCustomer(session, id, descPath, sourceFiles, cfg, d)
         case 'productSet':
-          return await this.handleProductSet(ws, id, descPath, sourceFiles, cfg, d)
+          return await this.handleProductSet(session, id, descPath, sourceFiles, cfg, d)
       }
     } catch (err) {
       // 业务失败（必填缺失 / 目标不存在 / 台账查重拒绝等）→ error 回执并消费描述文件
@@ -305,13 +402,14 @@ export class ExchangeService {
   // —— 各 kind 处理（字段校验 → 目标目录解析 → 归集 → 台账）——
 
   private async handleInvoice(
-    ws: string,
+    session: ExchangeSession,
     id: string,
     descPath: string,
     sourceFiles: string[],
     cfg: WorkspaceConfig,
     d: Record<string, unknown>,
   ): Promise<ExchangeReceipt> {
+    const ws = session.ws
     const f = d.invoice as ExchangeInvoiceFields | undefined
     if (!f || typeof f !== 'object') throw new Error('缺少 invoice 字段段')
     if (typeof f.number !== 'string' || !f.number.trim()) throw new Error('发票号码不能为空')
@@ -324,27 +422,30 @@ export class ExchangeService {
     // 归档到 发票/<YYYY>/（年份取开票日期前 4 位；归档区自动建年份目录）
     const year = f.date.slice(0, 4)
     const targetDir = path.join(ws, INVOICES_DIR, year)
-    const archived = await this.copyFiles(sourceFiles, targetDir, cfg, sanitizeName(f.number), year)
+    // v2.5.3（T6-S3）：失效门控 = 捕获 ws 与当前工作区相同（同 ws 重启仍失效、跨 ws 不失效）
+    const affectedSameWs = this.sameWorkspaceAsCurrent(session)
+    const archived = await this.copyFiles(ws, sourceFiles, targetDir, cfg, sanitizeName(f.number), year, affectedSameWs)
     try {
-      await this.ledger.createInvoice(f, archived)
-      // v2.5.1（D20）：台账成功 → 归集事件逐条投递（成功路径）
-      this.ledger.onArchived?.(archived)
+      await this.ledger.createInvoice(ws, f, archived)
+      // v2.5.1（D20）+ v2.5.3（T6）：台账成功 → 归集事件逐条投递；旧 session 的通知不发
+      if (session.isCurrent()) this.ledger.onArchived?.(archived)
     } catch (err) {
-      // v2.5（P1-C3）：台账写入失败 → 回滚已归档副本，不留孤儿文件（账物一致）
-      await this.rollbackArchived(targetDir, archived)
+      // v2.5（P1-C3）：台账写入失败 → 回滚已归档副本，不留孤儿文件（账物一致）；回滚只用捕获的 ws
+      await this.rollbackArchived(ws, targetDir, archived, affectedSameWs)
       throw err
     }
-    return this.finishOk(ws, id, archived, descPath, sourceFiles)
+    return this.finishOk(ws, id, targetDir, archived, descPath, sourceFiles, affectedSameWs)
   }
 
   private async handleInbound(
-    ws: string,
+    session: ExchangeSession,
     id: string,
     descPath: string,
     sourceFiles: string[],
     cfg: WorkspaceConfig,
     d: Record<string, unknown>,
   ): Promise<ExchangeReceipt> {
+    const ws = session.ws
     const f = d.inbound as ExchangeInboundFields | undefined
     if (!f || typeof f !== 'object') throw new Error('缺少 inbound 字段段')
     if (typeof f.id !== 'string' || !f.id.trim()) throw new Error('单据编号不能为空')
@@ -353,27 +454,30 @@ export class ExchangeService {
     if (!this.ledger?.createInbound) throw new Error('入库台账服务未接入，无法处理 inbound 投递')
     const year = f.date.slice(0, 4)
     const targetDir = path.join(ws, INBOUND_DIR, year)
-    const archived = await this.copyFiles(sourceFiles, targetDir, cfg, sanitizeName(f.id), year)
+    // v2.5.3（T6-S3）：失效门控 = 捕获 ws 与当前工作区相同
+    const affectedSameWs = this.sameWorkspaceAsCurrent(session)
+    const archived = await this.copyFiles(ws, sourceFiles, targetDir, cfg, sanitizeName(f.id), year, affectedSameWs)
     try {
-      await this.ledger.createInbound(f, archived)
-      // v2.5.1（D20）：台账成功 → 归集事件逐条投递（成功路径）
-      this.ledger.onArchived?.(archived)
+      await this.ledger.createInbound(ws, f, archived)
+      // v2.5.1（D20）+ v2.5.3（T6）：台账成功 → 归集事件逐条投递；旧 session 的通知不发
+      if (session.isCurrent()) this.ledger.onArchived?.(archived)
     } catch (err) {
-      // v2.5（P1-C3）：台账写入失败 → 回滚已归档副本，不留孤儿文件（账物一致）
-      await this.rollbackArchived(targetDir, archived)
+      // v2.5（P1-C3）：台账写入失败 → 回滚已归档副本，不留孤儿文件（账物一致）；回滚只用捕获的 ws
+      await this.rollbackArchived(ws, targetDir, archived, affectedSameWs)
       throw err
     }
-    return this.finishOk(ws, id, archived, descPath, sourceFiles)
+    return this.finishOk(ws, id, targetDir, archived, descPath, sourceFiles, affectedSameWs)
   }
 
   private async handleCustomer(
-    ws: string,
+    session: ExchangeSession,
     id: string,
     descPath: string,
     sourceFiles: string[],
     cfg: WorkspaceConfig,
     d: Record<string, unknown>,
   ): Promise<ExchangeReceipt> {
+    const ws = session.ws
     const f = d.customer as ExchangeCustomerFields | undefined
     if (!f || typeof f !== 'object') throw new Error('缺少 customer 字段段')
     if (typeof f.name !== 'string' || !f.name.trim()) throw new Error('客户名不能为空')
@@ -384,18 +488,20 @@ export class ExchangeService {
     // 客户/子文件夹不存在 → error 回执，不自动建客户（PLAN §8.1）
     const ok = await fsp.stat(targetDir).then((s) => s.isDirectory()).catch(() => false)
     if (!ok) throw new Error(`客户或子文件夹不存在: ${name}/${sub}`)
-    const archived = await this.copyFiles(sourceFiles, targetDir, cfg, sanitizeName(name), sanitizeName(sub))
-    return this.finishOk(ws, id, archived, descPath, sourceFiles)
+    // v2.5.3（T6-S3）：失效门控 = 捕获 ws 与当前工作区相同
+    const archived = await this.copyFiles(ws, sourceFiles, targetDir, cfg, sanitizeName(name), sanitizeName(sub), this.sameWorkspaceAsCurrent(session))
+    return this.finishOk(ws, id, targetDir, archived, descPath, sourceFiles, this.sameWorkspaceAsCurrent(session))
   }
 
   private async handleProductSet(
-    ws: string,
+    session: ExchangeSession,
     id: string,
     descPath: string,
     sourceFiles: string[],
     cfg: WorkspaceConfig,
     d: Record<string, unknown>,
   ): Promise<ExchangeReceipt> {
+    const ws = session.ws
     const f = d.productSet as ExchangeProductSetFields | undefined
     if (!f || typeof f !== 'object') throw new Error('缺少 productSet 字段段')
     if (typeof f.name !== 'string' || !f.name.trim()) throw new Error('产品集名不能为空')
@@ -407,8 +513,9 @@ export class ExchangeService {
     const targetDir = path.join(ws, PRODUCT_SETS_DIR, name, typeDir, sub)
     const ok = await fsp.stat(targetDir).then((s) => s.isDirectory()).catch(() => false)
     if (!ok) throw new Error(`产品集或子文件夹不存在: ${name}/${sub}`)
-    const archived = await this.copyFiles(sourceFiles, targetDir, cfg, sanitizeName(name), sanitizeName(sub))
-    return this.finishOk(ws, id, archived, descPath, sourceFiles)
+    // v2.5.3（T6-S3）：失效门控 = 捕获 ws 与当前工作区相同
+    const archived = await this.copyFiles(ws, sourceFiles, targetDir, cfg, sanitizeName(name), sanitizeName(sub), this.sameWorkspaceAsCurrent(session))
+    return this.finishOk(ws, id, targetDir, archived, descPath, sourceFiles, this.sameWorkspaceAsCurrent(session))
   }
 
   // —— 归集与收尾（簿记 → 回执 → 移描述 → 投递区归零）——
@@ -418,13 +525,14 @@ export class ExchangeService {
    * 复制成功后失效目标目录索引快照。返回工作区相对路径（`/` 分隔，跨平台一致）。
    */
   private async copyFiles(
+    ws: string,
     sources: string[],
     targetDir: string,
     cfg: WorkspaceConfig,
     psSlot: string,
     subSlot: string,
+    invalidate = true,
   ): Promise<string[]> {
-    const ws = this.requireWS()
     await fsp.mkdir(targetDir, { recursive: true })
     const archived: string[] = []
     for (const src of sources) {
@@ -435,38 +543,64 @@ export class ExchangeService {
       await fsp.copyFile(src, path.join(targetDir, finalName), fs.constants.COPYFILE_EXCL)
       archived.push(path.relative(ws, path.join(targetDir, finalName)).split(path.sep).join('/'))
     }
-    globalWorkspaceIndex.invalidate(targetDir)
+    // v2.5.3（T6）：旧 session 不得向当前全局索引写失效标记
+    if (invalidate) globalWorkspaceIndex.invalidate(targetDir)
     return archived
   }
 
   /**
    * v2.5（P1-C3）：回滚已归档副本——台账写入失败时删除已复制的归档文件，
    * 不留孤儿归档文件，投递区与归档区账物一致。archived 为工作区相对路径（copyFiles 产出）。
+   * v2.5.3（T6）：回滚全程使用捕获的 ws，绝不用新工作区路径。
    */
-  private async rollbackArchived(targetDir: string, archived: string[]): Promise<void> {
-    const ws = this.requireWS()
+  private async rollbackArchived(ws: string, targetDir: string, archived: string[], invalidate = true): Promise<void> {
     await Promise.all(archived.map((rel) => fsp.rm(path.join(ws, rel), { force: true }).catch(() => {})))
-    globalWorkspaceIndex.invalidate(targetDir)
+    if (invalidate) globalWorkspaceIndex.invalidate(targetDir)
+  }
+
+  /**
+   * v2.5.3（找bug轮 D4）：收尾写入前确认描述文件仍存在——已被其他会话消费（移入 已处理/）时
+   * 跳过写回执/移描述：不覆盖既有回执、无 moveToDone 的 ENOENT 噪音。
+   */
+  private async descStillExists(descPath: string): Promise<boolean> {
+    return fsp.stat(descPath).then(() => true).catch(() => false)
   }
 
   private async finishOk(
     ws: string,
     id: string,
+    targetDir: string,
     targetPaths: string[],
     descPath: string,
     sourceFiles: string[],
+    invalidate = true,
   ): Promise<ExchangeReceipt> {
     const receipt: ExchangeReceipt = { id, status: 'ok', target_paths: targetPaths, processed_at: currentTimeString() }
-    await this.recordProcessed(ws, id)
+    try {
+      await this.recordProcessed(ws, id)
+    } catch (err) {
+      // v2.5.3（找bug轮 D4）：簿记失败（state 损坏拒绝覆盖等）→ 回滚本次已复制副本，不留孤儿；
+      // invoice/inbound 台账另有查重兜底，customer/productSet 无台账——必须回滚，
+      // 否则每次补扫重新复制产生带序号副本（state 持续损坏即永久循环复制）。
+      await this.rollbackArchived(ws, targetDir, targetPaths, invalidate)
+      throw err
+    }
     // 投递区归零：删除本投递的源文件（复制已归集，删除幂等；PLAN §8.1）
-    await this.removeSourceFiles(ws, sourceFiles)
-    await this.writeReceipt(ws, id, receipt)
-    await this.moveToDone(ws, id, descPath)
+    await this.removeSourceFiles(ws, sourceFiles, invalidate)
+    if (await this.descStillExists(descPath)) {
+      await this.writeReceipt(ws, id, receipt)
+      await this.moveToDone(ws, id, descPath)
+    }
     return receipt
   }
 
   private async finishError(ws: string, id: string, message: string, descPath: string): Promise<ExchangeReceipt> {
     const receipt: ExchangeReceipt = { id, status: 'error', target_paths: [], error: message, processed_at: currentTimeString() }
+    // v2.5.3（找bug轮 D4）双会话竞争加固：描述已被其他会话消费（原会话已收尾写回执）→
+    // 按 duplicate 静默返回，不写 error 回执（避免覆盖 ok 回执）、不做 moveToDone（无 ENOENT 噪音）。
+    if (!(await this.descStillExists(descPath))) {
+      return { id, status: 'duplicate', target_paths: [], processed_at: currentTimeString() }
+    }
     await this.recordProcessed(ws, id)
     await this.writeReceipt(ws, id, receipt)
     await this.moveToDone(ws, id, descPath)
@@ -474,12 +608,12 @@ export class ExchangeService {
   }
 
   /** 投递区归零：删除本投递的源文件（sourceFiles 已在入口经段校验 + realpath 边界校验；不存在则跳过） */
-  private async removeSourceFiles(ws: string, sourceFiles: string[]): Promise<void> {
+  private async removeSourceFiles(ws: string, sourceFiles: string[], invalidate = true): Promise<void> {
     for (const full of sourceFiles) {
       if (!(await isPathInsideWorkspaceReal(ws, full))) continue
       await fsp.rm(full, { force: true })
     }
-    globalWorkspaceIndex.invalidate(exchangeDir(ws))
+    if (invalidate) globalWorkspaceIndex.invalidate(exchangeDir(ws))
   }
 
   private async writeReceipt(ws: string, id: string, receipt: ExchangeReceipt): Promise<void> {
@@ -519,14 +653,23 @@ export class ExchangeService {
     return state.processed.some((p) => p.id === id)
   }
 
+  /**
+   * v2.5.3（找bug轮 D4）：簿记改 JSON 锁内读改写（mutateJsonFile）——锁内基于磁盘最新值
+   * 去重追加，杜绝锁外 loadState + 整档替换的并发丢 id；文件损坏/结构非法按 D3 拒绝覆盖并留证。
+   */
   private async recordProcessed(ws: string, id: string): Promise<void> {
-    const state = await this.loadState(ws)
-    state.processed = state.processed.filter((p) => p.id !== id)
-    state.processed.push({ id, at: currentTimeString() })
-    if (state.processed.length > PROCESSED_MAX) {
-      state.processed = state.processed.slice(state.processed.length - PROCESSED_MAX)
-    }
     ensureWorkspaceDirs(ws)
-    await writeJsonAtomic(exchangeStatePath(ws), state)
+    await mutateJsonFile<ExchangeState, void>(exchangeStatePath(ws), {
+      read: async () => ({ processed: [] }), // 文件缺失按空簿记起步
+      mutate: (state) => {
+        state.processed = state.processed.filter((p) => p.id !== id)
+        state.processed.push({ id, at: currentTimeString() })
+        if (state.processed.length > PROCESSED_MAX) {
+          state.processed = state.processed.slice(state.processed.length - PROCESSED_MAX)
+        }
+      },
+      save: async () => true,
+      validate: validateExchangeState,
+    })
   }
 }

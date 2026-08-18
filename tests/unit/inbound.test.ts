@@ -252,13 +252,14 @@ describe('InboundService（v2.4.7 §7 入库归档）', () => {
     await fsp.writeFile(storePath, '{ 这不是合法 JSON', 'utf-8')
 
     expect(await inbound.list()).toEqual([])
-    // 备份存在
+    // 备份存在（读取侧隔离）
     const dir = await fsp.readdir(path.join(ws, '.qihefilemanager'))
     expect(dir.some((n) => n.startsWith('inbound.json.corrupt-'))).toBe(true)
 
-    // 降级后可正常写入
+    // 降级后写入：首次拒绝覆盖（损坏证据已留备份），隔离后重建成功
     const src = await makeSourceFile()
     const rel = await inbound.archiveFile(src, '2026-08-11')
+    await expect(inbound.create(baseReq({ file_path: rel }))).rejects.toThrow(/损坏|覆盖/)
     await inbound.create(baseReq({ file_path: rel }))
     const store = await readStore(ws)
     expect(store.records['IN-001']).toBeTruthy()
@@ -276,5 +277,37 @@ describe('InboundService（v2.4.7 §7 入库归档）', () => {
 
     const list = await inbound.list()
     expect(list.map((r) => r.id)).toEqual(['IN-B', 'IN-C', 'IN-A'])
+  })
+})
+describe('InboundService（v2.5.3 T2：锁内读改写事务 / 显式 ws）', () => {
+  it('显式 ws：current workspace 未打开时 create(req, ws) 仍写入捕获 ws；checkId 按 ws 查', async () => {
+    const home = await tmp()
+    const wsA = await tmp()
+    const workspace = new WorkspaceService(home)
+    await workspace.create(wsA) // 仅用于布置 wsA 目录结构
+
+    // 全新实例（无 current workspace）：台账操作只按显式 ws 走，绝不回读 current workspace
+    const service = build(home)
+    const rec = await service.inbound.create(baseReq({ id: 'EXPL-1', file_path: '入库/2026/入库单-001.pdf' }), wsA)
+    expect(rec.id).toBe('EXPL-1')
+    // 写入的是捕获 wsA 的台账
+    const store = await readStore(wsA)
+    expect(store.records['EXPL-1']).toBeTruthy()
+    // checkId 显式 ws 命中/未命中；无 ws 时（未打开工作区）报错
+    expect(await service.inbound.checkId('EXPL-1', undefined, wsA)).not.toBeNull()
+    expect(await service.inbound.checkId('EXPL-2', undefined, wsA)).toBeNull()
+    await expect(service.inbound.checkId('EXPL-1')).rejects.toThrow('未打开工作区')
+    await expect(service.inbound.list()).rejects.toThrow('未打开工作区')
+  })
+
+  it('并发 create 不同编号：锁内查重 + 写入串行，8 条全部落盘不丢', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const { workspace, inbound } = build(home)
+    await workspace.create(ws)
+    await Promise.all(Array.from({ length: 8 }, (_, i) => inbound.create(baseReq({ id: `IN-CONC-${i}` }))))
+    const store = await readStore(ws)
+    for (let i = 0; i < 8; i++) expect(store.records[`IN-CONC-${i}`]).toBeTruthy()
+    expect(await inbound.list()).toHaveLength(8)
   })
 })

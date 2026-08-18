@@ -2,6 +2,7 @@ import { Show, For } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import VirtualGrid from "~/components/VirtualGrid";
 import EmptyState from "~/components/EmptyState";
+import Loading from "~/components/Loading";
 import { fmtMoney, INBOUND_COL_TEMPLATE } from "./utils";
 import type { InboundRecord, SupplierBrief } from "./types";
 
@@ -13,6 +14,8 @@ import type { InboundRecord, SupplierBrief } from "./types";
 export default function InboundTable(props: {
   rows: InboundRecord[];
   suppliers: SupplierBrief[];
+  /** v2.5.3（P2-6）：首载 loading——空态不闪现（父级 Invoices 传入） */
+  loading: boolean;
   onCreate: () => void;
   onPreview: (rec: InboundRecord) => void;
   onEdit: (rec: InboundRecord) => void;
@@ -96,9 +99,12 @@ export default function InboundTable(props: {
       </div>
     }>
       <div class="flex-1 flex items-center justify-center">
-        <EmptyState icon="📥" title="暂无入库单" desc="点击「新建入库单」登记第一条记录">
-          <button class="btn-primary" onClick={props.onCreate}>新建入库单</button>
-        </EmptyState>
+        {/* v2.5.3（P2-6）：首载 loading 兜底，空态不闪现（照发票 tab Invoices.tsx 先例） */}
+        <Show when={!props.loading} fallback={<Loading text="入库单加载中…" />}>
+          <EmptyState icon="📥" title="暂无入库单" desc="点击「新建入库单」登记第一条记录">
+            <button class="btn-primary" onClick={props.onCreate}>新建入库单</button>
+          </EmptyState>
+        </Show>
       </div>
     </Show>
   );

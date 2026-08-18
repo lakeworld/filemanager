@@ -48,6 +48,10 @@ export default function Certs() {
   const [items, setItems] = createSignal<CertItem[]>([]);
   // v2.5.2：首载 loading——空态不闪现（照 FileBrowserView 先例；N×M 聚合链期间置位）
   const [loading, setLoading] = createSignal(true);
+  // v2.5.3（T7）：卸载即递增加载代（模块级）——未完成的聚合链/元数据 worker 校验失效后立即退出
+  onCleanup(() => {
+    certLoadSeq++;
+  });
   const [search, setSearch] = createSignal("");
   const [productSetFilter, setProductSetFilter] = createSignal<string>("");
   const [subFolderFilter, setSubFolderFilter] = createSignal<string>("");
@@ -105,7 +109,11 @@ export default function Certs() {
     setLoading(true);
     try {
       const result = await api.productSets.list();
-      if (!result.success || !result.data) return;
+      // v2.5.3（P2-9）：首查失败不再静默——toast 提示（空态兜底仍显示，但用户知道为何为空）
+      if (!result.success || !result.data) {
+        showToast("error", "加载证书失败", result.error || "未知错误");
+        return;
+      }
       if (seq !== certLoadSeq) return;
 
       const all: CertItem[] = [];
@@ -133,6 +141,8 @@ export default function Certs() {
       const queue = all.map((c) => c.path);
       const workers = Array.from({ length: 8 }, async () => {
         while (queue.length > 0) {
+          // v2.5.3（T7）：每轮取任务前校验代际——组件卸载/新链发起后旧 worker 立即退出，不再消费队列
+          if (seq !== certLoadSeq) return;
           const p = queue.shift()!;
           const r = await api.metadata.get(p);
           if (r.success && r.data?.expiry_date) map[p] = r.data.expiry_date;
@@ -310,6 +320,7 @@ export default function Certs() {
   };
 
   const handleExtract = async (file: CertItem, mode: "here" | "folder") => {
+    if (archiveState()) return; // 单任务守卫（同 handleCompress：防重复触发顶掉进行中任务的进度弹窗）
     const token = newArchiveToken();
     setArchiveState({ token, phase: "extract" });
     const r = await api.archive.extract({ zipPath: file.path, mode, cancelToken: token });
@@ -436,6 +447,8 @@ export default function Certs() {
             itemHeight={ITEM_HEIGHT}
             columns={{ base: 1, md: 2, lg: 3 }}
             gap={12}
+            // v2.5.3（P2-11）：筛选/搜索切换时滚动归零（照 Quotes/Invoices scrollResetKey 先例）
+            scrollResetKey={`${search()}|${productSetFilter()}|${subFolderFilter()}|${tagFilter()}|${sortBy()}`}
             renderItem={(cert) => (
               <div
                 class={`card p-4 flex items-center gap-4 cursor-pointer select-none hover:shadow-card-hover ${selectedPaths().includes(cert.path) ? "border-primary-500 bg-primary-50" : ""}`}

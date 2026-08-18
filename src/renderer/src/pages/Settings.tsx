@@ -25,6 +25,8 @@ export default function Settings() {
   const [newCertFolder, setNewCertFolder] = createSignal("");
   // v2.4.7：客户子文件夹管理（对齐 image/cert 段；旧 config 无字段时缺省为空数组，loadConfig 后端兜底默认值）
   const [newCustomerFolder, setNewCustomerFolder] = createSignal("");
+  // v2.5.3（P2-19）：文档子文件夹管理（config.doc_subfolders，v2.5.1 起 core/files 已支持 doc scope，UI 补齐）
+  const [newDocFolder, setNewDocFolder] = createSignal("");
   const [saved, setSaved] = createSignal(false);
 
   // —— v2.4.9（S4）：开机自启（应用级设置，不依赖工作区；门控内与既有 card 结构一致）——
@@ -134,12 +136,34 @@ export default function Settings() {
     }));
   };
 
-  // —— v2.2.1：子文件夹重命名（立即生效并同步迁移所有已有产品集）——
-  const [renamingFolder, setRenamingFolder] = createSignal<{ type: "image" | "cert" | "customer"; oldName: string } | null>(null);
+  // v2.5.3（P2-19）：文档子文件夹（config.doc_subfolders；照 customer 先例）
+  const addDocFolder = () => {
+    const name = newDocFolder().trim();
+    if (!name) return;
+    if ((config().doc_subfolders ?? []).includes(name)) {
+      showToast("error", "添加失败", `子文件夹「${name}」已存在`);
+      return;
+    }
+    setConfig((prev) => ({
+      ...prev,
+      doc_subfolders: [...(prev.doc_subfolders ?? []), name],
+    }));
+    setNewDocFolder("");
+  };
+
+  const removeDocFolder = (index: number) => {
+    setConfig((prev) => ({
+      ...prev,
+      doc_subfolders: (prev.doc_subfolders ?? []).filter((_, i) => i !== index),
+    }));
+  };
+
+  // —— v2.2.1：子文件夹重命名（立即生效并同步迁移所有已有产品集）；v2.5.3（P2-19）补 doc 域 ——
+  const [renamingFolder, setRenamingFolder] = createSignal<{ type: "image" | "cert" | "customer" | "doc"; oldName: string } | null>(null);
   const [subfolderRenameValue, setSubfolderRenameValue] = createSignal("");
   const [renameError, setRenameError] = createSignal("");
 
-  const startRename = (type: "image" | "cert" | "customer", oldName: string) => {
+  const startRename = (type: "image" | "cert" | "customer" | "doc", oldName: string) => {
     setRenamingFolder({ type, oldName });
     setSubfolderRenameValue(oldName);
     setRenameError("");
@@ -169,10 +193,10 @@ export default function Settings() {
     }
   };
 
-  /** 子文件夹 chip（图包/证书/客户通用）：名称 + ✎重命名 + ✕删除；重命名中变输入框 */
+  /** 子文件夹 chip（图包/证书/客户/文档通用）：名称 + ✎重命名 + ✕删除；重命名中变输入框 */
   const SubfolderChip = (props: {
     name: string;
-    type: "image" | "cert" | "customer";
+    type: "image" | "cert" | "customer" | "doc";
     onRemove: (index: number) => void;
     index: number;
   }) => {
@@ -891,6 +915,34 @@ export default function Settings() {
               <For each={config().customer_subfolders ?? []}>
                 {(folder, index) => (
                   <SubfolderChip name={folder} type="customer" index={index()} onRemove={removeCustomerFolder} />
+                )}
+              </For>
+            </div>
+            <Show when={renameError()}>
+              <div class="mt-2 text-sm text-danger-600">{renameError()}</div>
+            </Show>
+          </div>
+
+          {/* v2.5.3（P2-19）：文档子文件夹（对齐客户段；config.doc_subfolders；重命名同步迁移所有产品集「文档/」目录） */}
+          <div class="card p-6">
+            <h2 class="text-lg font-semibold mb-4">文档子文件夹</h2>
+            <div class="flex gap-2 mb-4">
+              <input
+                type="text"
+                class="flex-1 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="新增文档子文件夹名称"
+                value={newDocFolder()}
+                onInput={(e) => setNewDocFolder(e.currentTarget.value)}
+                onKeyDown={(e) => e.key === "Enter" && addDocFolder()}
+              />
+              <button class="btn-primary" onClick={addDocFolder}>
+                添加
+              </button>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <For each={config().doc_subfolders ?? []}>
+                {(folder, index) => (
+                  <SubfolderChip name={folder} type="doc" index={index()} onRemove={removeDocFolder} />
                 )}
               </For>
             </div>

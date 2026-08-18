@@ -4,7 +4,7 @@
  *
  * v2.4.2（上线前批次一）改动：
  * - files:list 入口调用 box.beginBrowse()：作废旧文件夹积压的浏览缩略图任务（修复 2）
- * - 导入事件全部经 sendTo 守卫（R2：窗口被休眠销毁后不再抛 "Object has been destroyed" 中断导入）
+ * - 导入事件全部经 sendTo 守卫（R2：窗口销毁竞态（L4 自愈/退出）不再抛 "Object has been destroyed" 中断导入）
  * - 导入完成事件上报 failed 明细（I1）；saveTextFile 加工作区/对话框白名单校验（S2）
  * - 路径类 handler 统一升级 isPathInsideWorkspaceReal（D7）
  * - metadata get/update 改为按文件路径（D3+D4）；startDrag 缩略图 150ms 快速命中（R6）
@@ -17,9 +17,9 @@ import { AccountService } from './account'
 import { copyFilesToClipboard } from './clipboard'
 import { showFilesInExplorer } from './explorer'
 import { workspaceFileUrl, thumbnailFileUrl } from './protocol'
-import { checkUpdate, downloadUpdate, applyUpdate, getCachedUpdate, UpdateInfo } from './updater'
+import { checkUpdate, downloadUpdate, applyUpdate, getCachedUpdate, setCachedUpdate, UpdateInfo } from './updater'
 import { setAutoLaunch, isAutoLaunch } from './autoLaunchMain'
-import { isPathInsideWorkspaceReal, classifyFileType } from './core/paths'
+import { isPathInsideWorkspaceReal, isProtectedConfigPath, classifyFileType } from './core/paths'
 import { FilesService, ImportCancelledError } from './core/files'
 import { ZipCancelledError, compressToZip } from './core/archive'
 import { openFileWithDefaultApp } from './open'
@@ -35,6 +35,8 @@ import {
   windowSetSize,
   windowGetPosition,
   windowSetPosition,
+  windowLifecycleParked,
+  windowLifecycleFirstFrame,
 } from './window'
 
 /** 与前端 types.ts 一致的响应包装（P2：类型收敛到 src/shared/types.ts） */
@@ -60,8 +62,8 @@ export async function handle<T>(fn: () => Promise<T> | T): Promise<ApiResult<T>>
 }
 
 /**
- * v2.4.2（R2）：向窗口发送事件的安全通道——窗口已被休眠销毁（close → 托盘 → 30 秒 → destroy，v2.4.5 T3）
- * 时 webContents.send 会抛 "Object has been destroyed"，旧实现会让异常同步传播进导入循环、
+ * v2.4.2（R2）：向窗口发送事件的安全通道——窗口已销毁（L4 自愈重建/退出竞态）时
+ * webContents.send 会抛 "Object has been destroyed"，旧实现会让异常同步传播进导入循环、
  * 静默中断导入。此处统一守卫 + try/catch。plugins/ipc.ts 复用。
  */
 export function sendTo(win: BrowserWindow | null, channel: string, payload: unknown): void {
@@ -375,6 +377,8 @@ export function registerIpc(
       // v2.4.2（S2）：只允许「工作区内」或「最近一次系统保存对话框选出的路径」（模板导出场景）
       const insideWs = await isPathInsideWorkspaceReal(ws, p)
       if (!insideWs && !recentSavePaths.has(p)) throw new Error('保存路径不在工作区内')
+      // v2.5.3（T2）：配置/台账 JSON 只允许事务化写路径；禁止文件直写绕过损坏守卫覆盖 .qihefilemanager/*
+      if (insideWs && isProtectedConfigPath(ws, p)) throw new Error('不能直接写入配置文件（.qihefilemanager）')
       return FilesService.writeFileUtf8(p, content)
     }),
   )
@@ -691,6 +695,19 @@ export function registerIpc(
     windowSetPosition(x, y)
     return ok(true)
   })
+  // —— v2.5.3 常驻轻壳：生命周期 ACK（薄壳透传；sender 校验在 window.ts 适配层）——
+  ipcMain.handle('qihebox:window:parked', (e, msg: unknown) =>
+    handle(() => {
+      windowLifecycleParked(e.sender, msg)
+      return true
+    }),
+  )
+  ipcMain.handle('qihebox:window:first-frame', (e, msg: unknown) =>
+    handle(() => {
+      windowLifecycleFirstFrame(e.sender, msg)
+      return true
+    }),
+  )
 
   // —— 应用信息 ——
   ipcMain.handle('qihebox:app:version', () => app.getVersion())
@@ -707,7 +724,15 @@ export function registerIpc(
   ipcMain.handle('qihebox:app:isTrayReady', () => ok(hooks.isTrayReady()))
 
   // —— 更新（占位）——
-  ipcMain.handle('qihebox:updater:check', () => handle(() => checkUpdate(app.getVersion())))
+  // v2.5.3（P2-17）：手动检查命中新版同样写缓存——Profile 懒加载错过 update:available 事件时
+  // updater:state 查询兜底一致（照 index.ts runUpdateCheck 后台路径 setCachedUpdate 先例）
+  ipcMain.handle('qihebox:updater:check', () =>
+    handle(async () => {
+      const info = await checkUpdate(app.getVersion())
+      if (info) setCachedUpdate(info)
+      return info
+    }),
+  )
   // v2.4.7（评审 P1）：查询主进程缓存的更新可用状态（Profile 懒加载错过 update:available 事件时兜底）
   ipcMain.handle('qihebox:updater:state', () => ok(getCachedUpdate()))
   ipcMain.handle('qihebox:updater:download', (_e, info: UpdateInfo) => handle(() => downloadUpdate(info)))

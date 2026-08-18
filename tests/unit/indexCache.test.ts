@@ -292,4 +292,24 @@ describe('WorkspaceIndex（v2.4.x Everything 式精简索引）', () => {
     expect(hitA).toHaveLength(1)
     expect(await index.query(dirB, listRaw)).toEqual([])
   })
+
+  it('invalidate 洪泛：dirtyEpochs 同步修剪有界，且不破坏 T5-S2 代数（P2-1）', async () => {
+    const ws = await tmp()
+    const dir = path.join(ws, PRODUCT_SETS_DIR, 'S1', IMAGES_DIR, '主图')
+    await fsp.mkdir(dir, { recursive: true })
+    const index = new WorkspaceIndex()
+    // 洪泛：1100 个不同目录（DIRTY_DIRS_MAX=1024）触发清空旧脏标记
+    for (let i = 0; i < 1100; i++) index.invalidate(`${ws}/flood-${i}`)
+    // 有界：epoch 表 ≤ 脏集 ≤ 上限（P2-1 之前 epoch 表随洪泛无界累积——唯一无界容器）
+    expect(index.dirtyCount).toBeLessThanOrEqual(1024)
+    expect(index.dirtyEpochCount).toBeLessThanOrEqual(index.dirtyCount)
+    // 代数不被破坏：洪泛后新失效的真实目录 query 重建时 epoch 一致 → 标记消费（T5-S2 保留条件）；
+    // 洪泛残留的其他脏目录未重建 → 标记保留
+    index.invalidate(dir)
+    const afterInvalidate = index.dirtyCount
+    expect(afterInvalidate).toBeGreaterThan(1)
+    await index.query(dir, async () => [])
+    expect(index.dirtyCount).toBe(afterInvalidate - 1) // 仅 dir 被消费，其余洪泛脏标记保留
+    expect(index.dirtyEpochCount).toBeLessThanOrEqual(index.dirtyCount)
+  })
 })
