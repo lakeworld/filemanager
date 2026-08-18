@@ -15,6 +15,7 @@ release/
 # Test / debug
 *.log
 test-results/
+memory-soak-results/
 playwright-report/
 playwright/.cache/
 *.tsbuildinfo

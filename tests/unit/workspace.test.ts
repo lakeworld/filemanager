@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { isPathInsideWorkspace, thumbnailPath, productSetFromFilePath, defaultWorkspaceConfig, readJsonFile } from '../../src/main/core/paths'
 import { buildTestBox } from './helpers'
 import fsp from 'node:fs/promises'
@@ -45,15 +45,16 @@ describe('productSetFromFilePath', () => {
   })
 })
 
-describe('readJsonFile 损坏备份（v2.5 P1-C1/B2）', () => {
-  it('文件存在但 JSON 损坏 → 备份 .corrupt-<ts> 后返回 null', async () => {
+describe('readJsonFile 损坏只读语义（v2.5 P1-C1/B2；v2.5.3 T2 修订）', () => {
+  it('文件存在但 JSON 损坏 → 返回 null；只读不移动/不备份，留证交给写路径守卫', async () => {
     const dir = await tmp()
     const p = path.join(dir, 'data.json')
     await fsp.writeFile(p, '{bad json')
     expect(await readJsonFile(p)).toBeNull()
-    const backups = (await fsp.readdir(dir)).filter((n) => n.startsWith('data.json.corrupt-'))
-    expect(backups).toHaveLength(1)
-    expect(await fsp.readFile(path.join(dir, backups[0]), 'utf-8')).toBe('{bad json')
+    const files = await fsp.readdir(dir)
+    expect(files.filter((n) => n.startsWith('data.json.corrupt-'))).toHaveLength(0)
+    // 原文件原位保留：只读路径不隔离，写路径（readJsonForMutation）首次遇到损坏才隔离并拒绝覆盖
+    expect(await fsp.readFile(p, 'utf-8')).toBe('{bad json')
   })
 
   it('文件缺失 → 返回 null 且不产生备份', async () => {
@@ -206,18 +207,78 @@ describe('工作区全链路（对照原 app_test.go）', () => {
     expect(ok.name).toBe('正常集')
   })
 
-  it('v2.5（P1-B2）：config.json 损坏 → loadConfig 返回默认值并备份原文件', async () => {
+  it('v2.5.3（T2）：config.json 损坏 → loadConfig 首次拒绝覆盖并隔离留证，重试后重建默认配置', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
     await box.workspace.create(ws)
-    const p = path.join(ws, '.qihefilemanager', 'config.json')
-    await fsp.writeFile(p, '{"name": "坏')
-    const cfg = await box.workspace.loadConfig(ws)
-    expect(cfg.name).toBe('Workspace') // 降级默认值，不再静默覆盖
     const dir = path.join(ws, '.qihefilemanager')
+    const p = path.join(dir, 'config.json')
+    await fsp.writeFile(p, '{"name": "坏')
+    // 写默认配置走严格事务（overwriteJson → readJsonForMutation）：损坏文件先隔离留证，再拒绝覆盖
+    await expect(box.workspace.loadConfig(ws)).rejects.toThrow(/损坏|拒绝覆盖/)
     const backups = (await fsp.readdir(dir)).filter((n) => n.startsWith('config.json.corrupt-'))
     expect(backups).toHaveLength(1)
     expect(await fsp.readFile(path.join(dir, backups[0]), 'utf-8')).toBe('{"name": "坏')
+    // 原文件已隔离，重试：缺失 → 重建默认配置成功
+    const cfg = await box.workspace.loadConfig(ws)
+    expect(cfg.name).toBe('Workspace')
+  })
+})
+
+describe('setCurrentWorkspace 切换通知先于持久化（v2.5.3 T5-S1）', () => {
+  /** 轮询等待条件（替代固定 setTimeout 等待，稳定无脆弱窗口） */
+  async function waitFor(cond: () => boolean, timeoutMs = 3000): Promise<void> {
+    const start = Date.now()
+    while (!cond()) {
+      if (Date.now() - start > timeoutMs) throw new Error('waitFor 超时')
+      await new Promise((r) => setTimeout(r, 5))
+    }
+  }
+
+  it('onWorkspaceChanged 在 addRecentWorkspace 落盘前同步触发（先失效旧 session 再等待持久化）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    const order: string[] = []
+    box.workspace.onWorkspaceChanged(() => {
+      order.push('notify')
+      // 通知时刻：currentWS 必须已是新工作区（索引 beginRebuild / 交换区 stop 都依赖它）
+      expect(box.workspace.currentWorkspacePath()).toBe(path.resolve(ws))
+    })
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const spy = vi.spyOn(box.workspace, 'loadRecentWorkspaces').mockImplementation(async () => {
+      order.push('persist-reading')
+      await gate // 挂起最近工作区落盘前的读取：通知必须先于此处完成
+      return []
+    })
+
+    const switching = box.workspace.setCurrentWorkspace(ws)
+    await waitFor(() => order.includes('notify')) // 通知已在持久化挂起期间触发
+    expect(order).toEqual(['notify', 'persist-reading']) // 通知先于持久化读取
+    release()
+    await switching
+    // 落盘完成仍不改变顺序：通知发生在持久化之前且仅一次
+    expect(order).toEqual(['notify', 'persist-reading'])
+    expect(spy).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
+  })
+
+  it('addRecentWorkspace 失败（磁盘错误）不影响切换生效：通知已先行、currentWS 不回滚', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    let notifyCount = 0
+    box.workspace.onWorkspaceChanged(() => {
+      notifyCount++
+      expect(box.workspace.currentWorkspacePath()).toBe(path.resolve(ws))
+    })
+    const spy = vi.spyOn(box.workspace, 'loadRecentWorkspaces').mockRejectedValue(new Error('磁盘错误'))
+
+    await expect(box.workspace.setCurrentWorkspace(ws)).rejects.toThrow('磁盘错误')
+    expect(notifyCount).toBe(1) // 通知已先行，切换不因落盘失败回滚
+    expect(box.workspace.currentWorkspacePath()).toBe(path.resolve(ws)) // currentWS 保持新值
+    spy.mockRestore()
   })
 })

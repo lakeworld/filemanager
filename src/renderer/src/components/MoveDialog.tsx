@@ -86,7 +86,8 @@ export default function MoveDialog(props: {
   };
 
   return (
-    <Modal open title="移动到…" size="md" onClose={props.onClose}>
+    // v2.5.3（P2-7）：移动进行中 lockOpen——Esc/遮罩均不触发 onClose（照 ArchiveProgressDialog 先例）
+    <Modal open title="移动到…" size="md" lockOpen={status() === "moving"} onClose={props.onClose}>
       <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h2 class="text-xl font-bold mb-4">移动到…</h2>
 

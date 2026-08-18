@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
+import { readJsonDetailed } from './jsonStore'
 import type { NamingTemplate, WorkspaceConfig } from '../../shared/types'
 
 export type { NamingTemplate, WorkspaceConfig } from '../../shared/types'
@@ -82,6 +83,16 @@ export function defaultWorkspaceConfig(): WorkspaceConfig {
 // —— 路径构造（与原 Go 函数一一对应）——
 export function cmDir(workspace: string): string {
   return path.join(workspace, APP_DATA_DIR)
+}
+
+/**
+ * 工作区内部受保护路径：`.qihefilemanager/` 下的配置/台账 JSON（config/metadata/customers/...）。
+ * 这些文件只允许经事务化写路径（jsonStore）变更；禁止文件直写旁路（如 saveTextFile）绕过损坏守卫（v2.5.3 T2）。
+ */
+export function isProtectedConfigPath(workspace: string, filePath: string): boolean {
+  const cm = path.resolve(cmDir(workspace))
+  const p = path.resolve(filePath)
+  return p === cm || p.startsWith(cm + path.sep)
 }
 
 export function configPath(workspace: string): string {
@@ -178,38 +189,17 @@ export function ensureWorkspaceDirs(workspace: string): void {
   }
 }
 
-// —— 原子 JSON 写（tmp + rename，防崩溃损坏原文件）——
-export async function writeJsonAtomic(filePath: string, data: unknown): Promise<void> {
-  const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`
-  const content = JSON.stringify(data, null, 2)
-  await fsp.writeFile(tmpPath, content, { encoding: 'utf-8', mode: 0o644 })
-  await fsp.rename(tmpPath, filePath)
-}
+// —— JSON 兼容薄壳（事务/耐久化语义集中于 jsonStore.ts）——
+export { writeJsonAtomic, overwriteJson } from './jsonStore'
 
 /**
- * 读取 JSON 文件：文件不存在返回 null；文件存在但 JSON 解析失败（损坏）时，
- * 先备份原文件为 `<filePath>.corrupt-<时间戳>`（不丢数据、留证）再返回 null。
- * 统一覆盖各台账（invoices/quotes/clients/suppliers）与 config.json 的损坏降级
- * （与 inbound.ts / metadata.ts 的 .corrupt-<ts> 备份范式一致）。
+ * 保持旧调用面的 null 降级语义；新的 mutation 调用应直接使用 jsonStore。
+ * v2.5.3（T2）：只读路径不移动文件（backupOnCorrupt:false）——损坏照常返回 null 由调用方降级，
+ * 损坏文件原位保留，写路径的损坏守卫（readJsonForMutation 隔离备份 + 拒绝覆盖）仍能留证。
  */
 export async function readJsonFile<T>(filePath: string): Promise<T | null> {
-  let raw: string
-  try {
-    raw = await fsp.readFile(filePath, 'utf-8')
-  } catch {
-    return null // 文件不存在
-  }
-  try {
-    return JSON.parse(raw) as T
-  } catch {
-    // 损坏：备份原文件（不丢数据），降级为 null
-    try {
-      await fsp.copyFile(filePath, `${filePath}.corrupt-${Date.now()}`)
-    } catch {
-      // 备份失败不阻断
-    }
-    return null
-  }
+  const result = await readJsonDetailed<T>(filePath, { backupOnCorrupt: false })
+  return result.ok ? result.value : null
 }
 
 // —— 路径安全校验（对照原 files.go 各 HasPrefix 调用点）——

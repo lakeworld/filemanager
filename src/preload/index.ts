@@ -4,7 +4,15 @@
  * 事件：events.on('import:complete', cb) → 主进程发 'qihebox:event:import:complete'
  */
 import { contextBridge, ipcRenderer, webUtils, webFrame } from 'electron'
-import type { ApiResult, PluginInfo } from '../shared/types'
+import type {
+  ApiResult,
+  PluginInfo,
+  WindowFirstFrameAckMessage,
+  WindowParkedAckMessage,
+  WindowPrepareHideMessage,
+  WindowPrepareShowMessage,
+  WindowRestoredMessage,
+} from '../shared/types'
 
 const invoke = (channel: string, ...args: unknown[]): Promise<unknown> =>
   ipcRenderer.invoke(channel, ...args)
@@ -266,6 +274,37 @@ const api = {
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   /** v2.2.1：清理 Blink 图像解码缓存（窗口隐藏时调用，回收内存） */
   clearCache: (): void => webFrame.clearCache(),
+  // v2.5.3 常驻轻壳：窗口生命周期（设计 §五；固定两个 ACK 方法 + 两个订阅事件，不暴露任意 channel send）
+  windowLifecycle: {
+    /** parked-ack：重资源卸载完成（generation 由主进程 prepare-hide 下发，原样回传） */
+    parked: (generation: number): Promise<ApiResult<boolean>> => {
+      const msg: WindowParkedAckMessage = { generation }
+      return invoke('qihebox:window:parked', msg) as Promise<ApiResult<boolean>>
+    },
+    /** first-frame-ack：FrameWitness 轻壳已提交（带 token 回传，供主进程校验） */
+    firstFrame: (generation: number, frameToken?: number): Promise<ApiResult<boolean>> => {
+      const msg: WindowFirstFrameAckMessage = { generation, frameToken }
+      return invoke('qihebox:window:first-frame', msg) as Promise<ApiResult<boolean>>
+    },
+    /** 订阅 prepare-hide（隐藏前卸载重资源）；返回取消订阅函数 */
+    onPrepareHide: (cb: (msg: WindowPrepareHideMessage) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, data: WindowPrepareHideMessage): void => cb(data)
+      ipcRenderer.on('qihebox:event:window:prepare-hide', listener)
+      return () => ipcRenderer.removeListener('qihebox:event:window:prepare-hide', listener)
+    },
+    /** 订阅 prepare-show（恢复前渲染 FrameWitness 轻壳）；返回取消订阅函数 */
+    onPrepareShow: (cb: (msg: WindowPrepareShowMessage) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, data: WindowPrepareShowMessage): void => cb(data)
+      ipcRenderer.on('qihebox:event:window:prepare-show', listener)
+      return () => ipcRenderer.removeListener('qihebox:event:window:prepare-show', listener)
+    },
+    /** 订阅 restored（恢复完成，重挂业务路由）；返回取消订阅函数 */
+    onRestored: (cb: (msg: WindowRestoredMessage) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, data: WindowRestoredMessage): void => cb(data)
+      ipcRenderer.on('qihebox:event:window:restored', listener)
+      return () => ipcRenderer.removeListener('qihebox:event:window:restored', listener)
+    },
+  },
 }
 
 contextBridge.exposeInMainWorld('qihebox', api)

@@ -19,11 +19,12 @@ import {
   SUPPLIERS_DIR,
   SUPPLIER_SUBFOLDERS,
   ensureWorkspaceDirs,
-  writeJsonAtomic,
+  overwriteJson,
   readJsonFile,
   assertSafeFolderName,
   productSetRootPath,
 } from './paths'
+import { mutateJsonFile } from './jsonStore'
 import { WorkspaceService, countFiles } from './workspace'
 import { currentTimeString } from './metadata'
 import { globalWorkspaceIndex } from './indexCache'
@@ -55,7 +56,30 @@ export class SuppliersService {
 
   async saveSuppliersInfo(ws: string, store: Record<string, SupplierExtraInfo>): Promise<void> {
     ensureWorkspaceDirs(ws)
-    await writeJsonAtomic(suppliersInfoPath(ws), store)
+    await overwriteJson(suppliersInfoPath(ws), store)
+  }
+
+  /**
+   * 锁内读改写事务（v2.5.3 T2，S1）：读取/构造/查重/修改全部在 mutate 回调内完成，
+   * 保证基于锁内最新磁盘内容，杜绝并发丢更新与「内存已改、写盘失败」假成功。
+   * 回调通过 markChanged() 声明实际变更——未声明则 save 返回 false 不写盘（无变化不刷 mtime）。
+   * 结构非法视为损坏：写路径拒绝覆盖并隔离留证（.corrupt-* 备份）；校验/查重失败直接上抛。
+   */
+  private async mutateStore<R>(
+    ws: string,
+    mutate: (store: Record<string, SupplierExtraInfo>, markChanged: () => void) => Promise<R> | R,
+  ): Promise<R> {
+    ensureWorkspaceDirs(ws)
+    const p = suppliersInfoPath(ws)
+    let changed = false
+    const result = await mutateJsonFile<Record<string, SupplierExtraInfo>, R>(p, {
+      read: async () => ({}), // 文件缺失按空档案起步
+      mutate: async (store) => mutate(store, () => (changed = true)),
+      save: async () => changed,
+      validate: (v) =>
+        v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, SupplierExtraInfo>) : null,
+    })
+    return result
   }
 
   // —— 供应商 API（镜像 ClientsService，对照 workspace.ts 产品集段）——
@@ -89,9 +113,6 @@ export class SuppliersService {
     } catch (err: unknown) {
       if (err instanceof Error && err.message === '供应商已存在') throw err
     }
-    // 既有档案重名也拒绝（目录被删但档案残留的防御：目录扫描为实、JSON 为档案，重名必冲突）
-    const store = await this.loadSuppliersInfo()
-    if (store[name]) throw new Error('供应商已存在')
     // 关联产品集校验（镜像客户 create：拒绝不存在的产品集孤儿关联，v2.4.9 打磨 M8）
     if (req.related_product_sets) {
       for (const ps of req.related_product_sets) await this.assertProductSetExists(ps)
@@ -114,10 +135,15 @@ export class SuppliersService {
       created_at: now,
       updated_at: now,
     }
-    store[name] = entry
-    await this.saveSuppliersInfo(ws, store)
+    // 档案写入走锁内事务：锁内再查重（既有档案重名/并发同建防御，目录被删但档案残留的冲突），写入基于最新磁盘内容
+    const created = await this.mutateStore(ws, async (store, markChanged) => {
+      if (store[name]) throw new Error('供应商已存在')
+      store[name] = entry
+      markChanged()
+      return this.buildInfo(ws, name, 0, entry)
+    })
     this.logger?.info(`供应商创建: ${name}`)
-    return this.buildInfo(ws, name, 0, entry)
+    return created
   }
 
   /**
@@ -132,26 +158,27 @@ export class SuppliersService {
     await fsp.stat(dir).catch(() => {
       throw new Error('供应商不存在')
     })
-    const store = await this.loadSuppliersInfo()
-    const entry = store[name] ?? {}
     const now = currentTimeString()
-    if (req.contact !== undefined) entry.contact = req.contact.trim()
-    if (req.phone !== undefined) entry.phone = req.phone.trim()
-    if (req.email !== undefined) entry.email = req.email.trim()
-    if (req.address !== undefined) entry.address = req.address.trim()
-    if (req.notes !== undefined) entry.notes = req.notes.trim()
-    if (req.tags !== undefined) entry.tags = req.tags
-    // 关联产品集：去重 + 校验产品集存在（镜像客户 update，拒绝孤儿关联，v2.4.9 打磨 M8）
-    if (req.related_product_sets !== undefined) {
-      const list = [...new Set(req.related_product_sets)]
-      for (const ps of list) await this.assertProductSetExists(ps)
-      entry.related_product_sets = list
-    }
-    entry.created_at = entry.created_at ?? now
-    entry.updated_at = now
-    store[name] = entry
-    await this.saveSuppliersInfo(ws, store)
-    return this.buildInfo(ws, name, await countFiles(dir), entry)
+    return this.mutateStore(ws, async (store, markChanged) => {
+      const entry = store[name] ?? {}
+      if (req.contact !== undefined) entry.contact = req.contact.trim()
+      if (req.phone !== undefined) entry.phone = req.phone.trim()
+      if (req.email !== undefined) entry.email = req.email.trim()
+      if (req.address !== undefined) entry.address = req.address.trim()
+      if (req.notes !== undefined) entry.notes = req.notes.trim()
+      if (req.tags !== undefined) entry.tags = req.tags
+      // 关联产品集：去重 + 校验产品集存在（镜像客户 update，拒绝孤儿关联，v2.4.9 打磨 M8）
+      if (req.related_product_sets !== undefined) {
+        const list = [...new Set(req.related_product_sets)]
+        for (const ps of list) await this.assertProductSetExists(ps)
+        entry.related_product_sets = list
+      }
+      entry.created_at = entry.created_at ?? now
+      entry.updated_at = now
+      store[name] = entry
+      markChanged()
+      return this.buildInfo(ws, name, await countFiles(dir), entry)
+    })
   }
 
   /**
@@ -176,9 +203,6 @@ export class SuppliersService {
     } catch (err: unknown) {
       if (err instanceof Error && err.message === '新供应商已存在') throw err
     }
-    const store = await this.loadSuppliersInfo()
-    // 档案残留重名防御（目录已删但档案残留时新名同样拒绝）
-    if (store[newName]) throw new Error('新供应商已存在')
     const hasFiles = await this.dirContainsFile(oldDir)
     if (hasFiles) {
       throw new Error('该供应商下已有文件，无法重命名。如需修改名称，请先删除文件或新建空供应商。')
@@ -186,12 +210,15 @@ export class SuppliersService {
     await fsp.rename(oldDir, newDir)
     globalWorkspaceIndex.invalidate(oldDir)
     globalWorkspaceIndex.invalidate(newDir)
-    // 档案键迁移（tags/notes/erp_ext 随条目整体移动）
-    if (store[oldName]) {
-      store[newName] = store[oldName]
-      delete store[oldName]
-      await this.saveSuppliersInfo(ws, store)
-    }
+    // 档案键迁移（tags/notes/erp_ext 随条目整体移动；无条目时不写盘）；锁内档案残留重名防御
+    await this.mutateStore(ws, async (store, markChanged) => {
+      if (store[newName]) throw new Error('新供应商已存在')
+      if (store[oldName]) {
+        store[newName] = store[oldName]
+        delete store[oldName]
+        markChanged()
+      }
+    })
     this.logger?.info(`供应商重命名: ${oldName} → ${newName}`)
   }
 
@@ -204,16 +231,21 @@ export class SuppliersService {
       throw new Error('供应商不存在')
     })
     await this.assertProductSetExists(productSet)
-    const store = await this.loadSuppliersInfo()
-    const entry = store[name] ?? {}
     const ps = productSet.trim()
-    const list = [...new Set([...(entry.related_product_sets ?? []), ps])]
-    entry.related_product_sets = list
-    entry.created_at = entry.created_at ?? currentTimeString()
-    entry.updated_at = currentTimeString()
-    store[name] = entry
-    await this.saveSuppliersInfo(ws, store)
-    return this.buildInfo(ws, name, await countFiles(dir), entry)
+    return this.mutateStore(ws, async (store, markChanged) => {
+      const entry = store[name] ?? {}
+      const list = [...new Set([...(entry.related_product_sets ?? []), ps])]
+      if (list.length === (entry.related_product_sets ?? []).length) {
+        // 已关联（无变化）→ 不写盘、不刷 mtime
+        return this.buildInfo(ws, name, await countFiles(dir), entry)
+      }
+      entry.related_product_sets = list
+      entry.created_at = entry.created_at ?? currentTimeString()
+      entry.updated_at = currentTimeString()
+      store[name] = entry
+      markChanged()
+      return this.buildInfo(ws, name, await countFiles(dir), entry)
+    })
   }
 
   /** 解除关联（related_product_sets 删；无档案条目/无关联时静默幂等，镜像客户 clients.ts:222） */
@@ -224,15 +256,20 @@ export class SuppliersService {
     await fsp.stat(dir).catch(() => {
       throw new Error('供应商不存在')
     })
-    const store = await this.loadSuppliersInfo()
-    const entry = store[name]
-    if (entry) {
-      entry.related_product_sets = (entry.related_product_sets ?? []).filter((ps) => ps !== productSet.trim())
-      entry.updated_at = currentTimeString()
-      store[name] = entry
-      await this.saveSuppliersInfo(ws, store)
-    }
-    return this.buildInfo(ws, name, await countFiles(dir), entry)
+    const ps = productSet.trim()
+    return this.mutateStore(ws, async (store, markChanged) => {
+      const entry = store[name]
+      if (entry) {
+        const next = (entry.related_product_sets ?? []).filter((x) => x !== ps)
+        if (next.length !== (entry.related_product_sets ?? []).length) {
+          entry.related_product_sets = next
+          entry.updated_at = currentTimeString()
+          store[name] = entry
+          markChanged()
+        }
+      }
+      return this.buildInfo(ws, name, await countFiles(dir), entry)
+    })
   }
 
   /**
@@ -241,10 +278,11 @@ export class SuppliersService {
    */
   async removeEntry(name: string): Promise<void> {
     const ws = this.requireWS()
-    const store = await this.loadSuppliersInfo()
-    if (!store[name]) return
-    delete store[name]
-    await this.saveSuppliersInfo(ws, store)
+    await this.mutateStore(ws, async (store, markChanged) => {
+      if (!store[name]) return
+      delete store[name]
+      markChanged()
+    })
   }
 
   /** 合并目录扫描与 JSON 档案，构造对外 SupplierInfo（created_at/updated_at 优先档案 ISO，缺省回退目录 mtime） */

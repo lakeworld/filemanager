@@ -401,3 +401,48 @@ describe('报价单服务（v2.4.9 S3）', () => {
     expect(infoMsgs()).toEqual([expect.stringContaining('创建'), expect.stringContaining('状态流转')])
   })
 })
+describe('报价单服务（v2.5.3 T2：锁内单号自增 / 损坏拒写）', () => {
+  it('并发 create：锁内单号自增，8 单生成唯一连续单号不撞号', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    const recs = await Promise.all(
+      Array.from({ length: 8 }, () => box.quotes.create({ date: '2026-08-11', lines: [line(1, 100)] })),
+    )
+    const nos = recs.map((r) => r.quotation_no).sort()
+    expect(nos).toEqual([
+      'QT-20260811-001',
+      'QT-20260811-002',
+      'QT-20260811-003',
+      'QT-20260811-004',
+      'QT-20260811-005',
+      'QT-20260811-006',
+      'QT-20260811-007',
+      'QT-20260811-008',
+    ])
+    expect(new Set(nos).size).toBe(8)
+    expect(await box.quotes.list()).toHaveLength(8)
+  })
+
+  it('损坏报价.json：写路径拒绝覆盖并隔离留证（.corrupt-* 备份），隔离后重建成功', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.quotes.create({ date: '2026-08-11', lines: [line(1, 100)] })
+    const p = path.join(ws, '.qihefilemanager', '报价.json')
+    const corrupt = '{"quotes": {"QT-'
+    await fsp.writeFile(p, corrupt)
+    const dir = path.join(ws, '.qihefilemanager')
+
+    await expect(box.quotes.create({ date: '2026-08-11', lines: [line(1, 100)] })).rejects.toThrow(/损坏|覆盖/)
+    const backups = (await fsp.readdir(dir)).filter((n) => n.startsWith('报价.json.corrupt-'))
+    expect(backups).toHaveLength(1)
+    expect(await fsp.readFile(path.join(dir, backups[0]), 'utf-8')).toBe(corrupt)
+    // 隔离后空库重建，单号从头编号
+    const r = await box.quotes.create({ date: '2026-08-11', lines: [line(1, 100)] })
+    expect(r.quotation_no).toBe('QT-20260811-001')
+  })
+})

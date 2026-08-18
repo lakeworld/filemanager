@@ -25,10 +25,10 @@ import {
   quoteRootPath,
   QUOTE_STATUSES,
   ensureWorkspaceDirs,
-  writeJsonAtomic,
   readJsonFile,
   isPathInsideWorkspaceReal,
 } from './paths'
+import { mutateJsonFile } from './jsonStore'
 import { WorkspaceService } from './workspace'
 import { parseExpiryDate, currentTimeString } from './metadata'
 import { sanitizeName, resolveConflictName, composeTargetName } from './naming'
@@ -97,16 +97,37 @@ export class QuotesService {
     return ws
   }
 
-  /** 读取台账；文件缺失/损坏（结构非法）视为空台账，宽容处理（同发票 loadStore） */
+  /** 读取台账（只读/宽容降级）；文件缺失/损坏（结构非法）视为空台账（同发票 loadStore） */
   async loadStore(ws?: string): Promise<QuotesStore> {
     const w = ws ?? this.requireWS()
     const data = await readJsonFile<QuotesStore>(quotesPath(w))
     return data && data.quotes && typeof data.quotes === 'object' ? data : { quotes: {} }
   }
 
-  async saveStore(ws: string, store: QuotesStore): Promise<void> {
+  /**
+   * 锁内读改写事务（v2.5.3 T2，S1）：读取/构造/查重（含单号自增）/修改全部在 mutate 回调内完成，
+   * 保证基于锁内最新磁盘内容（并发建单不撞号、不丢更新），杜绝「内存已改、写盘失败」假成功。
+   * 回调通过 markChanged() 声明实际变更——未声明则 save 返回 false 不写盘（无变化不刷 mtime）。
+   * 结构非法视为损坏：写路径拒绝覆盖并隔离留证（.corrupt-* 备份）；校验/查重失败直接上抛。
+   */
+  private async mutateStore<R>(
+    ws: string,
+    mutate: (store: QuotesStore, markChanged: () => void) => Promise<R> | R,
+  ): Promise<R> {
     ensureWorkspaceDirs(ws)
-    await writeJsonAtomic(quotesPath(ws), store)
+    const p = quotesPath(ws)
+    let changed = false
+    const result = await mutateJsonFile<QuotesStore, R>(p, {
+      read: async () => ({ quotes: {} }), // 文件缺失按空台账起步
+      mutate: async (store) => mutate(store, () => (changed = true)),
+      save: async () => changed,
+      validate: (v): QuotesStore | null =>
+        v && typeof v === 'object' && !Array.isArray(v) && (v as QuotesStore).quotes &&
+        typeof (v as QuotesStore).quotes === 'object'
+          ? (v as QuotesStore)
+          : null,
+    })
+    return result
   }
 
   private assertStatus(status: unknown): asserts status is QuoteStatus {
@@ -217,21 +238,13 @@ export class QuotesService {
     const lines = this.assertLines(req.lines)
     const date = this.assertDate(req.date)
     const totalAmount = round2(lines.reduce((s, l) => s + l.amount, 0))
-    const store = await this.loadStore(ws)
-
     const manual = (req.quotation_no ?? '').trim()
-    const quotationNo = manual ? manual : nextQuotationNo(store, date)
-    if (manual) {
-      const conflict = store.quotes[quotationNo]
-      if (conflict) throw this.duplicateError(conflict)
-    }
 
     let filePath = ''
     if ((req.file_path ?? '').trim()) filePath = await this.resolveArchivedFilePath(ws, req.file_path ?? '')
 
     const now = currentTimeString()
-    const rec: QuoteRecord = {
-      quotation_no: quotationNo,
+    const base: Omit<QuoteRecord, 'quotation_no'> = {
       date,
       lines,
       total_amount: totalAmount,
@@ -240,12 +253,21 @@ export class QuotesService {
       created_at: now,
       updated_at: now,
     }
-    if ((req.customer ?? '').trim()) rec.customer = (req.customer ?? '').trim()
-    if ((req.notes ?? '').trim()) rec.notes = (req.notes ?? '').trim()
-
-    store.quotes[quotationNo] = rec
-    await this.saveStore(ws, store)
-    this.logger?.info(`报价单创建: ${quotationNo}`)
+    // 单号生成/手输查重/写入同在锁内——并发建单基于锁内最新序号自增，不撞号不丢更新
+    const rec = await this.mutateStore(ws, (store, markChanged) => {
+      const quotationNo = manual ? manual : nextQuotationNo(store, date)
+      if (manual) {
+        const conflict = store.quotes[quotationNo]
+        if (conflict) throw this.duplicateError(conflict)
+      }
+      const full: QuoteRecord = { ...base, quotation_no: quotationNo }
+      if ((req.customer ?? '').trim()) full.customer = (req.customer ?? '').trim()
+      if ((req.notes ?? '').trim()) full.notes = (req.notes ?? '').trim()
+      store.quotes[quotationNo] = full
+      markChanged()
+      return full
+    })
+    this.logger?.info(`报价单创建: ${rec.quotation_no}`)
     return { ...rec, lines: (rec.lines ?? []).map((l) => ({ ...l })) }
   }
 
@@ -258,34 +280,39 @@ export class QuotesService {
     this.assertNoExtField(req)
     const no = (req.quotation_no ?? '').trim()
     if (!no) throw new Error('报价单号不能为空')
-    const store = await this.loadStore(ws)
-    const existing = store.quotes[no]
-    if (!existing) throw new Error('报价单不存在')
-
-    const rec: QuoteRecord = { ...existing }
-    if (req.date !== undefined) rec.date = this.assertDate(req.date)
-    if (req.lines !== undefined) {
-      if (rec.status === '已确认') throw new Error('报价单已确认，明细已锁定。如需修改请先转为修订中')
-      rec.lines = this.assertLines(req.lines)
-      rec.total_amount = round2(rec.lines.reduce((s, l) => s + l.amount, 0))
-    }
-    if (req.customer !== undefined) {
-      const v = (req.customer ?? '').trim()
-      if (v) rec.customer = v
-      else delete rec.customer
-    }
-    if (req.notes !== undefined) {
-      const v = (req.notes ?? '').trim()
-      if (v) rec.notes = v
-      else delete rec.notes
-    }
+    // 换绑文件：fs 校验（工作区边界/存在性）锁外完成，store 无关
+    let newFilePath: string | undefined
     if (req.file_path !== undefined && (req.file_path ?? '').trim()) {
-      rec.file_path = await this.resolveArchivedFilePath(ws, req.file_path ?? '')
+      newFilePath = await this.resolveArchivedFilePath(ws, req.file_path ?? '')
     }
-    rec.updated_at = currentTimeString()
+    const rec = await this.mutateStore(ws, (store, markChanged) => {
+      const existing = store.quotes[no]
+      if (!existing) throw new Error('报价单不存在')
 
-    store.quotes[no] = rec
-    await this.saveStore(ws, store)
+      const out: QuoteRecord = { ...existing }
+      if (req.date !== undefined) out.date = this.assertDate(req.date)
+      if (req.lines !== undefined) {
+        if (out.status === '已确认') throw new Error('报价单已确认，明细已锁定。如需修改请先转为修订中')
+        out.lines = this.assertLines(req.lines)
+        out.total_amount = round2(out.lines.reduce((s, l) => s + l.amount, 0))
+      }
+      if (req.customer !== undefined) {
+        const v = (req.customer ?? '').trim()
+        if (v) out.customer = v
+        else delete out.customer
+      }
+      if (req.notes !== undefined) {
+        const v = (req.notes ?? '').trim()
+        if (v) out.notes = v
+        else delete out.notes
+      }
+      if (newFilePath !== undefined) out.file_path = newFilePath
+      out.updated_at = currentTimeString()
+
+      store.quotes[no] = out
+      markChanged()
+      return out
+    })
     return { ...rec, lines: (rec.lines ?? []).map((l) => ({ ...l })) }
   }
 
@@ -295,35 +322,38 @@ export class QuotesService {
     this.assertStatus(status)
     const no = (quotationNo ?? '').trim()
     if (!no) throw new Error('报价单号不能为空')
-    const store = await this.loadStore(ws)
-    const rec = store.quotes[no]
-    if (!rec) throw new Error('报价单不存在')
-    if (!STATUS_TRANSITIONS[rec.status]?.[status]) {
-      throw new Error(`状态不允许从「${rec.status}」流转到「${status}」`)
-    }
-    rec.status = status
-    if (status === '已确认') rec.confirmed_at = currentTimeString()
-    rec.updated_at = currentTimeString()
-    await this.saveStore(ws, store)
+    const rec = await this.mutateStore(ws, (store, markChanged) => {
+      const r = store.quotes[no]
+      if (!r) throw new Error('报价单不存在')
+      if (!STATUS_TRANSITIONS[r.status]?.[status]) {
+        throw new Error(`状态不允许从「${r.status}」流转到「${status}」`)
+      }
+      r.status = status
+      if (status === '已确认') r.confirmed_at = currentTimeString()
+      r.updated_at = currentTimeString()
+      markChanged()
+      return r
+    })
     this.logger?.info(`报价单状态流转: ${no} → ${status}`)
     return { ...rec, lines: (rec.lines ?? []).map((l) => ({ ...l })) }
   }
 
   /**
    * 客户改名级联：扫描全部单据，customer === oldName → newName（幂等；不校验客户存在，
-   * 名字引用语义同 inbound.renameSupplierId——客户被删后编辑旧单据放行）。
+   * 名字引用语义同 inbound.renameSupplierId——客户被删后编辑旧单据放行；无命中不写盘、不刷 mtime）。
    */
   async renameCustomer(oldName: string, newName: string): Promise<void> {
     const ws = this.requireWS()
-    const store = await this.loadStore(ws)
-    let changed = false
-    for (const rec of Object.values(store.quotes)) {
-      if (rec.customer === oldName) {
-        rec.customer = newName
-        changed = true
+    await this.mutateStore(ws, (store, markChanged) => {
+      let changed = false
+      for (const rec of Object.values(store.quotes)) {
+        if (rec.customer === oldName) {
+          rec.customer = newName
+          changed = true
+        }
       }
-    }
-    if (changed) await this.saveStore(ws, store)
+      if (changed) markChanged()
+    })
   }
 
   /** 删除台账记录（账物分离同发票）：只删记录，文件留在 报价/<YYYY>/ */
@@ -331,10 +361,11 @@ export class QuotesService {
     const ws = this.requireWS()
     const no = (quotationNo ?? '').trim()
     if (!no) throw new Error('报价单号不能为空')
-    const store = await this.loadStore(ws)
-    if (!store.quotes[no]) throw new Error('报价单不存在')
-    delete store.quotes[no]
-    await this.saveStore(ws, store)
+    await this.mutateStore(ws, (store, markChanged) => {
+      if (!store.quotes[no]) throw new Error('报价单不存在')
+      delete store.quotes[no]
+      markChanged()
+    })
   }
 
   /**

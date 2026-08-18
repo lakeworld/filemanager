@@ -6,7 +6,12 @@ export default defineConfig({
   timeout: 90000,
   workers: 1,
   reporter: [['list']],
-  // 一致性套件独立运行（npm run conformance -- <插件路径>），不混入全量 e2e：
-  // 防 workers:1 串行多跑 + 与 plugins.spec 重复侧载 hello（PLAN-v2.5-测试 Task 4）
-  testIgnore: '**/conformance/**',
+  use: {
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+  },
+  // 一致性与内存 soak 均独立运行，不混入默认全量 e2e：
+  // 防 workers:1 串行多跑 + 与 plugins.spec 重复侧载 hello（PLAN-v2.5-测试 Task 4）。
+  testIgnore: ['**/conformance/**', '**/memory-soak.spec.ts'],
 })

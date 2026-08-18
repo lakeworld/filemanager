@@ -5,7 +5,7 @@
  * 编辑弹窗复用 QuoteFormModal（status='已确认' 时明细行只读锁定，与 core 一致）。
  * 删除：ConfirmDialog「删除报价记录（归档文件保留）」——账物分离，删除不删文件。
  */
-import { Show, For, createSignal, createEffect } from "solid-js";
+import { Show, For, createSignal, createEffect, onCleanup } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { currentWorkspace } from "~/stores/workspace";
@@ -48,6 +48,10 @@ function InfoRow(props: { label: string; value?: string; muted?: boolean }) {
   );
 }
 
+// v2.5.3（P2-12）：加载序号模块级（照 Images imageLoadSeq 先例）——卸载清理递增后跨挂载延续计数，
+// 旧实例在途链持有的旧值永远不会与新实例的计数撞号，过期结果必被丢弃
+let quoteDetailLoadSeq = 0;
+
 export default function QuoteDetail() {
   const navigate = useNavigate();
   const params = useParams();
@@ -65,12 +69,18 @@ export default function QuoteDetail() {
     }
   };
 
-  let seq = 0;
+  // v2.5.3（P2-12）：卸载即递增加载代（模块级）——未完成的加载链校验失效后立即退出
+  onCleanup(() => {
+    quoteDetailLoadSeq++;
+  });
+
+  // v2.5.3（P2-14）：加载开始时清空旧 record，失败不再残留旧单（防「已删除单仍显示」）
   const loadQuote = async (no: string) => {
-    const s = ++seq;
+    const s = ++quoteDetailLoadSeq;
+    setRecord(null);
     if (!no) return;
     const r = await api.quotes.get(no);
-    if (s !== seq) return;
+    if (s !== quoteDetailLoadSeq) return;
     if (r.success) setRecord(r.data ?? null);
   };
 

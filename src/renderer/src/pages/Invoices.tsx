@@ -26,7 +26,7 @@
  * 渲染层纪律：台账/入库列表走 VirtualGrid 虚拟滚动；本页不创建 Blob URL、无 setTimeout
  * （无 onCleanup 定时器清理项）。
  */
-import { Show, For, createSignal, createEffect } from "solid-js";
+import { Show, For, createSignal, createEffect, onCleanup } from "solid-js";
 import { useSearchParams, useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { currentWorkspace, productSets, loadProductSets } from "~/stores/workspace";
@@ -137,6 +137,11 @@ function fileEntryOf(relPath: string): FileEntry | null {
   };
 }
 
+// v2.5.3（P2-12）：加载序号模块级（照 Images imageLoadSeq 先例）——卸载清理递增后跨挂载延续计数，
+// 重新挂载不再从 0 计数：旧实例在途链持有的旧值永远不会与新实例的计数撞号，过期结果必被丢弃
+let invoiceLoadSeq = 0;
+let inboundLoadSeq = 0;
+
 export default function Invoices() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -157,6 +162,8 @@ export default function Invoices() {
 
   // —— 入库单 ——
   const [inboundRecords, setInboundRecords] = createSignal<InboundRecord[]>([]);
+  // v2.5.3（P2-6）：入库单 tab 首载 loading——空态不闪现（照同页发票 tab loading 先例）
+  const [inboundLoading, setInboundLoading] = createSignal(true);
 
   // —— 弹窗状态 ——
   const [invoiceEditor, setInvoiceEditor] = createSignal<{ mode: "create" } | { mode: "edit"; record: InvoiceRecord } | null>(null);
@@ -169,13 +176,18 @@ export default function Invoices() {
     id: "", date: "", supplier: "", supplier_id: "", product_set: "", amount: "", notes: "", file_path: "",
   });
   const [deleteTarget, setDeleteTarget] = createSignal<{ kind: "invoice" | "inbound"; key: string; name: string; withFile: boolean } | null>(null);
+  // v2.5.3（P2-10）：保存中——发票/入库单弹窗共用（一次只开一个弹窗），按钮 disabled + handler 入口守卫防连点双创建
+  const [saving, setSaving] = createSignal(false);
   // v2.4.7（评审 P2）：本次弹窗内已归档但尚未保存的文件（工作区相对路径）——archiveFile 立即落盘，
   // 取消/查重拒绝会留下孤儿文件，关闭弹窗时提示可删除（最小实现：文案说明，不提供删除按钮）
   const [stagedArchive, setStagedArchive] = createSignal("");
 
   // —— 加载（seq 序号守卫，v2.4.x 范式：切工作区后丢弃过期请求返回）——
-  let invoiceSeq = 0;
-  let inboundSeq = 0;
+  // v2.5.3（P2-12）：序号本体模块级（invoiceLoadSeq/inboundLoadSeq），onCleanup 递增防跨挂载撞号
+  onCleanup(() => {
+    invoiceLoadSeq++;
+    inboundLoadSeq++;
+  });
 
   /** 批量探活归档文件（并发 ≤8）；存在性结果按 seq 守卫后才写入 */
   const checkFilesExistence = async (list: InvoiceRecord[], seq: number) => {
@@ -192,32 +204,38 @@ export default function Invoices() {
       }
     });
     await Promise.all(workers);
-    if (seq !== invoiceSeq) return; // 已切到别的加载，过期结果丢弃
+    if (seq !== invoiceLoadSeq) return; // 已切到别的加载，过期结果丢弃
     setMissingFiles(missing);
   };
 
   const loadInvoices = async () => {
-    const seq = ++invoiceSeq;
+    const seq = ++invoiceLoadSeq;
     setLoading(true);
     try {
       const result = await api.invoices.list();
-      if (seq !== invoiceSeq) return;
+      if (seq !== invoiceLoadSeq) return;
       if (result.success && result.data) {
         setInvoices(result.data);
         void checkFilesExistence(result.data, seq);
       }
     } finally {
       // 仅当前链仍最新时复位（过期链的 finally 不得关闭新链的 loading）
-      if (seq === invoiceSeq) setLoading(false);
+      if (seq === invoiceLoadSeq) setLoading(false);
     }
   };
 
   const loadInbound = async () => {
-    const seq = ++inboundSeq;
-    const result = await api.inbound.list();
-    if (seq !== inboundSeq) return;
-    if (result.success && result.data) {
-      setInboundRecords(result.data);
+    const seq = ++inboundLoadSeq;
+    setInboundLoading(true);
+    try {
+      const result = await api.inbound.list();
+      if (seq !== inboundLoadSeq) return;
+      if (result.success && result.data) {
+        setInboundRecords(result.data);
+      }
+    } finally {
+      // 仅当前链仍最新时复位（过期链的 finally 不得关闭新链的 loading）
+      if (seq === inboundLoadSeq) setInboundLoading(false);
     }
   };
 
@@ -362,6 +380,7 @@ export default function Invoices() {
   };
 
   const saveInvoice = async () => {
+    if (saving()) return; // 连点守卫（P2-10）
     const editor = invoiceEditor();
     const f = invoiceForm();
     const number = f.number.trim();
@@ -406,26 +425,31 @@ export default function Invoices() {
       tags: f.tags,
       notes: f.notes.trim(),
     };
-    let result;
-    if (editor?.mode === "edit") {
-      const orig = editor.record;
-      result = await api.invoices.update({
-        number: orig.number,
-        newNumber: number !== orig.number ? number : undefined,
-        ...common,
-        // 未换绑文件时缺省（undefined）→ core 保持原 file_path
-        file_path: f.file_path !== orig.file_path ? f.file_path : undefined,
-      });
-    } else {
-      result = await api.invoices.create({ ...common, number, file_path: f.file_path });
-    }
-    if (result.success) {
-      setStagedArchive(""); // 已保存为记录，文件不再孤儿
-      setInvoiceEditor(null);
-      showToast("success", editor?.mode === "edit" ? "发票已更新" : "发票已登记");
-      void loadInvoices();
-    } else {
-      showToast("error", "保存失败", result.error || "未知错误");
+    setSaving(true);
+    try {
+      let result;
+      if (editor?.mode === "edit") {
+        const orig = editor.record;
+        result = await api.invoices.update({
+          number: orig.number,
+          newNumber: number !== orig.number ? number : undefined,
+          ...common,
+          // 未换绑文件时缺省（undefined）→ core 保持原 file_path
+          file_path: f.file_path !== orig.file_path ? f.file_path : undefined,
+        });
+      } else {
+        result = await api.invoices.create({ ...common, number, file_path: f.file_path });
+      }
+      if (result.success) {
+        setStagedArchive(""); // 已保存为记录，文件不再孤儿
+        setInvoiceEditor(null);
+        showToast("success", editor?.mode === "edit" ? "发票已更新" : "发票已登记");
+        void loadInvoices();
+      } else {
+        showToast("error", "保存失败", result.error || "未知错误");
+      }
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -483,6 +507,7 @@ export default function Invoices() {
   };
 
   const saveInbound = async () => {
+    if (saving()) return; // 连点守卫（P2-10）
     const editor = inboundEditor();
     const f = inboundForm();
     if (!f.id.trim()) {
@@ -511,14 +536,19 @@ export default function Invoices() {
       amount: f.amount.trim() !== "" ? Number(f.amount) : undefined,
       notes: f.notes.trim() || undefined,
     };
-    const result = editor?.mode === "edit" ? await api.inbound.update(editor.record.id, req) : await api.inbound.create(req);
-    if (result.success) {
-      setStagedArchive(""); // 已保存为记录，文件不再孤儿
-      setInboundEditor(null);
-      showToast("success", editor?.mode === "edit" ? "入库单已更新" : "入库单已登记");
-      void loadInbound();
-    } else {
-      showToast("error", "保存失败", result.error || "未知错误");
+    setSaving(true);
+    try {
+      const result = editor?.mode === "edit" ? await api.inbound.update(editor.record.id, req) : await api.inbound.create(req);
+      if (result.success) {
+        setStagedArchive(""); // 已保存为记录，文件不再孤儿
+        setInboundEditor(null);
+        showToast("success", editor?.mode === "edit" ? "入库单已更新" : "入库单已登记");
+        void loadInbound();
+      } else {
+        showToast("error", "保存失败", result.error || "未知错误");
+      }
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -623,6 +653,7 @@ export default function Invoices() {
         <InboundTable
           rows={inboundRecords()}
           suppliers={suppliers()}
+          loading={inboundLoading()}
           onCreate={openInboundCreate}
           onPreview={previewInboundFile}
           onEdit={openInboundEdit}
@@ -635,6 +666,7 @@ export default function Invoices() {
         editor={invoiceEditor()}
         form={invoiceForm()}
         setField={setInvoiceField}
+        saving={saving()}
         onClose={closeInvoiceEditor}
         onSave={() => void saveInvoice()}
         onPickFile={pickInvoiceFile}
@@ -647,6 +679,7 @@ export default function Invoices() {
         editor={inboundEditor()}
         form={inboundForm()}
         setField={setInboundField}
+        saving={saving()}
         onClose={closeInboundEditor}
         onSave={() => void saveInbound()}
         onPickFile={pickInboundFile}

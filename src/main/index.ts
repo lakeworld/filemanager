@@ -12,9 +12,9 @@ import fs from 'node:fs'
 import { createHash } from 'node:crypto'
 import { BoxService } from './core'
 import { WorkspaceService } from './core/workspace'
-import { globalWorkspaceIndex } from './core/indexCache'
+import { globalWorkspaceIndex, WorkspaceIndexCoordinator } from './core/indexCache'
 import { SharpThumbnailService } from './thumbnail'
-import { registerIpc, handle } from './ipc'
+import { registerIpc, handle, sendTo } from './ipc'
 import { registerQiheboxProtocol } from './protocol'
 import { registerPluginHost, type PluginHostHandle } from './plugins/ipc'
 import { createSettings } from './settings'
@@ -26,6 +26,7 @@ import { checkUpdate, setCachedUpdate } from './updater'
 import {
   computeNotifiable,
   composeDailyNotification,
+  localDateString,
   type NotifyState,
   type InvoiceTodoItem,
 } from './notify'
@@ -38,10 +39,11 @@ import {
   windowHideToTray,
   windowQuit,
   setWindowCreateHandler,
-  scheduleDestroy,
   setQuitting,
   isQuitting,
   setupWakeRecovery,
+  notifyRendererGone,
+  l4Rebuilding,
 } from './window'
 
 // —— 自定义协议特权注册（必须在 app ready 前）——
@@ -101,8 +103,6 @@ let autostartMode = false
 const CRASH_WINDOW_MS = 10 * 60 * 1000
 const CRASH_MAX = 3
 const crashTimes: number[] = []
-/** v2.4.7（评审 P1）：渲染崩溃自动 reload 延迟（默认 500ms）；e2e 用大值使 F10 resume 自愈成为唯一恢复源 */
-const CRASH_RECOVER_MS = Number(process.env.QIHEBOX_CRASH_RECOVER_MS) || 500
 /** v2.4.3（F5）：GPU 崩溃恢复的 app 级监听只注册一次（窗口重建不重复挂，避免重复 reload） */
 let gpuRecoveryRegistered = false
 
@@ -141,9 +141,11 @@ function setupTray(): void {
 }
 
 function setupCrashRecovery(win: BrowserWindow): void {
-  // 渲染进程崩溃 → 自动 reload（v2.4.2：10 分钟时间窗内 >3 次才退出，杜绝「崩溃→加载成功清零→再崩溃」无限循环）
+  // 渲染进程崩溃 → 交生命周期状态机（v2.5.3 T4）：visible 先 hide 再隐藏态 reload + FrameWitness
+  // 预检恢复（不再直接延迟 reload——崩溃后画面已不可信，必须验证通过才显示，设计 §4.4 故障升级）；
+  // 崩溃计数（10 分钟时间窗内 ≥3 次退出）保留防循环（v2.4.2）。
   win.webContents.on('render-process-gone', (_e, details) => {
-    // 休眠销毁窗口产生的 clean-exit 不是崩溃，不计数
+    // 正常销毁（L4 自愈重建/退出路径）产生的 clean-exit 不是崩溃，不计数
     if (details.reason === 'clean-exit') return
     void log('error', `renderer gone: ${details.reason}`)
     const now = Date.now()
@@ -155,13 +157,10 @@ function setupCrashRecovery(win: BrowserWindow): void {
       app.quit()
       return
     }
-    setTimeout(() => {
-      if (!win.isDestroyed()) win.reload()
-      // v2.4.7（评审 P1）：reload 延迟可被 env 覆盖——e2e 用大值（如 10000ms）让
-      // wake-recovery 测试的「resume 自愈」成为唯一恢复源，真正判别 F10 而非本路径兜底
-    }, CRASH_RECOVER_MS)
+    notifyRendererGone()
   })
-  // v2.4.3（F5）：GPU 进程崩溃 → 1 秒后 reload 主窗口一次，纳入崩溃时间窗计数（10 分钟 ≥3 次退出，防循环）
+  // v2.4.3（F5）：GPU 进程崩溃 → 交状态机恢复（同渲染崩溃：可见态先隐藏再隐藏态 reload + 预检，
+  // v2.5.3 T4；原「1 秒后直接 reload」会露出崩溃画面），纳入崩溃时间窗计数（10 分钟 ≥3 次退出，防循环）
   // 注意：app 级监听只在首次注册，窗口重建（setupCrashRecovery 再次调用）不重复挂，避免重复 reload
   if (!gpuRecoveryRegistered) {
     gpuRecoveryRegistered = true
@@ -179,10 +178,7 @@ function setupCrashRecovery(win: BrowserWindow): void {
         app.quit()
         return
       }
-      setTimeout(() => {
-        const w = getMainWindow()
-        if (w && !w.isDestroyed()) w.reload()
-      }, 1000)
+      notifyRendererGone()
     })
   }
 }
@@ -191,7 +187,7 @@ function setupCrashRecovery(win: BrowserWindow): void {
 // console error/warn 转发落盘（只转 error/warn，info 防噪音）。Electron 31 事件旧式签名
 // (event, level, message, line, sourceId)，level 为数字（0=verbose / 1=info / 2=warning / 3=error，
 // 见 node_modules/electron/electron.d.ts WebContents）。
-// 挂载点随窗口创建/重建：休眠销毁后 ensureMainWindow → setWindowCreateHandler 再次挂上，
+// 挂载点随窗口创建/重建：窗口重建（L4 自愈/自启延迟建窗）时 ensureMainWindow → setWindowCreateHandler 再次挂上，
 // 旧窗口销毁时监听随 webContents 一并回收，不会重复挂载。
 function setupRendererConsoleForward(win: BrowserWindow): void {
   win.webContents.on('console-message', (_e, level, message) => {
@@ -200,16 +196,16 @@ function setupRendererConsoleForward(win: BrowserWindow): void {
   })
 }
 
-// 关闭窗口 → 隐藏到托盘（对照原 Go beforeClose）；v2.3.0：隐藏后启动销毁倒计时（第三层休眠）
+// 关闭窗口 → 隐藏到托盘（对照原 Go beforeClose）；v2.5.3 起仅隐藏不销毁（分层休眠移除——
+// 「销毁重建 + GPU 表面失效」是历次白屏总根因，渲染进程常驻换可靠性，托盘常驻内存基线相应上调）
 // e2e 模式（QIHEBOX_E2E=1，Playwright）：跳过隐藏托盘，让 app.close() 能正常退出（否则 Playwright 等待超时）
 function setupCloseToTray(win: BrowserWindow): void {
   if (process.env.QIHEBOX_E2E === '1') return
   win.on('close', (e) => {
     if (isQuitting()) return
     e.preventDefault()
-    void log('info', '[sleep] close 事件触发 → 隐藏到托盘 + 销毁倒计时')
+    void log('info', '[window] close 事件触发 → 隐藏到托盘（渲染进程常驻）')
     win.hide()
-    scheduleDestroy()
   })
 }
 
@@ -224,15 +220,25 @@ app.on('will-quit', () => {
 })
 
 
-// v2.3.0 分层休眠：窗口被休眠销毁（close → 托盘 → 30 秒无活跃 → destroy，v2.4.5 T3 提速）时，
-// 必须监听 window-all-closed 阻止 Electron 默认退出（Windows/Linux 无监听时全窗口关闭即退出）。
-// 空监听即视为自定义处理：主进程 + 托盘图标常驻，等待托盘点击 / 二次启动重建窗口。
-// e2e 模式不注册：Playwright app.close() 需要全窗口关闭即退出。
-if (process.env.QIHEBOX_E2E !== '1') {
-  app.on('window-all-closed', () => {
-    void log('info', '[window] 所有窗口已关闭（休眠态），主进程+托盘常驻等待唤醒')
-  })
-}
+// v2.3.0 起为分层休眠注册的 window-all-closed 空监听：阻止 Electron 默认退出（Windows/Linux
+// 无监听时全窗口关闭即退出）。v2.5.3 移除休眠后窗口不再被销毁，此事件正常仅在退出路径触发；
+// 保留空监听作兜底（非常规全关场景下仍保持主进程+托盘常驻语义，不悄悄退出）。
+// v2.5.3 L4 修复（2026-08-18 定案）：destroyAndRebuild 销毁窗口后 ensureMainWindow 同步创建新窗口，
+// 但 Electron 可能在 destroy 派发 window-all-closed（新窗口构造完成前 getAllWindows 为空）——
+// **e2e 下也必须注册此监听**（否则 L4 重建触发默认退出 → Playwright 报 browser closed，崩溃/故障
+// 恢复链全灭）。注册后：已有现存窗口或 L4 重建中 → 阻止退出；e2e 真正全关（Playwright app.close）
+// → 放行默认退出，语义不变。
+app.on('window-all-closed', () => {
+  const win = getMainWindow()
+  if ((win && !win.isDestroyed()) || l4Rebuilding) {
+    void log('info', '[window] L4 重建/新窗口存在，阻止退出（ensureMainWindow 立即重建）')
+    return
+  }
+  if (process.env.QIHEBOX_E2E !== '1') {
+    void log('info', '[window] 所有窗口已关闭，主进程+托盘保持常驻')
+  }
+  // e2e 且非 L4 重建：不拦截 → Electron 默认退出（Playwright app.close 语义保持）
+})
 
 // —— 账号服务（v2.2.0：可选登录 + AI + 心跳）——
 // token 优先 safeStorage 加密；Linux 无 keyring 时降级明文（本地单用户，JWT 过期即失效）。
@@ -291,12 +297,43 @@ const account = new AccountService({
   decrypt: decryptToken,
   version: () => app.getVersion(),
   log: (level, msg) => void log(level, msg),
+  // v2.5.3（P1-6）：心跳 401 会话过期 → 全窗口广播（beat 可能无窗口：遍历全部窗口 + sendTo 销毁守卫，
+  // 照 plugins/ipc.ts 插件事件桥先例）；渲染层 stores/account 订阅刷新过期态
+  onSessionExpired: (status) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      sendTo(win, 'qihebox:event:account:session-expired', status)
+    }
+  },
 })
 
 // —— v2.4.0 后台任务：更新检查 / 证书到期通知 / 回收站过期清理 ——
+// v2.5.3（P2-17）：更新通知去重由「模块级变量」改为持久化同日去重（并入 notified.json 每日通道）——
+// 冷启动重复提醒根因：模块级变量随进程退出丢失，重启即重新提醒；改为同日同版本不再重复（跨重启持久）
 
-/** 已通知过的新版号（收尾轮：更新通知按版本去重，避免每日检查重复打扰） */
-let notifiedUpdateVersion = ''
+/** 更新提醒在 notified.json 中的去重 key 前缀（与证书/发票待办 key 并存互不冲突） */
+const UPDATE_NOTIFY_KEY_PREFIX = '更新提醒/'
+
+function updateNotifyKey(version: string): string {
+  return `${UPDATE_NOTIFY_KEY_PREFIX}${version}`
+}
+
+/** 同日同版本是否已提醒过（notified.json 每日去重；文件缺失/跨天 → 未提醒） */
+async function isUpdateNotifiedToday(version: string): Promise<boolean> {
+  const state = await readJsonFile<NotifyState>(path.join(app.getPath('userData'), 'notified.json'))
+  if (!state || state.date !== localDateString()) return false
+  return state.keys.includes(updateNotifyKey(version))
+}
+
+/** 记录「今日已提醒该版本」（并入当日 keys；写失败仅告警，同日重复提醒是可接受的降级） */
+async function markUpdateNotified(version: string): Promise<void> {
+  const file = path.join(app.getPath('userData'), 'notified.json')
+  const state = await readJsonFile<NotifyState>(file)
+  const keys = state && state.date === localDateString() ? [...state.keys] : []
+  if (!keys.includes(updateNotifyKey(version))) keys.push(updateNotifyKey(version))
+  await writeJsonAtomic(file, { date: localDateString(), keys }).catch((err) =>
+    void log('warn', `更新提醒去重记录写入失败: ${String(err)}`),
+  )
+}
 
 /** 静默更新检查：发现新版推送给所有窗口（无窗口则忽略，下次启动/次日再查）；失败仅 log */
 async function runUpdateCheck(): Promise<void> {
@@ -311,9 +348,9 @@ async function runUpdateCheck(): Promise<void> {
     }
     // v2.5：插件宿主事件桥——发现新版（host.events.on('updateAvailable') 白名单通道，PLAN §1.1 步骤 7）
     pluginHost?.emitHostEvent('updateAvailable', info)
-    // 收尾轮：发现新版补一条系统通知兜底（用户不在 Profile 页也能感知）；按版本去重
-    if (notifiedUpdateVersion !== info.version) {
-      notifiedUpdateVersion = info.version
+    // 收尾轮：发现新版补一条系统通知兜底（用户不在 Profile 页也能感知）；按版本同日去重（P2-17 持久化）
+    if (!(await isUpdateNotifiedToday(info.version))) {
+      await markUpdateNotified(info.version)
       sendSystemNotification(
         `发现新版本 v${info.version}`,
         '点击查看更新说明并前往官网下载',
@@ -341,7 +378,7 @@ function sendSystemNotification(title: string, body: string, onClick?: () => voi
   }
   try {
     const n = new Notification({ title, body })
-    // v2.4.2（批次二）：点击通知 → 唤起主窗口（休眠销毁后自动重建）
+    // v2.4.2（批次二）：点击通知 → 唤起主窗口（未建窗时自动创建）
     n.on('click', onClick ?? (() => windowShow()))
     n.show()
     return true
@@ -411,8 +448,11 @@ async function runStartupTasks(box: BoxService): Promise<void> {
 // —— v2.4.x：工作区文件索引（Everything 式精简索引，事件驱动失效）——
 
 let workspaceWatcher: fs.FSWatcher | null = null
-/** 索引初始化代数：切换工作区时递增，过期异步结果作废（防竞态污染索引） */
-let wsIndexGen = 0
+/**
+ * v2.5.3（T5）：索引候选/代数协调器——所有 build/load 走 candidate 会话，
+ * 提交时整体替换全局索引；旧代数 session 绝不触碰 globalWorkspaceIndex。
+ */
+const indexCoordinator = new WorkspaceIndexCoordinator(globalWorkspaceIndex)
 
 /** 索引落盘根：userData/index/<workspaceHash>（哈希同缩略图：sha256(ws).slice(0,8)） */
 function indexRootFor(ws: string): string {
@@ -434,12 +474,15 @@ function closeWorkspaceWatcher(): void {
 
 /**
  * 工作区文件监听（事件驱动失效）：
- * fs.watch(ws, { recursive: true }) → 文件/目录变化时 invalidate 对应目录，查询时重建快照，
+ * fs.watch(ws, { recursive: true }) → 文件/目录变化时 onEvent(受影响目录)，查询时重建快照，
  * 覆盖签名粒度盲区（同目录 mtime 下的文件内容覆盖等）。
+ * v2.5.3（T5）：失效目标由调用方注入 onEvent(dir) 回调——重建期间指向候选
+ * session.invalidate(dir)，提交后在同一同步片段改传 globalWorkspaceIndex.invalidate(dir)，
+ * 事件处理无空窗；不再依赖模块级可变 sink。
  * recursive 创建即抛（Linux 不支持 / inotify 超限）或运行期报错（ENOSPC 等）→
  * 关闭监听降级为仅签名模式（每次查询 stat 比对签名兜底，功能正确性不受影响）。
  */
-function startWorkspaceWatcher(box: BoxService, ws: string): void {
+function startWorkspaceWatcher(box: BoxService, ws: string, onEvent: (dir: string) => void): void {
   closeWorkspaceWatcher()
   try {
     const watcher = fs.watch(ws, { recursive: true }, (_evt, filename) => {
@@ -448,7 +491,7 @@ function startWorkspaceWatcher(box: BoxService, ws: string): void {
         // 工作区切换后旧监听仍可能触发事件 → 只处理当前工作区路径
         const cur = box.workspace.currentWorkspacePath()
         if (!cur || path.resolve(cur) !== path.resolve(ws)) return
-        globalWorkspaceIndex.invalidate(path.dirname(path.join(ws, filename)))
+        onEvent(path.dirname(path.join(ws, filename)))
       } catch {
         // 事件回调容错（文件名含非法编码等）
       }
@@ -472,30 +515,48 @@ function startWorkspaceWatcher(box: BoxService, ws: string): void {
 }
 
 /**
- * 初始化/重建工作区索引（启动恢复后与工作区切换时调用，异步不阻塞启动与 UI）：
- * 1. 文件监听事件驱动失效（先于加载，避免初始化期间的变更丢失）
- * 2. 落盘索引命中 → 后台逐目录 stat 校验签名，变化目录用 listRaw 重建（不落盘，运行中由监听/签名维护）
- * 3. 未命中 → build 全量快照 + save 落盘（二次启动免全量扫描）
- * 竞态防护：每次调用递增代数，异步返回后仍为当前代才写全局索引；切换竞态造成的残留
- * 由查询时的签名比对自愈（mtime 不一致即重建）。
+ * 初始化/重建工作区索引（启动恢复后与工作区切换时调用，异步不阻塞启动与 UI）。
+ * v2.5.3（T5）竞态治理：所有 load/validate/build 在候选会话（candidate）上执行，
+ * 全程使用捕获的 ws（listRawForWorkspace），会话过期（工作区已切换）则丢弃结果；
+ * 仅当前会话 commit 才整体替换全局索引，并把 watch 事件目标指回全局索引。
  */
 async function setupWorkspaceIndex(box: BoxService): Promise<void> {
-  const gen = ++wsIndexGen
   const ws = box.workspace.currentWorkspacePath()
   if (!ws) return
-  startWorkspaceWatcher(box, ws)
+  const session = indexCoordinator.beginRebuild()
+  // 重建期间：watch 事件进候选（session.invalidate）；commit 成功后同一同步片段
+  // 改传全局索引（startWorkspaceWatcher 重建监听），事件处理全程无空窗
+  startWorkspaceWatcher(box, ws, (dir) => session.invalidate(dir))
   const idxRoot = indexRootFor(ws)
-  const loaded = await globalWorkspaceIndex.load(idxRoot)
-  if (gen !== wsIndexGen) return // 加载期间已切换工作区 → 结果作废
-  if (loaded) {
-    const changed = await globalWorkspaceIndex.validate((d) => box.files.listRaw(d))
-    if (gen !== wsIndexGen) return
-    void log('info', `文件索引已加载（${changed} 个目录已重建）`)
-  } else {
-    const built = await globalWorkspaceIndex.build(ws, (d) => box.files.listRaw(d))
-    if (gen !== wsIndexGen) return // 构建期间已切换 → 丢弃过期快照
-    await globalWorkspaceIndex.save(idxRoot)
-    void log('info', `文件索引已构建：${built} 个目录`)
+  let shouldSave = false
+  try {
+    const loaded = await session.candidate.load(idxRoot)
+    if (!session.isCurrent()) return
+    if (loaded) {
+      const changed = await session.candidate.validate((d) => box.files.listRawForWorkspace(ws, d))
+      if (!session.isCurrent()) return
+      void log('info', `文件索引已加载（${changed} 个目录已重建）`)
+    } else {
+      const built = await session.candidate.build(ws, (d) => box.files.listRawForWorkspace(ws, d))
+      if (!session.isCurrent()) return
+      shouldSave = true
+      void log('info', `文件索引已构建：${built} 个目录`)
+    }
+  } catch (err) {
+    // build/load 失败仅告警（签名校验兜底），不阻断索引事件链路
+    void log('warn', `文件索引构建失败: ${String(err)}`)
+  } finally {
+    // 提交与事件重指在同一同步片段：只有仍为当前代的 session 才可提交并接管 watch 事件；
+    // 过期 session 不触碰事件目标（更新的 session 已完成接管）。
+    const committed = session.isCurrent() && session.commit()
+    if (committed) {
+      startWorkspaceWatcher(box, ws, (dir) => globalWorkspaceIndex.invalidate(dir))
+      if (shouldSave) {
+        // 提交后落盘：save 失败仅告警，不回滚已生效的内存索引（不 await，避免阻塞切换）
+        void session.candidate.save(idxRoot).catch((err) => void log('warn', `索引落盘失败（仅告警，内存索引已生效）: ${String(err)}`))
+      }
+      void log('info', '文件索引已就绪（候选提交）')
+    }
   }
 }
 
@@ -518,6 +579,22 @@ app.whenReady().then(() => {
     // （查重等账务规则单点落在台账服务，§6.2「三入口同函数」）；此处只做生命周期装配：
     // 工作区打开/切换时 stop + start（watch 句柄与防抖定时器成对释放重建）+ 启动补扫
     const exchange = svc.exchange
+    // v2.5.3（T5）：工作区切换处理注册（幂等，含恢复失败路径兜底）——
+    // 在初始索引构建前启用，确保「切换 → 候选重建 → 提交」链路自始无失联窗口
+    let wsChangeHandlerRegistered = false
+    const registerWorkspaceChangeHandler = () => {
+      if (wsChangeHandlerRegistered) return
+      wsChangeHandlerRegistered = true
+      workspace.onWorkspaceChanged(() => {
+        // v2.5：插件宿主事件桥——工作区切换（host.events.on('workspaceChanged') 白名单通道，PLAN §1.1 步骤 7）
+        pluginHost?.emitHostEvent('workspaceChanged', svc.workspace.currentWorkspacePath())
+        // v2.5.3（T5）：索引走候选会话重建（旧 build 不得污染全局索引）
+        void setupWorkspaceIndex(svc).catch((err) => void log('warn', `文件索引重建失败: ${String(err)}`))
+        // v2.4.7：交换区监听随工作区切换关闭重建（watch 句柄与防抖定时器成对释放）+ 立即补扫
+        exchange.stop()
+        void exchange.start().catch((err) => void log('warn', `交换区补扫失败: ${String(err)}`))
+      })
+    }
     // v2.5.1（D20）：交换区归集成功 → 插件宿主 fileArchived 桥（region=exchange，逐条投递）
     svc.onExchangeArchived = (archived) => {
       for (const p of archived) {
@@ -580,23 +657,18 @@ app.whenReady().then(() => {
     workspace
       .restoreOrCreateDefault()
       .then(() => {
-        // v2.4.x：初始化工作区索引——加载/校验或全量构建 + 落盘 + 文件监听（失败仅 log，签名校验兜底）
+        // v2.5.3（T5）：初始索引构建前就注册工作区变更处理——切换事件自始无失联窗口
+        registerWorkspaceChangeHandler()
+        // v2.4.x：初始化工作区索引——加载/校验或全量构建（候选会话 + 提交）+ 文件监听（失败仅 log，签名校验兜底）
         return setupWorkspaceIndex(svc).catch((err) => void log('warn', `文件索引初始化失败: ${String(err)}`))
       })
       .catch((err) => {
         void log('warn', `默认工作区恢复失败: ${String(err)}`)
       })
       .then(() => {
-        // v2.4.x：注册工作区切换钩子（含恢复失败路径）——setCurrentWorkspace 后重建索引与文件监听
-        workspace.onWorkspaceChanged(() => {
-          // v2.5：插件宿主事件桥——工作区切换（host.events.on('workspaceChanged') 白名单通道，PLAN §1.1 步骤 7）
-          pluginHost?.emitHostEvent('workspaceChanged', svc.workspace.currentWorkspacePath())
-          void setupWorkspaceIndex(svc).catch((err) => void log('warn', `文件索引重建失败: ${String(err)}`))
-          // v2.4.7：交换区监听随工作区切换关闭重建（watch 句柄与防抖定时器成对释放）+ 立即补扫
-          exchange.stop()
-          void exchange.start().catch((err) => void log('warn', `交换区补扫失败: ${String(err)}`))
-        })
-        // v2.4.7：启动补扫推迟到后台任务阶段异步执行（不进 app ready → 窗口可交互关键路径，PLAN §一.3）
+        // 恢复失败路径兜底：用户随后打开工作区时仍能重建索引与交换区
+        registerWorkspaceChangeHandler()
+        // v2.4.7：交换区启动补扫推迟到后台任务阶段异步执行（不进 app ready → 窗口可交互关键路径，PLAN §一.3）
         void exchange.start().catch((err) => void log('warn', `交换区启动补扫失败: ${String(err)}`))
         // 收尾轮（候选 3）：缩略图磁盘缓存惰性 GC——再延迟 30s 避开启动高峰，后台低优先执行
         setTimeout(() => {
@@ -612,13 +684,13 @@ app.whenReady().then(() => {
         return runStartupTasks(svc)
       })
 
-    // v2.3.0：统一窗口初始化钩子——休眠销毁后的重建（ensureMainWindow）自动带上崩溃自愈与托盘行为
+    // v2.3.0：统一窗口初始化钩子——窗口重建（ensureMainWindow；L4 自愈/自启延迟建窗）自动带上崩溃自愈与托盘行为
     setWindowCreateHandler((win) => {
       setupCrashRecovery(win)
       setupRendererConsoleForward(win)
       setupCloseToTray(win)
       win.on('closed', () => {
-        void log('info', '[window] 主窗口已销毁（休眠回收或退出）')
+        void log('info', '[window] 主窗口已销毁（L4 自愈重建或退出）')
       })
     })
   } catch (err) {
@@ -669,7 +741,7 @@ app.whenReady().then(() => {
 })
 
 app.on('activate', () => {
-  // 休眠销毁窗口后，激活（macOS dock / Linux）即重建
+  // 窗口不存在（自启延迟建窗/L4 重建间隙）时激活（macOS dock / Linux）即建窗
   if (BrowserWindow.getAllWindows().length === 0) {
     // v2.4.9（S4）：自启态诊断日志——ensureMainWindow 触发点（含来源标识）
     if (autostartMode) void log('info', 'autostart: activate 触发建窗（ensureMainWindow）')
@@ -679,7 +751,7 @@ app.on('activate', () => {
   }
 })
 
-// 二次启动：聚焦已有窗口（替代原 FindWindow/SetForegroundWindow）；窗口被休眠销毁则重建
+// 二次启动：聚焦已有窗口（替代原 FindWindow/SetForegroundWindow）；窗口不存在（自启未建窗/L4 重建间隙）则创建
 // v2.4.7（评审 P3）：统一复用 windowShow()——不再直接 show/focus 绕过 ready-to-show 守卫
 // （v2.4.3 F2 黑屏修复：加载中的窗口提前 show 会露出深色空窗，二次启动同样适用）
 app.on('second-instance', () => {

@@ -410,3 +410,163 @@ describe('客户服务（v2.4.7 §5）', () => {
     expect((store['张三'] as { erp_ext?: unknown }).erp_ext).toBeUndefined()
   })
 })
+describe('客户服务（v2.5.3 T2：锁内读改写事务 / 并发 / 损坏 / 无变化不写盘）', () => {
+  it('并发 create 不同客户：mutateJsonFile 锁内串行，8 客户全部落盘不丢', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    const names = Array.from({ length: 8 }, (_, i) => `并发客${i}`)
+    await Promise.all(names.map((n) => box.clients.create({ name: n, notes: n })))
+    const list = await box.clients.list()
+    expect(list).toHaveLength(8)
+    for (const n of names) {
+      expect(list.find((c) => c.name === n)?.notes).toBe(n)
+    }
+    const store = await readCustomersStore(ws)
+    for (const n of names) expect(store[n]).toBeTruthy()
+  })
+
+  it('并发 update 不同客户：各字段更新不互丢（锁内读改写基于最新磁盘内容）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const names = Array.from({ length: 8 }, (_, i) => `并发U${i}`)
+    for (const n of names) await box.clients.create({ name: n })
+
+    await Promise.all(names.map((n, i) => box.clients.update({ name: n, phone: `1380000000${i}` })))
+    const list = await box.clients.list()
+    for (let i = 0; i < names.length; i++) {
+      expect(list.find((c) => c.name === names[i])?.phone).toBe(`1380000000${i}`)
+    }
+    const store = await readCustomersStore(ws)
+    for (let i = 0; i < names.length; i++) {
+      expect((store[names[i]] as { phone: string }).phone).toBe(`1380000000${i}`)
+    }
+  })
+
+  it('损坏 customers.json：写路径拒绝覆盖并隔离留证（.corrupt-* 备份），隔离后重建成功', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const p = path.join(ws, '.qihefilemanager', 'customers.json')
+    const corrupt = '{"张三": '
+    await fsp.writeFile(p, corrupt)
+
+    // 写路径（create）：首次拒绝覆盖，损坏文件被隔离为 .corrupt-* 备份并保留原文
+    // （注：客户是「目录扫描为实 + JSON 为档案」，create 先建目录再写档案——损坏拒写时目录已建，
+    // 按实际恢复路径清理该残留目录后重试）
+    await expect(box.clients.create({ name: '李四' })).rejects.toThrow(/损坏|覆盖/)
+    const dir = path.join(ws, '.qihefilemanager')
+    const backups = (await fsp.readdir(dir)).filter((n) => n.startsWith('customers.json.corrupt-'))
+    expect(backups).toHaveLength(1)
+    expect(await fsp.readFile(path.join(dir, backups[0]), 'utf-8')).toBe(corrupt)
+    await fsp.rm(path.join(ws, '客户', '李四'), { recursive: true, force: true }) // 清理残留目录
+
+    // 隔离后重建成功
+    const c = await box.clients.create({ name: '李四' })
+    expect(c.name).toBe('李四')
+    expect((await box.clients.list()).map((x) => x.name)).toEqual(['李四'])
+  })
+
+  it('无变化不写盘：已关联再关联 / 解除无关关联均不触碰磁盘（mtime 不变）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    await box.clients.create({ name: '张三', notes: 'x' })
+    await box.clients.linkRelation('张三', '系列A')
+
+    const p = path.join(ws, '.qihefilemanager', 'customers.json')
+    const mtime1 = (await fsp.stat(p)).mtimeMs
+    await new Promise((r) => setTimeout(r, 30)) // 越过文件系统 mtime 精度
+    // 已关联再关联 / 解除不存在的关联 → 无变化不写盘
+    await box.clients.linkRelation('张三', '系列A')
+    await box.clients.unlinkRelation('张三', '不存在关联')
+    expect((await fsp.stat(p)).mtimeMs).toBe(mtime1)
+    // 实际解除关联 → 落盘（mtime 变化）
+    await box.clients.unlinkRelation('张三', '系列A')
+    expect((await fsp.stat(p)).mtimeMs).not.toBe(mtime1)
+  })
+})
+
+describe('clients.mutateCustomers（v2.5.3 P1-3：锁内增量读改写，index.ts 客户标签引用源 save 用）', () => {
+  it('并发 rename/delete 不同客户不互丢（锁内读改写替代整档替换）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const names = Array.from({ length: 8 }, (_, i) => `客${i}`)
+    for (const n of names) await box.clients.create({ name: n, notes: n })
+
+    // 4 个 rename（客0..3 → 新客0..3）+ 4 个 delete（客4..7），全部并发
+    const tasks: Promise<void>[] = []
+    for (let i = 0; i < 4; i++) {
+      const oldName = `客${i}`
+      const newName = `新客${i}`
+      tasks.push(
+        box.clients.mutateCustomers(ws, (store) => {
+          if (store[oldName] && !store[newName]) {
+            store[newName] = store[oldName]
+            delete store[oldName]
+            return true
+          }
+          return false
+        }),
+      )
+    }
+    for (let i = 4; i < 8; i++) {
+      const name = `客${i}`
+      tasks.push(
+        box.clients.mutateCustomers(ws, (store) => {
+          if (store[name]) {
+            delete store[name]
+            return true
+          }
+          return false
+        }),
+      )
+    }
+    await Promise.all(tasks)
+
+    // 全部落盘：rename 旧键消失、新键条目（notes 随条目移动）完整；delete 键消失
+    const store = (await readCustomersStore(ws)) as Record<string, { notes: string }>
+    for (let i = 0; i < 4; i++) {
+      expect(store[`客${i}`]).toBeUndefined()
+      expect(store[`新客${i}`]?.notes).toBe(`客${i}`)
+    }
+    for (let i = 4; i < 8; i++) expect(store[`客${i}`]).toBeUndefined()
+    expect(Object.keys(store)).toHaveLength(4)
+  })
+
+  it('mutate 返回 false 不写盘（mtime 不变）；返回 true 落盘', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.clients.create({ name: '张三' })
+
+    const p = path.join(ws, '.qihefilemanager', 'customers.json')
+    // 无变化（返回 false）→ 不触碰磁盘（mtime 不变）
+    await box.clients.mutateCustomers(ws, () => false)
+    const mtime1 = (await fsp.stat(p)).mtimeMs
+    await new Promise((r) => setTimeout(r, 30)) // 越过文件系统 mtime 精度
+    await box.clients.mutateCustomers(ws, () => false)
+    expect((await fsp.stat(p)).mtimeMs).toBe(mtime1)
+    // 实际变更（返回 true）→ 落盘（mtime 变化）
+    await box.clients.mutateCustomers(ws, (store) => {
+      if (store['张三']) {
+        store['张三'].notes = '改'
+        return true
+      }
+      return false
+    })
+    expect((await fsp.stat(p)).mtimeMs).not.toBe(mtime1)
+    const after = await readCustomersStore(ws)
+    expect((after['张三'] as { notes: string }).notes).toBe('改')
+  })
+})

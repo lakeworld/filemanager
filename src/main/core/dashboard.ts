@@ -196,24 +196,32 @@ export class DashboardService {
     stats.total_quotes = totalQuotes
     stats.draft_quotes = draftQuotes
 
+    // v2.5.3（P1-4）：集间 8 并发扫描（照本文件 checkExpiringCerts 8 worker 先例）；每集内 图包/证书 两路 Promise.all 保留。
+    // resolveThumb:false——recent_files 渲染层只消费 name/modified/size/path/file_type，thumbnail_path 零消费
+    // （缩略图由渲染层按 file.path 经 IPC 按需取），免每文件 ~5 stat。
     const allFiles: FileEntry[] = []
-    for (const e of entries) {
-      if (!e.isDirectory()) continue
-      const setDir = path.join(setsDir, e.name)
-      const [imgFiles, certFiles] = await Promise.all([
-        this.files.listDirFilesRecursive(path.join(setDir, IMAGES_DIR)),
-        this.files.listDirFilesRecursive(path.join(setDir, CERTS_DIR)),
-      ])
-      stats.total_images += imgFiles.length
-      stats.total_certs += certFiles.length
-      allFiles.push(...imgFiles, ...certFiles)
-    }
+    const setDirs = entries.filter((e) => e.isDirectory()).map((e) => path.join(setsDir, e.name))
+    const queue = [...setDirs]
+    const workers = Array.from({ length: 8 }, async () => {
+      while (queue.length > 0) {
+        const setDir = queue.shift()!
+        const [imgFiles, certFiles] = await Promise.all([
+          this.files.listDirFilesRecursive(path.join(setDir, IMAGES_DIR), { resolveThumb: false }),
+          this.files.listDirFilesRecursive(path.join(setDir, CERTS_DIR), { resolveThumb: false }),
+        ])
+        stats.total_images += imgFiles.length
+        stats.total_certs += certFiles.length
+        allFiles.push(...imgFiles, ...certFiles)
+      }
+    })
+    await Promise.all(workers)
     allFiles.sort((a, b) => (a.modified > b.modified ? -1 : a.modified < b.modified ? 1 : 0))
     // v2.4.9（打磨）：最近文件 10 → 5 条——用户反馈列表太长，仪表盘只保留近期热点，完整列表走「查看全部」
     stats.recent_files = allFiles.slice(0, 5)
 
-    const expiring = await this.checkExpiringCerts()
-    stats.expiring_certs = expiring.length
+    // v2.5.3（P1-4）：expiring_certs 渲染层零消费，到期检查由独立 IPC 通道（前端并行调用 checkExpiringCerts）承担；
+    // 契约字段保留，恒 0（避免 dashboardStats 内嵌重跑同一份全量扫描）
+    stats.expiring_certs = 0
     return stats
   }
 

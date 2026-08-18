@@ -1,4 +1,4 @@
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, createEffect, onCleanup, Show } from "solid-js";
 import { api } from "~/wails/api";
 import { resolveMdImageUrl } from "../../../shared/mdImages";
 import { configureMarked, sanitizeLinkHref } from "../../../shared/mdRender";
@@ -11,6 +11,8 @@ import { configureMarked, sanitizeLinkHref } from "../../../shared/mdRender";
  * - 链接：href 白名单（sanitizeLinkHref，javascript:/data: 拒绝）
  * - 2MB 上限：readTextFile 拒绝超限 → 引导「用系统程序打开」
  * 三态：加载 Skeleton / 错误 EmptyState+重试 / 就绪渲染 .md-prose
+ * v2.5.3（T7）：加载代际守卫——文件切换（filePath 变）或组件卸载后，
+ * 旧读取/解析续体全部失效，结果不得覆盖新文件；卸载同时释放大 HTML 字符串。
  */
 
 let markedReady: Promise<typeof import("marked")> | null = null;
@@ -26,14 +28,19 @@ async function loadMarked(): Promise<typeof import("marked")> {
 
 type MdState = "loading" | "ready" | "tooLarge" | "error";
 
+// v2.5.3（T7）：模块级加载代——每次发起加载/卸载均递增；续体在每轮 await 后比对，
+// 不符即丢弃（旧读取/解析不写入已切换的文件或已卸载的组件）
+let mdLoadSeq = 0;
+
 export default function MarkdownPreview(props: { filePath: string }) {
   const [state, setState] = createSignal<MdState>("loading");
   const [html, setHtml] = createSignal("");
   const [errorMsg, setErrorMsg] = createSignal("");
 
-  const load = async () => {
+  const load = async (path: string, seq: number) => {
     setState("loading");
-    const res = await api.files.readTextFile(props.filePath);
+    const res = await api.files.readTextFile(path);
+    if (seq !== mdLoadSeq) return; // 过期（切换文件/关闭）→ 丢弃
     if (!res.success) {
       // 2MB 上限拒绝 → 引导系统打开（错误信息由 core readTextFile 抛出）
       if ((res.error ?? "").includes("文件过大")) {
@@ -47,12 +54,13 @@ export default function MarkdownPreview(props: { filePath: string }) {
     try {
       const { marked } = await loadMarked();
       const raw = await marked.parse(res.data ?? "");
+      if (seq !== mdLoadSeq) return; // 解析期间文件已切换 → 丢弃
       // 渲染后 DOM 处理：图片相对路径 → qihebox://；链接白名单（禁 HTML 已由 renderer 保证）
       const div = document.createElement("div");
       div.innerHTML = raw;
       div.querySelectorAll("img").forEach((img) => {
         const src = img.getAttribute("src") ?? "";
-        const resolved = resolveMdImageUrl(props.filePath, src);
+        const resolved = resolveMdImageUrl(path, src);
         if (resolved) img.setAttribute("src", resolved);
         else img.remove();
       });
@@ -65,12 +73,25 @@ export default function MarkdownPreview(props: { filePath: string }) {
       setHtml(div.innerHTML);
       setState("ready");
     } catch (e) {
+      if (seq !== mdLoadSeq) return;
       setErrorMsg(e instanceof Error ? e.message : "渲染失败");
       setState("error");
     }
   };
 
-  onMount(load);
+  // v2.5.3（T7）：以 props.filePath 为依赖——文件切换（prop 变化）时重新加载，替代原 onMount 只加载一次
+  createEffect(() => {
+    const path = props.filePath;
+    if (!path) return;
+    const seq = ++mdLoadSeq;
+    void load(path, seq);
+  });
+
+  // v2.5.3（T7）：卸载时递增代际使 in-flight 续体失效，并释放大 HTML 字符串
+  onCleanup(() => {
+    mdLoadSeq++;
+    setHtml("");
+  });
 
   return (
     <>
@@ -102,7 +123,13 @@ export default function MarkdownPreview(props: { filePath: string }) {
           <button class="btn-secondary" onClick={() => void api.files.openWithDefaultApp(props.filePath)}>
             用系统程序打开
           </button>
-          <button class="btn-primary" onClick={() => void load()}>
+          <button
+            class="btn-primary"
+            onClick={() => {
+              const seq = ++mdLoadSeq;
+              void load(props.filePath, seq);
+            }}
+          >
             重试
           </button>
         </div>

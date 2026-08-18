@@ -35,3 +35,21 @@ export async function logoutAccount(): Promise<void> {
   await api.account.logout();
   setAccountStatus({ loggedIn: false, email: "", sessionExpired: false });
 }
+
+/**
+ * 订阅主进程账号事件（v2.5.3 P1-6）：心跳 401 会话过期广播 → 即时刷新过期态。
+ * 此前过期态只在启动/登录时 loadAccountStatus() 拉取一次，心跳 401 不传导 UI，
+ * Profile 过期横幅须等重启才出现。返回退订函数（App 根组件 onMount 订阅一次，卸载退订）。
+ */
+export function subscribeAccountEvents(): () => void {
+  return window.qihebox.events.on("account:session-expired", (data) => {
+    const status = data as Partial<AccountStatus>;
+    if (status && typeof status.sessionExpired === "boolean") {
+      setAccountStatus({
+        loggedIn: status.loggedIn ?? true,
+        email: status.email ?? "",
+        sessionExpired: status.sessionExpired,
+      });
+    }
+  });
+}

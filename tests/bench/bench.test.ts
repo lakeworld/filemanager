@@ -65,7 +65,8 @@ describe('性能基准', () => {
     const box = new BoxService(new SharpThumbnailService(workspace), workspace)
     await box.workspace.create(ws)
     const lines: string[] = [
-      `## ${new Date().toISOString().slice(0, 10)}（core 层，${process.env.XDG_CURRENT_DESKTOP ?? ''}）`,
+      // 日期用本地时区（同 logger.ts dateStr 语义）：toISOString 是 UTC，本地 00:00–08:00 会差一天
+      `## ${(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })()}（core 层，${process.env.XDG_CURRENT_DESKTOP ?? ''}）`,
       `- 工作区：${SETS} 产品集 × ${FILES_PER_SET} 文件 + 供应商/报价 新根样本（含 PDF）`,
     ]
 

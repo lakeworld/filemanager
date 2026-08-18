@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 2,
+  "frozenAt": "2026-08-17",
+  "basis": "v2.5.3 审计修复轮后新口径（插件已实际安装 hello+conformance.full 并往返、夹具 15000 图、每轮含图片/PDF/Markdown 预览）：2026-08-17 15:21-15:26 UTC 3 次完整运行合并 60 轮 thresholdSuggestion（跨运行合并中位数 ×1.25）。与无插件首测口径（9.4MB / 1426，归档于 memory-soak-results/archive-no-plugin-2026-08-17/）相比 heap 中位抬升约 25%——插件静态 import 缓存常驻（PLAN §七 遗留观察项）的实际量化，非代码回退，故按新口径重冻结。v2.5.2 同机基线在发布轮按同口径复测后可重冻结；冻结后不得为让本轮通过而放宽。",
+  "heapMedianBytes": 14846952,
+  "nodesMedian": 1820,
+  "virtualImagesMax": 100
+}

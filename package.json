@@ -1,7 +1,7 @@
 {
   "name": "qihe-box",
   "productName": "启禾文件管理",
-  "version": "2.5.2",
+  "version": "2.5.3",
   "description": "启禾文件管理（BOX 项目）—— Electron 重构版：电商产品图包与证书管理",
   "homepage": "https://www.qihebook.cloud/file-manager",
   "desktopName": "qihe-box",
@@ -21,6 +21,10 @@
     "pretest:e2e": "node scripts/build-hello-plugin.mjs",
     "conformance": "node tests/e2e/conformance/run-conformance.mjs",
     "preconformance": "node scripts/build-hello-plugin.mjs",
+    "test:memory-soak": "playwright test --config=playwright.memory-soak.config.ts",
+    "pretest:memory-soak": "node scripts/build-hello-plugin.mjs && node scripts/build-conformance-fixtures.mjs",
+    "test:memory-baseline": "npm run test:memory-soak",
+    "summarize:memory": "node scripts/summarize-memory-runs.mjs memory-soak-results/memory-soak-*.json",
     "bench": "vitest run tests/bench",
     "build:linux": "electron-vite build && electron-builder --linux --publish never",
     "build:win": "electron-vite build && electron-builder --win --publish never"

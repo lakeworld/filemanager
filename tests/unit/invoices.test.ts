@@ -325,21 +325,40 @@ describe('发票台账（PLAN §6）', () => {
     expect((await box.invoices.listTagEntries())[0].tags).toEqual([])
   })
 
-  it('v2.5（P1-C1）：台账损坏 → 备份原文件（.corrupt-<ts>）并降级为空', async () => {
+  it('v2.5.3（T2）：台账损坏 → 读取侧宽容降级为空（文件原位保留不留证）；写路径拒绝覆盖并隔离备份', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
     await box.workspace.create(ws)
     const p = path.join(ws, '.qihefilemanager', 'invoices.json')
+    const dir = path.join(ws, '.qihefilemanager')
     const corrupt = '{"invoices": {"INV-1": '
     await fsp.writeFile(p, corrupt)
-    // 损坏 → list 不崩且返回空
+    // 读取侧：损坏 → list 不崩且返回空；文件原位保留（读路径不移动/不备份，写路径守卫仍能留证）
     expect(await box.invoices.list()).toEqual([])
-    // 原文件内容已在 .corrupt-* 留证
-    const dir = path.join(ws, '.qihefilemanager')
+    expect(await fsp.readFile(p, 'utf-8')).toBe(corrupt)
+    expect((await fsp.readdir(dir)).some((n) => n.startsWith('invoices.json.corrupt-'))).toBe(false)
+
+    // 写路径（create）：首次拒绝覆盖，损坏文件被隔离为 .corrupt-* 备份并保留原文
+    const src = path.join(ws, 'inv.pdf')
+    await writeFile(src, 'pdf')
+    const rel = await box.invoices.archiveFile(src, '2026-08-11')
+    const req: InvoiceCreateRequest = {
+      number: 'CORRUPT-1',
+      date: '2026-08-11',
+      amount: 100,
+      seller: 'A',
+      buyer: 'B',
+      status: '待报销',
+      file_path: rel,
+    }
+    await expect(box.invoices.create(req)).rejects.toThrow(/损坏|覆盖/)
     const backups = (await fsp.readdir(dir)).filter((n) => n.startsWith('invoices.json.corrupt-'))
     expect(backups).toHaveLength(1)
     expect(await fsp.readFile(path.join(dir, backups[0]), 'utf-8')).toBe(corrupt)
+    // 隔离后重建成功
+    await box.invoices.create(req)
+    expect(await box.invoices.checkNumber('CORRUPT-1')).not.toBeNull()
   })
 
   it('v2.5（P1-C2）：客户重命名级联发票 customer 引用（BoxService.renameCustomer）', async () => {
@@ -358,5 +377,85 @@ describe('发票台账（PLAN §6）', () => {
     const box = buildTestBox(home)
     await expect(box.invoices.list()).rejects.toThrow('未打开工作区')
     await expect(box.invoices.archiveFile('/tmp/x.pdf', '2026-08-11')).rejects.toThrow('未打开工作区')
+  })
+})
+describe('发票台账（v2.5.3 T2：锁内读改写事务 / 并发 / 显式 ws）', () => {
+  it('并发 create 不同号码：锁内查重 + 写入串行，8 条全部落盘不丢', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await Promise.all(Array.from({ length: 8 }, (_, i) => addInvoice(box, ws, { number: `CONC-${i}` })))
+    const list = await box.invoices.list()
+    expect(list).toHaveLength(8)
+    for (let i = 0; i < 8; i++) {
+      expect(await box.invoices.checkNumber(`CONC-${i}`)).not.toBeNull()
+    }
+  })
+
+  it('并发 update 不同号码：各记录字段更新不互丢（锁内读改写基于最新磁盘内容）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    for (let i = 0; i < 8; i++) await addInvoice(box, ws, { number: `UPD-${i}` })
+
+    await Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        box.invoices.update({ number: `UPD-${i}`, amount: 1000 + i, seller: `卖方${i}` }),
+      ),
+    )
+    const list = await box.invoices.list()
+    for (let i = 0; i < 8; i++) {
+      const r = list.find((x) => x.number === `UPD-${i}`)
+      expect(r?.amount).toBe(1000 + i)
+      expect(r?.seller).toBe(`卖方${i}`)
+    }
+  })
+
+  it('显式 ws：current workspace 未打开时 create(req, ws) 仍写入捕获 ws；checkNumber 按 ws 查', async () => {
+    const home = await tmp()
+    const wsA = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(wsA) // 仅用于布置 wsA 目录结构
+    await writeFile(path.join(wsA, '发票', '2026', 'explicit.pdf'))
+    const p = path.join(wsA, '.qihefilemanager', 'invoices.json')
+
+    // 全新实例（无 current workspace）：台账操作只按显式 ws 走，绝不回读 current workspace
+    const box2 = buildTestBox(home)
+    const req: InvoiceCreateRequest = {
+      number: 'EXPLICIT-1',
+      date: '2026-08-11',
+      amount: 99,
+      seller: 'A',
+      buyer: 'B',
+      status: '待报销',
+      file_path: '发票/2026/explicit.pdf',
+    }
+    const rec = await box2.invoices.create(req, wsA)
+    expect(rec.number).toBe('EXPLICIT-1')
+    // 写入的是捕获 wsA 的台账
+    const store = JSON.parse(await fsp.readFile(p, 'utf-8'))
+    expect(store.invoices['EXPLICIT-1']).toBeTruthy()
+    // checkNumber 显式 ws 命中；无 ws 时（未打开工作区）报错
+    expect(await box2.invoices.checkNumber('EXPLICIT-1', undefined, wsA)).not.toBeNull()
+    await expect(box2.invoices.checkNumber('EXPLICIT-1')).rejects.toThrow('未打开工作区')
+    await expect(box2.invoices.list()).rejects.toThrow('未打开工作区')
+  })
+
+  it('无变化不写盘：saveTagEntries 同值回写不触碰磁盘（mtime 不变），实际变更才落盘', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await addInvoice(box, ws, { number: 'MT-1', tags: ['a'] })
+    const p = path.join(ws, '.qihefilemanager', 'invoices.json')
+    const mtime1 = (await fsp.stat(p)).mtimeMs
+    await new Promise((r) => setTimeout(r, 30))
+    await box.invoices.saveTagEntries([{ name: 'MT-1', tags: ['a'] }])
+    expect((await fsp.stat(p)).mtimeMs).toBe(mtime1)
+    // 实际变更 → 落盘（mtime 变化）
+    await box.invoices.saveTagEntries([{ name: 'MT-1', tags: ['a', 'b'] }])
+    expect((await fsp.stat(p)).mtimeMs).not.toBe(mtime1)
   })
 })

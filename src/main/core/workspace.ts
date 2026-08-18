@@ -20,13 +20,13 @@ import {
   DOCS_DIR,
   CUSTOMERS_DIR,
   filterSlice,
+  overwriteJson,
   writeJsonAtomic,
   readJsonFile,
   assertSafeFolderName,
   isReservedRootName,
 } from './paths'
 import { globalCountCache } from './scanCache'
-import { globalWorkspaceIndex } from './indexCache'
 import type { WorkspaceInfo, ProductSetInfo, ProductSetStats, ProductSetCreateRequest, ProductSetUpdateRequest } from '../../shared/types'
 
 export type { WorkspaceInfo, ProductSetInfo, ProductSetStats, ProductSetCreateRequest, ProductSetUpdateRequest } from '../../shared/types'
@@ -81,9 +81,14 @@ export class WorkspaceService {
     ensureWorkspaceDirs(workspace)
     this.currentWS = workspace
     globalCountCache.clear() // 切换工作区后清理扫描缓存
-    globalWorkspaceIndex.clear() // v2.4.x：切换工作区后清理文件索引快照
+    // v2.5.3（T5）：不再直接 globalWorkspaceIndex.clear() ——索引重建改走候选会话
+    // （coordinator.beginRebuild→commit），避免「清空→重建」的中间空窗与旧 build 污染；
+    // 新会话提交时整体替换，旧工作区快照不会残留。
+    // v2.5.3（T5-S1）：切换通知在任何 await 之前同步触发——currentWS 赋值后先使旧索引
+    // session 失效（setupWorkspaceIndex→beginRebuild）并停旧交换区（exchange.stop），
+    // 再等待最近工作区落盘；addRecentWorkspace 失败（磁盘错误）不影响切换生效与通知。
+    this.onWorkspaceChangedCb?.()
     await this.addRecentWorkspace(workspace)
-    this.onWorkspaceChangedCb?.() // v2.4.x：通知 index.ts 重建新工作区的文件监听
   }
 
   // —— 最近工作区（对照 addRecentWorkspace / loadRecentWorkspaces）——
@@ -135,7 +140,7 @@ export class WorkspaceService {
 
   async saveConfig(workspace: string, cfg: WorkspaceConfig): Promise<void> {
     ensureWorkspaceDirs(workspace)
-    await writeJsonAtomic(configPath(workspace), cfg)
+    await overwriteJson(configPath(workspace), cfg)
   }
 
   // —— 产品集附加信息（对照 loadProductSetsInfo / saveProductSetsInfo）——
@@ -148,7 +153,7 @@ export class WorkspaceService {
 
   async saveProductSetsInfo(workspace: string, store: Record<string, ProductSetExtraInfo>): Promise<void> {
     ensureWorkspaceDirs(workspace)
-    await writeJsonAtomic(productSetsInfoPath(workspace), store)
+    await overwriteJson(productSetsInfoPath(workspace), store)
   }
 
   // —— 工作区 API（对照 WorkspaceList / Current / Create / Open / Switch）——

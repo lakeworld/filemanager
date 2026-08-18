@@ -249,34 +249,31 @@ export class TrashService {
         await this.metadata.removeFileMetadataForProductSet(name).catch(() => {})
       } else if (meta.kind === 'customer') {
         // v2.4.7（§4.4）：客户区元数据按前缀 客户/<名>/ 清理（key 泛化后为工作区相对路径）
+        // v2.5.3（P1-3）：改走 mutateKeys 锁内读改写——旧实现「锁外读旧快照 + 整档替换」在 purge
+        // 与其他 metadata 写并发时会抹掉锁内最新值。回调内保留前缀判定原语义；无匹配时多一次
+        // 原子重写（PLAN 已接受）。
         const name = path.basename(meta.originalPath)
-        const store = await this.metadata.loadMetadataStore()
         const prefixes = [`${CUSTOMERS_DIR}/${name}/`, `${CUSTOMERS_DIR}\\${name}\\`]
-        let changed = false
-        for (const key of Object.keys(store.files)) {
-          if (prefixes.some((p) => key.startsWith(p))) {
-            delete store.files[key]
-            changed = true
+        await this.metadata.mutateKeys(ws, (files) => {
+          for (const key of Object.keys(files)) {
+            if (prefixes.some((p) => key.startsWith(p))) delete files[key]
           }
-        }
-        if (changed) await this.metadata.saveMetadataStore(store)
+        })
         // customers.json 条目清理（账物分离：invoices/inbound 中 customer 字段保留字面值，本处不动）
         await this.clients?.removeEntry(name).catch(() => {})
       } else if (meta.kind === 'supplier') {
         // v2.4.9 S2：供应商四清理——①目录（dataDir 已在回收站内，随本条 rm）②metadata 前缀 供应商/<名>/ 清理
         // ③缩略图（下方统一 removeThumbnails）④suppliers.json 条目删除。
         // inbound.supplier_id 留字面值不级联删入库单（账物分离同发票 customer 字段，S2 §五）
+        // v2.5.3（P1-3）：同 customer 分支改走 mutateKeys 锁内读改写（整档替换的丢失更新窗口已消除）；
+        // 无匹配前缀时多一次原子重写（PLAN 已接受）。
         const name = path.basename(meta.originalPath)
-        const store = await this.metadata.loadMetadataStore()
         const prefixes = [`${SUPPLIERS_DIR}/${name}/`, `${SUPPLIERS_DIR}\\${name}\\`]
-        let changed = false
-        for (const key of Object.keys(store.files)) {
-          if (prefixes.some((p) => key.startsWith(p))) {
-            delete store.files[key]
-            changed = true
+        await this.metadata.mutateKeys(ws, (files) => {
+          for (const key of Object.keys(files)) {
+            if (prefixes.some((p) => key.startsWith(p))) delete files[key]
           }
-        }
-        if (changed) await this.metadata.saveMetadataStore(store)
+        })
         await this.suppliers?.removeEntry(name).catch(() => {})
       }
       await this.thumbs.removeThumbnails(originalFiles).catch(() => {})

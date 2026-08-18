@@ -4,7 +4,7 @@ import { api } from "~/wails/api";
 import Modal from "~/components/ui/Modal";
 import { tagList, loadTagDefs } from "~/stores/tags";
 import { currentWorkspace } from "~/stores/workspace";
-import { suppliers, loadSuppliers } from "~/stores/suppliers";
+import { suppliers, loadSuppliers, suppliersLoading } from "~/stores/suppliers";
 import { showToast } from "~/stores/notifyBanner";
 import TagChip from "~/components/TagChip";
 import TagInput from "~/components/TagInput";
@@ -194,9 +194,18 @@ export default function Suppliers() {
       </div>
 
       <Show when={suppliers().length > 0} fallback={
-        <EmptyState icon="🏭" title="暂无供应商" desc="创建您第一个供应商来开始管理">
-          <button class="btn-primary" onClick={() => setShowCreateModal(true)}>新建供应商</button>
-        </EmptyState>
+        // v2.5.3（P2-5）：首载 loading 兜底，空态不闪现（照 Clients.tsx skeleton 先例）
+        <Show when={!suppliersLoading()} fallback={
+          <div class="flex flex-col gap-3 py-8">
+            <div class="skeleton h-20 w-full rounded-xl" />
+            <div class="skeleton h-20 w-full rounded-xl" />
+            <div class="skeleton h-20 w-full rounded-xl" />
+          </div>
+        }>
+          <EmptyState icon="🏭" title="暂无供应商" desc="创建您第一个供应商来开始管理">
+            <button class="btn-primary" onClick={() => setShowCreateModal(true)}>新建供应商</button>
+          </EmptyState>
+        </Show>
       }>
         <Show
           when={suppliers().length >= SUPPLIER_VIRTUAL_THRESHOLD}

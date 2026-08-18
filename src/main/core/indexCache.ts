@@ -37,12 +37,71 @@ const DIRTY_DIRS_MAX = 1024
 export class WorkspaceIndex {
   private snapshots = new Map<string, DirSnapshot>()
   private dirtyDirs = new Set<string>()
+  /**
+   * 每目录失效代数（v2.5.3 T5-S2）：invalidate 递增；build/validate/query 重建目录后
+   * 仅当「epoch 未再增长」（重建期间没有新的失效事件）才清除脏标记——
+   * 重建期间到达的失效事件必须保留到提交后，不能被清理/load 抹掉。
+   */
+  private dirtyEpochs = new Map<string, number>()
   private readonly max: number
   private resolveThumb: (filePath: string) => string
 
   constructor(opts: { resolveThumb?: (filePath: string) => string; max?: number } = {}) {
     this.max = opts.max ?? DEFAULT_MAX
     this.resolveThumb = opts.resolveThumb ?? (() => '')
+  }
+
+  /**
+   * 创建仅继承配置（max/resolveThumb）、快照与脏标记为空的候选索引（v2.5.3 T5）。
+   * 重建全程只在 candidate 上写入；提交时才整体替换 target。
+   */
+  forkForRebuild(): WorkspaceIndex {
+    return new WorkspaceIndex({ max: this.max, resolveThumb: this.resolveThumb })
+  }
+
+  /**
+   * 整体接管 other 的快照与脏标记（v2.5.3 T5）。
+   * 复制容器（新 Map/Set）——提交后 target 与过期 candidate 不得再共享可变状态；
+   * 一次替换，禁止清空后慢慢填充（避免中间空窗）。
+   * v2.5.3（T5-S2）：脏标记合并且集——候选保留的标记（重建期间经 session 失效）与
+   * 重建期间直写本索引（globalWorkspaceIndex.invalidate，如 files/交换区）产生的标记
+   * 都不得被提交抹掉；本索引侧仅保留 epoch 高于重建基线者（即本次重建期间新增的失效）。
+   */
+  replaceFrom(other: WorkspaceIndex, baselineEpochs?: ReadonlyMap<string, number>): void {
+    this.snapshots = new Map(other.snapshots)
+    const otherEpochs = other.epochSnapshot()
+    const merged = new Set<string>(other.dirtyDirs)
+    for (const d of this.dirtyDirs) {
+      const base = baselineEpochs?.get(d) ?? 0
+      // 仅保留「重建开始后新增」的直写失效（epoch 比基线高）；重建前的旧标记随旧快照一起丢弃
+      if ((this.dirtyEpochs.get(d) ?? 0) > base) merged.add(d)
+    }
+    this.dirtyDirs = merged
+    // epoch 修剪到仍为脏的目录（逐目录取双方最大值，保持计数单调）：
+    // 防跨工作区切换后 epoch 表随候选并集无限累积（缺失条目等价于 0，不影响后续判定）
+    const epochs = new Map<string, number>()
+    for (const d of merged) {
+      epochs.set(d, Math.max(this.dirtyEpochs.get(d) ?? 0, otherEpochs.get(d) ?? 0))
+    }
+    this.dirtyEpochs = epochs
+  }
+
+  /** 各目录失效代数快照（v2.5.3 T5-S2：beginRebuild 重建基线 / replaceFrom 合并且集用） */
+  epochSnapshot(): Map<string, number> {
+    return new Map(this.dirtyEpochs)
+  }
+
+  /**
+   * v2.5.3（T5-S2）：重建成功后的脏标记清理——仅当该目录 epoch 未再增长
+   * （重建期间没有新的失效事件）才清除标记；期间新增的失效必须保留，查询时再重建，
+   * 避免「重建覆盖了重建后发生的变化」。清除时顺带删除 epoch 条目（标记已消费，
+   * 计数不再需要；缺失条目等价于 0）。
+   */
+  private clearDirtyIfUnchanged(dir: string, epochAtStart: number): void {
+    if ((this.dirtyEpochs.get(dir) ?? 0) === epochAtStart) {
+      this.dirtyDirs.delete(dir)
+      this.dirtyEpochs.delete(dir)
+    }
   }
 
   /** 设置展开时的缩略图路径推导（files.ts 接线时注入；纯路径计算，无 IO） */
@@ -123,10 +182,12 @@ export class WorkspaceIndex {
         for (const sub of subs) {
           if (!sub.isDirectory()) continue
           const d = path.join(typePath, sub.name)
+          // v2.5.3（T5-S2）：记录构建前 epoch——重建期间新失效的目录保留脏标记
+          const epochAtStart = this.dirtyEpochs.get(d) ?? 0
           const snap = await this.buildSnapshot(d, listRaw).catch(() => null)
           if (snap) {
             this.put(d, snap)
-            this.dirtyDirs.delete(d) // 已重建 → 失效标记视为处理完毕
+            this.clearDirtyIfUnchanged(d, epochAtStart) // 已重建且期间无新失效 → 清除标记
             built++
           }
         }
@@ -159,10 +220,12 @@ export class WorkspaceIndex {
     for (const e of entries) {
       if (!e.isDirectory()) continue
       const d = path.join(root, e.name)
+      // v2.5.3（T5-S2）：同 build()——重建期间新失效的目录保留脏标记
+      const epochAtStart = this.dirtyEpochs.get(d) ?? 0
       const snap = await this.buildSnapshot(d, listRaw).catch(() => null)
       if (snap) {
         this.put(d, snap)
-        this.dirtyDirs.delete(d) // 已重建 → 失效标记视为处理完毕
+        this.clearDirtyIfUnchanged(d, epochAtStart)
         built++
       }
     }
@@ -177,10 +240,19 @@ export class WorkspaceIndex {
    * 4. 否则 listRaw 重建并缓存
    */
   async query(dir: string, listRaw: (dir: string) => Promise<CompactItem[]>): Promise<FileEntry[]> {
-    if (this.dirtyDirs.delete(dir)) {
+    if (this.dirtyDirs.has(dir)) {
+      // v2.5.3（T5-S2）：重建期间新失效的目录保留标记——重建 snapshot 后 epoch 未再增长才清除
+      const epochAtStart = this.dirtyEpochs.get(dir) ?? 0
       const snap = await this.buildSnapshot(dir, listRaw)
-      if (snap) this.put(dir, snap)
-      else this.snapshots.delete(dir)
+      if (snap) {
+        this.put(dir, snap)
+        this.clearDirtyIfUnchanged(dir, epochAtStart)
+      } else {
+        // 目录不存在：缓存与脏标记一并清掉（无快照可失效；下次存在时走签名路径重建）
+        this.snapshots.delete(dir)
+        this.dirtyDirs.delete(dir)
+        this.dirtyEpochs.delete(dir)
+      }
       return snap ? this.expand(dir, snap.items) : []
     }
     const sig = await this.dirSig(dir)
@@ -207,8 +279,17 @@ export class WorkspaceIndex {
   invalidate(dir: string): void {
     // 收尾轮（候选 3）：脏标记有界——fs.watch 事件洪水（大目录批量操作）时防 Set 无界增长；
     // 超限清空旧标（洪水时旧标已无增量意义），query 按快照返回、全量 build 兜底
-    if (this.dirtyDirs.size >= DIRTY_DIRS_MAX) this.dirtyDirs.clear()
+    // v2.5.3（P2-1）：洪水清空时同步修剪 epoch 表（只保留仍为脏的目录条目）——
+    // 此前仅清 dirtyDirs，epoch 随洪水无限累积（唯一无界容器）；缺失条目等价 0，不破坏 T5-S2
+    // 「重建期间新失效保留」的代数语义（照 replaceFrom 合并且集的修剪先例）
+    if (this.dirtyDirs.size >= DIRTY_DIRS_MAX) {
+      this.dirtyDirs.clear()
+      this.dirtyEpochs.clear()
+    }
     this.dirtyDirs.add(dir)
+    // v2.5.3（T5-S2）：每目录失效代数单调递增——build/validate/query 清理标记时据此
+    // 区分「重建期间的新失效」（必须保留）与「重建前的旧标记」（可清除）
+    this.dirtyEpochs.set(dir, (this.dirtyEpochs.get(dir) ?? 0) + 1)
   }
 
   /** 脏目录标记数（v2.4.6 测试断言用，参照 ThumbQueue.pendingCount 先例） */
@@ -216,10 +297,16 @@ export class WorkspaceIndex {
     return this.dirtyDirs.size
   }
 
-  /** 清空快照与脏标记（工作区切换 / 测试）。v2.4.6 核实：必须同时清空 dirtyDirs，否则脏标记滞留 */
+  /** 失效代数表条目数（v2.5.3 P2-1：洪泛后 epoch 表有界性断言用；正常应 ≤ dirtyCount） */
+  get dirtyEpochCount(): number {
+    return this.dirtyEpochs.size
+  }
+
+  /** 清空快照与脏标记（工作区切换 / 测试）。v2.4.6 核实：必须同时清空 dirtyDirs，否则脏标记滞留；T5-S2 起 epoch 一并清空 */
   clear(): void {
     this.snapshots.clear()
     this.dirtyDirs.clear()
+    this.dirtyEpochs.clear()
   }
 
   /** 落盘快照：root/index.json（{ v, dirs: { dir: [sig, items] } }，紧凑 JSON 原子写） */
@@ -250,7 +337,11 @@ export class WorkspaceIndex {
     if (!data || typeof data !== 'object') return false
     const obj = data as { v?: unknown; dirs?: unknown }
     if (obj.v !== INDEX_VERSION || !obj.dirs || typeof obj.dirs !== 'object') return false
-    this.clear()
+    // v2.5.3（T5-S2）：load 前的脏标记必须保留——重建期间到达的失效事件不得被
+    // 「读盘清空」抹掉（epoch 计数同步保留，单调性不中断）；epoch 与标记随 load 合入
+    const prevDirty = Array.from(this.dirtyDirs)
+    this.snapshots.clear()
+    this.dirtyDirs.clear()
     for (const [dir, val] of Object.entries(obj.dirs)) {
       if (!Array.isArray(val) || val.length !== 2) continue
       const sig = val[0]
@@ -269,6 +360,8 @@ export class WorkspaceIndex {
       )
       this.snapshots.set(dir, { sig, items: valid })
     }
+    // 候选合入后保留仍有效的脏标记（load 读盘快照对脏目录不可信，查询时需重建）
+    for (const d of prevDirty) this.dirtyDirs.add(d)
     return true
   }
 
@@ -287,10 +380,12 @@ export class WorkspaceIndex {
       }
       const snap = this.snapshots.get(dir)
       if (snap && snap.sig === sig) continue
+      // v2.5.3（T5-S2）：重建期间新失效的目录保留脏标记（同 build()）
+      const epochAtStart = this.dirtyEpochs.get(dir) ?? 0
       const rebuilt = await this.buildSnapshot(dir, listRaw).catch(() => null)
       if (rebuilt) {
         this.put(dir, rebuilt)
-        this.dirtyDirs.delete(dir) // 已重建 → 失效标记视为处理完毕
+        this.clearDirtyIfUnchanged(dir, epochAtStart)
       } else {
         this.snapshots.delete(dir)
       }
@@ -302,3 +397,48 @@ export class WorkspaceIndex {
 
 /** 全局单例（resolveThumb 由 files.ts 接线时注入） */
 export const globalWorkspaceIndex = new WorkspaceIndex()
+
+/**
+ * 工作区索引重建会话（v2.5.3 T5）：
+ * 重建期间失效事件进入 candidate；仅在 isCurrent() 时 commit 才替换 target。
+ */
+export interface WorkspaceIndexRebuildSession {
+  readonly generation: number
+  readonly candidate: WorkspaceIndex
+  isCurrent(): boolean
+  invalidate(dir: string): void
+  commit(): boolean
+}
+
+/**
+ * 候选索引代数协调器（v2.5.3 T5）：
+ * 隔离「切换工作区时旧索引 build/load 污染当前全局索引」的竞态——旧 session 绝不触碰 target。
+ */
+export class WorkspaceIndexCoordinator {
+  private generation = 0
+
+  constructor(private readonly target: WorkspaceIndex) {}
+
+  /** 递增代数并创建候选；每次调用返回独立 session 对象 */
+  beginRebuild(): WorkspaceIndexRebuildSession {
+    this.generation += 1
+    const generation = this.generation
+    // v2.5.3（T5-S2）：重建基线 = 各目录失效代数快照——提交时仅保留
+    // epoch 高于基线（本次重建期间新增）的 target 直写失效标记，防把旧标记带入新索引
+    const baseline = this.target.epochSnapshot()
+    const candidate = this.target.forkForRebuild()
+    return {
+      generation,
+      candidate,
+      isCurrent: () => this.generation === generation,
+      invalidate: (dir) => {
+        if (this.generation === generation) candidate.invalidate(dir)
+      },
+      commit: () => {
+        if (this.generation !== generation) return false
+        this.target.replaceFrom(candidate, baseline)
+        return true
+      },
+    }
+  }
+}

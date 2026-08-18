@@ -33,14 +33,20 @@ let workerUrlPromise: Promise<string> | null = null;
 function getWorkerUrl(): Promise<string> {
   if (!workerUrlPromise) {
     workerUrlPromise = (async () => {
-      if (import.meta.env.DEV) {
-        // dev：用 ?raw 原始源码打 blob（无 vite 注入，实测唯一可用方式）
-        const workerBlob = new Blob([pdfWorkerRaw], { type: "text/javascript" });
+      try {
+        if (import.meta.env.DEV) {
+          // dev：用 ?raw 原始源码打 blob（无 vite 注入，实测唯一可用方式）
+          const workerBlob = new Blob([pdfWorkerRaw], { type: "text/javascript" });
+          return URL.createObjectURL(workerBlob);
+        }
+        const workerResp = await fetch(pdfWorkerUrl);
+        const workerBlob = await workerResp.blob();
         return URL.createObjectURL(workerBlob);
+      } catch (err) {
+        // v2.5.3（P2-3）：失败复位单例——否则 Promise 永久 rejected、worker 永不可用，下次打开重试
+        workerUrlPromise = null;
+        throw err;
       }
-      const workerResp = await fetch(pdfWorkerUrl);
-      const workerBlob = await workerResp.blob();
-      return URL.createObjectURL(workerBlob);
     })();
   }
   return workerUrlPromise;

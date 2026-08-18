@@ -13,6 +13,8 @@ export default function InboundEditorModal(props: {
   editor: { mode: "create" } | { mode: "edit"; record: InboundRecord } | null;
   form: InboundFormState;
   setField: <K extends keyof InboundFormState>(key: K, value: InboundFormState[K]) => void;
+  /** v2.5.3（P2-10）：保存中——提交按钮 disabled 防连点双创建 */
+  saving?: boolean;
   onClose: () => void;
   onSave: () => void;
   onPickFile: () => void;
@@ -128,7 +130,7 @@ export default function InboundEditorModal(props: {
           </div>
           <div class="flex gap-3 justify-end mt-6">
             <button class="btn-secondary" onClick={props.onClose}>取消</button>
-            <button class="btn-primary" onClick={() => void props.onSave()}>
+            <button class="btn-primary" onClick={() => void props.onSave()} disabled={props.saving}>
               {props.editor?.mode === "edit" ? "保存" : "确认登记"}
             </button>
           </div>

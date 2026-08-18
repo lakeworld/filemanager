@@ -246,14 +246,14 @@ export default function Trash() {
         }
       >
         <Show
-          when={entries().length > TRASH_VIRTUAL_THRESHOLD}
+          when={entries().length >= TRASH_VIRTUAL_THRESHOLD}
           fallback={
             <div class="space-y-2">
               <For each={entries()}>{(e) => renderEntry(e)}</For>
             </div>
           }
         >
-          {/* v2.4.7（评审 P2）：超阈值走虚拟滚动——只渲染可见行，回收站条目数无上限 */}
+          {/* v2.4.7（评审 P2）：≥阈值走虚拟滚动——只渲染可见行，回收站条目数无上限（v2.5.3 P2-15：> 改 >= 与 Clients/Suppliers 一致） */}
           <div class="flex-1 min-h-0">
             <VirtualGrid
               items={entries()}

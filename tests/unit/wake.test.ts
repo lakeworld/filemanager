@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isSuspectedWake } from '../../src/main/core/wake'
+import { isSuspectedWake, parsePowerBroadcast, WakeSignalGate } from '../../src/main/core/wake'
 
 /**
  * 睡眠唤醒轮询判定（v2.5.2）
@@ -33,5 +33,66 @@ describe('isSuspectedWake（轮询时钟跳变判定）', () => {
     expect(isSuspectedWake(25_000, 10_000, 2)).toBe(true)
     expect(isSuspectedWake(15_000, 10_000, 2)).toBe(false)
     expect(isSuspectedWake(20_000, 10_000, 2)).toBe(false) // 严格大于边界
+  })
+})
+
+/** 构造 wParam Buffer（低 32 位 = value，Windows native 值） */
+function wParamBuffer(v: number): Buffer {
+  const b = Buffer.alloc(8)
+  b.writeUInt32LE(v, 0)
+  return b
+}
+
+describe('parsePowerBroadcast（Windows WM_POWERBROADCAST wParam 解析）', () => {
+  it('PBT_APMSUSPEND(0x4) → suspend', () => {
+    expect(parsePowerBroadcast(wParamBuffer(0x4))).toBe('suspend')
+  })
+
+  it('PBT_APMRESUMEAUTOMATIC(0x12) → resume', () => {
+    expect(parsePowerBroadcast(wParamBuffer(0x12))).toBe('resume')
+  })
+
+  it('PBT_APMRESUMESUSPEND(0x7) → resume', () => {
+    expect(parsePowerBroadcast(wParamBuffer(0x7))).toBe('resume')
+  })
+
+  it('其他 wParam / 空 / 畸形 → none', () => {
+    expect(parsePowerBroadcast(wParamBuffer(0x0))).toBe('none')
+    expect(parsePowerBroadcast(wParamBuffer(0x100))).toBe('none')
+    expect(parsePowerBroadcast(Buffer.alloc(0))).toBe('none')
+    expect(parsePowerBroadcast(Buffer.alloc(2))).toBe('none')
+  })
+
+  it('64 位 Buffer 取低 32 位（高 32 位不影响解析）', () => {
+    const b = Buffer.alloc(8)
+    b.writeUInt32LE(0x4, 0)
+    b.writeUInt32LE(0xffffffff, 4)
+    expect(parsePowerBroadcast(b)).toBe('suspend')
+  })
+})
+
+describe('WakeSignalGate（唤醒信号去重：同一 generation 只放行一次 resume）', () => {
+  it('跨代重置：新 generation 后 resume 重新放行', () => {
+    const gate = new WakeSignalGate()
+    expect(gate.shouldDispatch(1, 'resume')).toBe(true)
+    expect(gate.shouldDispatch(1, 'resume')).toBe(false) // 同代重复 → 去重
+    expect(gate.shouldDispatch(1, 'none')).toBe(false) // none 永不放行
+    expect(gate.shouldDispatch(2, 'resume')).toBe(true) // 新一代 → 放行
+  })
+
+  it('suspend 每次放行（记录可见态需即时），resume 同代只一次', () => {
+    const gate = new WakeSignalGate()
+    expect(gate.shouldDispatch(5, 'suspend')).toBe(true)
+    expect(gate.shouldDispatch(5, 'suspend')).toBe(true) // 多次 suspend 都放行
+    expect(gate.shouldDispatch(5, 'resume')).toBe(true)
+    expect(gate.shouldDispatch(5, 'resume')).toBe(false)
+  })
+
+  it('none / 跨代 suspend 正常，reset 清空同代去重态', () => {
+    const gate = new WakeSignalGate()
+    expect(gate.shouldDispatch(3, 'none')).toBe(false)
+    expect(gate.shouldDispatch(3, 'resume')).toBe(true)
+    gate.reset()
+    expect(gate.shouldDispatch(3, 'resume')).toBe(true) // reset 后同代重新放行
   })
 })

@@ -37,6 +37,10 @@ const DOC_DEFAULT_SUBFOLDERS = ["说明书", "参数表", "质检报告"];
 /** v2.5.1（F2）：产品集区文件类型三态（图包/证书/文档） */
 export type ProductSetFileType = "image" | "cert" | "doc";
 
+// v2.5.3（P2-12）：模块级列表加载请求序号——跨挂载撞号防护（组件卸载后重挂载，旧响应不得
+// 误判为最新）；卸载时 onCleanup 递增使在途请求作废（照 Images/Certs 先例）
+let loadSeq = 0;
+
 export interface FileBrowserViewProps {
   scope: FileBrowserScope;
   /** 实体名（已解码）：scope=productSet → 产品集名；scope=customer → 客户名 */
@@ -82,7 +86,9 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     return sel ? files().filter((f) => f.tags?.includes(sel)) : files();
   };
   const contextMenu = useContextMenu<string[]>();
-  const [showMove, setShowMove] = createSignal(false);
+  // v2.5.3（P1-1）：右键「移动到…」paths 页面级信号——ContextMenu 菜单项 action 后 close()
+  // 同步清 payload，MoveDialog 若读 contextMenu.payload 将拿到 []（实测按钮「移动 0 个文件」且提交必报错）
+  const [movePaths, setMovePaths] = createSignal<string[] | undefined>();
   // v2.3.3（P2）：批量重命名对话框（多选）
   const [showBatchRename, setShowBatchRename] = createSignal(false);
   const [batchRenameFiles, setBatchRenameFiles] = createSignal<FileEntry[]>([]);
@@ -137,7 +143,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         : `/files/${fileType()}/${encodeURIComponent(props.entity)}/${encodeURIComponent(sub)}`;
 
   // v2.4.x：请求序号守卫——快速连点切换文件夹时，丢弃过期请求的返回，保证最终显示正确文件夹
-  let loadSeq = 0;
+  // v2.5.3（P2-12）：序号已提升为模块级 loadSeq（跨挂载撞号防护），组件卸载时递增作废在途请求
   const loadFiles = async () => {
     const seq = ++loadSeq;
     setLoading(true);
@@ -164,6 +170,9 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   };
 
   createEffect(() => {
+    // v2.5.3（P1-2）：显式依赖工作区——切工作区时 FBV 保持挂载（同一路由 props 不变），
+    // 无此依赖则 effect 不重跑、文件列表停留旧区内容（照 Search.tsx T10 先例）
+    void currentWorkspace();
     fileBrowserRefreshTrigger(); // 触发文件列表刷新
     if (props.entity && props.subFolder) {
       setSelectedFilePaths([]);
@@ -287,6 +296,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   };
 
   const handleExtract = async (file: FileEntry, mode: "here" | "folder") => {
+    if (archiveState()) return; // 单任务守卫（v2.5.3 P2-9-extract：与 handleCompress 同款，防顶掉进行中任务的进度弹窗）
     const token = newArchiveToken();
     setArchiveState({ token, phase: "extract" });
     const r = await api.archive.extract({ zipPath: file.path, mode, cancelToken: token });
@@ -334,6 +344,11 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       window.removeEventListener("keydown", onKeyDown);
       window.clearTimeout(actionMessageTimer);
     });
+  });
+
+  // v2.5.3（P2-12）：卸载时递增 loadSeq——在途 loadFiles 响应作废，防触碰已销毁组件
+  onCleanup(() => {
+    loadSeq++;
   });
 
   const handleDeleteSubfolder = () => {
@@ -643,7 +658,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
               onOpenDefault: (file) => void api.files.openWithDefaultApp(file.path),
               onCopy: handleCopyPaths,
               onShowInExplorer: handleShowPathsInExplorer,
-              onMove: () => setShowMove(true),
+              onMove: (paths) => setMovePaths(paths),
               onRename: handleRename,
               onBatchTag: (paths) => handleBatchTag(paths),
               onBatchRename: () => void handleBatchRename(),
@@ -655,12 +670,13 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         />
       </Show>
 
-      {/* 移动到… 目标选择（v2.3.x） */}
-      <Show when={showMove()}>
+      {/* 移动到… 目标选择（v2.3.x；v2.5.3 P1-1：paths 走页面级 movePaths，不再读 contextMenu.payload） */}
+      <Show when={movePaths()}>
         <MoveDialog
-          paths={contextMenu.payload() ?? []}
-          onClose={() => setShowMove(false)}
+          paths={movePaths() ?? []}
+          onClose={() => setMovePaths(undefined)}
           onMoved={() => {
+            setMovePaths(undefined);
             loadFiles();
             setSelectedFilePaths([]);
           }}

@@ -17,6 +17,19 @@ import { PKG_DIR, MAIN_ENTRY, CIRCUIT_BROKEN_PREFIX, type PluginRegistry } from 
 /** 熔断阈值：握手/调用连续失败 3 次 → 自动 broken（PLUGIN.md §2.3.2） */
 export const BREAK_THRESHOLD = 3
 
+/** activate(host) 握手默认上限；环境变量 QIHEBOX_PLUGIN_ACTIVATE_TIMEOUT_MS 可覆盖。 */
+export const DEFAULT_ACTIVATE_TIMEOUT_MS = 15_000
+
+/** activate(host) 在规定时间内未返回时抛出（作为插件失败计入熔断）。 */
+export class PluginActivateTimeoutError extends Error {
+  readonly code = 'ACTIVATE_TIMEOUT'
+
+  constructor(id: string, timeoutMs: number) {
+    super(`插件激活超时（${id}，${timeoutMs}ms）`)
+    this.name = 'PluginActivateTimeoutError'
+  }
+}
+
 /** 业务错误码白名单（host.files 六码，PLAN §3.3）：仅这些 code 豁免熔断；
  *  原生 Node 错误（ENOENT/ECONNREFUSED 等）带 code 但非业务码 → 计入熔断（P1-A1）。 */
 export const BUSINESS_ERROR_CODES = new Set([
@@ -35,6 +48,11 @@ class ActivationCancelledError extends Error {
   }
 }
 
+function validTimeoutMs(value: unknown): number | undefined {
+  const timeoutMs = typeof value === 'number' ? value : Number(value)
+  return Number.isInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : undefined
+}
+
 export interface LoaderOptions {
   registry: PluginRegistry
   /** userData/plugins 根（加载 userData/plugins/<id>/pkg/main/index.js） */
@@ -44,6 +62,8 @@ export interface LoaderOptions {
   log?: (level: 'info' | 'warn' | 'error', msg: string) => void
   /** 模块加载器（默认 node 动态 import；测试可注入，如 createRequire） */
   importer?: (url: string) => Promise<unknown>
+  /** activate(host) 握手上限；测试可注入短值，缺省读环境变量或 15 秒默认值。 */
+  activateTimeoutMs?: number
 }
 
 interface Runtime {
@@ -63,6 +83,7 @@ export class PluginLoader {
   private createHost: LoaderOptions['createHost']
   private log: (level: 'info' | 'warn' | 'error', msg: string) => void
   private importer: (url: string) => Promise<unknown>
+  private activateTimeoutMs: number
   private runtimes = new Map<string, Runtime>()
   /** 状态变化（熔断自动 broken 等）→ ipc 层广播 plugins:changed */
   onChanged?: () => void
@@ -73,6 +94,10 @@ export class PluginLoader {
     this.createHost = opts.createHost
     this.log = opts.log ?? (() => {})
     this.importer = opts.importer ?? ((url: string) => import(url) as Promise<unknown>)
+    this.activateTimeoutMs =
+      validTimeoutMs(opts.activateTimeoutMs) ??
+      validTimeoutMs(process.env.QIHEBOX_PLUGIN_ACTIVATE_TIMEOUT_MS) ??
+      DEFAULT_ACTIVATE_TIMEOUT_MS
   }
 
   // —— 惰性激活入口（IPC 首达 / onView / onCommand 统一经此；activation 事件经 onHostEvent / onStartupFinished）——
@@ -102,6 +127,32 @@ export class PluginLoader {
     }
   }
 
+  private activateWithTimeout(id: string, rt: Runtime, activation: Promise<unknown>): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      let timedOut = false
+      const timer = setTimeout(() => {
+        timedOut = true
+        rt.cancelled = true
+        reject(new PluginActivateTimeoutError(id, this.activateTimeoutMs))
+      }, this.activateTimeoutMs)
+      activation.then(
+        (registration) => {
+          clearTimeout(timer)
+          if (timedOut) {
+            // 超时已判负：迟到 registration 不得落地，立即释放（防订阅/定时器泄漏）
+            this.disposeRegistration(id, registration)
+            return
+          }
+          resolve(registration)
+        },
+        (err) => {
+          clearTimeout(timer)
+          if (!timedOut) reject(err)
+        },
+      )
+    })
+  }
+
   private async doLoad(id: string, rt: Runtime): Promise<void> {
     const entry = this.registry.get(id)
     if (!entry?.manifest) throw new Error(`插件登记缺失（${id}）`)
@@ -122,7 +173,11 @@ export class PluginLoader {
         created = null
         throw new ActivationCancelledError()
       }
-      const registration = await (activate as (host: PluginHost) => Promise<unknown>)(created.host)
+      const registration = await this.activateWithTimeout(
+        id,
+        rt,
+        (activate as (host: PluginHost) => Promise<unknown>)(created.host),
+      )
       this.assertRegistration(registration)
       // v2.5 修复（P1-A2）：activate 挂起期间被 deactivate → 二次检查取消标记/运行时仍登记，
       // 立即 dispose 刚创建的宿主 + registration.dispose，杜绝孤儿实例（订阅/定时器泄漏）
@@ -162,7 +217,8 @@ export class PluginLoader {
     const entry = this.registry.get(id)
     if (entry && entry.failCount >= BREAK_THRESHOLD) {
       this.registry.markBroken(id, `${CIRCUIT_BROKEN_PREFIX}连续失败 ${entry.failCount} 次（${err instanceof Error ? err.message : String(err)}）`)
-      this.runtimes.delete(id)
+      // 熔断必须复用幂等 deactivate 释放路径（registration.dispose + hostDispose），不能丢引用（D5）
+      this.deactivate(id)
       this.onChanged?.()
       this.log('error', `插件已熔断（连续失败 ${entry.failCount} 次）: ${id}`)
       return true
@@ -237,7 +293,28 @@ export class PluginLoader {
 
   // —— 停用 / 清理 ——
 
-  /** 停用：registration.dispose() → hostDispose（解订阅/释缓存）→ 释放实例引用（禁用/卸载/熔断时调用） */
+  /** 单独释放晚到/返回的 registration；异常只记录不抛出（不阻断宿主释放） */
+  private disposeRegistration(id: string, registration: unknown): void {
+    if (typeof registration !== 'object' || registration === null) return
+    try {
+      ;(registration as PluginRegistration).dispose?.()
+    } catch (err) {
+      this.log('error', `插件 dispose 异常（${id}）: ${String(err)}`)
+    }
+  }
+
+  /** 统一释放路径（disposeRuntime）：registration.dispose + hostDispose 各自独立 try/catch/log */
+  private disposeRuntime(id: string, rt: Runtime): void {
+    this.disposeRegistration(id, rt.registration)
+    try {
+      rt.hostDispose()
+    } catch (err) {
+      this.log('error', `插件宿主清理异常（${id}）: ${String(err)}`)
+    }
+    rt.registration = undefined
+  }
+
+  /** 停用（幂等）：registration.dispose() → hostDispose（解订阅/释缓存）→ 释放实例引用（禁用/卸载/熔断时调用） */
   deactivate(id: string): void {
     const rt = this.runtimes.get(id)
     if (!rt) return
@@ -245,17 +322,7 @@ export class PluginLoader {
     // 已激活 → 正常 dispose（registration.dispose + hostDispose）
     if (rt.active) {
       rt.active = false
-      try {
-        rt.registration?.dispose?.()
-      } catch (err) {
-        this.log('error', `插件 dispose 异常（${id}）: ${String(err)}`)
-      }
-      try {
-        rt.hostDispose()
-      } catch (err) {
-        this.log('error', `插件宿主清理异常（${id}）: ${String(err)}`)
-      }
-      rt.registration = undefined
+      this.disposeRuntime(id, rt)
       return
     }
     // v2.5 修复（P1-A2）：激活进行中（createHost/activate 尚未完成）→ 打取消标记，
@@ -265,17 +332,12 @@ export class PluginLoader {
     }
   }
 
-  /** 退出清理：全部已激活插件 dispose()（尽力，超时 2s 不强等，PLAN §六.4） */
-  async disposeAll(timeoutMs = 2000): Promise<void> {
-    const ids = [...this.runtimes.keys()]
-    await Promise.all(
-      ids.map((id) =>
-        Promise.race([
-          Promise.resolve().then(() => this.deactivate(id)),
-          new Promise<void>((r) => setTimeout(r, timeoutMs)),
-        ]),
-      ),
-    )
+  /**
+   * 退出清理（同步）：全部运行时立即 dispose（registration.dispose + hostDispose），
+   * 第一拍同步完成实际释放，保证退出窗口内已执行；不做异步超时竞速。
+   */
+  disposeAll(): void {
+    for (const id of [...this.runtimes.keys()]) this.deactivate(id)
   }
 
   // —— activation 事件触发的惰性激活（PLUGIN.md §2.3.1）——

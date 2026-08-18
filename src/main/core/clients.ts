@@ -17,11 +17,12 @@ import {
   customerRootPath,
   CUSTOMERS_DIR,
   ensureWorkspaceDirs,
-  writeJsonAtomic,
+  overwriteJson,
   readJsonFile,
   assertSafeFolderName,
   productSetRootPath,
 } from './paths'
+import { mutateJsonFile } from './jsonStore'
 import { WorkspaceService, countFiles } from './workspace'
 import { currentTimeString } from './metadata'
 import { globalWorkspaceIndex } from './indexCache'
@@ -122,7 +123,40 @@ export class ClientsService {
 
   async saveCustomersInfo(ws: string, store: Record<string, CustomerExtraInfo>): Promise<void> {
     ensureWorkspaceDirs(ws)
-    await writeJsonAtomic(customersInfoPath(ws), store)
+    await overwriteJson(customersInfoPath(ws), store)
+  }
+
+  /**
+   * 锁内读改写事务（v2.5.3 T2，S1）：读取/构造/查重/修改全部在 mutate 回调内完成，
+   * 保证基于锁内最新磁盘内容，杜绝并发丢更新与「内存已改、写盘失败」假成功。
+   * 回调通过 markChanged() 声明实际变更——未声明则 save 返回 false 不写盘（无变化不刷 mtime）。
+   * 结构非法视为损坏：写路径拒绝覆盖并隔离留证（.corrupt-* 备份）；校验/查重失败直接上抛。
+   */
+  private async mutateStore<R>(
+    ws: string,
+    mutate: (store: Record<string, CustomerExtraInfo>, markChanged: () => void) => Promise<R> | R,
+  ): Promise<R> {
+    ensureWorkspaceDirs(ws)
+    const p = customersInfoPath(ws)
+    let changed = false
+    const result = await mutateJsonFile<Record<string, CustomerExtraInfo>, R>(p, {
+      read: async () => ({}), // 文件缺失按空档案起步
+      mutate: async (store) => mutate(store, () => (changed = true)),
+      save: async () => changed,
+      validate: (v) =>
+        v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, CustomerExtraInfo>) : null,
+    })
+    return result
+  }
+
+  /**
+   * 锁内增量读改写（v2.5.3 找bug打磨轮 P1-3）：供 index.ts 客户标签引用源等外部服务使用。
+   * mutate 返回是否发生变更（true 才落盘、不刷 mtime）——杜绝「锁外读旧快照 + 整档替换」的丢失更新窗口。
+   */
+  async mutateCustomers(ws: string, mutate: (store: Record<string, CustomerExtraInfo>) => Promise<boolean> | boolean): Promise<void> {
+    await this.mutateStore(ws, async (store, markChanged) => {
+      if (await mutate(store)) markChanged()
+    })
   }
 
   // —— 客户 API（对照 workspace.ts 产品集段）——
@@ -207,10 +241,13 @@ export class ClientsService {
       created_at: now,
       updated_at: now,
     }
-    const store = await this.loadCustomersInfo()
-    store[name] = entry
-    await this.saveCustomersInfo(ws, store)
-    return this.buildInfo(ws, name, 0, entry)
+    // 档案写入走锁内事务：锁内再查重（防并发同建），写入基于最新磁盘内容
+    return this.mutateStore(ws, async (store, markChanged) => {
+      if (store[name]) throw new Error('客户已存在')
+      store[name] = entry
+      markChanged()
+      return this.buildInfo(ws, name, 0, entry)
+    })
   }
 
   /**
@@ -226,30 +263,31 @@ export class ClientsService {
     await fsp.stat(dir).catch(() => {
       throw new Error('客户不存在')
     })
-    const store = await this.loadCustomersInfo()
-    const entry = store[name] ?? {}
     this.assertCustomerType(req.type)
     const now = currentTimeString()
-    if (req.alias !== undefined) entry.alias = req.alias.trim()
-    if (req.country !== undefined) entry.country = req.country.trim()
-    if (req.contact !== undefined) entry.contact = req.contact.trim()
-    if (req.source !== undefined) entry.source = req.source.trim()
-    if (req.type !== undefined) entry.type = req.type
-    if (req.phone !== undefined) entry.phone = req.phone.trim()
-    if (req.email !== undefined) entry.email = req.email.trim()
-    if (req.address !== undefined) entry.address = req.address.trim()
-    if (req.tags !== undefined) entry.tags = req.tags
-    if (req.notes !== undefined) entry.notes = req.notes.trim()
-    if (req.related_product_sets !== undefined) {
-      const list = [...new Set(req.related_product_sets)]
-      for (const ps of list) await this.assertProductSetExists(ps)
-      entry.related_product_sets = list
-    }
-    entry.created_at = entry.created_at ?? now
-    entry.updated_at = now
-    store[name] = entry
-    await this.saveCustomersInfo(ws, store)
-    return this.buildInfo(ws, name, await countFiles(dir), entry)
+    return this.mutateStore(ws, async (store, markChanged) => {
+      const entry = store[name] ?? {}
+      if (req.alias !== undefined) entry.alias = req.alias.trim()
+      if (req.country !== undefined) entry.country = req.country.trim()
+      if (req.contact !== undefined) entry.contact = req.contact.trim()
+      if (req.source !== undefined) entry.source = req.source.trim()
+      if (req.type !== undefined) entry.type = req.type
+      if (req.phone !== undefined) entry.phone = req.phone.trim()
+      if (req.email !== undefined) entry.email = req.email.trim()
+      if (req.address !== undefined) entry.address = req.address.trim()
+      if (req.tags !== undefined) entry.tags = req.tags
+      if (req.notes !== undefined) entry.notes = req.notes.trim()
+      if (req.related_product_sets !== undefined) {
+        const list = [...new Set(req.related_product_sets)]
+        for (const ps of list) await this.assertProductSetExists(ps)
+        entry.related_product_sets = list
+      }
+      entry.created_at = entry.created_at ?? now
+      entry.updated_at = now
+      store[name] = entry
+      markChanged()
+      return this.buildInfo(ws, name, await countFiles(dir), entry)
+    })
   }
 
   /**
@@ -280,13 +318,15 @@ export class ClientsService {
     await fsp.rename(oldDir, newDir)
     globalWorkspaceIndex.invalidate(oldDir)
     globalWorkspaceIndex.invalidate(newDir)
-    // 档案键迁移（tags/notes/关联/erp_ext 随条目整体移动）
-    const store = await this.loadCustomersInfo()
-    if (store[oldName]) {
-      store[newName] = store[oldName]
-      delete store[oldName]
-      await this.saveCustomersInfo(ws, store)
-    }
+    // 档案键迁移（tags/notes/关联/erp_ext 随条目整体移动；无条目时不写盘）
+    await this.mutateStore(ws, async (store, markChanged) => {
+      if (store[newName]) throw new Error('新客户已存在')
+      if (store[oldName]) {
+        store[newName] = store[oldName]
+        delete store[oldName]
+        markChanged()
+      }
+    })
   }
 
   /** 关联产品集（related_product_sets 增；校验产品集存在，去重）——客户侧是唯一写点，产品集侧只读反查 */
@@ -298,16 +338,21 @@ export class ClientsService {
       throw new Error('客户不存在')
     })
     await this.assertProductSetExists(productSet)
-    const store = await this.loadCustomersInfo()
-    const entry = store[name] ?? {}
     const ps = productSet.trim()
-    const list = [...new Set([...(entry.related_product_sets ?? []), ps])]
-    entry.related_product_sets = list
-    entry.created_at = entry.created_at ?? currentTimeString()
-    entry.updated_at = currentTimeString()
-    store[name] = entry
-    await this.saveCustomersInfo(ws, store)
-    return this.buildInfo(ws, name, await countFiles(dir), entry)
+    return this.mutateStore(ws, async (store, markChanged) => {
+      const entry = store[name] ?? {}
+      const list = [...new Set([...(entry.related_product_sets ?? []), ps])]
+      if (list.length === (entry.related_product_sets ?? []).length) {
+        // 已关联（无变化）→ 不写盘、不刷 mtime
+        return this.buildInfo(ws, name, await countFiles(dir), entry)
+      }
+      entry.related_product_sets = list
+      entry.created_at = entry.created_at ?? currentTimeString()
+      entry.updated_at = currentTimeString()
+      store[name] = entry
+      markChanged()
+      return this.buildInfo(ws, name, await countFiles(dir), entry)
+    })
   }
 
   /** 解除关联（related_product_sets 删；无档案条目/无关联时静默幂等） */
@@ -318,15 +363,20 @@ export class ClientsService {
     await fsp.stat(dir).catch(() => {
       throw new Error('客户不存在')
     })
-    const store = await this.loadCustomersInfo()
-    const entry = store[name]
-    if (entry) {
-      entry.related_product_sets = (entry.related_product_sets ?? []).filter((ps) => ps !== productSet.trim())
-      entry.updated_at = currentTimeString()
-      store[name] = entry
-      await this.saveCustomersInfo(ws, store)
-    }
-    return this.buildInfo(ws, name, await countFiles(dir), entry)
+    const ps = productSet.trim()
+    return this.mutateStore(ws, async (store, markChanged) => {
+      const entry = store[name]
+      if (entry) {
+        const next = (entry.related_product_sets ?? []).filter((x) => x !== ps)
+        if (next.length !== (entry.related_product_sets ?? []).length) {
+          entry.related_product_sets = next
+          entry.updated_at = currentTimeString()
+          store[name] = entry
+          markChanged()
+        }
+      }
+      return this.buildInfo(ws, name, await countFiles(dir), entry)
+    })
   }
 
   /**
@@ -335,10 +385,11 @@ export class ClientsService {
    */
   async removeEntry(name: string): Promise<void> {
     const ws = this.requireWS()
-    const store = await this.loadCustomersInfo()
-    if (!store[name]) return
-    delete store[name]
-    await this.saveCustomersInfo(ws, store)
+    await this.mutateStore(ws, async (store, markChanged) => {
+      if (!store[name]) return
+      delete store[name]
+      markChanged()
+    })
   }
 
   // —— v2.5.1（A1，PLAN-v2.6-v2.7 §3.1）：customers 能力域写路径（host.customer.* 的 core 委托）——
@@ -360,12 +411,14 @@ export class ClientsService {
     const ws = this.requireWS()
     const n = name.trim()
     await this.assertCustomerDir(ws, n)
-    const store = await this.loadCustomersInfo()
-    const entry: CustomerExtraInfo = store[n] ?? { created_at: currentTimeString() }
-    entry.erp_ext = ext ?? {}
-    entry.updated_at = currentTimeString()
-    store[n] = entry
-    await this.saveCustomersInfo(ws, store)
+    const now = currentTimeString()
+    await this.mutateStore(ws, async (store, markChanged) => {
+      const entry: CustomerExtraInfo = store[n] ?? { created_at: now }
+      entry.erp_ext = ext ?? {}
+      entry.updated_at = currentTimeString()
+      store[n] = entry
+      markChanged()
+    })
   }
 
   /**
@@ -384,16 +437,18 @@ export class ClientsService {
     const name = req.name.trim()
     if (!name) throw new Error('客户名称不能为空')
     await this.assertCustomerDir(ws, name)
-    const store = await this.loadCustomersInfo()
-    const entry: CustomerExtraInfo = store[name] ?? { created_at: currentTimeString() }
-    const verdict = resolveSyncProfile(entry, req)
-    if (!verdict.applied) {
-      if (verdict.denied) throw new Error('syncProfile 含白名单外字段（box 权威字段不可由 ERP 写）')
-      return { applied: false }
-    }
-    store[name] = verdict.next as CustomerExtraInfo
-    await this.saveCustomersInfo(ws, store)
-    return { applied: true }
+    const now = currentTimeString()
+    return this.mutateStore(ws, async (store, markChanged) => {
+      const entry: CustomerExtraInfo = store[name] ?? { created_at: now }
+      const verdict = resolveSyncProfile(entry, req)
+      if (!verdict.applied) {
+        if (verdict.denied) throw new Error('syncProfile 含白名单外字段（box 权威字段不可由 ERP 写）')
+        return { applied: false }
+      }
+      store[name] = verdict.next as CustomerExtraInfo
+      markChanged()
+      return { applied: true }
+    })
   }
 
   /** 合并目录扫描与 JSON 档案，构造对外 CustomerInfo（created_at/updated_at 优先档案 ISO，缺省回退目录 mtime） */

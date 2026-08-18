@@ -19,10 +19,10 @@ import {
   invoiceRootPath,
   invoicesPath,
   ensureWorkspaceDirs,
-  writeJsonAtomic,
   readJsonFile,
   isPathInsideWorkspaceReal,
 } from './paths'
+import { mutateJsonFile } from './jsonStore'
 import { WorkspaceService } from './workspace'
 import { normalizeExpiryDate, parseExpiryDate, currentTimeString } from './metadata'
 import { TrashService } from './trash'
@@ -111,16 +111,37 @@ export class InvoicesService {
     return ws
   }
 
-  /** 读取台账；文件缺失/损坏（结构非法）视为空台账，宽容处理 */
+  /** 读取台账（只读/宽容降级）；文件缺失/损坏（结构非法）视为空台账 */
   private async loadStore(ws?: string): Promise<InvoicesStore> {
     const w = ws ?? this.requireWS()
     const data = await readJsonFile<InvoicesStore>(invoicesPath(w))
     return data && data.invoices && typeof data.invoices === 'object' ? data : { invoices: {} }
   }
 
-  private async saveStore(ws: string, store: InvoicesStore): Promise<void> {
+  /**
+   * 锁内读改写事务（v2.5.3 T2，S1）：读取/构造/查重/修改全部在 mutate 回调内完成，
+   * 保证基于锁内最新磁盘内容，杜绝并发丢更新与「内存已改、写盘失败」假成功。
+   * 回调通过 markChanged() 声明实际变更——未声明则 save 返回 false 不写盘（无变化不刷 mtime）。
+   * 结构非法视为损坏：写路径拒绝覆盖并隔离留证（.corrupt-* 备份）；校验/查重失败直接上抛。
+   */
+  private async mutateStore<R>(
+    ws: string,
+    mutate: (store: InvoicesStore, markChanged: () => void) => Promise<R> | R,
+  ): Promise<R> {
     ensureWorkspaceDirs(ws)
-    await writeJsonAtomic(invoicesPath(ws), store)
+    const p = invoicesPath(ws)
+    let changed = false
+    const result = await mutateJsonFile<InvoicesStore, R>(p, {
+      read: async () => ({ invoices: {} }), // 文件缺失按空台账起步
+      mutate: async (store) => mutate(store, () => (changed = true)),
+      save: async () => changed,
+      validate: (v): InvoicesStore | null =>
+        v && typeof v === 'object' && !Array.isArray(v) && (v as InvoicesStore).invoices &&
+        typeof (v as InvoicesStore).invoices === 'object'
+          ? (v as InvoicesStore)
+          : null,
+    })
+    return result
   }
 
   private assertStatus(status: unknown): asserts status is InvoiceStatus {
@@ -137,14 +158,15 @@ export class InvoicesService {
   }
 
   /**
-   * 查重（创建 / 编辑 / 交换区三入口同函数）：命中返回已有记录（供摘要提示），未命中返回 null。
-   * excludeNumber：编辑换号时排除自身号码。
+   * 查重（创建 / 编辑 / 交换区三入口共用口径；创建/编辑事务内部以锁内 store 直接查重，本函数供
+   * UI 预检与交换区等场景显式按工作区查询）：命中返回已有记录（供摘要提示），未命中返回 null。
+   * excludeNumber：编辑换号时排除自身号码。ws 可选注入——传入时按捕获工作区查，不回读 current workspace。
    */
-  async checkNumber(number: string, excludeNumber?: string): Promise<InvoiceRecord | null> {
+  async checkNumber(number: string, excludeNumber?: string, ws?: string): Promise<InvoiceRecord | null> {
     const n = (number ?? '').trim()
     if (!n) throw new Error('发票号码不能为空')
     if (excludeNumber && n === (excludeNumber ?? '').trim()) return null
-    const store = await this.loadStore()
+    const store = await this.loadStore(ws)
     return store.invoices[n] ?? null
   }
 
@@ -188,9 +210,13 @@ export class InvoicesService {
     return out
   }
 
-  /** 新建台账记录：必填校验 + 查重 + 日期归一化 */
-  async create(req: InvoiceCreateRequest): Promise<InvoiceRecord> {
-    const ws = this.requireWS()
+  /**
+   * 新建台账记录：必填校验 + 查重 + 日期归一化。
+   * v2.5.3（T6）：ws 可选注入——传入捕获工作区时，全程只写该工作区（查重/写入均在锁内基于该 ws
+   * 的磁盘内容完成，绝不在中途回读 current workspace）。缺省走当前工作区。
+   */
+  async create(req: InvoiceCreateRequest, ws?: string): Promise<InvoiceRecord> {
+    const w = ws ?? this.requireWS()
     const number = (req.number ?? '').trim()
     if (!number) throw new Error('发票号码不能为空')
     if (!req.file_path || !req.file_path.trim()) throw new Error('请选择发票文件')
@@ -202,9 +228,7 @@ export class InvoicesService {
     const buyer = (req.buyer ?? '').trim()
     if (!buyer) throw new Error('购买方不能为空')
     this.assertStatus(req.status)
-    const filePath = await this.resolveArchivedFilePath(ws, req.file_path)
-    const existing = await this.checkNumber(number)
-    if (existing) throw this.duplicateError(existing)
+    const filePath = await this.resolveArchivedFilePath(w, req.file_path)
 
     const now = currentTimeString()
     const rec: InvoiceRecord = {
@@ -224,10 +248,14 @@ export class InvoicesService {
     if (req.tags && req.tags.length > 0) rec.tags = [...new Set(req.tags)]
     if ((req.notes ?? '').trim()) rec.notes = (req.notes ?? '').trim()
 
-    const store = await this.loadStore(ws)
-    store.invoices[number] = rec
-    await this.saveStore(ws, store)
-    return { ...rec }
+    // 查重 + 写入同在锁内（基于 w 的磁盘最新内容；显式 ws 时与 current workspace 无关）
+    return this.mutateStore(w, (store, markChanged) => {
+      const existing = store.invoices[number]
+      if (existing) throw this.duplicateError(existing)
+      store.invoices[number] = rec
+      markChanged()
+      return { ...rec }
+    })
   }
 
   /** 编辑台账记录：同查重（换号时排除自身号码）；换绑文件经 resolveArchivedFilePath 校验 */
@@ -235,74 +263,78 @@ export class InvoicesService {
     const ws = this.requireWS()
     const number = (req.number ?? '').trim()
     if (!number) throw new Error('发票号码不能为空')
-    const store = await this.loadStore(ws)
-    const existing = store.invoices[number]
-    if (!existing) throw new Error('发票不存在')
-
     const targetNumber = req.newNumber === undefined ? number : (req.newNumber ?? '').trim()
     if (!targetNumber) throw new Error('发票号码不能为空')
-    if (targetNumber !== number) {
-      const conflict = await this.checkNumber(targetNumber, number)
-      if (conflict) throw this.duplicateError(conflict)
-    }
-
-    const rec: InvoiceRecord = { ...existing, number: targetNumber }
-    if (req.date !== undefined) {
-      const d = normalizeExpiryDate((req.date ?? '').trim())
-      if (!d) throw new Error('开票日期无效（应为 YYYY-MM-DD 或可解析的日期）')
-      rec.date = d
-    }
-    if (req.amount !== undefined) {
-      if (typeof req.amount !== 'number' || !Number.isFinite(req.amount)) throw new Error('金额无效')
-      rec.amount = req.amount
-    }
-    if (req.seller !== undefined) {
-      const v = (req.seller ?? '').trim()
-      if (!v) throw new Error('开票方不能为空')
-      rec.seller = v
-    }
-    if (req.buyer !== undefined) {
-      const v = (req.buyer ?? '').trim()
-      if (!v) throw new Error('购买方不能为空')
-      rec.buyer = v
-    }
-    if (req.status !== undefined) {
-      this.assertStatus(req.status)
-      rec.status = req.status
-    }
-    if (req.code !== undefined) {
-      const v = (req.code ?? '').trim()
-      if (v) rec.code = v
-      else delete rec.code
-    }
-    if (req.customer !== undefined) {
-      const v = (req.customer ?? '').trim()
-      if (v) rec.customer = v
-      else delete rec.customer
-    }
-    if (req.due_date !== undefined) {
-      const v = (req.due_date ?? '').trim()
-      if (v) rec.due_date = v
-      else delete rec.due_date
-    }
+    // 换绑文件：fs 校验（工作区边界/存在性）锁外完成，store 无关
+    let newFilePath: string | undefined
     if (req.file_path !== undefined && (req.file_path ?? '').trim()) {
-      rec.file_path = await this.resolveArchivedFilePath(ws, req.file_path)
+      newFilePath = await this.resolveArchivedFilePath(ws, req.file_path)
     }
-    if (req.tags !== undefined) {
-      if (req.tags.length > 0) rec.tags = [...new Set(req.tags)]
-      else delete rec.tags
-    }
-    if (req.notes !== undefined) {
-      const v = (req.notes ?? '').trim()
-      if (v) rec.notes = v
-      else delete rec.notes
-    }
-    rec.updated_at = currentTimeString()
 
-    if (targetNumber !== number) delete store.invoices[number]
-    store.invoices[targetNumber] = rec
-    await this.saveStore(ws, store)
-    return { ...rec }
+    return this.mutateStore(ws, (store, markChanged) => {
+      const existing = store.invoices[number]
+      if (!existing) throw new Error('发票不存在')
+      if (targetNumber !== number) {
+        const conflict = store.invoices[targetNumber]
+        if (conflict) throw this.duplicateError(conflict)
+      }
+
+      const rec: InvoiceRecord = { ...existing, number: targetNumber }
+      if (req.date !== undefined) {
+        const d = normalizeExpiryDate((req.date ?? '').trim())
+        if (!d) throw new Error('开票日期无效（应为 YYYY-MM-DD 或可解析的日期）')
+        rec.date = d
+      }
+      if (req.amount !== undefined) {
+        if (typeof req.amount !== 'number' || !Number.isFinite(req.amount)) throw new Error('金额无效')
+        rec.amount = req.amount
+      }
+      if (req.seller !== undefined) {
+        const v = (req.seller ?? '').trim()
+        if (!v) throw new Error('开票方不能为空')
+        rec.seller = v
+      }
+      if (req.buyer !== undefined) {
+        const v = (req.buyer ?? '').trim()
+        if (!v) throw new Error('购买方不能为空')
+        rec.buyer = v
+      }
+      if (req.status !== undefined) {
+        this.assertStatus(req.status)
+        rec.status = req.status
+      }
+      if (req.code !== undefined) {
+        const v = (req.code ?? '').trim()
+        if (v) rec.code = v
+        else delete rec.code
+      }
+      if (req.customer !== undefined) {
+        const v = (req.customer ?? '').trim()
+        if (v) rec.customer = v
+        else delete rec.customer
+      }
+      if (req.due_date !== undefined) {
+        const v = (req.due_date ?? '').trim()
+        if (v) rec.due_date = v
+        else delete rec.due_date
+      }
+      if (newFilePath !== undefined) rec.file_path = newFilePath
+      if (req.tags !== undefined) {
+        if (req.tags.length > 0) rec.tags = [...new Set(req.tags)]
+        else delete rec.tags
+      }
+      if (req.notes !== undefined) {
+        const v = (req.notes ?? '').trim()
+        if (v) rec.notes = v
+        else delete rec.notes
+      }
+      rec.updated_at = currentTimeString()
+
+      if (targetNumber !== number) delete store.invoices[number]
+      store.invoices[targetNumber] = rec
+      markChanged()
+      return { ...rec }
+    })
   }
 
   /** 状态流转（UI 行内流转与回退均走此单入口）：枚举校验 + updated_at 刷新 */
@@ -311,13 +343,14 @@ export class InvoicesService {
     this.assertStatus(status)
     const n = (number ?? '').trim()
     if (!n) throw new Error('发票号码不能为空')
-    const store = await this.loadStore(ws)
-    const rec = store.invoices[n]
-    if (!rec) throw new Error('发票不存在')
-    rec.status = status
-    rec.updated_at = currentTimeString()
-    await this.saveStore(ws, store)
-    return { ...rec }
+    return this.mutateStore(ws, (store, markChanged) => {
+      const rec = store.invoices[n]
+      if (!rec) throw new Error('发票不存在')
+      rec.status = status
+      rec.updated_at = currentTimeString()
+      markChanged()
+      return { ...rec }
+    })
   }
 
   /**
@@ -328,40 +361,42 @@ export class InvoicesService {
     const ws = this.requireWS()
     const n = (number ?? '').trim()
     if (!n) throw new Error('发票号码不能为空')
-    const store = await this.loadStore(ws)
-    const rec = store.invoices[n]
-    if (!rec) throw new Error('发票不存在')
-    delete store.invoices[n]
-    await this.saveStore(ws, store)
+    await this.mutateStore(ws, async (store, markChanged) => {
+      const rec = store.invoices[n]
+      if (!rec) throw new Error('发票不存在')
+      delete store.invoices[n]
+      markChanged()
 
-    if (opts?.deleteFile) {
-      const abs = path.isAbsolute(rec.file_path)
-        ? rec.file_path
-        : path.join(ws, ...rec.file_path.replace(/\\/g, '/').split('/').filter(Boolean))
-      if (await isPathInsideWorkspaceReal(ws, abs)) {
-        if (await fsp.stat(abs).then((s) => s.isFile()).catch(() => false)) {
-          await this.trash.trashItem(ws, abs, 'file')
+      if (opts?.deleteFile) {
+        const abs = path.isAbsolute(rec.file_path)
+          ? rec.file_path
+          : path.join(ws, ...rec.file_path.replace(/\\/g, '/').split('/').filter(Boolean))
+        if (await isPathInsideWorkspaceReal(ws, abs)) {
+          if (await fsp.stat(abs).then((s) => s.isFile()).catch(() => false)) {
+            await this.trash.trashItem(ws, abs, 'file')
+          }
         }
       }
-    }
+    })
   }
 
   /**
    * v2.5（审查 P1-C2）：客户重命名级联——扫描全部发票，customer === 旧名 的更新为新名。
    * 名字引用语义（对齐 inbound.renameSupplierId / quotes.renameCustomer）：不校验客户存在，
-   * 无命中或台账缺失时幂等不报错。
+   * 无命中或台账缺失时幂等不报错（此时不写盘、不刷 mtime）。
    */
   async renameCustomer(oldName: string, newName: string): Promise<void> {
     const ws = this.requireWS()
-    const store = await this.loadStore(ws)
-    let changed = false
-    for (const rec of Object.values(store.invoices)) {
-      if (rec.customer === oldName) {
-        rec.customer = newName
-        changed = true
+    await this.mutateStore(ws, (store, markChanged) => {
+      let changed = false
+      for (const rec of Object.values(store.invoices)) {
+        if (rec.customer === oldName) {
+          rec.customer = newName
+          changed = true
+        }
       }
-    }
-    if (changed) await this.saveStore(ws, store)
+      if (changed) markChanged()
+    })
   }
 
   /**
@@ -422,21 +457,22 @@ export class InvoicesService {
     return Object.values(store.invoices).map((r) => ({ name: r.number, tags: [...(r.tags ?? [])] }))
   }
 
-  /** 按 发票号码 → tags 整体回写（tags rename/delete 引用传播用；空数组删除 tags 字段） */
+  /** 按 发票号码 → tags 整体回写（tags rename/delete 引用传播用；空数组删除 tags 字段；无差异不写盘） */
   async saveTagEntries(entries: { name: string; tags: string[] }[]): Promise<void> {
     const ws = this.requireWS()
-    const store = await this.loadStore(ws)
-    let changed = false
-    for (const { name, tags } of entries) {
-      const rec = store.invoices[name]
-      if (!rec) continue
-      const cur = rec.tags ?? []
-      if (JSON.stringify(cur) !== JSON.stringify(tags)) {
-        if (tags.length > 0) rec.tags = [...new Set(tags)]
-        else delete rec.tags
-        changed = true
+    await this.mutateStore(ws, (store, markChanged) => {
+      let changed = false
+      for (const { name, tags } of entries) {
+        const rec = store.invoices[name]
+        if (!rec) continue
+        const cur = rec.tags ?? []
+        if (JSON.stringify(cur) !== JSON.stringify(tags)) {
+          if (tags.length > 0) rec.tags = [...new Set(tags)]
+          else delete rec.tags
+          changed = true
+        }
       }
-    }
-    if (changed) await this.saveStore(ws, store)
+      if (changed) markChanged()
+    })
   }
 }

@@ -9,7 +9,7 @@
  * 筛选（v2.4.9 打磨 M4，PLAN §3.4）：状态/客户/日期范围页内过滤；?status= URL 预选（单向不回写，
  *   非法值回退「全部」）；筛选变化 scrollResetKey 滚动归零。
  */
-import { Show, For, createSignal, createEffect } from "solid-js";
+import { Show, For, createSignal, createEffect, onCleanup } from "solid-js";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { currentWorkspace } from "~/stores/workspace";
@@ -55,6 +55,10 @@ function fileEntryOf(relPath: string): FileEntry | null {
   };
 }
 
+// v2.5.3（P2-12）：加载序号模块级（照 Images imageLoadSeq 先例）——卸载清理递增后跨挂载延续计数，
+// 重新挂载不再从 0 计数：旧实例在途链持有的旧值永远不会与新实例的计数撞号，过期结果必被丢弃
+let quoteLoadSeq = 0;
+
 export default function Quotes() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -72,7 +76,10 @@ export default function Quotes() {
   const [dateFrom, setDateFrom] = createSignal("");
   const [dateTo, setDateTo] = createSignal("");
 
-  let seq = 0;
+  // v2.5.3（P2-12）：卸载即递增加载代（模块级）——未完成的加载链校验失效后立即退出
+  onCleanup(() => {
+    quoteLoadSeq++;
+  });
 
   /** 批量探活归档文件（并发 ≤8，仿发票）；存在性结果按 seq 守卫 */
   const checkFilesExistence = async (list: QuoteRecord[], s: number) => {
@@ -89,23 +96,23 @@ export default function Quotes() {
       }
     });
     await Promise.all(workers);
-    if (s !== seq) return;
+    if (s !== quoteLoadSeq) return;
     setMissingFiles(missing);
   };
 
   const loadQuotes = async () => {
-    const s = ++seq;
+    const s = ++quoteLoadSeq;
     setLoading(true);
     try {
       const result = await api.quotes.list();
-      if (s !== seq) return;
+      if (s !== quoteLoadSeq) return;
       if (result.success && result.data) {
         setQuotes(result.data);
         void checkFilesExistence(result.data, s);
       }
     } finally {
       // 仅当前链仍最新时复位（过期链的 finally 不得关闭新链的 loading）
-      if (s === seq) setLoading(false);
+      if (s === quoteLoadSeq) setLoading(false);
     }
   };
 

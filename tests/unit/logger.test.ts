@@ -148,6 +148,33 @@ describe('FileLogger 容量上限清理（§3.6.5）', () => {
     const files = (await fsp.readdir(dir)).sort()
     expect(files).toEqual(['main-2026-08-10.log', 'main-2026-08-11.log'])
   })
+
+  it('当日单文件自身超限 → 截断到上限一半且保留完整行，后续写入不中断（P2-16b）', async () => {
+    const dir = tmpLogDir()
+    const capacityBytes = 4096
+    const logger = new FileLogger({
+      logDir: dir,
+      now: () => new Date(2026, 7, 12, 10, 0, 0),
+      capacityBytes,
+      capacityCheckIntervalMs: 0, // 每次写后都检查，便于测试
+    })
+    // 每行约 312 字节；20 行 ≈ 6.2KB 单文件超限——「删最旧跳过最新」处理不了单文件超限，需截断兜底
+    for (let i = 0; i < 20; i++) await logger.info('x'.repeat(280))
+    const file = path.join(dir, 'main-2026-08-12.log')
+    const st = await fsp.stat(file)
+    expect(st.size).toBeLessThanOrEqual(capacityBytes) // 总大小回落到上限内
+    expect(st.size).toBeLessThan(20 * 312) // 截断确实发生（不截断则 ≈ 6240B）
+    // 保留完整行：文件末尾是换行符，每行均为完整行格式（无半行残尾）
+    const content = await fsp.readFile(file, 'utf8')
+    expect(content.endsWith('\n')).toBe(true)
+    for (const line of content.trimEnd().split('\n')) {
+      expect(line).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\] \[info\] x+$/)
+    }
+    // 截断后继续写入不中断（日志功能不受影响）
+    await logger.info('after-truncate')
+    const lines = await readLines(dir, 'main-2026-08-12.log')
+    expect(lines[lines.length - 1]).toMatch(/after-truncate$/)
+  })
 })
 
 describe('FileLogger 14 天日期清理', () => {

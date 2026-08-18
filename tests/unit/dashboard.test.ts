@@ -197,4 +197,40 @@ describe('仪表盘（DashboardService）', () => {
     expect(stats.total_quotes).toBe(2)
     expect(stats.draft_quotes).toBe(1)
   })
+
+  it('P1-4 dashboardStats：集间 8 并发统计与串行旧行为一致；expiring_certs 恒 0（独立 IPC 通道承担）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    await box.workspace.productSetCreate({ name: '系列B' })
+    await box.workspace.productSetCreate({ name: '系列C' })
+
+    // 直接写文件（不经导入，验证纯扫描路径）：A 图包 2 + 证书 1；B 图包 1；C 证书 2
+    const setDir = (ps: string, type: string, sub: string): string => path.join(ws, '产品集', ps, type, sub)
+    for (const [ps, type, sub, files] of [
+      ['系列A', '图包', '主图', ['a1.jpg', 'a2.jpg']],
+      ['系列A', '证书', '3C', ['c1.jpg']],
+      ['系列B', '图包', '主图', ['b1.jpg']],
+      ['系列C', '证书', '3C', ['c2.jpg', 'c3.jpg']],
+    ] as [string, string, string, string[]][]) {
+      const d = setDir(ps, type, sub)
+      await fsp.mkdir(d, { recursive: true })
+      for (const n of files) await fsp.writeFile(path.join(d, n), 'x')
+    }
+    // 一张 5 天后到期的证书：旧行为（dashboardStats 内嵌 checkExpiringCerts）会报 1，新行为恒 0
+    await box.metadata.update({ file_path: path.join(setDir('系列C', '证书', '3C'), 'c3.jpg'), expiry_date: dateInDays(5) })
+
+    const stats = await box.dashboard.dashboardStats()
+    // 与「串行 + 含 expiring 检查」旧行为一致的统计数字（并发计数不变）
+    expect(stats.total_product_sets).toBe(3)
+    expect(stats.total_images).toBe(3)
+    expect(stats.total_certs).toBe(3)
+    expect(stats.recent_files).toHaveLength(5) // 6 个文件 → 最近 5 条
+    // 契约字段保留恒 0；到期检查仍由独立通道提供（checkExpiringCerts 方法本身不受影响）
+    expect(stats.expiring_certs).toBe(0)
+    const expiring = await box.dashboard.checkExpiringCerts()
+    expect(expiring.map(([, fn]) => fn)).toContain('c3.jpg')
+  })
 })

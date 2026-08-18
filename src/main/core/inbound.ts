@@ -18,9 +18,9 @@ import {
   inboundPath,
   inboundRootPath,
   ensureWorkspaceDirs,
-  writeJsonAtomic,
   isPathInsideWorkspaceReal,
 } from './paths'
+import { mutateJsonFile } from './jsonStore'
 import { sanitizeName, resolveConflictName } from './naming'
 import { normalizeExpiryDate, currentTimeString } from './metadata'
 import { globalWorkspaceIndex } from './indexCache'
@@ -102,9 +102,30 @@ export class InboundService {
     }
   }
 
-  private async saveStore(ws: string, store: InboundStore): Promise<void> {
+  /**
+   * 锁内读改写事务（v2.5.3 T2，S1）：读取/构造/查重/修改全部在 mutate 回调内完成，
+   * 保证基于锁内最新磁盘内容，杜绝并发丢更新与「内存已改、写盘失败」假成功。
+   * 回调通过 markChanged() 声明实际变更——未声明则 save 返回 false 不写盘（无变化不刷 mtime）。
+   * 结构非法视为损坏：写路径拒绝覆盖并隔离留证（.corrupt-* 备份）；校验/查重失败直接上抛。
+   */
+  private async mutateStore<R>(
+    ws: string,
+    mutate: (store: InboundStore, markChanged: () => void) => Promise<R> | R,
+  ): Promise<R> {
     ensureWorkspaceDirs(ws)
-    await writeJsonAtomic(inboundPath(ws), store)
+    const p = inboundPath(ws)
+    let changed = false
+    const result = await mutateJsonFile<InboundStore, R>(p, {
+      read: async () => ({ records: {} }), // 文件缺失按空台账起步
+      mutate: async (store) => mutate(store, () => (changed = true)),
+      save: async () => changed,
+      validate: (v): InboundStore | null =>
+        v && typeof v === 'object' && !Array.isArray(v) && (v as InboundStore).records &&
+        typeof (v as InboundStore).records === 'object'
+          ? (v as InboundStore)
+          : null,
+    })
+    return result
   }
 
   /**
@@ -128,14 +149,16 @@ export class InboundService {
   }
 
   /**
-   * 单据编号查重（创建/编辑/交换区三入口同函数，§6.2）：命中返回已有记录，未命中返回 null。
-   * excludeId：更新时排除自身原编号（其余记录撞号仍拒绝）。
+   * 单据编号查重（创建/编辑/交换区三入口共用口径，§6.2；创建/编辑事务内部以锁内 store 直接查重，
+   * 本函数供 UI 预检与交换区等场景显式按工作区查询）：命中返回已有记录，未命中返回 null。
+   * excludeId：更新时排除自身原编号（其余记录撞号仍拒绝）。ws 可选注入——传入时按捕获工作区查，
+   * 不回读 current workspace。
    */
-  async checkId(id: string, excludeId?: string): Promise<InboundRecord | null> {
-    const ws = this.requireWS()
+  async checkId(id: string, excludeId?: string, ws?: string): Promise<InboundRecord | null> {
+    const w = ws ?? this.requireWS()
     const key = id.trim()
     if (!key) return null
-    const store = await this.loadStore(ws)
+    const store = await this.loadStore(w)
     const rec = store.records[key]
     if (rec && rec.id !== excludeId) return rec
     return null
@@ -158,11 +181,11 @@ export class InboundService {
     return { id, date, supplier, filePath }
   }
 
-  /** 台账列表（页内筛选/搜索是渲染层职责，台账量级千内内存过滤，core 不建索引） */
+  /** 台账列表（页内筛选/搜索是渲染层职责，台账量级千内内存过滤，core 不建索引）。返回记录副本，防调用方污染 store */
   async list(): Promise<InboundRecord[]> {
     const ws = this.requireWS()
     const store = await this.loadStore(ws)
-    const records = Object.values(store.records)
+    const records = Object.values(store.records).map((r) => ({ ...r }))
     records.sort((a, b) => {
       if (a.date !== b.date) return a.date < b.date ? 1 : -1 // 入库日期新 → 旧
       return a.created_at < b.created_at ? 1 : -1
@@ -170,11 +193,13 @@ export class InboundService {
     return records
   }
 
-  async create(req: InboundCreateRequest): Promise<InboundRecord> {
-    const ws = this.requireWS()
-    const { id, date, supplier, filePath } = await this.validateFields(ws, req)
-    const dup = await this.checkId(id)
-    if (dup) throw this.duplicateError(id, dup)
+  /**
+   * v2.5.3（T6）：新建台账记录——ws 可选注入，传入捕获工作区时全程只写该工作区
+   * （查重/写入均在锁内基于该 ws 的磁盘内容完成，绝不在中途回读 current workspace）。缺省走当前工作区。
+   */
+  async create(req: InboundCreateRequest, ws?: string): Promise<InboundRecord> {
+    const w = ws ?? this.requireWS()
+    const { id, date, supplier, filePath } = await this.validateFields(w, req)
     const now = currentTimeString()
     const rec: InboundRecord = {
       id,
@@ -188,10 +213,14 @@ export class InboundService {
       created_at: now,
       updated_at: now,
     }
-    const store = await this.loadStore(ws)
-    store.records[id] = rec
-    await this.saveStore(ws, store)
-    return rec
+    // 查重 + 写入同在锁内（基于 w 的磁盘最新内容；显式 ws 时与 current workspace 无关）
+    return this.mutateStore(w, (store, markChanged) => {
+      const dup = store.records[id]
+      if (dup) throw this.duplicateError(id, dup)
+      store.records[id] = rec
+      markChanged()
+      return { ...rec }
+    })
   }
 
   /** 更新（id 可改：查重排除原编号，原 key 删除、新 key 写入）；file_path 换绑时旧文件不动（账物分离） */
@@ -199,28 +228,29 @@ export class InboundService {
     const ws = this.requireWS()
     const oldId = id.trim()
     if (!oldId) throw new Error('单据编号不能为空')
-    const store = await this.loadStore(ws)
-    const prev = store.records[oldId]
-    if (!prev) throw new Error(`入库单「${oldId}」不存在`)
     const { id: newId, date, supplier, filePath } = await this.validateFields(ws, req)
-    const dup = await this.checkId(newId, oldId)
-    if (dup) throw this.duplicateError(newId, dup)
-    const rec: InboundRecord = {
-      ...prev,
-      id: newId,
-      date,
-      supplier,
-      supplier_id: req.supplier_id?.trim() || undefined,
-      product_set: req.product_set?.trim() || undefined,
-      file_path: filePath,
-      amount: req.amount,
-      notes: req.notes?.trim() || undefined,
-      updated_at: currentTimeString(),
-    }
-    delete store.records[oldId]
-    store.records[newId] = rec
-    await this.saveStore(ws, store)
-    return rec
+    return this.mutateStore(ws, (store, markChanged) => {
+      const prev = store.records[oldId]
+      if (!prev) throw new Error(`入库单「${oldId}」不存在`)
+      const dup = store.records[newId]
+      if (dup && dup.id !== oldId) throw this.duplicateError(newId, dup)
+      const rec: InboundRecord = {
+        ...prev,
+        id: newId,
+        date,
+        supplier,
+        supplier_id: req.supplier_id?.trim() || undefined,
+        product_set: req.product_set?.trim() || undefined,
+        file_path: filePath,
+        amount: req.amount,
+        notes: req.notes?.trim() || undefined,
+        updated_at: currentTimeString(),
+      }
+      delete store.records[oldId]
+      store.records[newId] = rec
+      markChanged()
+      return { ...rec }
+    })
   }
 
   /**
@@ -231,44 +261,47 @@ export class InboundService {
     const ws = this.requireWS()
     const key = id.trim()
     if (!key) throw new Error('单据编号不能为空')
-    const store = await this.loadStore(ws)
-    const rec = store.records[key]
-    if (!rec) throw new Error(`入库单「${key}」不存在`)
-    if (opts?.deleteFile && this.trash) {
-      const abs = path.join(ws, ...rec.file_path.split('/'))
-      try {
-        if (await isPathInsideWorkspaceReal(ws, abs)) {
-          const st = await fsp.stat(abs).catch(() => null)
-          if (st && st.isFile()) {
-            await this.trash.trashItem(ws, abs, 'file')
-            // v2.4.x：文件移入回收站 → 失效所在目录的索引快照
-            globalWorkspaceIndex.invalidate(path.dirname(abs))
+    await this.mutateStore(ws, async (store, markChanged) => {
+      const rec = store.records[key]
+      if (!rec) throw new Error(`入库单「${key}」不存在`)
+      if (opts?.deleteFile && this.trash) {
+        const abs = path.join(ws, ...rec.file_path.split('/'))
+        try {
+          if (await isPathInsideWorkspaceReal(ws, abs)) {
+            const st = await fsp.stat(abs).catch(() => null)
+            if (st && st.isFile()) {
+              await this.trash.trashItem(ws, abs, 'file')
+              // v2.4.x：文件移入回收站 → 失效所在目录的索引快照
+              globalWorkspaceIndex.invalidate(path.dirname(abs))
+            }
           }
+        } catch (err) {
+          // 文件回收失败不阻断记录删除（账物分离）
+          console.warn('[inbound] 归档文件回收失败:', err)
         }
-      } catch (err) {
-        // 文件回收失败不阻断记录删除（账物分离）
-        console.warn('[inbound] 归档文件回收失败:', err)
       }
-    }
-    delete store.records[key]
-    await this.saveStore(ws, store)
+      delete store.records[key]
+      markChanged()
+    })
   }
 
   /**
    * v2.4.9（S2）：供应商重命名级联——扫描全部单据，supplier_id === 旧名 的更新为新名。
-   * 名字引用语义：不校验供应商存在；无命中或台账缺失时幂等不报错（账物分离，同发票 customer 字段保留字面值）。
+   * 名字引用语义：不校验供应商存在；无命中或台账缺失时幂等不报错（此时不写盘、不刷 mtime；
+   * 账物分离，同发票 customer 字段保留字面值）。
    */
   async renameSupplierId(oldName: string, newName: string): Promise<void> {
     const ws = this.requireWS()
-    const store = await this.loadStore(ws)
-    let changed = false
-    for (const rec of Object.values(store.records)) {
-      if (rec.supplier_id === oldName) {
-        rec.supplier_id = newName
-        changed = true
+    await this.mutateStore(ws, (store, markChanged) => {
+      let changed = false
+      for (const rec of Object.values(store.records)) {
+        if (rec.supplier_id === oldName) {
+          rec.supplier_id = newName
+          changed = true
+        }
       }
-    }
-    if (changed) await this.saveStore(ws, store)
+      if (changed) markChanged()
+    })
   }
 
   /**

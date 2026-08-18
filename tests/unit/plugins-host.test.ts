@@ -2,7 +2,8 @@
  * 主进程插件宿主单测（v2.5，P0）：registry / loader / installer / host（PLAN §八测试计划）。
  * - registry：发现扫描 / 校验规则逐条（apiCompat、transport、id 不一致、缺入口、minHostVersion）/
  *   broken 标记与原因 / config 启停覆盖 / 全局冲突（ipcPrefix、页面路径）/ 熔断重置
- * - loader：IPC 首达惰性加载 / activate 抛错重试 + 连续 3 次熔断 / dispose / 未安装/未启用报错 /
+ * - loader：IPC 首达惰性加载 / activate 抛错重试 + 连续 3 次熔断 / 激活握手超时（默认 15s、env 覆盖、
+ *   迟到 registration dispose）/ disposeAll 同步释放 / 熔断走幂等 deactivate / dispose / 未安装/未启用报错 /
  *   onEvent 触发 / host.events 订阅与停用回收 / registration 校验
  * - installer：Schema 校验 / SHA-256 / zip-slip 拦截 / pkg 与 state 分离 / 卸载清理 / 安装冲突 / 全局冲突回滚
  * - host：storage 往返与限界（单 key/总容量/路径逃逸）/ events 白名单与前缀强校验 / dispose 清理
@@ -358,6 +359,210 @@ describe('PluginLoader：惰性加载 / 握手 / 熔断', () => {
     const info = registry.info('com.qihe.a')!
     expect(info.callCount).toBe(2)
     expect(info.activationMs!).toBeGreaterThanOrEqual(0)
+  })
+
+  it('激活握手超时：测试注入短超时并导出默认契约', async () => {
+    let resolveGate!: (value: unknown) => void
+    g.__pluginActivationStarted = false
+    g.__pluginActivationGate = new Promise<unknown>((resolve) => {
+      resolveGate = resolve
+    })
+    writePlugin(
+      'com.qihe.timeout',
+      {},
+      `module.exports = {
+  activate: async () => {
+    globalThis.__pluginActivationStarted = true
+    return await globalThis.__pluginActivationGate
+  },
+}`,
+    )
+    const registry = makeRegistry()
+    const loader = new PluginLoader({
+      registry,
+      root,
+      createHost: makeCreateHost(new HostEventBus()),
+      importer: cjsImporter,
+      log: () => {},
+      activateTimeoutMs: 10,
+    })
+    const activation = loader.call('com.qihe.timeout', 'ping', null).catch((err) => err)
+
+    try {
+      for (let i = 0; i < 100 && !g.__pluginActivationStarted; i++) await sleep(1)
+      expect(g.__pluginActivationStarted).toBe(true)
+      const outcome = await Promise.race([activation, sleep(100).then(() => '仍在等待激活')])
+      expect(outcome).toMatchObject({ code: 'ACTIVATE_TIMEOUT', name: 'PluginActivateTimeoutError' })
+      expect(registry.get('com.qihe.timeout')!.failCount).toBe(1)
+      const loaderModule = (await import('../../src/main/plugins/loader')) as unknown as Record<string, unknown>
+      expect(loaderModule.DEFAULT_ACTIVATE_TIMEOUT_MS).toBe(15_000)
+      expect(typeof loaderModule.PluginActivateTimeoutError).toBe('function')
+    } finally {
+      resolveGate({ ipc: { ping: async () => 'late' } })
+      await activation
+      delete g.__pluginActivationStarted
+      delete g.__pluginActivationGate
+    }
+  })
+
+  it('QIHEBOX_PLUGIN_ACTIVATE_TIMEOUT_MS 环境变量覆盖默认超时', async () => {
+    let resolveGate!: (value: unknown) => void
+    g.__pluginActivationStarted = false
+    g.__pluginActivationGate = new Promise<unknown>((resolve) => {
+      resolveGate = resolve
+    })
+    writePlugin(
+      'com.qihe.envtimeout',
+      {},
+      `module.exports = {
+  activate: async () => {
+    globalThis.__pluginActivationStarted = true
+    return await globalThis.__pluginActivationGate
+  },
+}`,
+    )
+    const prev = process.env.QIHEBOX_PLUGIN_ACTIVATE_TIMEOUT_MS
+    process.env.QIHEBOX_PLUGIN_ACTIVATE_TIMEOUT_MS = '10'
+    const registry = makeRegistry()
+    try {
+      const loader = new PluginLoader({
+        registry,
+        root,
+        createHost: makeCreateHost(new HostEventBus()),
+        importer: cjsImporter,
+        log: () => {},
+      })
+      const activation = loader.call('com.qihe.envtimeout', 'ping', null).catch((err) => err)
+
+      for (let i = 0; i < 100 && !g.__pluginActivationStarted; i++) await sleep(1)
+      const outcome = await Promise.race([activation, sleep(100).then(() => '仍在等待激活')])
+      expect(outcome).toMatchObject({ code: 'ACTIVATE_TIMEOUT' })
+      expect(registry.get('com.qihe.envtimeout')!.failCount).toBe(1)
+    } finally {
+      if (prev === undefined) delete process.env.QIHEBOX_PLUGIN_ACTIVATE_TIMEOUT_MS
+      else process.env.QIHEBOX_PLUGIN_ACTIVATE_TIMEOUT_MS = prev
+      resolveGate({ ipc: { ping: async () => 'late' } })
+      delete g.__pluginActivationStarted
+      delete g.__pluginActivationGate
+    }
+  })
+
+  it('激活超时后迟到 registration 被立即 dispose（防订阅/定时器泄漏）', async () => {
+    let resolveGate!: (value: unknown) => void
+    g.__pluginActivationStarted = false
+    g.__lateDisposeCount = 0
+    g.__pluginActivationGate = new Promise<unknown>((resolve) => {
+      resolveGate = resolve
+    })
+    writePlugin(
+      'com.qihe.late',
+      {},
+      `module.exports = {
+  activate: async () => {
+    globalThis.__pluginActivationStarted = true
+    await globalThis.__pluginActivationGate
+    return {
+      ipc: { ping: async () => 'late' },
+      dispose: () => { globalThis.__lateDisposeCount = (globalThis.__lateDisposeCount || 0) + 1 },
+    }
+  },
+}`,
+    )
+    const registry = makeRegistry()
+    const loader = new PluginLoader({
+      registry,
+      root,
+      createHost: makeCreateHost(new HostEventBus()),
+      importer: cjsImporter,
+      log: () => {},
+      activateTimeoutMs: 10,
+    })
+    const activation = loader.call('com.qihe.late', 'ping', null).catch((err) => err)
+
+    try {
+      for (let i = 0; i < 100 && !g.__pluginActivationStarted; i++) await sleep(1)
+      const outcome = await Promise.race([activation, sleep(100).then(() => '仍在等待激活')])
+      expect(outcome).toMatchObject({ code: 'ACTIVATE_TIMEOUT' })
+
+      // 放行迟到 registration → 应立即被 dispose，不得落地
+      resolveGate(undefined)
+      for (let i = 0; i < 100 && !g.__lateDisposeCount; i++) await sleep(1)
+      expect(g.__lateDisposeCount).toBe(1)
+
+      // 超时已释放实例：再次调用可重新激活成功（新实例不受迟到对象影响）
+      await expect(loader.call('com.qihe.late', 'ping', null)).resolves.toBe('late')
+    } finally {
+      resolveGate(undefined)
+      delete g.__pluginActivationStarted
+      delete g.__pluginActivationGate
+      delete g.__lateDisposeCount
+    }
+  })
+
+  it('disposeAll 同步释放：调用返回时 registration.dispose 已执行（不延后到微任务）', async () => {
+    writePlugin(
+      'com.qihe.sync',
+      {},
+      `module.exports = {
+  activate: async () => ({
+    ipc: { ping: async () => 'pong' },
+    dispose: () => { globalThis.__regDisposeSync = true },
+  }),
+}`,
+    )
+    const { loader } = makeLoader(new HostEventBus())
+    await loader.call('com.qihe.sync', 'ping', null)
+    delete g.__regDisposeSync
+
+    loader.disposeAll()
+    expect(g.__regDisposeSync).toBe(true)
+
+    // 同步清理后可正常重新激活
+    await expect(loader.call('com.qihe.sync', 'ping', null)).resolves.toBe('pong')
+    delete g.__regDisposeSync
+  })
+
+  it('熔断走幂等 deactivate：连续失败满阈值时 registration.dispose 与 hostDispose 均执行', async () => {
+    writePlugin(
+      'com.qihe.brk',
+      {},
+      `module.exports = {
+  activate: async () => ({
+    ipc: { boom: async () => { throw new Error('boom') } },
+    dispose: () => { globalThis.__brkRegDispose = (globalThis.__brkRegDispose || 0) + 1 },
+  }),
+}`,
+    )
+    delete g.__brkRegDispose
+
+    let hostDisposeCount = 0
+    const bus = new HostEventBus()
+    const baseCreateHost = makeCreateHost(bus)
+    const registry = makeRegistry()
+    const loader = new PluginLoader({
+      registry,
+      root,
+      createHost: async (id: string, manifest: PluginManifest) => {
+        const created = await baseCreateHost(id, manifest)
+        return { ...created, dispose: () => { hostDisposeCount += 1; created.dispose() } }
+      },
+      importer: cjsImporter,
+      log: () => {},
+    })
+
+    await loader.call('com.qihe.brk', 'boom', null).catch(() => 'fail1')
+    await loader.call('com.qihe.brk', 'boom', null).catch(() => 'fail2')
+    await loader.call('com.qihe.brk', 'boom', null).catch(() => 'fail3')
+
+    expect(registry.get('com.qihe.brk')!.state).toBe('broken')
+    expect(g.__brkRegDispose).toBe(1)
+    expect(hostDisposeCount).toBe(1)
+
+    // 幂等：再次 deactivate 不再重复释放
+    loader.deactivate('com.qihe.brk')
+    expect(g.__brkRegDispose).toBe(1)
+    expect(hostDisposeCount).toBe(1)
+    delete g.__brkRegDispose
   })
 
   it('activate 抛错按加载失败处理：本次报错，下次重试；连续 3 次熔断 broken，可手动重置', async () => {

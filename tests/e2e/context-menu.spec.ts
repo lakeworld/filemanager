@@ -27,6 +27,8 @@ interface MenuProbe {
 test.describe('右键菜单钳制', () => {
   let app: ElectronApplication
   let page: Page
+  /** 应用初始入口 URL（file:// index.html）；reload 回初始入口重跑启动流同步 currentWorkspace/workspaces store */
+  let baseUrl: string
 
   test.beforeAll(async () => {
     app = await electron.launch({
@@ -37,6 +39,7 @@ test.describe('右键菜单钳制', () => {
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
+    baseUrl = page.url()
   })
 
   test.afterAll(async () => {
@@ -217,5 +220,117 @@ test.describe('右键菜单钳制', () => {
     await page.waitForSelector('#ctx-menu-root', { state: 'detached', timeout: 3000 })
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  /** 导入单文件并等待 import:complete 事件（返回事件数据） */
+  const importFile = async (page: Page, src: string, productSet: string, folder: string): Promise<{ success: boolean }> => {
+    return page.evaluate(
+      async ({ src, productSet, folder }) => {
+        const qb = (window as any).qihebox
+        return new Promise((resolve) => {
+          const unsub = qb.events.on('import:complete', (data: any) => {
+            unsub()
+            resolve(data)
+          })
+          void qb.files.import({
+            source_paths: [src],
+            target_product_set: productSet,
+            target_folder: folder,
+            target_type: 'image',
+            sub_folder: folder,
+          })
+        })
+      },
+      { src, productSet, folder },
+    ) as Promise<{ success: boolean }>
+  }
+
+  /** pushState + popstate 导航（对齐既有测试写法） */
+  const gotoRoute = async (route: string) => {
+    await page.evaluate((r) => {
+      window.history.pushState({}, '', r)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }, route)
+  }
+
+  /** 真实 UI 路径切工作区：Header 工作区下拉（🏢）→ 点击目标工作区（触发 store 级 switchWorkspace） */
+  const switchWorkspaceViaHeader = async (name: string) => {
+    await page.getByText('🏢').click()
+    await page.getByRole('button', { name: new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).click()
+  }
+
+  /**
+   * P1-1 + P1-2 回归（走右键菜单真实 UI 路径，不直调 IPC move）：
+   * - P1-1：右键文件 → 移动到… → paths 必须页面级保存（红态 MoveDialog 读 contextMenu.payload
+   *   为 []，按钮显示「移动 0 个文件」且提交必报错）→ 选目标确认 → 文件真实移动
+   *   （源文件夹空态、目标文件夹出现该文件）
+   * - P1-2：FBV 加载 effect 不依赖 currentWorkspace——切工作区后文件列表停留旧区。
+   *   本用例在「FBV 保持挂载」的前提下两次切区验证列表即时刷新为新区内容。
+   */
+  test('右键文件→移动到…真实移动 + 切工作区列表刷新（P1-1/P1-2 回归）', async () => {
+    const wsA = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-move-a-'))
+    const wsB = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-move-b-'))
+    const nameA = path.basename(wsA)
+    const nameB = path.basename(wsB)
+    const imgX = path.join(os.tmpdir(), `mvx-${Date.now()}.png`)
+    const imgY = path.join(os.tmpdir(), `mvy-${Date.now()}.png`)
+    const sharp = (await import('sharp')).default
+    await sharp({ create: { width: 64, height: 64, channels: 3, background: { r: 66, g: 135, b: 245 } } }).png().toFile(imgX)
+    await sharp({ create: { width: 64, height: 64, channels: 3, background: { r: 245, g: 66, b: 66 } } }).png().toFile(imgY)
+
+    // wsA：源集「移出集」（含文件 X）+ 目标集「移入集」（空）
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsA)
+    await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: '移出集' }))
+    await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: '移入集' }))
+    expect((await importFile(page, imgX, '移出集', '主图')).success).toBe(true)
+    // wsB：同名「移入集」但内容不同（文件 Y）——切区后列表必须来自新区
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsB)
+    await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: '移入集' }))
+    expect((await importFile(page, imgY, '移入集', '主图')).success).toBe(true)
+
+    // reload 同步渲染层 store（bootstrap：currentWorkspace=wsB、workspaces=[wsB, wsA]）
+    await page.goto(baseUrl)
+    await page.waitForLoadState('domcontentloaded')
+    await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
+
+    // 先挂载 FBV（backend 当前 = wsB，无「移出集」→ 空列表；挂载后保持挂载）
+    await gotoRoute(`/files/image/${encodeURIComponent('移出集')}/${encodeURIComponent('主图')}`)
+    // P1-2 红态检查点 1：切到 wsA（FBV 保持挂载）→ 列表必须刷新为 wsA 的「移出集」（出现文件 X）
+    await switchWorkspaceViaHeader(nameA)
+    // 文件名经命名模板改写（默认模板含 sequence 序列号，如 移出集_主图_mvx-<ts>_1.png），
+    // 断言用「去扩展名的原始名片段」做子串匹配（改名/序列号不影响匹配）
+    const xNameFrag = path.basename(imgX, '.png')
+    const yNameFrag = path.basename(imgY, '.png')
+    const cardX = page.locator('.card', { hasText: xNameFrag })
+    await cardX.waitFor({ timeout: 10000 })
+
+    // P1-1：右键 → 移动到… → 按钮必须是「移动 1 个文件」（红态 paths=[] 显示「移动 0 个文件」）
+    await cardX.click({ button: 'right' })
+    await page.waitForSelector('#ctx-menu-root', { timeout: 5000 })
+    await page.locator('#ctx-menu-root button', { hasText: '移动到' }).click()
+    const dialog = page.getByRole('dialog', { name: '移动到…' })
+    await dialog.waitFor({ timeout: 5000 })
+    const confirmBtn = dialog.getByRole('button', { name: /移动 1 个文件/ })
+    await confirmBtn.waitFor({ timeout: 5000 })
+
+    // 选择目标：移入集 + 主图 → 确认
+    await dialog.locator('select').selectOption({ label: '移入集' })
+    await dialog.getByRole('button', { name: '主图' }).click()
+    await confirmBtn.click()
+    await dialog.waitFor({ state: 'detached', timeout: 5000 })
+
+    // 文件真实移动：源文件夹空态（0 卡片）
+    await expect(page.locator('.card')).toHaveCount(0, { timeout: 10000 })
+    // 目标文件夹出现文件 X
+    await gotoRoute(`/files/image/${encodeURIComponent('移入集')}/${encodeURIComponent('主图')}`)
+    await page.locator('.card', { hasText: xNameFrag }).waitFor({ timeout: 10000 })
+
+    // P1-2 红态检查点 2：切到 wsB（同一路由 FBV 保持挂载）→ 列表刷新为 wsB 内容（文件 Y 出现、X 消失）
+    await switchWorkspaceViaHeader(nameB)
+    await page.locator('.card', { hasText: yNameFrag }).waitFor({ timeout: 10000 })
+    await expect(page.locator('.card', { hasText: xNameFrag })).toHaveCount(0)
+
+    await fsp.rm(wsA, { recursive: true, force: true }).catch(() => {})
+    await fsp.rm(wsB, { recursive: true, force: true }).catch(() => {})
   })
 })

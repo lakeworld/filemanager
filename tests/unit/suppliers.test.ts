@@ -402,3 +402,39 @@ describe('供应商服务（v2.4.9 S2）', () => {
     expect(partial.related_product_sets).toEqual(['系列B'])
   })
 })
+describe('供应商服务（v2.5.3 T2：锁内读改写事务 / 并发）', () => {
+  it('并发 create 不同供应商：锁内查重（档案残留防御）不误伤，8 供应商全部落盘', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const names = Array.from({ length: 8 }, (_, i) => `并发C${i}`)
+    await Promise.all(names.map((n) => box.suppliers.create({ name: n })))
+    expect(await box.suppliers.list()).toHaveLength(8)
+    const store = await readSuppliersStore(ws)
+    for (const n of names) expect(store[n]).toBeTruthy()
+  })
+
+  it('并发 update 不同供应商：字段更新不互丢（锁内读改写基于最新磁盘内容）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const names = Array.from({ length: 8 }, (_, i) => `并发S${i}`)
+    for (const n of names) await box.suppliers.create({ name: n })
+
+    await Promise.all(
+      names.map((n, i) => box.suppliers.update({ name: n, phone: `1390000000${i}`, contact: `c${i}` })),
+    )
+    const list = await box.suppliers.list()
+    for (let i = 0; i < names.length; i++) {
+      const s = list.find((x) => x.name === names[i])
+      expect(s?.phone).toBe(`1390000000${i}`)
+      expect(s?.contact).toBe(`c${i}`)
+    }
+    const store = await readSuppliersStore(ws)
+    for (let i = 0; i < names.length; i++) {
+      expect((store[names[i]] as { phone: string }).phone).toBe(`1390000000${i}`)
+    }
+  })
+})

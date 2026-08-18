@@ -3,7 +3,8 @@
  * 不 import electron，node 直测；行为与 v2.4.2 src/main/log.ts 一致：
  * 本地日期文件名 main-YYYY-MM-DD.log、跨日轮转、行格式 [ISO] [level] msg、
  * console 双通道（[main] 前缀）、全程异常静默降级不抛。
- * 新增：容量上限清理（默认 20MB，写后节流检查，超限按日期删最旧日志文件，保留最新）。
+ * 新增：容量上限清理（默认 20MB，写后节流检查，超限按日期删最旧日志文件，保留最新；
+ * 当日单文件自身超限时截断到上限一半并保留完整行，P2-16b）。
  */
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -20,7 +21,7 @@ export interface FileLoggerOptions {
   logDir: string
   /** 时钟注入：跨日轮转 / ISO 时间戳 / 容量节流时间均取自本函数；每次调用返回新的 Date（默认 new Date()） */
   now?: () => Date
-  /** 日志文件（main-*.log）总大小上限，默认 20MB；超限删最旧直至 ≤ 上限 */
+  /** 日志文件（main-*.log）总大小上限，默认 20MB；超限删最旧直至 ≤ 上限；当日单文件自身超限时截断到上限一半 */
   capacityBytes?: number
   /** 容量检查节流间隔（毫秒），默认 1 分钟；写日志后距上次检查 ≥ 间隔才执行 */
   capacityCheckIntervalMs?: number
@@ -109,8 +110,41 @@ export class FileLogger implements Logger {
         await fsp.rm(path.join(this.logDir, logs[i].name), { force: true }).catch(() => {})
         total -= logs[i].size
       }
+      // v2.5.3（P2-16b）：删完其余仍超限（当日单文件自身 > 上限，loop 保最新的豁免使旧删不动它）→
+      // 对当日文件截断到上限一半（保留换行完整，最小实现）；防单日大日志无限膨胀
+      if (total > this.capacityBytes && logs.length > 0) {
+        const newest = logs[logs.length - 1]
+        await this.truncateToLineBoundary(path.join(this.logDir, newest.name), Math.floor(this.capacityBytes / 2))
+      }
     } catch {
       // 清理失败不影响日志功能
+    }
+  }
+
+  /**
+   * v2.5.3（P2-16b）：把文件截断到 ≤ target 字节，并前移到最后一行完整行边界
+   * （保留头部完整行，不把某行截断成半行；窗口内找不到换行时按 target 保底）。
+   * 最小实现：读 target 前 64KB 窗口找最后一个 \n（日志行短，窗口内必命中）。
+   */
+  private async truncateToLineBoundary(filePath: string, target: number): Promise<void> {
+    if (target <= 0) return
+    const handle = await fsp.open(filePath, 'r+')
+    try {
+      const st = await handle.stat()
+      if (st.size <= target) return
+      const window = Math.min(64 * 1024, target)
+      const buf = Buffer.alloc(window)
+      const { bytesRead } = await handle.read(buf, 0, window, target - window)
+      let cut = target
+      for (let i = bytesRead - 1; i >= 0; i--) {
+        if (buf[i] === 0x0a) {
+          cut = target - window + i + 1
+          break
+        }
+      }
+      await handle.truncate(cut)
+    } finally {
+      await handle.close().catch(() => {})
     }
   }
 

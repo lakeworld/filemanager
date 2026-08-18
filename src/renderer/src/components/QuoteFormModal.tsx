@@ -100,6 +100,8 @@ export default function QuoteFormModal(props: {
   const [filePath, setFilePath] = createSignal(rec?.file_path ?? "");
   // 本次弹窗内已归档但尚未保存的文件（archiveFile 立即落盘，取消/查重拒绝会留下孤儿文件，关闭时提示）
   const [stagedArchive, setStagedArchive] = createSignal("");
+  // v2.5.3（P2-10）：保存中——按钮 disabled + save 入口守卫，防连点双创建（照 CreateClientModal saving 先例）
+  const [saving, setSaving] = createSignal(false);
 
   const setLine = (i: number, patch: Partial<LineForm>) =>
     setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -149,6 +151,7 @@ export default function QuoteFormModal(props: {
   };
 
   const save = async () => {
+    if (saving()) return; // 连点守卫（P2-10：防自动单号连点生成两条记录）
     const ls = lines();
     if (ls.length === 0) {
       showToast("info", "报价明细不能为空（至少 1 行）");
@@ -178,35 +181,40 @@ export default function QuoteFormModal(props: {
     const n = notes().trim();
     const fp = filePath();
 
-    let result;
-    if (isEdit && rec) {
-      const req = {
-        quotation_no: rec.quotation_no,
-        date: date(),
-        // 已确认锁定：明细不随表单提交（core update 同样拒绝 lines），可改仅 日期/客户/备注/归档换绑
-        lines: locked ? undefined : validLines,
-        // 空字符串 = 清空字段（core update 语义：undefined 保留原值，'' 删除）
-        customer: c,
-        notes: n,
-        file_path: fp !== rec.file_path ? fp || undefined : undefined,
-      };
-      result = await api.quotes.update(req);
-    } else {
-      result = await api.quotes.create({
-        quotation_no: quotationNo().trim() || undefined,
-        date: date(),
-        customer: c || undefined,
-        lines: validLines,
-        notes: n || undefined,
-        file_path: fp || undefined,
-      });
-    }
-    if (result.success) {
-      setStagedArchive("");
-      showToast("success", isEdit ? "报价单已更新" : "报价单已创建");
-      props.onSaved();
-    } else {
-      showToast("error", "保存失败", result.error || "未知错误");
+    setSaving(true);
+    try {
+      let result;
+      if (isEdit && rec) {
+        const req = {
+          quotation_no: rec.quotation_no,
+          date: date(),
+          // 已确认锁定：明细不随表单提交（core update 同样拒绝 lines），可改仅 日期/客户/备注/归档换绑
+          lines: locked ? undefined : validLines,
+          // 空字符串 = 清空字段（core update 语义：undefined 保留原值，'' 删除）
+          customer: c,
+          notes: n,
+          file_path: fp !== rec.file_path ? fp || undefined : undefined,
+        };
+        result = await api.quotes.update(req);
+      } else {
+        result = await api.quotes.create({
+          quotation_no: quotationNo().trim() || undefined,
+          date: date(),
+          customer: c || undefined,
+          lines: validLines,
+          notes: n || undefined,
+          file_path: fp || undefined,
+        });
+      }
+      if (result.success) {
+        setStagedArchive("");
+        showToast("success", isEdit ? "报价单已更新" : "报价单已创建");
+        props.onSaved();
+      } else {
+        showToast("error", "保存失败", result.error || "未知错误");
+      }
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -398,7 +406,7 @@ export default function QuoteFormModal(props: {
 
         <div class="flex gap-3 justify-end mt-6">
           <button class="btn-secondary" onClick={close}>取消</button>
-          <button class="btn-primary" onClick={() => void save()}>
+          <button class="btn-primary" onClick={() => void save()} disabled={saving()}>
             {isEdit ? "保存" : "确认创建"}
           </button>
         </div>

@@ -99,10 +99,11 @@ export class SearchService {
       }
 
       const [imgFiles, certFiles, docFiles] = await Promise.all([
-        this.files.listDirFilesRecursive(path.join(setsDir, setName, IMAGES_DIR)),
-        this.files.listDirFilesRecursive(path.join(setsDir, setName, CERTS_DIR)),
+        // v2.5.3（P1-4）：搜索结果缩略图由渲染层按 file.path 按需取（FileThumbnail），thumbnail_path 零消费 → resolveThumb:false
+        this.files.listDirFilesRecursive(path.join(setsDir, setName, IMAGES_DIR), { resolveThumb: false }),
+        this.files.listDirFilesRecursive(path.join(setsDir, setName, CERTS_DIR), { resolveThumb: false }),
         // v2.5.2（D7）：产品集「文档」目录纳入全局搜索（v2.5.1 文档域新增后遗漏，动作-2026-08-15-删除崩溃与登录事件再定位）
-        this.files.listDirFilesRecursive(path.join(setsDir, setName, DOCS_DIR)),
+        this.files.listDirFilesRecursive(path.join(setsDir, setName, DOCS_DIR), { resolveThumb: false }),
       ])
       for (const f of [...imgFiles, ...certFiles, ...docFiles]) {
         const tags = this.fileTags(f, tagsByKey)
@@ -136,7 +137,7 @@ export class SearchService {
         seenCustomer.add(name)
       }
 
-      const custFiles = await this.files.listDirFilesRecursive(customerRootPath(ws, name))
+      const custFiles = await this.files.listDirFilesRecursive(customerRootPath(ws, name), { resolveThumb: false })
       for (const f of custFiles) {
         const tags = this.fileTags(f, tagsByKey)
         if (f.name.toLowerCase().includes(q) || tagHit(tags)) {
@@ -153,7 +154,7 @@ export class SearchService {
     // 发票/入库区：直接递归扫描（台账记录不进全局搜索，文件本体纳入）
     // v2.4.9（§6.2）：供应商/报价区同法纳入（供应商/<名>/<子文件夹> 与 报价/<YYYY>/ 原件）
     for (const root of [invoiceRootPath(ws), inboundRootPath(ws), path.join(ws, SUPPLIERS_DIR), path.join(ws, QUOTES_DIR)]) {
-      const regionFiles = await this.files.listDirFilesRecursive(root)
+      const regionFiles = await this.files.listDirFilesRecursive(root, { resolveThumb: false })
       for (const f of regionFiles) {
         const tags = this.fileTags(f, tagsByKey)
         if (f.name.toLowerCase().includes(q) || tagHit(tags)) {
