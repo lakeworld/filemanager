@@ -648,12 +648,14 @@ export interface PluginInfo {
 
 // —— v2.5.3 常驻轻壳：窗口生命周期消息契约（设计 §五；shared/preload/ipc 三件套）——
 // main → renderer 事件（preload windowLifecycle.on* 白名单订阅，通道 qihebox:event:window:*)：
-//   prepare-hide / prepare-show / restored（generation 标记会话）
+//   prepare-hide / restored（generation 标记会话）
 // renderer → main ACK（preload 两个固定方法，禁止暴露任意 channel send）：
 //   qihebox:window:parked / qihebox:window:first-frame
+// 2026-08-19 热修：prepare-show / FrameWitness 网格契约删除（托盘长时隐藏冻结事故根治，
+// 改「先显示、后验证」——PLAN-v2.5.3-托盘冻结根治.md）。
 
 export type WindowHideSource = 'close' | 'minimize' | 'system-pause'
-export type WindowShowSource = 'startup' | 'tray' | 'activate' | 'second-instance' | 'wake' | 'recovery'
+export type WindowShowSource = 'startup' | 'tray' | 'activate' | 'second-instance' | 'wake'
 
 /** main → renderer：prepare-hide（隐藏前通知渲染层卸载重资源） */
 export interface WindowPrepareHideMessage {
@@ -662,36 +664,17 @@ export interface WindowPrepareHideMessage {
   sentAt: number
 }
 
-/** main → renderer：prepare-show（恢复前通知渲染层渲染 FrameWitness 轻壳） */
-export type WindowPrepareShowMessage =
-  | { generation: number; source: 'startup'; sentAt: number }
-  | { generation: number; source: Exclude<WindowShowSource, 'startup'>; sentAt: number; frameToken: number }
-
 /** renderer → main：parked-ack（重资源卸载完成） */
 export interface WindowParkedAckMessage {
   generation: number
 }
 
-/** renderer → main：first-frame-ack（FrameWitness 轻壳已提交；带 token 回传） */
+/** renderer → main：first-frame-ack（冷启动首帧已提交；starting 双闸门用） */
 export interface WindowFirstFrameAckMessage {
   generation: number
-  frameToken?: number
 }
 
 /** main → renderer：window:restored（恢复完成；generation 标记本次会话） */
 export interface WindowRestoredMessage {
   generation: number
 }
-
-// —— FrameWitness 网格几何（渲染层 App.tsx 与主进程 window.ts 共享同一布局契约）——
-// 隐藏恢复预检时，渲染层绘制 5×5 品牌蓝网格（四角定位格恒品牌蓝，中间 21 格编码 token bit）；
-// 主进程 capturePage(rect,{stayHidden}) 后按同一几何采样解码。TDD 锚定：frame.ts
-// WITNESS_GRID_N / classifyFrameWitness 与本节常量必须一致（漂移会被 frame-witness 单测/e2e 探针捕获）。
-export const WITNESS_GRID_N = 5
-export const WITNESS_CELL_DIP = 56 // 单格边长（DIP）
-export const WITNESS_GAP_DIP = 20 // 格间距（DIP）
-/** 网格左上角固定锚点（DIP，距窗口内容区左上角；渲染层定位与主进程 capturePage(rect) 共用） */
-export const WITNESS_GRID_X = 48
-export const WITNESS_GRID_Y = 48
-/** 品牌蓝（Fluent 主色 #2f6fed；与 frame.ts WITNESS_BRAND 一致） */
-export const WITNESS_BRAND_RGB = [0x2f, 0x6f, 0xed] as const

@@ -7,45 +7,36 @@
  * 总根因（v2.4.3/v2.4.7/v2.4.9/v2.5.2 多轮自愈链打补丁仍有漏网路径）——消除病因优先于自愈：
  * 关窗=仅隐藏到托盘、最小化不再回收，渲染进程常驻；托盘常驻内存相应上升（换可靠性，门禁基线改写）。
  *
- * v2.4.7（F10）系统休眠唤醒自愈：已按 v2.5.3 常驻轻壳设计（§4.4）收窄——旧的 L1→L2→L2.5→L3→L4
- * 分级链删除（L3 hide/show 曾扰动窗口映射且有窗口消失事故证据）；崩溃/无响应/双 token 明确失败
- * 才在隐藏态 L2 reload / L4 重建，验证通过才显示；unknown 全程不升级（原生重试/退出）。
- * JS ping 只作 Renderer 活性证据，不作画面通过证据（画面以 FrameWitness 新鲜帧验证为准）。
+ * v2.5.3 热修（2026-08-19，托盘长时隐藏冻结事故定案，用户拍板）：**删 FrameWitness 隐藏预检，
+ * 改「先显示、后验证」**。事故取证（动作-2026-08-19-托盘长时隐藏冻结定位.md）：软渲染下隐藏
+ * 2.6h 后合成器彻底休眠，隐藏态 capturePage 永远抓不到帧 → 预检永远 unknown → 无限弹「重试/退出」
+ * 模态框（挂隐藏父窗口吞掉托盘点击）→ 唤不醒。教训：唤不醒比白屏更糟。新范式：
+ * - 托盘/activate/二次实例/系统唤醒 → 状态机直接 show+focus（普通 Electron 应用语义）；
+ * - 白屏兜底 = 显示后像素自检（show 后 300ms 可见态抓帧 isBlankFrameLike 判定，blank →
+ *   invalidate 复检 → 仍 blank 喂状态机 blank-confirmed → 可见态 L2 reload 单发收口）；
+ * - 崩溃 render-process-gone → L4 销毁重建；无响应 unresponsive → 先 hide 再 L2 reload；
+ *   收口（did-finish-load / ready-to-show / 用户手动点托盘）直接 show。全链无任何弹框。
  *
- * v2.5.3（2026-08-18 真机白屏事故：最小化过夜→早晨恢复白屏常驻，日志仅「活性检查: ok」）：
- * - restore 路径统一补 settle 后 recoverAfterWake（L1→L4 像素级自愈链，正常画面仅一次无害重绘）——
- *   原仅 JS ping（结构性看不到 GPU 表面失效白屏，见下方自愈链背景）；本修复后被分层休眠移除方案吸收
- * - onWakeSignal 无窗早退补观测日志（区分「轮询未检测」与「窗口已销毁」）
- *
- * v2.5.3 常驻轻壳 T4（2026-08-18）：系统暂停/恢复统一入口 + 单时钟保险 + 崩溃接入状态机——
- * - suspend/lock-screen/时钟检测 → 暂停前可见则立即隐藏 + parking；resume/unlock-screen/广播
- *   仅「暂停前可见」才走隐藏预检恢复（wasVisibleBeforeSystemPause 语义，设计 §4.4 系统睡眠）
+ * v2.4.7（F10）系统休眠唤醒：暂停/锁屏信号到达即隐藏窗口（渲染常驻事前规避）；唤醒后
+ * 经状态机直接 show 恢复 + 显示后自检兜底（替代原 FrameWitness 隐藏预检，2026-08-19 废止）。
  * - Windows WM_POWERBROADCAST(0x0218) hookWindowMessage 解析（parsePowerBroadcast + WakeSignalGate
  *   交叉信号去重，同一恢复会话 resume 只放行一次；窗口销毁 unhook）
  * - 单时钟保险：单个可重排 .unref() timeout，可见 1s / 隐藏 30s（替代 v2.5.2 固定 30s interval）
- * - render-process-gone / unresponsive → 状态机（visible 先 hide 再隐藏态 reload；预检通过才显示）
  */
-import { BrowserWindow, app, powerMonitor, screen, shell, dialog } from 'electron'
+import { BrowserWindow, app, powerMonitor, screen, shell } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { log } from './log'
-import { classifyFrameWitness, type WitnessGridLayout, type WitnessVerdict } from './core/frame'
+import { isBlankFrameLike, BLANK_TARGETS_WAKE } from './core/frame'
 import { isSuspectedWake, parsePowerBroadcast, WakeSignalGate } from './core/wake'
 import { WindowLifecycle, type HideSource } from './core/windowLifecycle'
 import { writeJsonAtomic } from './core/paths'
 import {
-  WITNESS_GRID_N,
-  WITNESS_CELL_DIP,
-  WITNESS_GAP_DIP,
-  WITNESS_GRID_X,
-  WITNESS_GRID_Y,
   type WindowFirstFrameAckMessage,
   type WindowHideSource,
   type WindowParkedAckMessage,
   type WindowPrepareHideMessage,
-  type WindowPrepareShowMessage,
   type WindowRestoredMessage,
-  type WindowShowSource,
 } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
@@ -54,40 +45,9 @@ let quitting = false
 const WAKE_PING_TIMEOUT_MS = 2000 // v2.4.3（F3）：渲染进程活性 ping 超时
 let wakePingInFlight = false // v2.4.3（F3）：活性检查互斥，避免并发 ping
 
-// —— v2.5.3 常驻轻壳：窗口生命周期状态机（T1 实现于 core/windowLifecycle.ts）——
-// 适配层：事件 → 状态机 → 动作列表执行；show/hide 前必经状态机（冷启动双闸门 / 隐藏预检链）。
+// —— v2.5.3 常驻轻壳：窗口生命周期状态机（core/windowLifecycle.ts）——
+// 适配层：事件 → 状态机 → 动作列表执行；show/hide 前必经状态机（冷启动双闸门 / 直接 show 恢复）。
 const lifecycle = new WindowLifecycle()
-
-/** FrameWitness 网格布局（DIP，渲染层 App.tsx 同锚点 WITNESS_GRID_X/Y；capturePage rect 用） */
-function witnessGridLayout(): WitnessGridLayout {
-  const gridW = WITNESS_GRID_N * WITNESS_CELL_DIP + (WITNESS_GRID_N - 1) * WITNESS_GAP_DIP
-  // capturePage rect 略大于网格本体（含容差边距），避免采样边缘
-  const pad = 8
-  return {
-    rect: { x: WITNESS_GRID_X - pad, y: WITNESS_GRID_Y - pad, width: gridW + pad * 2, height: gridW + pad * 2 },
-    n: WITNESS_GRID_N,
-    cell: WITNESS_CELL_DIP,
-    gap: WITNESS_GAP_DIP,
-    originX: WITNESS_GRID_X,
-    originY: WITNESS_GRID_Y,
-  }
-}
-
-/** 预检链辅助（T3 骨架：首个 token 验证一次；T4 扩展：L1 invalidate 前置、capturePage 有界等待、
- *  unknown 走 frame-subscription 兜底、ACK 超时两次有界 JS ping——设计 §4.4/§六） */
-let firstFramePending: { generation: number; resolve: (ok: boolean) => void } | null = null
-const FIRST_FRAME_ACK_TIMEOUT_MS = 500 // 设计 §六：FIRST_FRAME_ACK 有界等待
-const CAPTURE_TIMEOUT_MS = 250 // 设计 §六：单次 capturePage / frame subscription 有界等待
-const JS_PING_TIMEOUT_MS = 2000 // 有界 JS ping 超时（活性证据；沿用 v2.4.3 F3 的 WAKE_PING_TIMEOUT_MS 语义）
-/** v2.5.3 L2 恢复链：invalidate 重绘完成等待（stale/blank 重捕前）。渲染器一帧 ~16ms，取 50ms 稳妥 */
-const FRAME_SETTLE_MS = 50
-/** v2.5.3 L2 恢复链：capture 超时后等待渲染器合成就绪再重试（崩溃 reload 后新进程 GPU 未就绪） */
-const CAPTURE_RETRY_WAIT_MS = 200
-/** v2.5.3 健康轮修复（2026-08-18 探针实证）：快速 hide/show 循环 ~15 轮后合成器「冷却」，
- *  capturePage(stayHidden) 从 22-61ms 变 1.7-2.7s（冷启动重合成；长时间隐藏后恢复实测正常）。
- * 首次 capture 仍用 250ms 快速探测（健康快路径不受影响）；unknown 重试与 stale/blank 重捕
- * 用本长超时——慢合成可在窗口内完成（match），真死（崩溃后 8s 10 次全挂）超时后走既有升级链 */
-const CAPTURE_RETRY_TIMEOUT_MS = 3000
 
 /** 有界等待（异步工具；timer.unref 不挂事件循环） */
 function sleep(ms: number): Promise<void> {
@@ -96,31 +56,16 @@ function sleep(ms: number): Promise<void> {
     t.unref()
   })
 }
-const JS_PING_ROUNDS = 2 // 设计 §六：两次有界 JS ping 均超时才判定确认无响应
 
-// —— 背景节流引用计数（T4：双 token 重试会嵌套启动第二个 precheck）——
-// 嵌套 precheck 若各自「恢复为进入时的值」，内层 finally 会把外层关闭的节流重新打开（隐藏态 rAF
-// 被节流 → 渲染层画不出网格 → ACK 缺失）；引用计数保证只有最外层退出时才恢复原始值。
-let precheckThrottleDepth = 0
-let precheckThrottleOriginal: boolean | null = null
-
-function enterPrecheck(win: BrowserWindow): void {
-  if (precheckThrottleDepth === 0) {
-    precheckThrottleOriginal = win.webContents.getBackgroundThrottling()
-    win.webContents.setBackgroundThrottling(false)
-  }
-  precheckThrottleDepth += 1
-}
-
-function exitPrecheck(win: BrowserWindow): void {
-  precheckThrottleDepth = Math.max(0, precheckThrottleDepth - 1)
-  if (precheckThrottleDepth === 0 && precheckThrottleOriginal !== null && !win.isDestroyed()) {
-    if (win.webContents.getBackgroundThrottling() !== precheckThrottleOriginal) {
-      win.webContents.setBackgroundThrottling(precheckThrottleOriginal)
-    }
-    precheckThrottleOriginal = null
-  }
-}
+// —— v2.5.3 热修：显示后白屏自检（「先显示、后验证」的验证半边）——
+// parked 恢复 show 后 300ms 抓帧（可见态 capturePage 可靠，无隐藏态休眠问题）；
+// blank → invalidate 重绘 + 200ms 复检；仍 blank → 喂状态机 blank-confirmed（可见态 L2 reload 收口）。
+// 抓帧失败/超时（unknown）仅告警不升级——unknown 不升级原则（2026-08-19 事故教训：截图故障
+// 不能伪装成画面故障，更不能阻塞唤醒）。自检仅武装 parked 恢复 show（托盘/activate/二次实例/wake）；
+// recovering 收口 show 不武装（新渲染进程 load 期间必绘帧，且收口后不自检 → blank 链单发天然收口）。
+const POST_SHOW_CHECK_DELAY_MS = 300 // show 后首次抓帧延迟（等业务层重挂一帧）
+const POST_SHOW_RECHECK_DELAY_MS = 200 // invalidate 重绘后复检延迟
+const POST_SHOW_CAPTURE_TIMEOUT_MS = 1000 // 可见态抓帧有界等待（正常 <100ms，1s 兜底）
 
 // —— v2.4.7（评审 P2）：窗口状态记忆（userData/window-state.json）——
 // 记录 bounds/maximized，启动时恢复；多显示器布局变化（拔屏等）导致越界时钳制回可视区
@@ -293,7 +238,7 @@ export function createMainWindow(): BrowserWindow {
 
   // v2.4.3（F2）+ v2.5.3 常驻轻壳：ready-to-show 不再无条件 show——冷启动双闸门
   // （ready-to-show 与初始 first-frame-ack 齐备才首次 show，starting 态由状态机裁决；
-  //  L4 重建后 recovering 态：ready-to-show → 状态机重新发 prepare-show 走 FrameWitness 预检）
+  //  L4 重建后 recovering 态：ready-to-show → 状态机收口直接 show，2026-08-19 热修）
   mainWindow.on('ready-to-show', () => {
     void log('info', '[wake] 窗口就绪（ready-to-show），交状态机裁决')
     const win = mainWindow
@@ -351,24 +296,23 @@ export function createMainWindow(): BrowserWindow {
 
   // v2.5.3（取消分层休眠）：最小化不再回收渲染进程——「不可见 reload + GPU 表面失效」组合是
   // 历次白屏总根因，消除病因优先于自愈（2026-08-18 用户拍板，见文件头）。
-  // v2.5.3 T4：restore 只做最小化状态归一化，不是显示入口（设计 §4.4 系统睡眠第 6 条）——
-  // 系统旁路最小化（Linux WM/Alt+F9）已由 minimize 事件归一化为隐藏；真正恢复只允许
-  // 托盘/二次启动/activate/wake 经状态机 SHOW_REQUESTED 并过隐藏预检。旁路 restore 到达时
-  // 若窗口意外可见（WM 直接恢复隐藏窗口），立即 hide 保持隐藏，不显示不预检。
+  // restore 只做最小化状态归一化，不是显示入口：系统旁路最小化（Linux WM/Alt+F9）已由
+  // minimize 事件归一化为隐藏；真正恢复走托盘/二次启动/activate/wake 经状态机 SHOW_REQUESTED
+  // 直接 show。旁路 restore 到达时若窗口意外可见（WM 直接恢复隐藏窗口），立即 hide 保持隐藏。
   mainWindow.on('restore', () => {
     const win = mainWindow
     if (!win || win.isDestroyed()) return
     const s = lifecycle.state()
     if (s !== 'visible' && win.isVisible()) {
-      void log('info', '[window] 系统 restore 旁路 → 保持隐藏（恢复只走状态机预检入口）')
+      void log('info', '[window] 系统 restore 旁路 → 保持隐藏（恢复只走状态机入口）')
       win.hide()
     } else {
       void log('info', '[window] 系统 restore 旁路（visible/已隐藏），无需动作')
     }
   })
 
-  // v2.5.3 T4：渲染进程无响应（事件循环阻塞确认）→ 交状态机（visible 先 hide 再隐藏态 reload；
-  // 无响应证据只允许一次 L2，恢复经 FrameWitness 预检，设计 §4.4 故障升级）
+  // v2.5.3：渲染进程无响应（事件循环阻塞确认）→ 交状态机（visible 先 hide 再隐藏态 reload；
+  // 收口 did-finish-load 直接 show，2026-08-19 热修语义）
   mainWindow.webContents.on('unresponsive', () => {
     void log('warn', '[window] 渲染进程无响应（unresponsive），交状态机恢复')
     notifyRendererUnresponsive()
@@ -452,12 +396,11 @@ function reloadRenderer(win: BrowserWindow): void {
 // —— v2.5.3 常驻轻壳（T4）：系统暂停/恢复统一入口 + 单时钟保险（设计 §4.4 系统睡眠）——
 // 背景：v2.4.3 起「窗口可见时休眠→唤醒白屏」依赖 powerMonitor + 分级自愈链（L1→L4）事后修复；
 // v2.4.8 实证 powerMonitor resume 在 Windows 从不触发（electron#32576），v2.5.2 加 30s 轮询兜底。
-// 常驻轻壳方案改「事前规避」：暂停/锁屏信号到达即隐藏窗口（渲染常驻），唤醒后仅在隐藏态
-// 走 FrameWitness 新鲜帧预检，验证通过才显示——不再有「可见态画面失效后补救」的路径。
-// 旧的 L1→L2→L2.5→L3→L4 分级自愈链整体删除（L3 hide/show 曾扰动窗口映射且有窗口消失事故证据）；
-// JS ping 只作 Renderer 活性证据，不作画面通过证据（设计 §4.4）。
+// 常驻轻壳方案「事前规避」：暂停/锁屏信号到达即隐藏窗口（渲染常驻）；2026-08-19 热修后唤醒
+// 恢复 = 状态机直接 show + 显示后白屏自检兜底（invalidate 复检 → reload），替代已废止的
+// FrameWitness 隐藏预检（长时隐藏抓不到帧，反而堵死唤醒，见文件头事故定案）。
 
-/** 暂停/锁屏前窗口可见 → 唤醒后自动走隐藏预检恢复；原本在托盘 → 唤醒后不得自行显示 */
+/** 暂停/锁屏前窗口可见 → 唤醒后自动恢复显示；原本在托盘 → 唤醒后不得自行显示 */
 let wasVisibleBeforeSystemPause = false
 /** Windows 原生广播与 powerMonitor 交叉信号去重（同一恢复会话 resume 只放行一次） */
 const wakeGate = new WakeSignalGate()
@@ -486,7 +429,7 @@ function onSystemPause(source: string): void {
 
 /**
  * 系统唤醒统一入口（WM_POWERBROADCAST resume / powerMonitor resume / unlock-screen / 时钟检测）：
- * 仅「暂停前可见」才自动走隐藏预检恢复（FrameWitness 验证通过才 show）；原本在托盘不自行显示。
+ * 仅「暂停前可见」才自动恢复——状态机直接 show + 显示后白屏自检；原本在托盘不自行显示。
  */
 function onSystemResume(source: string): void {
   const win = getMainWindow()
@@ -496,14 +439,14 @@ function onSystemResume(source: string): void {
     return
   }
   wasVisibleBeforeSystemPause = false
-  void log('info', `[wake] 系统唤醒（${source}），隐藏预检恢复（FrameWitness）`)
+  void log('info', `[wake] 系统唤醒（${source}），直接恢复显示（显示后自检兜底）`)
   executeLifecycleActions(win, lifecycle.handle({ type: 'show-requested', source: 'wake' }))
 }
 
 // —— 单时钟保险（设计 §4.4 系统睡眠第 4 条）——
 // 单个可重排 .unref() timeout：窗口可见每 1s、隐藏每 30s 比较 Date.now()；系统睡眠时进程被冻结，
 // 唤醒后首个 tick 的 Δ 突跳（> 间隔×3）即判定刚经历睡眠。检测到可见态长间隔 → 先同步隐藏，
-// 再按「系统暂停前可见」处理（走隐藏预检恢复）。任一时刻仅一个 timeout；隐藏间隔 env 可覆盖
+// 再按「系统暂停前可见」处理（直接 show 恢复）。任一时刻仅一个 timeout；隐藏间隔 env 可覆盖
 // （QIHEBOX_WAKE_POLL_MS，同 v2.5.2 惯例）。
 const CLOCK_VISIBLE_MS = 1000
 const CLOCK_HIDDEN_MS = Number(process.env.QIHEBOX_WAKE_POLL_MS) || 30 * 1000
@@ -534,7 +477,7 @@ export function clockTick(now: number = Date.now()): void {
   if (!win || win.isDestroyed() || quitting) return
   void log('info', `[wake] 时钟检测到系统休眠恢复（Δ=${delta}ms，间隔=${clockIntervalMs}ms）`)
   if (win.isVisible()) {
-    // 可见态长间隔：先同步隐藏，再按「暂停前可见」走完整恢复链（隐藏预检通过才显示）
+    // 可见态长间隔：先同步隐藏，再按「暂停前可见」走恢复（直接 show + 显示后自检）
     onSystemPause('clock-guard')
     onSystemResume('clock-guard')
   } else {
@@ -559,22 +502,20 @@ export function setupWakeRecovery(): void {
   // e2e 探针：wake-recovery.spec.ts 伪造时钟跳变触发时钟自愈（QIHEBOX_E2E 门控，同 setupCloseToTray 惯例）
   if (process.env.QIHEBOX_E2E === '1') {
     ;(globalThis as { __wakePollTick?: (now?: number) => void }).__wakePollTick = (now?: number) => clockTick(now ?? Date.now())
-    // 故障注入：直接喂 witness 判定（token 缺省用当前 token；传错 token 可验证「旧 token 丢弃」，
-    // window-lifecycle.spec.ts 用）
-    ;(globalThis as { __injectWitnessVerdict?: (v: WitnessVerdict, token?: number) => void }).__injectWitnessVerdict = (
-      v: WitnessVerdict,
-      token?: number,
-    ) => {
+    // 故障注入：直接喂 blank-confirmed（显示后白屏自检确认语义），window-lifecycle.spec.ts 用
+    // （L4 重建后探针自动跟随新窗口——getMainWindow 读模块级引用，2026-08-19 热修探针定案）
+    ;(globalThis as { __injectBlankConfirmed?: () => void }).__injectBlankConfirmed = () => {
       const win = getMainWindow()
       if (win && !win.isDestroyed()) {
-        executeLifecycleActions(win, lifecycle.handle({ type: 'witness', verdict: v, token: token ?? lifecycle.token() }))
+        executeLifecycleActions(win, lifecycle.handle({ type: 'blank-confirmed' }))
       }
     }
   }
 }
 
-// —— v2.5.3 T4：崩溃/无响应 → 状态机（index.ts setupCrashRecovery 与 unresponsive 监听调用）——
-// visible 态：先 hide 再隐藏态 reload（状态机裁决）；presenting/recovering：走既有升级链。
+// —— v2.5.3：崩溃/无响应 → 状态机（index.ts setupCrashRecovery 与 unresponsive 监听调用）——
+// visible 态：崩溃直接 L4 重建 / 无响应先 hide 再隐藏态 L2 reload（状态机裁决）；
+// recovering 态再崩溃/假死 → L4（连续升级封顶，见状态机契约）。
 export function notifyRendererGone(): void {
   const win = getMainWindow()
   if (!win || win.isDestroyed() || quitting) return
@@ -588,7 +529,7 @@ export function notifyRendererUnresponsive(): void {
 }
 
 // —— 窗口控制（对照 app.go Window* 方法）——
-// —— v2.5.3 常驻轻壳：hide/show 一律经状态机裁决（发 prepare-hide/show + 预检链）——
+// —— v2.5.3 常驻轻壳：hide/show 一律经状态机裁决；2026-08-19 热修起恢复 = 直接 show + 显示后自检 ——
 
 /** 状态机 hide 入口：visible → parking（发 prepare-hide + hide）；窗口不存在则直接隐藏 */
 function requestHide(source: HideSource): void {
@@ -599,7 +540,7 @@ function requestHide(source: HideSource): void {
 }
 
 /**
- * 状态机 show 入口：parked/parking → presenting（发 prepare-show + FrameWitness 预检链）；
+ * 状态机 show 入口：parked/parking → 直接 show+focus（armed 显示后白屏自检）；
  * 起始态（窗口从未显示）→ ensureMainWindow 后交冷启动双闸门，不提前 show。
  */
 export function windowShow(): void {
@@ -623,26 +564,37 @@ export let l4Rebuilding = false
 
 // —— v2.5.3 常驻轻壳：生命周期动作执行（状态机 → Electron 适配）——
 
-/** 执行状态机返回的动作列表（show/hide/send/invalidate/reload/destroyAndRebuild/notify） */
+/** 执行状态机返回的动作列表（show/hide/send(prepare-hide)/reload/destroyAndRebuild） */
 function executeLifecycleActions(win: BrowserWindow, actions: ReturnType<WindowLifecycle['handle']>): void {
   for (const a of actions) {
     switch (a.kind) {
       case 'show':
-        // 状态机裁决通过（match / 冷启动双闸门齐备）→ 真正 show+focus；
+        // 状态机裁决通过（冷启动双闸门齐备 / 直接恢复 / recovering 收口）→ 真正 show+focus；
         // source 区分冷启动（startup，不发 restored）与恢复（restore，发 restored 回首页）
-        showWindowNow(win, a.source)
+        showWindowNow(win, a.source, a.postShowCheck)
         break
       case 'hide':
         win.hide()
         void log('info', '[window] 已隐藏到托盘（渲染常驻）')
         break
-      case 'invalidate':
-        win.webContents.invalidate()
-        break
-      case 'reload':
-        void log('warn', '[window] L2 reload 渲染进程（双 token 明确失败）')
+      case 'reload': {
+        void log('warn', '[window] L2 reload 渲染进程（blank-confirmed / renderer-unresponsive）')
         reloadRenderer(win)
+        // 收口 wiring：加载完成 → 状态机 load-finished 直接 show；加载失败 → 按无响应升级 L4
+        // （连续升级由状态机 recoveryStreak 封顶，防 did-fail-load 类无限重建循环）
+        win.webContents.once('did-finish-load', () => {
+          if (!win.isDestroyed() && !quitting) {
+            executeLifecycleActions(win, lifecycle.handle({ type: 'load-finished' }))
+          }
+        })
+        win.webContents.once('did-fail-load', () => {
+          void log('error', '[window] L2 reload 加载失败（did-fail-load），按无响应升级')
+          if (!win.isDestroyed() && !quitting) {
+            executeLifecycleActions(win, lifecycle.handle({ type: 'renderer-unresponsive' }))
+          }
+        })
         break
+      }
       case 'destroyAndRebuild':
         void log('warn', '[window] L4 销毁重建窗口（升级链触顶）')
         l4Rebuilding = true
@@ -654,15 +606,8 @@ function executeLifecycleActions(win: BrowserWindow, actions: ReturnType<WindowL
           l4Rebuilding = false
         }, 100)
         break
-      case 'notifyRetryOrQuit':
-        void showRecoveryDialog()
-        break
       case 'send':
-        if (a.channel === 'window:prepare-hide') sendPrepareHide(win, a.generation, a.source as WindowHideSource)
-        else if (a.frameToken !== undefined)
-          sendPrepareShow(win, a.generation, a.source as Exclude<WindowShowSource, 'startup'>, a.frameToken)
-        else
-          void log('warn', `[window] prepare-show 缺 frameToken（gen=${a.generation}），跳过预检`)
+        sendPrepareHide(win, a.generation, a.source as WindowHideSource)
         break
     }
   }
@@ -671,13 +616,15 @@ function executeLifecycleActions(win: BrowserWindow, actions: ReturnType<WindowL
 /** show+focus 并通知渲染层 restored（带 generation）；加载中延迟到 did-finish-load 再发。
  *  source=startup（冷启动首显）不发 restored：冷启动无「恢复业务层」语义，渲染层初始业务层
  *  已挂载，由 v2.3.0 lastRoute 恢复逻辑决定初始路由；发 restored 会触发渲染层 navigate('/')，
- *  造成「冷启动恢复上次页面」失效 + SPA URL 被改写（P0，2026-08-18 验收定案）。 */
-function showWindowNow(win: BrowserWindow, source: 'startup' | 'restore'): void {
+ *  造成「冷启动恢复上次页面」失效 + SPA URL 被改写（P0，2026-08-18 验收定案）。
+ *  postShowCheck=true（parked 恢复）时武装显示后白屏自检。 */
+function showWindowNow(win: BrowserWindow, source: 'startup' | 'restore', postShowCheck: boolean): void {
   if (win.isDestroyed() || quitting) return
   win.show()
   win.focus()
   void pingRenderer(win)
   scheduleClockCheck() // 单时钟按可见性重排：可见 1s（系统睡眠检测即时生效）
+  if (postShowCheck) armPostShowCheck(win, lifecycle.generation())
   const sendRestored = () => {
     if (win.isDestroyed() || quitting) return
     const msg: WindowRestoredMessage = { generation: lifecycle.generation() }
@@ -712,203 +659,85 @@ function sendPrepareHide(win: BrowserWindow, generation: number, source: HideSou
   t.unref()
 }
 
-/** 发 prepare-show 并启动 FrameWitness 预检链（T4：ACK 有界等待 → L1 invalidate → 有界 capturePage → 兜底） */
-function sendPrepareShow(win: BrowserWindow, generation: number, source: Exclude<WindowShowSource, 'startup'>, frameToken: number): void {
-  const msg: WindowPrepareShowMessage = { generation, source, sentAt: Date.now(), frameToken }
-  try {
-    win.webContents.send('qihebox:event:window:prepare-show', msg)
-  } catch {
-    void log('warn', `[window] prepare-show 发送失败（generation=${generation}）`)
-  }
-  void runShowPrecheck(win, generation, frameToken)
+// —— v2.5.3 热修：显示后白屏自检实现 ——
+
+/** parked 恢复 show 后武装自检：300ms 后抓帧（一次性 .unref() 定时器，非常驻） */
+function armPostShowCheck(win: BrowserWindow, generation: number): void {
+  const t = setTimeout(() => {
+    void runPostShowCheck(win, generation)
+  }, POST_SHOW_CHECK_DELAY_MS)
+  t.unref()
 }
 
-/**
- * 隐藏预检链（设计 §4.4/§六）：关关节流 → 等 first-frame-ack（500ms；超时 → 两次有界 JS ping，
- * 均失败判定确认无响应 → reload；任一正常 → 协议 unknown 弹重试/退出）→ L1 invalidate →
- * capturePage(stayHidden, 250ms) → classify → unknown 时 frame-subscription 兜底（250ms，成对 end）
- * → 喂回状态机 witness。日志带 generation/证据分类/尝试次数/耗时（设计 §4.4 第 5 条）。
- */
-async function runShowPrecheck(win: BrowserWindow, generation: number, token: number): Promise<void> {
-  // 恢复期间关闭背景节流：隐藏态渲染进程默认节流 rAF，FrameWitness 网格与 first-frame-ack 依赖
-  // rAF 驱动——不关闭则渲染层「画不出新帧」（设计 §4.3 预检链；引用计数，最外层退出才恢复）
-  enterPrecheck(win)
-  const t0 = performance.now()
+/** 自检放行条件：窗口未销毁未退出、仍在 visible 且同代、且真实可见
+ *  （hide 不递增 generation——300ms 内再隐藏必须丢弃本次自检，绝不对隐藏窗口抓帧） */
+function postShowCheckArmed(win: BrowserWindow, generation: number): boolean {
+  return (
+    !win.isDestroyed() &&
+    !quitting &&
+    lifecycle.state() === 'visible' &&
+    lifecycle.generation() === generation &&
+    win.isVisible()
+  )
+}
+
+/** 显示后白屏自检：抓帧 → blank 则 invalidate 复检 → 仍 blank 喂状态机 blank-confirmed。
+ *  抓帧失败/超时（unknown）仅告警不升级（unknown 不升级原则：截图故障 ≠ 画面故障）。 */
+async function runPostShowCheck(win: BrowserWindow, generation: number): Promise<void> {
+  if (!postShowCheckArmed(win, generation)) return
+  if (win.webContents.isLoading()) return // 加载中露 backgroundColor 底色必误判 blank，跳过
+  const img = await capturePageBounded(win, POST_SHOW_CAPTURE_TIMEOUT_MS)
+  if (!postShowCheckArmed(win, generation)) return
+  if (!img) {
+    void log('warn', `[window] 显示后自检抓帧失败/超时（gen=${generation}），跳过（unknown 不升级）`)
+    return
+  }
+  if (!isBlankFrameLike(img, BLANK_TARGETS_WAKE)) {
+    void log('info', `[window] 显示后自检通过（gen=${generation}）`)
+    return
+  }
+  void log('warn', `[window] 显示后自检疑似白屏（gen=${generation}），invalidate 重绘复检`)
   try {
-    const ackOk = await waitForFirstFrameAck(generation, FIRST_FRAME_ACK_TIMEOUT_MS)
-    if (win.isDestroyed() || quitting) return
-    if (!ackOk) {
-      // ACK 缺失：两次有界 JS ping——活性证据正常则协议 unknown（不升级，弹重试/退出）；
-      // 两次均超时 → RENDERER_UNRESPONSIVE_CONFIRMED（隐藏态一次 L2 reload，设计 §六）
-      void log('warn', `[window] first-frame-ack 超时（generation=${generation}），执行两次有界 JS ping`)
-      const pingOk = await boundedJsPing(win)
-      if (win.isDestroyed() || quitting) return
-      if (!pingOk) {
-        void log('warn', `[window] 两次 JS ping 均超时 → RENDERER_UNRESPONSIVE_CONFIRMED（gen=${generation}，L2 reload）`)
-        executeLifecycleActions(win, lifecycle.handle({ type: 'renderer-unresponsive' }))
-        return
-      }
-      void log('warn', `[window] ACK 缺失但 JS 正常 → 生命周期协议 unknown（gen=${generation}），弹重试/退出（不 reload）`)
-      executeLifecycleActions(win, lifecycle.handle({ type: 'witness', verdict: 'unknown', token }))
-      return
-    }
-    // ACK 齐备：L1 invalidate 全量重绘（设计 §4.4 托盘恢复第 2 条），再做隐藏新鲜帧预检
     win.webContents.invalidate()
-    let img = await capturePageBounded(win)
-    if (win.isDestroyed() || quitting) return
-    let verdict = img ? classifyFrameWitness(img, token, witnessGridLayout()) : 'unknown'
-    // v2.5.3 L2 恢复链修复（2026-08-18 定案）：capturePage(stayHidden) 返回渲染器「最后提交的帧」
-    // （缓存帧）。stale = 帧有内容但 token 不匹配（重绘延迟缓存帧）——等待一帧重绘时间后重捕；
-    // blank = 空帧：presenting 态（健康/托盘恢复）为「真空白」，按原语义升级（不掩盖注入的
-    // 双 blank 判定）；recovering 态（崩溃/故障 reload 后）为「新渲染进程尚未提交任何帧」的
-    // 缓存空白——重捕等网格提交。重捕结果仍失败才走既有升级链。健康路径多数首次即 match。
-    const needRecapture = verdict === 'stale' || (verdict === 'blank' && lifecycle.state() === 'recovering')
-    if (needRecapture) {
-      await sleep(FRAME_SETTLE_MS)
-      if (win.isDestroyed() || quitting) return
-      // 重捕用长超时：合成器冷却场景（快速切换后）capture 需 1.7-2.7s 冷启动完成
-      const img2 = await capturePageBounded(win, CAPTURE_RETRY_TIMEOUT_MS)
-      if (win.isDestroyed() || quitting) return
-      if (img2) {
-        const v2 = classifyFrameWitness(img2, token, witnessGridLayout())
-        if (v2 === 'match' || v2 !== 'unknown') verdict = v2
-      }
-      void log('info', `[window] FrameWitness 重捕（gen=${generation} ${verdict}，state=${lifecycle.state()}）`) // 升级链观测
-    }
-    if (verdict === 'unknown') {
-      // v2.5.3 L2 恢复链修复（2026-08-18 定案）：崩溃/故障 reload 后新渲染进程的 GPU 合成器
-      // 尚未就绪，capturePage(stayHidden) 会挂起至超时（null）。等待合成就绪后重试一次——
-      // 重试用长超时（3s）：健康轮快速切换 ~15 轮后合成器冷却、capture 慢至 1.7-2.7s
-      // （探针实证 2026-08-18），长窗口内可完成（match）；崩溃后真死场景重试仍超时 → 走
-      // frame-subscription 兜底（250ms 有界）→ unknown 升级链。
-      await sleep(CAPTURE_RETRY_WAIT_MS)
-      if (win.isDestroyed() || quitting) return
-      const imgRetry = await capturePageBounded(win, CAPTURE_RETRY_TIMEOUT_MS)
-      if (win.isDestroyed() || quitting) return
-      if (imgRetry) {
-        const vRetry = classifyFrameWitness(imgRetry, token, witnessGridLayout())
-        if (vRetry !== 'unknown') verdict = vRetry
-      }
-      void log('info', `[window] FrameWitness capture 重试（gen=${generation} → ${verdict}）`) // 升级链观测
-      if (verdict === 'unknown') {
-        // 截图故障/畸形/超时：frame-subscription 兜底（成对 end；仍 unknown 不升级）。
-        // 超时按状态区分：presenting 长超时（合成器冷却时 sub 慢至秒级，3s 内取真帧）；
-        // recovering 保持 250ms 快速失败（崩溃后合成器真死，快速升级 L4）
-        const subTimeout = lifecycle.state() === 'recovering' ? CAPTURE_TIMEOUT_MS : CAPTURE_RETRY_TIMEOUT_MS
-        verdict = (await captureViaFrameSubscription(win, token, subTimeout)) ?? 'unknown'
-        if (win.isDestroyed() || quitting) return
-      }
-    }
-    const ms = performance.now() - t0
-    void log('info', `[window] FrameWitness 验证（gen=${generation} token=${token} 尝试=${lifecycle.failedStreak() + 1} 耗时=${ms.toFixed(0)}ms）→ ${verdict}`)
-    executeLifecycleActions(win, lifecycle.handle({ type: 'witness', verdict, token }))
-  } catch (err) {
-    // 捕获链异常（API 故障）：unknown——不升级 L2/L4，弹原生重试/退出（设计 §4.4 故障升级）
-    void log('warn', `[window] 预检异常: ${String(err)} → unknown（不升级）`)
-    executeLifecycleActions(win, lifecycle.handle({ type: 'witness', verdict: 'unknown', token }))
-  } finally {
-    // 恢复背景节流设置（引用计数：仅最外层 precheck 退出时恢复原始值；帧订阅已由
-    // captureViaFrameSubscription 成对 end）
-    exitPrecheck(win)
+  } catch {
+    return // 渲染层竞态销毁，放弃本次自检
   }
+  await sleep(POST_SHOW_RECHECK_DELAY_MS)
+  if (!postShowCheckArmed(win, generation)) return
+  if (win.webContents.isLoading()) return
+  const img2 = await capturePageBounded(win, POST_SHOW_CAPTURE_TIMEOUT_MS)
+  if (!postShowCheckArmed(win, generation)) return
+  if (!img2) {
+    void log('warn', `[window] 显示后自检复检抓帧失败/超时（gen=${generation}），跳过（unknown 不升级）`)
+    return
+  }
+  if (!isBlankFrameLike(img2, BLANK_TARGETS_WAKE)) {
+    void log('info', `[window] 显示后自检复检恢复（gen=${generation}，invalidate 后画面正常）`)
+    return
+  }
+  void log('error', `[window] 显示后白屏确认（gen=${generation}）→ 状态机升级（L2 reload）`)
+  executeLifecycleActions(win, lifecycle.handle({ type: 'blank-confirmed' }))
 }
 
-/** 两次有界 JS ping（活性证据，非画面证据；设计 §六）：任一成功返回 true */
-async function boundedJsPing(win: BrowserWindow): Promise<boolean> {
-  for (let round = 1; round <= JS_PING_ROUNDS; round++) {
-    let timer: NodeJS.Timeout | null = null
-    try {
-      const ok = await Promise.race([
-        win.webContents.executeJavaScript('document.readyState === "complete"', true).catch(() => false),
-        new Promise<boolean>((resolve) => {
-          timer = setTimeout(() => resolve(false), JS_PING_TIMEOUT_MS)
-          timer.unref()
-        }),
-      ])
-      if (ok) return true
-    } finally {
-      if (timer) clearTimeout(timer)
-    }
-  }
-  return false
-}
-
-/** capturePage(stayHidden) 有界等待（默认 250ms 快速探测，设计 §六；重试/重捕可传长超时）；
- *  超时/异常 → null。注意：超时后挂起的 capture promise 不取消（Electron 无取消 API），
- *  慢合成场景首次探测超时后其结果自然作废，以重试结果为准。 */
-async function capturePageBounded(win: BrowserWindow, timeoutMs = CAPTURE_TIMEOUT_MS): Promise<Electron.NativeImage | null> {
+/** capturePage 有界等待（可见态正常 <100ms；超时/异常 → null）。
+ *  注意：超时后挂起的 capture promise 不取消（Electron 无取消 API），慢合成场景结果自然作废。 */
+async function capturePageBounded(win: BrowserWindow, timeoutMs: number): Promise<Electron.NativeImage | null> {
   let timer: NodeJS.Timeout | null = null
   try {
     return await Promise.race([
-      win.webContents.capturePage(witnessGridLayout().rect, { stayHidden: true }),
+      win.webContents.capturePage(),
       new Promise<Electron.NativeImage | null>((resolve) => {
         timer = setTimeout(() => resolve(null), timeoutMs)
         timer.unref()
       }),
     ])
   } catch (err) {
-    // v2.5.3 诊断（295 用例契约）：截图 API 故障不升级、走 unknown→frame-subscription 兜底，
-    // 但必须留日志（预检截屏失败），否则「capturePage 抛错」路径无迹可循
-    void log('warn', `[window] 预检截屏失败: ${String(err)}`)
+    // 截图 API 故障不升级、走 unknown 语义（仅告警），必须留日志否则无迹可循
+    void log('warn', `[window] 显示后自检截屏失败: ${String(err)}`)
     return null
   } finally {
     if (timer) clearTimeout(timer)
   }
-}
-
-/** frame-subscription 兜底（有界等待，成对 end）：整帧 → crop 预检 rect → classify；可判定即收，超时 null。
- *  超时按状态区分（2026-08-18 探针实证）：presenting 态（健康/托盘恢复）合成器冷却时 sub 也慢至秒级
- *  ——长超时（3s）等真帧；recovering 态（崩溃后合成器真死）保持快速失败（250ms）升级 L4。 */
-function captureViaFrameSubscription(win: BrowserWindow, token: number, timeoutMs = CAPTURE_TIMEOUT_MS): Promise<WitnessVerdict | null> {
-  return new Promise<WitnessVerdict | null>((resolve) => {
-    let done = false
-    const finish = (v: WitnessVerdict | null) => {
-      if (done) return
-      done = true
-      clearTimeout(timer)
-      try {
-        win.webContents.endFrameSubscription()
-      } catch {
-        /* 已结束/销毁竞态 */
-      }
-      resolve(v)
-    }
-    const timer = setTimeout(() => finish(null), timeoutMs)
-    timer.unref()
-    try {
-      win.webContents.beginFrameSubscription(false, (img) => {
-        if (done || !img) return
-        try {
-          const v = classifyFrameWitness(img.crop(witnessGridLayout().rect), token, witnessGridLayout())
-          if (v !== 'unknown') finish(v) // 得到可判定结论即收；始终 unknown 等 250ms 兜底结束
-        } catch {
-          finish(null)
-        }
-      })
-    } catch (err) {
-      void log('warn', `[window] beginFrameSubscription 失败: ${String(err)}`)
-      finish(null)
-    }
-  })
-}
-
-/** 等待渲染层 first-frame-ack（带 generation 匹配）；超时返回 false */
-function waitForFirstFrameAck(generation: number, timeoutMs: number): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    if (firstFramePending) firstFramePending.resolve(false) // 作废上一次等待
-    const timer = setTimeout(() => {
-      if (firstFramePending && firstFramePending.generation === generation) {
-        firstFramePending = null
-        resolve(false)
-      }
-    }, timeoutMs)
-    timer.unref()
-    firstFramePending = { generation, resolve: (ok) => {
-      if (timer) clearTimeout(timer)
-      firstFramePending = null
-      resolve(ok)
-    } }
-  })
 }
 
 /** renderer → main：parked-ack（渲染层已卸载重资源）——ipc.ts 薄壳透传入口 */
@@ -921,20 +750,15 @@ export function windowLifecycleParked(sender: Electron.WebContents, msg: unknown
   executeLifecycleActions(win, lifecycle.handle({ type: 'parked-ack', generation }))
 }
 
-/** renderer → main：first-frame-ack（FrameWitness 轻壳已提交）——ipc.ts 薄壳透传入口 */
+/** renderer → main：first-frame-ack（冷启动首帧已提交）——ipc.ts 薄壳透传入口；
+ *  仅 starting 态消费（冷启动双闸门）；其余状态（如 L4 重建后新渲染层挂载上报）忽略 */
 export function windowLifecycleFirstFrame(sender: Electron.WebContents, msg: unknown): void {
   if (!isMainSender(sender)) return
   const m = msg as Partial<WindowFirstFrameAckMessage>
   const generation = typeof m?.generation === 'number' ? m.generation : -1
-  // 1) 冷启动双闸门（starting 态）：首帧 ACK 喂状态机，与 ready-to-show 齐备才首次 show
   const win = getMainWindow()
   if (win && !win.isDestroyed() && lifecycle.state() === 'starting') {
     executeLifecycleActions(win, lifecycle.handle({ type: 'first-frame-ack', generation }))
-    return
-  }
-  // 2) 恢复预检链（presenting 态）：唤醒等待中的 first-frame-ack 等待者
-  if (firstFramePending && firstFramePending.generation === generation) {
-    firstFramePending.resolve(true)
   }
 }
 
@@ -943,36 +767,6 @@ function isMainSender(sender: Electron.WebContents): boolean {
   if (mainWindow && !mainWindow.isDestroyed() && sender === mainWindow.webContents) return true
   void log('warn', '[window] 生命周期 ACK 来源校验失败（非主窗口渲染进程）')
   return false
-}
-
-/** unknown 判定：原生重试/退出对话框（不升级不 reload）；e2e 模式跳过弹框直接走「重试」（日志可断言） */
-async function showRecoveryDialog(): Promise<void> {
-  const win = getMainWindow()
-  if (!win || win.isDestroyed()) return
-  if (process.env.QIHEBOX_E2E === '1') {
-    // 原生模态框会挂住 e2e：记录后直接重试（链路本体照走；对话框呈现由真机验收覆盖）
-    void log('warn', '[window] unknown 出口：原生「重试/退出」对话框（e2e 模式自动选重试）')
-    const actions = lifecycle.handle({ type: 'show-requested', source: 'recovery' })
-    executeLifecycleActions(win, actions)
-    return
-  }
-  const { response } = await dialog.showMessageBox(win, {
-    type: 'warning',
-    title: '画面恢复失败',
-    message: '窗口画面无法确认，请重试或重启应用。',
-    buttons: ['重试', '退出'],
-    defaultId: 0,
-    cancelId: 1,
-  })
-  if (response === 0) {
-    const actions = lifecycle.handle({ type: 'show-requested', source: 'recovery' })
-    executeLifecycleActions(win, actions)
-  } else {
-    setQuitting(true)
-    await flushWindowState()
-    win.destroy()
-    app.quit()
-  }
 }
 
 /** v2.5.2：最大化态广播（TitleBar 图标同步）；窗口销毁/加载中发送失败静默——TitleBar onMount 查询兜底 */

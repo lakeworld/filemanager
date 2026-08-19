@@ -11,16 +11,7 @@ import { loadAccountStatus, subscribeAccountEvents } from "~/stores/account";
 import { closePreview } from "~/stores/preview";
 import { banner, showCertReminder } from "~/stores/notifyBanner";
 import { onMount, createSignal, createEffect, onCleanup, Show } from "solid-js";
-import {
-  WITNESS_GRID_N,
-  WITNESS_CELL_DIP,
-  WITNESS_GAP_DIP,
-  WITNESS_GRID_X,
-  WITNESS_GRID_Y,
-  WITNESS_BRAND_RGB,
-  type WindowPrepareHideMessage,
-  type WindowPrepareShowMessage,
-} from "../../shared/types";
+import type { WindowPrepareHideMessage } from "../../shared/types";
 
 function FramelessResizer() {
   const [resizing, setResizing] = createSignal(false);
@@ -166,75 +157,14 @@ function FramelessResizer() {
   );
 }
 
-/**
- * v2.5.3 常驻轻壳：FrameWitness 网格（隐藏恢复预检用）。
- * 5×5 品牌蓝网格：四角定位格恒品牌蓝，中间 21 格按 token bit 涂品牌蓝(1)/白(0)。
- * 锚点固定 (WITNESS_GRID_X, WITNESS_GRID_Y)——主进程 capturePage(rect) 同几何采样解码。
- * 仅在 prepare-show 后、restored 前渲染（轻壳状态）。
- */
-function FrameWitnessGrid(props: { token: number }) {
-  const brand = `rgb(${WITNESS_BRAND_RGB[0]},${WITNESS_BRAND_RGB[1]},${WITNESS_BRAND_RGB[2]})`;
-  const total = WITNESS_GRID_N * WITNESS_GRID_N;
-  const dataIdx = Array.from({ length: total }, (_, i) => i).filter((i) => {
-    const r = Math.floor(i / WITNESS_GRID_N);
-    const c = i % WITNESS_GRID_N;
-    const isCorner =
-      (r === 0 && c === 0) ||
-      (r === 0 && c === WITNESS_GRID_N - 1) ||
-      (r === WITNESS_GRID_N - 1 && c === 0) ||
-      (r === WITNESS_GRID_N - 1 && c === WITNESS_GRID_N - 1);
-    return !isCorner;
-  });
-  return (
-    <div
-      class="fixed z-[2147483647]"
-      style={{
-        left: `${WITNESS_GRID_X}px`,
-        top: `${WITNESS_GRID_Y}px`,
-        width: `${WITNESS_GRID_N * WITNESS_CELL_DIP + (WITNESS_GRID_N - 1) * WITNESS_GAP_DIP}px`,
-        height: `${WITNESS_GRID_N * WITNESS_CELL_DIP + (WITNESS_GRID_N - 1) * WITNESS_GAP_DIP}px`,
-        background: "#ffffff",
-      }}
-    >
-      {Array.from({ length: total }, (_, i) => {
-        const r = Math.floor(i / WITNESS_GRID_N);
-        const c = i % WITNESS_GRID_N;
-        const isCorner =
-          (r === 0 && c === 0) ||
-          (r === 0 && c === WITNESS_GRID_N - 1) ||
-          (r === WITNESS_GRID_N - 1 && c === 0) ||
-          (r === WITNESS_GRID_N - 1 && c === WITNESS_GRID_N - 1);
-        const bit = isCorner ? 1 : ((props.token >> dataIdx.indexOf(i)) & 1);
-        return (
-          <div
-            data-witness-bit={String(bit)}
-            style={{
-              position: "absolute",
-              left: `${c * (WITNESS_CELL_DIP + WITNESS_GAP_DIP)}px`,
-              top: `${r * (WITNESS_CELL_DIP + WITNESS_GAP_DIP)}px`,
-              width: `${WITNESS_CELL_DIP}px`,
-              height: `${WITNESS_CELL_DIP}px`,
-              background: bit ? brand : "#ffffff",
-            }}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
 export default function App(props: RouteSectionProps) {
   let unsubImport: (() => void) | null = null;
   let unsubCertReminder: (() => void) | null = null;
   let unsubRestored: (() => void) | null = null;
   let unsubSessionExpired: (() => void) | null = null;
   let unsubPrepareHide: (() => void) | null = null;
-  let unsubPrepareShow: (() => void) | null = null;
   // v2.5.3 常驻轻壳：parked=true 时业务层条件卸载（路由/预览/拖放/缩放器），仅保留轻壳骨架
   const [parked, setParked] = createSignal(false);
-  // FrameWitness 网格显示与 token（prepare-show 后到 restored 前）
-  const [witnessing, setWitnessing] = createSignal(false);
-  const [witnessToken, setWitnessToken] = createSignal(0);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -293,7 +223,6 @@ export default function App(props: RouteSectionProps) {
     // 注意：navigate('/') 会触发下方 createEffect 把 lastRoute 写成 '/',污染 v2.3.0 的
     // 「冷启动恢复上次页面」——先记住旧路径，导航后写回，托盘恢复只改显示不改持久化。
     unsubRestored = window.qihebox.events.on("window:restored", () => {
-      setWitnessing(false); // 摘除 FrameWitness 网格
       setParked(false); // 恢复业务层（路由/拖放/缩放器/预览异步重挂）
       const prev = localStorage.getItem("qihebox:lastRoute");
       navigate("/", { replace: true });
@@ -303,43 +232,14 @@ export default function App(props: RouteSectionProps) {
     // v2.5.3（P1-6）：心跳 401 会话过期 → 过期态即时传导 UI（Profile 过期横幅无需等重启）
     unsubSessionExpired = subscribeAccountEvents();
 
-    // v2.5.3 常驻轻壳（设计 §4.2）：隐藏卸载重资源 / 恢复渲染 FrameWitness 轻壳
+    // v2.5.3 常驻轻壳（设计 §4.2）：隐藏卸载重资源（2026-08-19 热修：FrameWitness/prepare-show
+    // 随隐藏预检链删除——恢复改主进程直接 show + 显示后白屏自检，渲染层无需配合）
     unsubPrepareHide = window.qihebox.windowLifecycle.onPrepareHide((msg: WindowPrepareHideMessage) => {
       closePreview(); // 卸载预览重资源
-      setWitnessing(false);
       setParked(true); // 卸载业务层（路由/拖放/缩放器/预览），保留轻壳骨架
       window.qihebox.clearCache(); // 清 Blink 图像解码缓存
       // 上报 parked-ack（generation 原样回传，主进程校验归属）
       void window.qihebox.windowLifecycle.parked(msg.generation).catch(() => {});
-    });
-    unsubPrepareShow = window.qihebox.windowLifecycle.onPrepareShow((msg: WindowPrepareShowMessage) => {
-      if (msg.source === "startup") {
-        // 冷启动：无 FrameWitness（正常 UI 首帧），仅上报首帧 ACK
-        void window.qihebox.windowLifecycle
-          .firstFrame(msg.generation)
-          .catch(() => {});
-        return;
-      }
-      // 恢复：渲染 FrameWitness 轻壳网格（携带本次 token），帧提交后上报 first-frame-ack。
-      // 双保险（2026-08-18 L2 恢复链定案）：
-      // ① rAF 主路径——等渲染器提交含网格的帧后再 ACK（正常场景 20-40ms，健康路径 match）；
-      // ② setTimeout 兜底——隐藏窗口下 Chromium 按 vsync 节流 rAF（backgroundThrottling(false)
-      //    只解定时器），崩溃 reload 后新渲染进程 rAF 几乎不触发 → 350ms 兜底 ACK（早于主进程
-      //    500ms 窗口，宁可 early ACK 走 blank 重试也不 deadlock）。网格验证由主进程
-      //    capturePage(stayHidden) 强制抓帧完成。
-      setWitnessToken(msg.frameToken ?? 0);
-      setWitnessing(true);
-      setParked(true); // 业务层保持卸载
-      let acked = false;
-      const ack = () => {
-        if (acked) return;
-        acked = true;
-        void window.qihebox.windowLifecycle
-          .firstFrame(msg.generation, msg.frameToken)
-          .catch(() => {});
-      };
-      requestAnimationFrame(() => requestAnimationFrame(ack));
-      setTimeout(ack, 350);
     });
 
     onCleanup(() => {
@@ -348,7 +248,6 @@ export default function App(props: RouteSectionProps) {
       unsubRestored?.();
       unsubSessionExpired?.();
       unsubPrepareHide?.();
-      unsubPrepareShow?.();
     });
   });
 
@@ -388,10 +287,6 @@ export default function App(props: RouteSectionProps) {
         <GlobalDropOverlay />
         <FramelessResizer />
         <FilePreviewModal />
-      </Show>
-      {/* v2.5.3 常驻轻壳：FrameWitness 网格（恢复预检用；主进程 capturePage 解码 token 后才 show） */}
-      <Show when={witnessing()}>
-        <FrameWitnessGrid token={witnessToken()} />
       </Show>
     </div>
   );
