@@ -6,7 +6,6 @@ import type {
   WindowFirstFrameAckMessage,
   WindowParkedAckMessage,
   WindowPrepareHideMessage,
-  WindowPrepareShowMessage,
   WindowRestoredMessage,
 } from '../../shared/types'
 
@@ -174,9 +173,8 @@ interface QiheboxApi {
   // v2.5.3 常驻轻壳：窗口生命周期（preload windowLifecycle 白名单；事件订阅返回退订函数）
   windowLifecycle: {
     parked: (generation: number) => Promise<ApiResult<boolean>>
-    firstFrame: (generation: number, frameToken?: number) => Promise<ApiResult<boolean>>
+    firstFrame: (generation: number) => Promise<ApiResult<boolean>>
     onPrepareHide: (cb: (msg: WindowPrepareHideMessage) => void) => () => void
-    onPrepareShow: (cb: (msg: WindowPrepareShowMessage) => void) => () => void
     onRestored: (cb: (msg: WindowRestoredMessage) => void) => () => void
   }
   app: {

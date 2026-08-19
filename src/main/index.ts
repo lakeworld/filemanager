@@ -141,9 +141,9 @@ function setupTray(): void {
 }
 
 function setupCrashRecovery(win: BrowserWindow): void {
-  // 渲染进程崩溃 → 交生命周期状态机（v2.5.3 T4）：visible 先 hide 再隐藏态 reload + FrameWitness
-  // 预检恢复（不再直接延迟 reload——崩溃后画面已不可信，必须验证通过才显示，设计 §4.4 故障升级）；
-  // 崩溃计数（10 分钟时间窗内 ≥3 次退出）保留防循环（v2.4.2）。
+  // 渲染进程崩溃 → 交生命周期状态机（v2.5.3）：visible 直接 L4 销毁重建，ready-to-show 收口 show
+  // （2026-08-19 热修：FrameWitness 隐藏预检废止——长时隐藏抓不到帧反而堵死唤醒，改直接 show
+  //  + 显示后白屏自检兜底）；崩溃计数（10 分钟时间窗内 ≥3 次退出）保留防循环（v2.4.2）。
   win.webContents.on('render-process-gone', (_e, details) => {
     // 正常销毁（L4 自愈重建/退出路径）产生的 clean-exit 不是崩溃，不计数
     if (details.reason === 'clean-exit') return
@@ -159,8 +159,8 @@ function setupCrashRecovery(win: BrowserWindow): void {
     }
     notifyRendererGone()
   })
-  // v2.4.3（F5）：GPU 进程崩溃 → 交状态机恢复（同渲染崩溃：可见态先隐藏再隐藏态 reload + 预检，
-  // v2.5.3 T4；原「1 秒后直接 reload」会露出崩溃画面），纳入崩溃时间窗计数（10 分钟 ≥3 次退出，防循环）
+  // v2.4.3（F5）：GPU 进程崩溃 → 交状态机恢复（同渲染崩溃：L4 销毁重建 + ready-to-show 收口，
+  // 2026-08-19 热修语义；原「1 秒后直接 reload」会露出崩溃画面），纳入崩溃时间窗计数（10 分钟 ≥3 次退出，防循环）
   // 注意：app 级监听只在首次注册，窗口重建（setupCrashRecovery 再次调用）不重复挂，避免重复 reload
   if (!gpuRecoveryRegistered) {
     gpuRecoveryRegistered = true

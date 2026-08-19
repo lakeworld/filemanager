@@ -335,7 +335,7 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
     await page.waitForTimeout(10_000) // 沉降 10s：卸载后自然释放（不强制 GC）
     const parked = await collectRendererMetrics(app, page, cdp, { forceGc: false })
     await page.evaluate(() => (window as any).qihebox.window.show())
-    // 恢复经 FrameWitness 预检（真桌面 match；xvfb 下 unknown 会走 e2e 自动重试——超时 fail-closed）
+    // 恢复 = 直接 show（2026-08-19 热修：FrameWitness 隐藏预检废止）+ 显示后白屏自检兜底
     await page.waitForFunction(() => !!document.querySelector('main[class*="overflow-y-auto"]'), null, { timeout: 20000 })
     await page.waitForTimeout(300)
     return { metrics, gridImageCount, parked }
