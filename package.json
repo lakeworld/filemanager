@@ -6,7 +6,7 @@
   "homepage": "https://www.qihebook.cloud/file-manager",
   "desktopName": "qihe-box",
   "main": "./out/main/index.js",
-  "author": "启禾软件 <dev@qihe.local>",
+  "author": "启禾软件 <ai_qihe@vip.qq.com>",
   "license": "Apache-2.0",
   "private": true,
   "type": "module",

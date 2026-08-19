@@ -145,7 +145,7 @@ export default function Profile() {
   onCleanup(() => window.clearTimeout(copiedTimer));
   const copyEmail = async () => {
     try {
-      await navigator.clipboard.writeText("1252235854@qq.com");
+      await navigator.clipboard.writeText("ai_qihe@vip.qq.com");
       setEmailCopied(true);
       window.clearTimeout(copiedTimer);
       copiedTimer = window.setTimeout(() => setEmailCopied(false), 2000);
@@ -191,7 +191,7 @@ export default function Profile() {
               </button>
               <span class="inline-flex items-center gap-1.5 text-sm text-surface-600">
                 邮箱反馈：
-                <code class="rounded bg-surface-100 px-1.5 py-0.5 text-surface-800">1252235854@qq.com</code>
+                <code class="rounded bg-surface-100 px-1.5 py-0.5 text-surface-800">ai_qihe@vip.qq.com</code>
                 <button
                   class="rounded-lg bg-surface-100 px-2.5 py-1 text-xs font-semibold text-surface-700 transition-colors hover:bg-surface-200"
                   onClick={copyEmail}

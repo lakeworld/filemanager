@@ -24,4 +24,4 @@
 
 ## 五、联系我们
 
-如有隐私相关问题，请联系：dev@qihe.local
+如有隐私相关问题，请联系：ai_qihe@vip.qq.com

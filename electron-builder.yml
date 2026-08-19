@@ -53,7 +53,7 @@ linux:
     - deb
   icon: build/appicon.png
   category: Office
-  maintainer: 启禾软件 <dev@qihe.local>
+  maintainer: 启禾软件 <ai_qihe@vip.qq.com>
   synopsis: 电商产品图包与证书管理工具
   # v2.1.1 进程瘦身：去 zygote（-3 进程 -118MB）+ 禁用 GPU（Deepin 软件渲染纯开销，-117MB）。
   # 参数必须为启动参数（appendSwitch 运行时设置不生效）；仅 Linux 生效（Windows 无 zygote 且保留 GPU 加速）。
