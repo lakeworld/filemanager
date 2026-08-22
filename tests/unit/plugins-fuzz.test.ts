@@ -172,6 +172,14 @@ describe('host.files 模糊（工作区受限读写）', () => {
         relation: { link: async () => {}, unlink: async () => {} },
       },
       customersAccess: false,
+      suppliers: {
+        list: async () => [],
+        get: async () => null,
+        writeErpExt: async () => {},
+        syncProfile: async () => ({ applied: true }),
+      },
+      suppliersAccess: false,
+      quotes: { list: async () => [], get: async () => null },
       share: {
         listProductSets: async () => [],
         listCustomers: async () => [],

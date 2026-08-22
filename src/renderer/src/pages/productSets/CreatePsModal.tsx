@@ -1,4 +1,4 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, createEffect, Show } from "solid-js";
 import Modal from "~/components/ui/Modal";
 import Input from "~/components/ui/Input";
 import Textarea from "~/components/ui/Textarea";
@@ -7,20 +7,33 @@ import { api } from "~/wails/api";
 import { showToast } from "~/stores/notifyBanner";
 import { tagList } from "~/stores/tags";
 import type { ProductSetCreateRequest } from "~/types";
+import type { ProductSetPrefill } from "~/stores/createPrefillNormalize";
 
 /**
  * 新建产品集弹窗（v2.5.1 T3 波2 拆分 + overlay→Modal 迁移）：
  * 字段信号与提交逻辑从 ProductSets.tsx 纯搬迁；成功回调 onCreated。
+ * v2.5.4 预填（PLAN-v2.5.4 §3.4）：可选 initial + onCancel（语义同 CreateClientModal）。
  */
 export default function CreatePsModal(props: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
+  initial?: ProductSetPrefill | null;
+  onCancel?: () => void;
 }) {
   const [newPsName, setNewPsName] = createSignal("");
   const [newPsTags, setNewPsTags] = createSignal<string[]>([]);
   const [newPsNotes, setNewPsNotes] = createSignal("");
   const [saving, setSaving] = createSignal(false);
+
+  // 打开时 seed（有 initial 预填，无则清空防残留；依赖 open 与 initial 引用，同客户弹窗）
+  createEffect(() => {
+    if (!props.open) return;
+    const init = props.initial;
+    setNewPsName(init?.name ?? "");
+    setNewPsTags(init?.tags ?? []);
+    setNewPsNotes(init?.notes ?? "");
+  });
 
   const handleCreate = async () => {
     if (saving()) return;
@@ -47,7 +60,7 @@ export default function CreatePsModal(props: {
 
   return (
     <Show when={props.open}>
-      <Modal open title="新建产品集" size="lg" onClose={props.onClose}>
+      <Modal open title="新建产品集" size="lg" onClose={props.onCancel ?? props.onClose}>
         <div class="p-6">
           <h2 class="text-xl font-bold mb-4">新建产品集</h2>
           <div class="mb-4">
@@ -63,7 +76,7 @@ export default function CreatePsModal(props: {
             <Textarea value={newPsNotes()} rows={3} placeholder="添加备注..." onInput={(e) => setNewPsNotes(e.currentTarget.value)} class="w-full" />
           </div>
           <div class="flex gap-3 justify-end">
-            <button class="btn-secondary" onClick={props.onClose}>取消</button>
+            <button class="btn-secondary" onClick={props.onCancel ?? props.onClose}>取消</button>
             <button class="btn-primary" disabled={saving()} onClick={() => void handleCreate()}>
               {saving() ? "创建中..." : "确认创建"}
             </button>

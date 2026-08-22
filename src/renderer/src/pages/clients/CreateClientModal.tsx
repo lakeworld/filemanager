@@ -1,4 +1,4 @@
-import { createSignal, Show, onMount } from "solid-js";
+import { createSignal, createEffect, Show } from "solid-js";
 import Modal from "~/components/ui/Modal";
 import Input from "~/components/ui/Input";
 import Textarea from "~/components/ui/Textarea";
@@ -8,16 +8,20 @@ import { api } from "~/wails/api";
 import { showToast } from "~/stores/notifyBanner";
 import { tagList } from "~/stores/tags";
 import type { CustomerCreateRequest } from "~/types";
+import type { CustomerPrefill } from "~/stores/createPrefillNormalize";
 
 /**
  * 新建客户弹窗（v2.5.1 T3 波1 拆分 + overlay→Modal 迁移）：
  * 字段信号与提交逻辑从 Clients.tsx 纯搬迁（信号仅本弹窗使用）；成功回调 onCreated。
- * 逻辑零改动：字段集与 handleCreate 校验/提交原样。
+ * v2.5.4 预填（PLAN-v2.5.4 §3.4）：可选 initial（打开时 seed 全字段；不传 = 空表，照旧）+
+ * 可选 onCancel（批量预填取消语义 P1-1：取消/X 走 onCancel；不传退回 onClose，行为零变化）。
  */
 export default function CreateClientModal(props: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
+  initial?: CustomerPrefill | null;
+  onCancel?: () => void;
 }) {
   const [newName, setNewName] = createSignal("");
   const [newAlias, setNewAlias] = createSignal("");
@@ -73,26 +77,27 @@ export default function CreateClientModal(props: {
     }
   };
 
-  // 打开时清空表单（复用弹窗实例，防上次残留）
-  onMount(() => {
-    if (props.open) {
-      setNewName("");
-      setNewAlias("");
-      setNewCountry("");
-      setNewContact("");
-      setNewSource("");
-      setNewType("");
-      setNewPhone("");
-      setNewEmail("");
-      setNewAddress("");
-      setNewTags([]);
-      setNewNotes("");
-    }
+  // 打开时 seed 表单（v2.5.4：有 initial 预填则填全字段，无则清空——落实「复用弹窗防残留」原意图；
+  // 依赖 open 与 initial 引用两者：批量推进时 open 无净变化、靠 initial 引用变化触发重填）
+  createEffect(() => {
+    if (!props.open) return;
+    const init = props.initial;
+    setNewName(init?.name ?? "");
+    setNewAlias(init?.alias ?? "");
+    setNewCountry(init?.country ?? "");
+    setNewContact(init?.contact ?? "");
+    setNewSource(init?.source ?? "");
+    setNewType((init?.type as "" | "企业" | "个人") || "");
+    setNewPhone(init?.phone ?? "");
+    setNewEmail(init?.email ?? "");
+    setNewAddress(init?.address ?? "");
+    setNewTags(init?.tags ?? []);
+    setNewNotes(init?.notes ?? "");
   });
 
   return (
     <Show when={props.open}>
-      <Modal open title="新建客户" size="xl" onClose={props.onClose}>
+      <Modal open title="新建客户" size="xl" onClose={props.onCancel ?? props.onClose}>
         <div class="p-6">
           <h2 class="text-xl font-bold mb-4">新建客户</h2>
           <div class="mb-4">
@@ -152,7 +157,7 @@ export default function CreateClientModal(props: {
             <Textarea value={newNotes()} rows={2} placeholder="添加备注..." onInput={(e) => setNewNotes(e.currentTarget.value)} class="w-full" />
           </div>
           <div class="flex gap-3 justify-end">
-            <button class="btn-secondary" onClick={props.onClose}>取消</button>
+            <button class="btn-secondary" onClick={props.onCancel ?? props.onClose}>取消</button>
             <button class="btn-primary" disabled={saving()} onClick={() => void handleCreate()}>
               {saving() ? "创建中..." : "确认创建"}
             </button>

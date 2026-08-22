@@ -767,6 +767,18 @@ export class FilesService {
     return p
   }
 
+  /**
+   * v2.5.4（发票识别 Task 4）：读任意路径文件的 mtime（仅时间戳，不读内容、不限工作区）。
+   * 识别流 sourcePath 来自工作区外本地文件（用户对话框所选），开票日期缺失时按文件 mtime 兜底
+   * YYYY-MM-DD；归档本体 archiveFile 本就允许工作区外源文件，此处 stat 只回传 mtime 无内容放大风险。
+   */
+  async statPath(filePath: string): Promise<{ mtime: number }> {
+    const p = String(filePath ?? '').trim()
+    if (!p) throw new Error('路径不能为空')
+    const st = await fsp.stat(p)
+    return { mtime: st.mtimeMs }
+  }
+
   /** v2.5.1（F4，D26）：读取工作区内文本文件（MD 预览用；2MB 上限防大文件整传，与内联渲染阈值同源） */
   async readTextFile(filePath: string): Promise<string> {
     const p = await this.resolveWorkspaceFile(filePath)

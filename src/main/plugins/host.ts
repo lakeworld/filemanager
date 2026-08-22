@@ -15,7 +15,14 @@
 import path from 'node:path'
 import fsp from 'node:fs/promises'
 import { API_VERSION } from '../../plugins/types'
-import type { EntitlementStatus, PluginBusinessError, PluginHost } from '../../plugins/types'
+import type {
+  CustomerProfile,
+  EntitlementStatus,
+  PluginBusinessError,
+  PluginHost,
+  QuoteProfile,
+  SupplierProfile,
+} from '../../plugins/types'
 import { EXPORTS_DIR, assertSafeFileName, isPathInsideWorkspaceReal, writeJsonAtomic } from '../core/paths'
 
 /** 宿主事件白名单（插件 host.events.on 仅可订阅这些通道；装配层在此发事件）。
@@ -28,6 +35,9 @@ export const HOST_EVENT_WHITELIST = [
   'customerCreated',
   'customerUpdated',
   'fileArchived',
+  // v2.5.4（弹一 C-3，云桥 M3）：供应商创建/更新/重命名事件（payload：{ name, oldName? }，照客户域）
+  'supplierCreated',
+  'supplierUpdated',
   // v2.5.1（登录增强 D24 落地）：登录/登出即时广播——闭源插件使用锁（未登录零装配）据此
   // 即时恢复/停止服务，不必等 5min 探针（探针保留为兜底）
   'accountChanged',
@@ -51,7 +61,7 @@ export function mapCoreError(err: unknown): PluginBusinessError {
     const withCode = err as Error & { code?: string }
     if (typeof withCode.code === 'string' && withCode.code.length > 0) return withCode as PluginBusinessError
     const msg = err.message
-    if (msg.includes('客户不存在') || msg.includes('文件不存在') || (msg.includes('产品集「') && msg.includes('不存在'))) {
+    if (msg.includes('客户不存在') || msg.includes('供应商不存在') || msg.includes('文件不存在') || (msg.includes('产品集「') && msg.includes('不存在'))) {
       return fileError('NOT_FOUND', msg)
     }
     if (msg.includes('未打开工作区')) return fileError('NO_WORKSPACE', msg)
@@ -149,8 +159,8 @@ export interface PluginHostDeps {
   /** customers 能力域适配器（v2.5.1 A1，PLAN-v2.6-v2.7 §3.1）：装配层注入 ClientsService 委托。
    *  业务错误抛带 code 的 Error（NOT_FOUND/STALE/FIELD_DENIED 等），薄壳原样透传 */
   customers: {
-    list(since?: string): Promise<unknown[]>
-    get(name: string): Promise<unknown | null>
+    list(since?: string): Promise<CustomerProfile[]>
+    get(name: string): Promise<CustomerProfile | null>
     writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
     syncProfile(req: {
       name: string
@@ -165,6 +175,26 @@ export interface PluginHostDeps {
   }
   /** manifest.permissions.customers === true 时才接通；否则 host.customer.* 全部抛 PERMISSION_DENIED（读方法亦抛） */
   customersAccess: boolean
+  /** suppliers 能力域适配器（v2.5.4 弹一 C-1，云桥 M3）：装配层注入 SuppliersService 委托（照 customers）。 */
+  suppliers: {
+    list(since?: string): Promise<SupplierProfile[]>
+    get(name: string): Promise<SupplierProfile | null>
+    writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
+    syncProfile(req: {
+      name: string
+      fields?: Record<string, unknown>
+      erp_ext?: Record<string, unknown>
+      updated_at: string
+    }): Promise<{ applied: boolean }>
+  }
+  /** manifest.permissions.suppliers === true 时才接通；否则 host.supplier.* 全部抛 PERMISSION_DENIED（读方法亦抛） */
+  suppliersAccess: boolean
+  /** quote 只读域适配器（v2.5.4 弹一 C-4，云桥 M3）：装配层注入 QuotesService 委托（只读投影）。
+   *  门控并入 customersAccess（C-2 拍板：报价读与客户同一位，不碎片化权限位） */
+  quotes: {
+    list(since?: string): Promise<QuoteProfile[]>
+    get(quotationNo: string): Promise<QuoteProfile | null>
+  }
   /** share 能力域适配器（v2.5.1 A2，PLAN-v2.6-v2.7 §3.2）：装配层注入 ShareViewService 委托 */
   share: {
     listProductSets(): Promise<unknown[]>
@@ -402,28 +432,83 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
     return fileError('PERMISSION_DENIED', `插件未声明 permissions.${domain} 权限`)
   }
 
-  const customer = deps.customersAccess
-    ? deps.customers
-    : {
-        list: async (): Promise<unknown[]> => {
-          throw permissionDenied('customers')
-        },
-        get: async (): Promise<unknown> => {
-          throw permissionDenied('customers')
-        },
-        writeErpExt: async (): Promise<void> => {
-          throw permissionDenied('customers')
-        },
-        syncProfile: async (): Promise<{ applied: boolean }> => {
-          throw permissionDenied('customers')
-        },
-        relation: {
+  /** 实体域共享形状（customer/supplier 共用的四个方法；relation 由 customer 单独接线） */
+  interface EntityDomainShape<P> {
+    list(since?: string): Promise<P[]>
+    get(name: string): Promise<P | null>
+    writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
+    syncProfile(req: {
+      name: string
+      fields?: Record<string, unknown>
+      erp_ext?: Record<string, unknown>
+      updated_at: string
+    }): Promise<{ applied: boolean }>
+  }
+
+  /**
+   * v2.5.4（弹一 C-5a，协议真合并）：实体域工厂——门控开启 → 透传装配层适配器；
+   * 未声明权限 → 四个方法全部抛 PERMISSION_DENIED（含读方法，显式拒绝更诚实）。
+   * 单一实现同时服务 customer/supplier，消除两份逐字段兜底（customer 域对外行为不变）。
+   */
+  function makeEntityDomain<P>(cfg: {
+    enabled: boolean
+    permission: string
+    adapter: EntityDomainShape<P>
+  }): EntityDomainShape<P> {
+    if (cfg.enabled) return cfg.adapter
+    return {
+      list: async () => {
+        throw permissionDenied(cfg.permission)
+      },
+      get: async () => {
+        throw permissionDenied(cfg.permission)
+      },
+      writeErpExt: async () => {
+        throw permissionDenied(cfg.permission)
+      },
+      syncProfile: async () => {
+        throw permissionDenied(cfg.permission)
+      },
+    }
+  }
+
+  // —— v2.5.4（弹一 C-5a，协议真合并）：customer/supplier 共享的实体域工厂 ——
+  // list/get/writeErpExt/syncProfile + 权限门控拒绝共用一份实现；customer 域对外行为不变
+  // （relation 由 customer 域单独接线）；各实体域在装配层（ipc.ts）注入各自的 core 适配器，
+  // 本处只做「门控 + 透传」合一——消除 customer/supplier 两份逐字段重复的兜底。
+  const customer = {
+    ...makeEntityDomain({
+      enabled: deps.customersAccess,
+      permission: 'customers',
+      adapter: deps.customers,
+    }),
+    relation: deps.customersAccess
+      ? deps.customers.relation
+      : {
           link: async (): Promise<void> => {
             throw permissionDenied('customers')
           },
           unlink: async (): Promise<void> => {
             throw permissionDenied('customers')
           },
+        },
+  }
+
+  const supplier = makeEntityDomain({
+    enabled: deps.suppliersAccess,
+    permission: 'suppliers',
+    adapter: deps.suppliers,
+  })
+
+  // —— v2.5.4（弹一 C-4，云桥 M3）：quote 只读域（门控并入 customersAccess——C-2 拍板同一位）——
+  const quote = deps.customersAccess
+    ? deps.quotes
+    : {
+        list: async (): Promise<QuoteProfile[]> => {
+          throw permissionDenied('customers')
+        },
+        get: async (): Promise<QuoteProfile | null> => {
+          throw permissionDenied('customers')
         },
       }
 
@@ -486,6 +571,8 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
     account,
     files,
     customer,
+    supplier,
+    quote,
     share,
     entitlement,
   }

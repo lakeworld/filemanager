@@ -6,6 +6,7 @@ import { tagList, loadTagDefs } from "~/stores/tags";
 import { currentWorkspace, productSets, loadProductSets } from "~/stores/workspace";
 import { suppliers, loadSuppliers } from "~/stores/suppliers";
 import { showToast } from "~/stores/notifyBanner";
+import { currentEditPrefill, clearEditPrefill } from "~/stores/createPrefill";
 import TagChip from "~/components/TagChip";
 import TagInput from "~/components/TagInput";
 import EmptyState from "~/components/EmptyState";
@@ -71,6 +72,17 @@ export default function SupplierDetail() {
       loadProductSets();
       loadTagDefs();
     }
+  });
+  // v2.5.4（弹一 C-6）：编辑预填消费（单条制）——key=供应商名 → 建议改动合并到记录后打开编辑弹窗。
+  // 记录异步加载（suppliers store）：未就绪不消费不清（等待 next 信号变化重跑）；始终找不到 = 忽略（不崩）。
+  createEffect(() => {
+    currentEditPrefill("supplier");
+    const edit = currentEditPrefill("supplier");
+    if (!edit) return;
+    const found = detailSupplier();
+    if (!found) return;
+    openEditInfo({ ...found, ...(edit.payload as Partial<SupplierInfo>) });
+    clearEditPrefill("supplier");
   });
 
   // —— 档案编辑 ——

@@ -107,6 +107,8 @@ export interface AppIpcHooks {
   onImportComplete?: (payload: { success: boolean; count: number; cancelled: boolean }) => void
   /** v2.5.1（A1，D9）：客户变更 → 宿主事件 customerCreated/customerUpdated 投递回调（装配层注入；只投成功路径） */
   onCustomerEvent?: (event: 'customerCreated' | 'customerUpdated', payload: { name: string; oldName?: string }) => void
+  /** v2.5.4（弹一 C-3，云桥 M3）：供应商变更 → 宿主事件 supplierCreated/supplierUpdated 投递回调（只投成功路径） */
+  onSupplierEvent?: (event: 'supplierCreated' | 'supplierUpdated', payload: { name: string; oldName?: string }) => void
   /** v2.5.1（A1，D20）：文件归档 → 宿主事件 fileArchived 投递回调（装配层注入；只投成功路径，批量逐条） */
   onFileArchived?: (payload: { region: 'invoice' | 'inbound' | 'exchange' | 'quote'; path: string; name: string }) => void
   /** v2.5.1（登录增强 D24 落地）：登录/登出成功 → accountChanged 投递回调（装配层注入；只投成功路径） */
@@ -200,10 +202,27 @@ export function registerIpc(
 
   // —— v2.4.9 S2：供应商（供应商/ 目录 + suppliers.json 档案，镜像客户；get 省略——list 已含全量，与客户同形态）——
   ipcMain.handle('qihebox:suppliers:list', () => handle(() => box.suppliers.list()))
-  ipcMain.handle('qihebox:suppliers:create', (_e, req) => handle(() => box.suppliers.create(req)))
-  ipcMain.handle('qihebox:suppliers:update', (_e, req) => handle(() => box.suppliers.update(req)))
+  // v2.5.4（弹一 C-3，云桥 M3）：成功路径投递 supplierCreated/supplierUpdated（失败/取消不投）
+  ipcMain.handle('qihebox:suppliers:create', (_e, req) =>
+    handle(async () => {
+      const created = await box.suppliers.create(req)
+      hooks.onSupplierEvent?.('supplierCreated', { name: created.name })
+      return created
+    }),
+  )
+  ipcMain.handle('qihebox:suppliers:update', (_e, req) =>
+    handle(async () => {
+      const updated = await box.suppliers.update(req)
+      hooks.onSupplierEvent?.('supplierUpdated', { name: updated.name })
+      return updated
+    }),
+  )
   ipcMain.handle('qihebox:suppliers:rename', (_e, oldName: string, newName: string) =>
-    handle(() => box.renameSupplier(oldName, newName)),
+    handle(async () => {
+      const r = await box.renameSupplier(oldName, newName)
+      hooks.onSupplierEvent?.('supplierUpdated', { name: newName, oldName })
+      return r
+    }),
   )
   ipcMain.handle('qihebox:suppliers:delete', (_e, name: string) => handle(() => box.deleteSupplier(name)))
   // v2.4.9 打磨 M8：供应商关联产品集（镜像客户 linkRelation/unlinkRelation 通道）
@@ -448,6 +467,10 @@ export function registerIpc(
   )
   ipcMain.handle('qihebox:files:workspaceUrl', (_e, filePath: string) =>
     handle(() => box.files.resolveWorkspaceFile(filePath).then(() => workspaceFileUrl(filePath))),
+  )
+  // v2.5.4（发票识别 Task 4）：任一路径文件 mtime（识别流开票日期缺失时按文件修改时间兜底）
+  ipcMain.handle('qihebox:files:statPath', (_e, filePath: string) =>
+    handle(() => box.files.statPath(String(filePath ?? ''))),
   )
   ipcMain.handle('qihebox:files:openWithDefaultApp', (_e, filePath: string) =>
     handle(async () => {

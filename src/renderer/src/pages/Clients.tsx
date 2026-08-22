@@ -6,6 +6,8 @@ import EditInfoModal from "./clients/EditInfoModal";
 import { tagList, loadTagDefs } from "~/stores/tags";
 import { currentWorkspace, workspaceConfig, productSets, loadProductSets } from "~/stores/workspace";
 import { customers, loadCustomers } from "~/stores/clients";
+import { prefillVersion, currentPrefill, advancePrefill, clearPrefill, currentEditPrefill, clearEditPrefill } from "~/stores/createPrefill";
+import type { CustomerPrefill } from "~/stores/createPrefillNormalize";
 import { showToast } from "~/stores/notifyBanner";
 import TagChip from "~/components/TagChip";
 import TagInput from "~/components/TagInput";
@@ -54,6 +56,8 @@ export default function Clients() {
   const navigate = useNavigate();
   const params = useParams();
   const [showCreateModal, setShowCreateModal] = createSignal(false);
+  // v2.5.4 预填（PLAN-v2.5.4 §3.4）：预填载荷（null = 手动新建空表）
+  const [createInitial, setCreateInitial] = createSignal<CustomerPrefill | null>(null);
   // v2.5.1（T4）：列表加载守卫——初始 Skeleton 不闪空态（T0 坐实违规 Clients:337）
   const [loadingCustomers, setLoadingCustomers] = createSignal(true);
   const reloadCustomers = async () => {
@@ -73,6 +77,29 @@ export default function Clients() {
   const [newAddress, setNewAddress] = createSignal("");
   const [newTags, setNewTags] = createSignal<string[]>([]);
   const [newNotes, setNewNotes] = createSignal("");
+
+  // v2.5.4 预填消费（PLAN-v2.5.4 §3.3）：版本变化 → 有预填则开弹窗填表；只开不关（关闭走显式路径）
+  createEffect(() => {
+    prefillVersion("customer");
+    const cur = currentPrefill("customer") as CustomerPrefill | null;
+    if (cur) {
+      setCreateInitial(cur);
+      setShowCreateModal(true);
+    }
+  });
+  // v2.5.4（弹一 C-6）：编辑预填消费（单条制）——key=客户名 → 列表找记录 → 建议改动合并到记录注入编辑弹窗。
+  // 等列表加载就绪再消费（loading 门控防竞态丢建议）；已加载仍未找到 = key 不存在 → 清空忽略。
+  createEffect(() => {
+    currentEditPrefill("customer");
+    const edit = currentEditPrefill("customer");
+    if (!edit) return;
+    if (loadingCustomers()) return;
+    const found = customers().find((c) => c.name === edit.key);
+    if (found) {
+      setEditingInfoCustomer({ ...found, ...(edit.payload as Partial<CustomerInfo>) });
+    }
+    clearEditPrefill("customer");
+  });
 
   const [editingName, setEditingName] = createSignal(false);
   const [editingNameValue, setEditingNameValue] = createSignal("");
@@ -402,7 +429,7 @@ export default function Clients() {
           <h1 class="text-2xl font-bold text-surface-900">客户</h1>
           <p class="text-surface-500 mt-1">管理客户档案与合作文件</p>
         </div>
-        <button class="btn-primary" onClick={() => setShowCreateModal(true)}>
+        <button class="btn-primary" onClick={() => { clearPrefill("customer"); setCreateInitial(null); setShowCreateModal(true); }}>
           <span>➕</span> 新建客户
         </button>
       </div>
@@ -416,7 +443,7 @@ export default function Clients() {
       }>
         <Show when={customers().length > 0} fallback={
           <EmptyState icon="🤝" title="暂无客户" desc="创建您第一个客户来开始管理">
-            <button class="btn-primary" onClick={() => setShowCreateModal(true)}>新建客户</button>
+            <button class="btn-primary" onClick={() => { clearPrefill("customer"); setCreateInitial(null); setShowCreateModal(true); }}>新建客户</button>
           </EmptyState>
         }>
         <Show when={!params.name}>
@@ -668,7 +695,20 @@ export default function Clients() {
       </Show>
 
       {/* 新建客户弹窗 */}
-      <CreateClientModal open={showCreateModal()} onClose={() => setShowCreateModal(false)} onCreated={() => void reloadCustomers()} />
+      <CreateClientModal
+        open={showCreateModal()}
+        onClose={() => setShowCreateModal(false)}
+        onCreated={() => {
+          void reloadCustomers();
+          advancePrefill("customer");
+        }}
+        initial={createInitial()}
+        onCancel={() => {
+          clearPrefill("customer");
+          setCreateInitial(null);
+          setShowCreateModal(false);
+        }}
+      />
       <EditInfoModal customer={editingInfoCustomer()} onClose={() => setEditingInfoCustomer(null)} onSaved={loadCustomers} />
       {/* Context Menu（统一组件，v2.3.x） */}
       <Show when={contextMenu.payload()}>

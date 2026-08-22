@@ -146,6 +146,14 @@ function makeCreateHost(bus: HostEventBus, overrides: Partial<Parameters<typeof 
         relation: { link: async () => {}, unlink: async () => {} },
       },
       customersAccess: false,
+      suppliers: {
+        list: async () => [],
+        get: async () => null,
+        writeErpExt: async () => {},
+        syncProfile: async () => ({ applied: true }),
+      },
+      suppliersAccess: false,
+      quotes: { list: async () => [], get: async () => null },
       share: {
         listProductSets: async () => [],
         listCustomers: async () => [],
@@ -940,6 +948,14 @@ describe('createPluginHost：storage 限界与 events 约束', () => {
         relation: { link: async () => {}, unlink: async () => {} },
       },
       customersAccess: false,
+      suppliers: {
+        list: async () => [],
+        get: async () => null,
+        writeErpExt: async () => {},
+        syncProfile: async () => ({ applied: true }),
+      },
+      suppliersAccess: false,
+      quotes: { list: async () => [], get: async () => null },
       share: {
         listProductSets: async () => [],
         listCustomers: async () => [],
@@ -1143,6 +1159,14 @@ describe('createPluginHost：host.files 能力域（v2.5 增量，PLAN §3.3）'
         relation: { link: async () => {}, unlink: async () => {} },
       },
       customersAccess: false,
+      suppliers: {
+        list: async () => [],
+        get: async () => null,
+        writeErpExt: async () => {},
+        syncProfile: async () => ({ applied: true }),
+      },
+      suppliersAccess: false,
+      quotes: { list: async () => [], get: async () => null },
       share: {
         listProductSets: async () => [],
         listCustomers: async () => [],
@@ -1254,6 +1278,14 @@ describe('createPluginHost：host.account 权限门控与 entitlement 占位（v
         relation: { link: async () => {}, unlink: async () => {} },
       },
       customersAccess: false,
+      suppliers: {
+        list: async () => [],
+        get: async () => null,
+        writeErpExt: async () => {},
+        syncProfile: async () => ({ applied: true }),
+      },
+      suppliersAccess: false,
+      quotes: { list: async () => [], get: async () => null },
       share: {
         listProductSets: async () => [],
         listCustomers: async () => [],

@@ -149,6 +149,14 @@ async function makeContractHost(
         relation: { link: async () => {}, unlink: async () => {} },
       },
       customersAccess: false,
+      suppliers: {
+        list: async () => [],
+        get: async () => null,
+        writeErpExt: async () => {},
+        syncProfile: async () => ({ applied: true }),
+      },
+      suppliersAccess: false,
+      quotes: { list: async () => [], get: async () => null },
       share: {
         listProductSets: async () => [],
         listCustomers: async () => [],
@@ -240,6 +248,14 @@ async function makeLoaderFixture(mainJs: string): Promise<{
           relation: { link: async () => {}, unlink: async () => {} },
         },
         customersAccess: false,
+        suppliers: {
+          list: async () => [],
+          get: async () => null,
+          writeErpExt: async () => {},
+          syncProfile: async () => ({ applied: true }),
+        },
+        suppliersAccess: false,
+        quotes: { list: async () => [], get: async () => null },
         share: {
           listProductSets: async () => [],
           listCustomers: async () => [],
@@ -455,8 +471,10 @@ const CONTRACT: Record<string, ContractEntry> = {
     stage: 'v1',
     check: async () => {
       // 契约锚点 = 实现存在性（方法签名面由 API surface 基线守护）+ 权限门控源包含
+      // v2.5.4（弹一 C-5a）：customer 经 makeEntityDomain 工厂合一（adapter 注入装配层适配器）
       const hostSrc = readSource('src/main/plugins/host.ts')
-      expect(hostSrc).toContain('customer = deps.customersAccess')
+      expect(hostSrc).toContain('makeEntityDomain')
+      expect(hostSrc).toContain('adapter: deps.customers')
       expect(hostSrc).toContain('PERMISSION_DENIED')
       const typesSrc = readSource('src/plugins/types.ts')
       expect(typesSrc).toContain('customer: {')
@@ -494,6 +512,74 @@ const CONTRACT: Record<string, ContractEntry> = {
       try {
         const h = ctx.deps.host as unknown as { share: { listProductSets(): Promise<unknown> } }
         expect(await codeOf(h.share.listProductSets())).toBe('PERMISSION_DENIED')
+      } finally {
+        ctx.dispose()
+      }
+    },
+  },
+  'contract:v1:host.supplier': {
+    stage: 'v1',
+    check: async () => {
+      // v2.5.4（弹一 C-1/C-2，云桥 M3）：supplier 能力域实现存在性 + 权限门控
+      // v2.5.4（弹一 C-5a）：supplier 与 customer 同经 makeEntityDomain 工厂合一
+      const hostSrc = readSource('src/main/plugins/host.ts')
+      expect(hostSrc).toContain('makeEntityDomain')
+      expect(hostSrc).toContain('adapter: deps.suppliers')
+      // C-5a：门控键经工厂参数注入（permissionDenied(cfg.permission) 动态）；运行态断言在上方 host 门控用例
+      expect(hostSrc).toContain("permission: 'suppliers'")
+      const typesSrc = readSource('src/plugins/types.ts')
+      expect(typesSrc).toContain('supplier: {')
+      expect(typesSrc).toContain('list(since?: string): Promise<SupplierProfile[]>')
+      expect(typesSrc).toContain('syncProfile(req: {')
+      expect(typesSrc).toContain('suppliers?: boolean')
+      // 门控行为：suppliersAccess=false → 全部方法抛 PERMISSION_DENIED（含读方法）
+      const ctx = await makeContractHost()
+      try {
+        const h = ctx.deps.host as unknown as {
+          supplier: {
+            list(): Promise<unknown>
+            get(n: string): Promise<unknown>
+            writeErpExt(n: string, e: Record<string, unknown>): Promise<void>
+            syncProfile(r: { name: string; updated_at: string }): Promise<{ applied: boolean }>
+          }
+        }
+        expect(await codeOf(h.supplier.list())).toBe('PERMISSION_DENIED')
+        expect(await codeOf(h.supplier.get('x'))).toBe('PERMISSION_DENIED')
+        expect(await codeOf(h.supplier.writeErpExt('x', {}))).toBe('PERMISSION_DENIED')
+        expect(await codeOf(h.supplier.syncProfile({ name: 'x', updated_at: 't' }))).toBe('PERMISSION_DENIED')
+      } finally {
+        ctx.dispose()
+      }
+    },
+  },
+  'contract:v1:event.supplier': {
+    stage: 'v1',
+    check: () => {
+      // v2.5.4（弹一 C-3，云桥 M3）：事件白名单 +2
+      const hostSrc = readSource('src/main/plugins/host.ts')
+      expect(hostSrc).toContain("'supplierCreated'")
+      expect(hostSrc).toContain("'supplierUpdated'")
+    },
+  },
+  'contract:v1:host.quote': {
+    stage: 'v1',
+    check: async () => {
+      // v2.5.4（弹一 C-4，云桥 M3）：quote 只读域实现存在性 + 门控并入 customers
+      const hostSrc = readSource('src/main/plugins/host.ts')
+      expect(hostSrc).toContain('quote = deps.customersAccess')
+      const typesSrc = readSource('src/plugins/types.ts')
+      expect(typesSrc).toContain('quote: {')
+      expect(typesSrc).toContain('list(since?: string): Promise<QuoteProfile[]>')
+      // 无写方法（类型面断言）
+      expect(typesSrc).toContain('**无任何写方法**')
+      // 门控行为：customersAccess=false → quote 全部方法抛 PERMISSION_DENIED
+      const ctx = await makeContractHost()
+      try {
+        const h = ctx.deps.host as unknown as {
+          quote: { list(): Promise<unknown>; get(n: string): Promise<unknown> }
+        }
+        expect(await codeOf(h.quote.list())).toBe('PERMISSION_DENIED')
+        expect(await codeOf(h.quote.get('BJ-1'))).toBe('PERMISSION_DENIED')
       } finally {
         ctx.dispose()
       }
@@ -585,6 +671,16 @@ const CONTRACT: Record<string, ContractEntry> = {
     check: () => {
       const types = new Set(extractApiSurface().types)
       expect([...types].some((l) => l.startsWith('PluginRegistration.dispose') && l.includes('() => void'))).toBe(true)
+    },
+  },
+  // v2.5.4：插件 IPC 返回 ApiResult 形状 → 宿主透传（防双层信封）。src/main/plugins/ipc.ts 行为锚：
+  // 读取源码断言「按 success 布尔透传」分支存在（行为由 e2e/真链实证，此处防契约代码漂移）。
+  'contract:v1:registration.api-result-passthrough': {
+    stage: 'v1',
+    check: () => {
+      const src = fs.readFileSync(path.join(repoRoot, 'src/main/plugins/ipc.ts'), 'utf-8')
+      expect(src).toContain("'success' in r")
+      expect(src).toMatch(/typeof \(r as \{ success: unknown \}\)\.success === 'boolean'/)
     },
   },
 

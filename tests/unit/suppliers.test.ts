@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildTestBox } from './helpers'
 import { WorkspaceService } from '../../src/main/core/workspace'
-import { SuppliersService } from '../../src/main/core/suppliers'
+import { SuppliersService, resolveSupplierSyncProfile } from '../../src/main/core/suppliers'
 import { MemoryLogger } from '../../src/main/core/logger'
 import { interpretMetadataKeyRegion } from '../../src/main/core/metadata'
 import { BoxService } from '../../src/main/core'
@@ -436,5 +436,179 @@ describe('供应商服务（v2.5.3 T2：锁内读改写事务 / 并发）', () =
     for (let i = 0; i < names.length; i++) {
       expect((store[names[i]] as { phone: string }).phone).toBe(`1390000000${i}`)
     }
+  })
+})
+
+// —— v2.5.4（弹一 C-1，云桥 M3）：supplier 能力域（listSince / get / writeErpExt / syncProfile + 裁决纯函数）——
+describe('supplier 能力域（v2.5.4 C-1/M3）', () => {
+  async function makeSupplier(ws: string, name = '域供应商'): Promise<string> {
+    await fsp.mkdir(path.join(ws, '供应商', name), { recursive: true })
+    return name
+  }
+
+  describe('resolveSupplierSyncProfile 纯函数', () => {
+    it('req.updated_at ≤ local → STALE（applied:false，无 denied）', () => {
+      const local = { contact: '旧', updated_at: '2026-08-20T10:00:00.000Z' }
+      const r = resolveSupplierSyncProfile(local, { updated_at: '2026-08-20T09:00:00.000Z' })
+      expect(r).toEqual({ applied: false })
+    })
+
+    it('较新 → 仅合白名单差异字段 + erp_ext', () => {
+      const local = { contact: '旧', phone: '13800138000', updated_at: '2026-08-20T10:00:00.000Z' }
+      const r = resolveSupplierSyncProfile(local, {
+        fields: { contact: '新', address: '广州' },
+        erp_ext: { code: 'GYS-1' },
+        updated_at: '2026-08-20T11:00:00.000Z',
+      })
+      expect(r.applied).toBe(true)
+      expect(r.next?.contact).toBe('新')
+      expect(r.next?.address).toBe('广州')
+      expect(r.next?.phone).toBe('13800138000') // 未传字段保留
+      expect(r.next?.erp_ext).toEqual({ code: 'GYS-1' })
+      expect(r.next?.updated_at).toBe('2026-08-20T11:00:00.000Z')
+    })
+
+    it('白名单外字段 → denied', () => {
+      const local = { updated_at: '2026-08-20T10:00:00.000Z' }
+      const r = resolveSupplierSyncProfile(local, {
+        fields: { tags: ['x'] },
+        updated_at: '2026-08-20T11:00:00.000Z',
+      })
+      expect(r).toEqual({ applied: false, denied: true })
+    })
+
+    it('空白 phone → denied', () => {
+      const local = { updated_at: '2026-08-20T10:00:00.000Z' }
+      const r = resolveSupplierSyncProfile(local, {
+        fields: { phone: '  ' },
+        updated_at: '2026-08-20T11:00:00.000Z',
+      })
+      expect(r).toEqual({ applied: false, denied: true })
+    })
+
+    it('无任何变更 → applied:false 不刷 updated_at', () => {
+      const local = { contact: '同值', updated_at: '2026-08-20T10:00:00.000Z' }
+      const r = resolveSupplierSyncProfile(local, {
+        fields: { contact: '同值' },
+        updated_at: '2026-08-20T11:00:00.000Z',
+      })
+      expect(r).toEqual({ applied: false })
+    })
+  })
+
+  describe('listSince / get', () => {
+    it('listSince 无 since → 全量；有 since → 严大于 updated_at', async () => {
+      const home = await tmp()
+      const ws = await tmp()
+      const box = buildTestBox(home)
+      await box.workspace.create(ws)
+      await box.suppliers.create({ name: '早供应商', phone: '13900000101' })
+      await box.suppliers.create({ name: '晚供应商', phone: '13900000102' })
+      const all = await box.suppliers.list()
+      // 强制两个不同的 updated_at 时间戳
+      const store = await readSuppliersStore(ws)
+      const early: Record<string, string> = { updated_at: '2026-08-20T09:00:00.000Z' }
+      const late: Record<string, string> = { updated_at: '2026-08-20T10:00:00.000Z' }
+      Object.assign(store['早供应商'] as Record<string, unknown>, early)
+      Object.assign(store['晚供应商'] as Record<string, unknown>, late)
+      await fsp.writeFile(
+        path.join(ws, '.qihefilemanager', 'suppliers.json'),
+        JSON.stringify(store, null, 2),
+      )
+
+      const since = await box.suppliers.listSince('2026-08-20T09:30:00.000Z')
+      expect(since.length).toBe(1)
+      expect(since[0].name).toBe('晚供应商')
+      const full = await box.suppliers.listSince()
+      expect(full.length).toBe(2)
+      const invalid = await box.suppliers.listSince('not-a-date')
+      expect(invalid.length).toBe(2) // 非法 since → 全量
+    })
+
+    it('get：存在返回档案（file_count 递归计数）；目录缺失 → null；空名 → null', async () => {
+      const home = await tmp()
+      const ws = await tmp()
+      const box = buildTestBox(home)
+      await box.workspace.create(ws)
+      await box.suppliers.create({ name: '甲供应商', contact: '王五' })
+      await addSupplierFile(ws, '甲供应商', '合同', 'a.pdf')
+
+      const got = await box.suppliers.get('甲供应商')
+      expect(got?.name).toBe('甲供应商')
+      expect(got?.contact).toBe('王五')
+      expect(got?.file_count).toBe(1)
+      expect(await box.suppliers.get('不存在供应商')).toBeNull()
+      expect(await box.suppliers.get('  ')).toBeNull()
+    })
+  })
+
+  describe('writeErpExt / syncProfile', () => {
+    it('writeErpExt：仅写 erp_ext，保留其余字段；目录缺失抛错', async () => {
+      const home = await tmp()
+      const ws = await tmp()
+      const box = buildTestBox(home)
+      await box.workspace.create(ws)
+      await box.suppliers.create({ name: '乙供应商', contact: '李四' })
+
+      await box.suppliers.writeErpExt('乙供应商', { code: 'GYS-20260820-0001', status: 'active' })
+      const store = await readSuppliersStore(ws)
+      const entry = store['乙供应商'] as { contact: string; erp_ext: Record<string, unknown> }
+      expect(entry.contact).toBe('李四')
+      expect(entry.erp_ext).toEqual({ code: 'GYS-20260820-0001', status: 'active' })
+
+      await expect(box.suppliers.writeErpExt('不存在供应商', {})).rejects.toThrow('供应商不存在')
+    })
+
+    it('writeErpExt：目录有而 JSON 无条目 → 补最小条目后写（D8 目录基准）', async () => {
+      const home = await tmp()
+      const ws = await tmp()
+      const box = buildTestBox(home)
+      await box.workspace.create(ws)
+      await makeSupplier(ws, '无档案供应商')
+
+      await box.suppliers.writeErpExt('无档案供应商', { code: 'GYS-X' })
+      const store = await readSuppliersStore(ws)
+      const entry = store['无档案供应商'] as { erp_ext: Record<string, unknown> }
+      expect(entry.erp_ext).toEqual({ code: 'GYS-X' })
+    })
+
+    it('syncProfile：较新 → 写白名单差异 + erp_ext；STALE → applied:false；白名单外 → 抛错', async () => {
+      const home = await tmp()
+      const ws = await tmp()
+      const box = buildTestBox(home)
+      await box.workspace.create(ws)
+      await box.suppliers.create({ name: '丙供应商', contact: '旧联系人', phone: '13800138000' })
+
+      // STALE：回传旧 updated_at → applied:false 无错误
+      const stale = await box.suppliers.syncProfile({
+        name: '丙供应商',
+        fields: { contact: '强行改' },
+        updated_at: '2020-01-01T00:00:00.000Z',
+      })
+      expect(stale).toEqual({ applied: false })
+
+      // 较新 → applied:true，字段落库
+      const applied = await box.suppliers.syncProfile({
+        name: '丙供应商',
+        fields: { contact: '新联系人', address: '深圳' },
+        erp_ext: { code: 'GYS-C' },
+        updated_at: '2099-01-01T00:00:00.000Z',
+      })
+      expect(applied).toEqual({ applied: true })
+      const got = await box.suppliers.get('丙供应商')
+      expect(got?.contact).toBe('新联系人')
+      expect(got?.address).toBe('深圳')
+      expect(got?.phone).toBe('13800138000') // 未传保留
+      expect(got?.erp_ext).toEqual({ code: 'GYS-C' })
+
+      // 白名单外字段（tags）→ FIELD_DENIED（抛错）
+      await expect(
+        box.suppliers.syncProfile({
+          name: '丙供应商',
+          fields: { tags: ['x'] as unknown as string },
+          updated_at: '2199-01-01T00:00:00.000Z',
+        }),
+      ).rejects.toThrow('白名单')
+    })
   })
 })

@@ -99,6 +99,25 @@ describe('ShareViewService（v2.5.1 A2）', () => {
     expect('erp_ext' in customers[0]).toBe(false)
   })
 
+  it('v2.5.4 C-5b 转调等价：share.listCustomers 与 customer 实体域同源（同名集；共享字段一致；仅命名空间剥离）', async () => {
+    const { box } = await makeBox()
+    await box.clients.create({ name: '甲', phone: '139', notes: '重要' })
+    await box.clients.create({ name: '乙', phone: '138', notes: '' })
+    await box.clients.writeErpExt('甲', { code: 'C-A' })
+    const svc = new ShareViewService(box)
+
+    const shareCusts = (await svc.listCustomers()) as { name: string; phone: string; notes: string; erp_ext?: unknown }[]
+    const entityCusts = await box.clients.list()
+
+    const shareNames = shareCusts.map((c) => c.name).sort()
+    const entityNames = entityCusts.map((c) => c.name).sort()
+    expect(shareNames).toEqual(entityNames) // 同源：同一客户集合
+    expect(shareCusts.find((c) => c.name === '甲')?.phone).toBe('139') // 共享业务字段一致
+    expect(shareCusts.find((c) => c.name === '甲')?.notes).toBe('重要')
+    expect('erp_ext' in (shareCusts.find((c) => c.name === '甲') ?? {})).toBe(false) // share 视图剥离命名空间
+    expect(entityCusts.find((c) => c.name === '甲')?.erp_ext).toEqual({ code: 'C-A' }) // 实体域保留
+  })
+
   it('listTree：一层目录（名称/类型/大小/mtime），隐藏目录排除', async () => {
     const { ws, box } = await makeBox()
     await box.workspace.productSetCreate({ name: 'PS1' })

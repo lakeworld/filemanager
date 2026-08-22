@@ -231,6 +231,18 @@ export class QuotesService {
     return rec ? { ...rec, lines: (rec.lines ?? []).map((l) => ({ ...l })) } : undefined
   }
 
+  /** 增量台账（v2.5.4 弹一 C-4，云桥 M3 quote 只读域）：since = updated_at 严大于 ms 过滤；无 since → 全量 */
+  async listSince(since?: string): Promise<QuoteRecord[]> {
+    const all = await this.list()
+    if (!since) return all
+    const sinceMs = Date.parse(since)
+    if (!Number.isFinite(sinceMs)) return all
+    return all.filter((r) => {
+      const ms = Date.parse(r.updated_at ?? '')
+      return Number.isFinite(ms) && ms > sinceMs
+    })
+  }
+
   /** 新建报价：明细/日期校验 + 金额写入时计算 + 单号（自动生成或手输查重）+ 可选归档文件校验；初始状态 草稿 */
   async create(req: QuoteCreateRequest): Promise<QuoteRecord> {
     const ws = this.requireWS()

@@ -610,6 +610,8 @@ app.whenReady().then(() => {
         onImportComplete: (payload) => pluginHost?.emitHostEvent('importComplete', payload),
         // v2.5.1（A1，D9）：客户变更 → 宿主事件投递桥（成功路径）
         onCustomerEvent: (event, payload) => pluginHost?.emitHostEvent(event, payload),
+        // v2.5.4（弹一 C-3，云桥 M3）：供应商变更 → 宿主事件投递桥（成功路径）
+        onSupplierEvent: (event, payload) => pluginHost?.emitHostEvent(event, payload),
         // v2.5.1（A1，D20）：文件归档 → 宿主事件 fileArchived 投递桥（成功路径）
         onFileArchived: (payload) => pluginHost?.emitHostEvent('fileArchived', payload),
         // v2.5.1（登录增强 D24 落地）：登录/登出成功 → accountChanged 广播（闭源插件使用锁即时响应）

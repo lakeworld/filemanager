@@ -55,6 +55,10 @@ import InboundTable from "./invoices/InboundTable";
 import InvoiceToolbar from "./invoices/InvoiceToolbar";
 import DeleteRecordModal from "./invoices/DeleteRecordModal";
 import { loadTagDefs, tagList } from "~/stores/tags";
+import { prefillVersion, currentPrefill, advancePrefill, clearPrefill, currentEditPrefill, clearEditPrefill } from "~/stores/createPrefill";
+import { normalizePrefill } from "~/stores/createPrefillNormalize";
+import type { InvoicePrefill, InboundPrefill } from "~/stores/createPrefillNormalize";
+import { callPlugin, pluginGlobalCommands } from "~/plugins/registry";
 import { showToast } from "~/stores/notifyBanner";
 import DatePicker from "~/components/DatePicker";
 import TagInput from "~/components/TagInput";
@@ -137,6 +141,17 @@ function fileEntryOf(relPath: string): FileEntry | null {
   };
 }
 
+/** v2.5.4（Task 4）：识别流开票日期缺失时，按源文件 mtime 兜底 YYYY-MM-DD（stat 失败返回空串） */
+async function dateFromFileMtime(sourcePath: string): Promise<string> {
+  try {
+    const st = await api.files.statPath(sourcePath);
+    if (st.success && st.data && Number.isFinite(st.data.mtime)) return toDateKey(new Date(st.data.mtime));
+  } catch {
+    /* 忽略：stat 失败由调用方回退提示 */
+  }
+  return "";
+}
+
 // v2.5.3（P2-12）：加载序号模块级（照 Images imageLoadSeq 先例）——卸载清理递增后跨挂载延续计数，
 // 重新挂载不再从 0 计数：旧实例在途链持有的旧值永远不会与新实例的计数撞号，过期结果必被丢弃
 let invoiceLoadSeq = 0;
@@ -181,6 +196,76 @@ export default function Invoices() {
   // v2.4.7（评审 P2）：本次弹窗内已归档但尚未保存的文件（工作区相对路径）——archiveFile 立即落盘，
   // 取消/查重拒绝会留下孤儿文件，关闭弹窗时提示可删除（最小实现：文案说明，不提供删除按钮）
   const [stagedArchive, setStagedArchive] = createSignal("");
+  // v2.5.4（Task 4 修订，设计 §1.5-P1.3）：识别成功即归档——sourcePath 为原始挑选路径（展示用），
+  // archivedRel 为归档副本相对路径；确认只落账（file_path 已就位）
+  const [stagedIdentifySource, setStagedIdentifySource] = createSignal<{
+    sourcePath: string;
+    fileName: string;
+    archivedRel: string;
+  } | null>(null);
+  const [identifying, setIdentifying] = createSignal(false);
+  const [identifyWarnings, setIdentifyWarnings] = createSignal<string[]>([]);
+
+  // —— v2.5.4 预填消费（PLAN-v2.5.4 §3.4）：版本变化 → 切 tab + seed 表单 + 开新建弹窗；只开不关 ——
+  createEffect(() => {
+    prefillVersion("invoice");
+    const cur = currentPrefill("invoice") as InvoicePrefill | null;
+    if (!cur) return;
+    setStagedIdentifySource(null); // v2.5.4：新预填/新建前清识别暂存
+    setIdentifyWarnings([]);
+    setInvoiceForm({
+      number: cur.number ?? "", code: cur.code ?? "",
+      date: cur.date ?? toDateKey(new Date()),
+      amount: cur.amount != null ? String(cur.amount) : "",
+      seller: cur.seller ?? "", buyer: cur.buyer ?? "",
+      status: "待报销", customer: cur.customer ?? "", due_date: cur.due_date ?? "",
+      file_path: cur.file_path ?? "", tags: cur.tags ?? [], notes: cur.notes ?? "",
+    });
+    setTab("invoices");
+    setInvoiceEditor({ mode: "create" });
+  });
+  createEffect(() => {
+    prefillVersion("inbound");
+    const cur = currentPrefill("inbound") as InboundPrefill | null;
+    if (!cur) return;
+    setInboundForm({
+      id: cur.id ?? "", date: cur.date ?? toDateKey(new Date()),
+      supplier: cur.supplier ?? "", supplier_id: cur.supplier_id ?? "",
+      product_set: cur.product_set ?? "",
+      amount: cur.amount != null ? String(cur.amount) : "",
+      notes: cur.notes ?? "", file_path: cur.file_path ?? "",
+    });
+    setTab("inbound");
+    setInboundEditor({ mode: "create" });
+  });
+  // —— v2.5.4（弹一 C-6）：编辑预填消费（单条制）——key=发票号/入库 id → 建议改动合并到记录后开编辑弹窗 ——
+  // loading 门控防竞态；已加载仍未找到 = key 不存在 → 清空忽略。
+  createEffect(() => {
+    currentEditPrefill("invoice");
+    const edit = currentEditPrefill("invoice");
+    if (!edit) return;
+    if (loading()) return;
+    const found = invoices().find((r) => r.number === edit.key);
+    if (found) {
+      // 走 openInvoiceEdit（含表单 seed，save 读 invoiceForm）
+      openInvoiceEdit({ ...found, ...(edit.payload as Partial<InvoiceRecord>) });
+      setTab("invoices");
+    }
+    clearEditPrefill("invoice");
+  });
+  createEffect(() => {
+    currentEditPrefill("inbound");
+    const edit = currentEditPrefill("inbound");
+    if (!edit) return;
+    if (inboundLoading()) return;
+    const found = inboundRecords().find((r) => r.id === edit.key);
+    if (found) {
+      // 走 openInboundEdit（含表单 seed）
+      openInboundEdit({ ...found, ...(edit.payload as Partial<InboundRecord>) });
+      setTab("inbound");
+    }
+    clearEditPrefill("inbound");
+  });
 
   // —— 加载（seq 序号守卫，v2.4.x 范式：切工作区后丢弃过期请求返回）——
   // v2.5.3（P2-12）：序号本体模块级（invoiceLoadSeq/inboundLoadSeq），onCleanup 递增防跨挂载撞号
@@ -323,6 +408,9 @@ export default function Invoices() {
 
   // —— 台账 新建/编辑 ——
   const openInvoiceCreate = () => {
+    clearPrefill("invoice"); // v2.5.4：手动新建防御性清队列
+    setStagedIdentifySource(null);
+    setIdentifyWarnings([]);
     setInvoiceForm({
       number: "", code: "", date: toDateKey(new Date()), amount: "", seller: "", buyer: "",
       status: "待报销", customer: "", due_date: "", file_path: "", tags: [], notes: "",
@@ -330,6 +418,8 @@ export default function Invoices() {
     setInvoiceEditor({ mode: "create" });
   };
   const openInvoiceEdit = (rec: InvoiceRecord) => {
+    setStagedIdentifySource(null); // 编辑模式无识别槽
+    setIdentifyWarnings([]);
     setInvoiceForm({
       number: rec.number,
       code: rec.code ?? "",
@@ -349,6 +439,69 @@ export default function Invoices() {
 
   const setInvoiceField = <K extends keyof InvoiceFormState>(key: K, value: InvoiceFormState[K]) =>
     setInvoiceForm((prev) => ({ ...prev, [key]: value }));
+
+  /**
+   * v2.5.4（Task 4）：global 命令槽点击——callPlugin 走插件既有 IPC action（ApiResult 信封）。
+   * 成功 → 字段经 normalizeInvoice 白名单回填（有值覆盖、空/0 不动）+ 暂存 stagedIdentifySource；
+   * 失败 → toast（error.message），表单保持。
+   */
+  const identifyFromFile = async (cmd: { pluginId: string; commandId: string }) => {
+    if (identifying()) return; // 连点守卫
+    const already = stagedIdentifySource()?.archivedRel;
+    if (already) {
+      // 识别即归档后再次识别 → 明示会增加副本，防静默多归档
+      showToast("info", "本单已识别归档过，再次识别将新增一份归档副本", `已有副本：发票/${already}（旧副本保留）`);
+    }
+    setIdentifying(true);
+    try {
+      const r = await callPlugin(cmd.pluginId, cmd.commandId, {});
+      if (r.success && r.data) {
+        const d = r.data as { fields?: unknown; sourcePath?: unknown; warnings?: unknown };
+        // normalizePrefill('invoice') = normalizeInvoice 白名单（P1-11）；有值覆盖、空/0 不动
+        const norm = normalizePrefill("invoice", d.fields) as InvoicePrefill;
+        setInvoiceForm((prev) => {
+          const next = { ...prev };
+          if (norm.number) next.number = norm.number;
+          if (norm.code) next.code = norm.code;
+          if (norm.date) next.date = norm.date;
+          if (norm.amount != null && norm.amount !== 0) next.amount = String(norm.amount);
+          if (norm.seller) next.seller = norm.seller;
+          if (norm.buyer) next.buyer = norm.buyer;
+          if (norm.notes) next.notes = norm.notes;
+          return next;
+        });
+        const warnings = Array.isArray(d.warnings)
+          ? d.warnings.filter((x): x is string => typeof x === "string")
+          : [];
+        setIdentifyWarnings(warnings);
+        const src = typeof d.sourcePath === "string" ? d.sourcePath.trim() : "";
+        if (src) {
+          // —— UX 修订（用户拍板 2026-08-22 晚）：识别成功即归档，不等确认 ——
+          // 归档年份 = 识别日期 → 文件 mtime 兜底 → 今年；归档副本立即回填 file_path
+          let archDate = norm.date;
+          if (!archDate) archDate = await dateFromFileMtime(src);
+          if (!archDate) archDate = toDateKey(new Date());
+          const arch = await api.invoices.archiveFile(src, archDate);
+          if (arch.success && arch.data) {
+            const rel = arch.data;
+            setStagedIdentifySource({ sourcePath: src, fileName: baseNameOf(src), archivedRel: rel });
+            setInvoiceForm((prev) => ({ ...prev, file_path: rel }));
+          } else {
+            showToast("error", "文件归档失败", arch.error || "识别字段已保留，请手动选择文件归档");
+            setStagedIdentifySource(null);
+          }
+        } else {
+          setStagedIdentifySource(null); // 用户取消选择 → 静默
+        }
+      } else {
+        showToast("error", "识别失败", r.error || "未知错误");
+      }
+    } catch (err) {
+      showToast("error", "识别失败", err instanceof Error ? err.message : String(err));
+    } finally {
+      setIdentifying(false);
+    }
+  };
 
   /** 选本地文件 → archiveFile 归档（按开票日期年份）→ 以相对路径回填表单 */
   const pickInvoiceFile = async () => {
@@ -372,11 +525,18 @@ export default function Invoices() {
   /** 关闭新建/编辑弹窗：本次已归档未保存的文件提示可删除（取消或遮罩点击共用） */
   const closeInvoiceEditor = () => {
     const staged = stagedArchive();
+    const identified = stagedIdentifySource()?.archivedRel;
     if (staged) {
       showToast("info", "刚归档的文件未保存为发票记录", `「${staged}」已落在 发票/<年份>/ 归档目录。如不需要，请到文件管理中删除该文件。`);
+    } else if (identified) {
+      // 识别即归档流：取消/关闭同样提示（文件已在发票区，只是没有台账记录）
+      showToast("info", "识别归档的文件未登记为发票记录", `「${identified}」已落在发票区。如不需要，请到文件管理中删除该文件。`);
     }
     setStagedArchive("");
+    setStagedIdentifySource(null); // 识别源只暂存，取消/关闭即弃（源文件原地不动）
+    setIdentifyWarnings([]);
     setInvoiceEditor(null);
+    clearPrefill("invoice"); // v2.5.4：取消 = 清预填队列（P1-1；保存成功不经过本函数）
   };
 
   const saveInvoice = async () => {
@@ -386,14 +546,6 @@ export default function Invoices() {
     const number = f.number.trim();
     if (!number) {
       showToast("info", "发票号码不能为空");
-      return;
-    }
-    if (!f.file_path) {
-      showToast("info", "请先选择并归档发票文件");
-      return;
-    }
-    if (!f.date) {
-      showToast("info", "请选择开票日期");
       return;
     }
     if (f.amount.trim() === "") {
@@ -413,9 +565,38 @@ export default function Invoices() {
       showToast("info", "购买方不能为空");
       return;
     }
+
+    // 文件来源 + 日期解析（识别流已在识别成功时归档、file_path 就位；日期缺失走 mtime 兜底）
+    const staged = stagedIdentifySource();
+    const filePath = f.file_path;
+    let date = f.date;
+    if (editor?.mode === "create" && staged) {
+      if (!date) {
+        date = await dateFromFileMtime(staged.sourcePath);
+        if (!date) {
+          showToast("info", "请选择开票日期");
+          return;
+        }
+        showToast("info", "开票日期未识别，已按发票文件修改时间归档", date);
+      }
+      if (!filePath) {
+        showToast("info", "发票文件未归档成功，请手动选择归档", "");
+        return;
+      }
+    } else {
+      if (!filePath) {
+        showToast("info", "请先选择并归档发票文件");
+        return;
+      }
+      if (!date) {
+        showToast("info", "请选择开票日期");
+        return;
+      }
+    }
+
     const common = {
       code: f.code.trim(),
-      date: f.date,
+      date,
       amount,
       seller: f.seller.trim(),
       buyer: f.buyer.trim(),
@@ -435,16 +616,34 @@ export default function Invoices() {
           newNumber: number !== orig.number ? number : undefined,
           ...common,
           // 未换绑文件时缺省（undefined）→ core 保持原 file_path
-          file_path: f.file_path !== orig.file_path ? f.file_path : undefined,
+          file_path: filePath !== orig.file_path ? filePath : undefined,
         });
       } else {
-        result = await api.invoices.create({ ...common, number, file_path: f.file_path });
+        // —— 时序收口（设计 §1.4-D + 识别即归档修订）：checkNumber 预检 → create。
+        //    识别流的 file_path 已在识别成功时归档就位（此处不再二次复制）——
+        const dup = await api.invoices.checkNumber(number);
+        if (dup.success && dup.data) {
+          showToast(
+            "error",
+            "保存失败",
+            `发票号码 ${number} 已存在（状态：${dup.data.status}，日期：${dup.data.date}）；文件如已归档仍留在发票区`,
+          );
+          return;
+        }
+        if (!dup.success) {
+          showToast("error", "查重失败", dup.error || "未知错误");
+          return;
+        }
+        result = await api.invoices.create({ ...common, number, file_path: filePath });
       }
       if (result.success) {
         setStagedArchive(""); // 已保存为记录，文件不再孤儿
+        setStagedIdentifySource(null);
+        setIdentifyWarnings([]);
         setInvoiceEditor(null);
         showToast("success", editor?.mode === "edit" ? "发票已更新" : "发票已登记");
         void loadInvoices();
+        if (editor?.mode !== "edit") advancePrefill("invoice"); // v2.5.4：批量预填推进（P1-1）
       } else {
         showToast("error", "保存失败", result.error || "未知错误");
       }
@@ -455,6 +654,7 @@ export default function Invoices() {
 
   // —— 入库单 新建/编辑 ——
   const openInboundCreate = () => {
+    clearPrefill("inbound"); // v2.5.4：手动新建防御性清队列
     setInboundForm({
       id: "", date: toDateKey(new Date()), supplier: "", supplier_id: "", product_set: "",
       amount: "", notes: "", file_path: "",
@@ -504,6 +704,7 @@ export default function Invoices() {
     }
     setStagedArchive("");
     setInboundEditor(null);
+    clearPrefill("inbound"); // v2.5.4：取消 = 清预填队列（P1-1；保存成功不经过本函数）
   };
 
   const saveInbound = async () => {
@@ -544,6 +745,7 @@ export default function Invoices() {
         setInboundEditor(null);
         showToast("success", editor?.mode === "edit" ? "入库单已更新" : "入库单已登记");
         void loadInbound();
+        if (editor?.mode !== "edit") advancePrefill("inbound"); // v2.5.4：批量预填推进（P1-1）
       } else {
         showToast("error", "保存失败", result.error || "未知错误");
       }
@@ -674,6 +876,11 @@ export default function Invoices() {
         missing={missingFiles()}
         customers={customers()}
         tagOptions={tagList()}
+        identifyCommands={pluginGlobalCommands()}
+        identifying={identifying()}
+        identifyWarnings={identifyWarnings()}
+        stagedArchivedRel={stagedIdentifySource()?.archivedRel ?? ""}
+        onIdentify={(cmd) => void identifyFromFile(cmd)}
       />
       <InboundEditorModal
         editor={inboundEditor()}

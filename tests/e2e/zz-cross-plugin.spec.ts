@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
-const PLUGINS_DIST = '/home/lake/Nutstore Files/我的坚果云/启禾/qihe-plugins/dist'
+const PLUGINS_DIST = process.env.QIHE_PLUGINS_DIST ?? ''
 
 // 本地验证用（依赖外部 LAN/cloud qbox，不纳入公开 CI）：
 // 跨插件互切回归（2026-08-16 用户报「切换会卡住」）——LAN ↔ 启禾云 ↔ 本体页 往返多轮，
@@ -12,7 +12,7 @@ const PLUGINS_DIST = '/home/lake/Nutstore Files/我的坚果云/启禾/qihe-plug
 test('跨插件 tab 互切：LAN ↔ 启禾云 ↔ 设置 往返不卡住', async () => {
   // v2.5.2：注释承诺「不纳入公开 CI」未落实——qbox 产物在内部插件仓（qihe-plugins/dist），
   // 公开 CI checkout 拿不到 → 安装报「安装包不存在」。与崩溃模拟用例同款 skip 惯例。
-  test.skip(!!process.env.CI, '依赖内部插件仓 .qbox 产物，公开 CI 不可用——本地验证')
+  test.skip(!!process.env.CI || !PLUGINS_DIST, '依赖内部插件仓 .qbox 产物，公开 CI 不可用——本地验证需 QIHE_PLUGINS_DIST')
   const app: ElectronApplication = await electron.launch({
     args: ['.', '--no-sandbox'],
     cwd: ROOT,

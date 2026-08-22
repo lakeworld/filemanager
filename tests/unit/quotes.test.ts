@@ -446,3 +446,30 @@ describe('报价单服务（v2.5.3 T2：锁内单号自增 / 损坏拒写）', (
     expect(r.quotation_no).toBe('QT-20260811-001')
   })
 })
+
+// —— v2.5.4（弹一 C-4，云桥 M3）：quote 只读域 listSince（增量台账读）——
+describe('quote 只读域 listSince（v2.5.4 C-4/M3）', () => {
+  it('listSince 无 since → 全量；有 since → 严大于 updated_at；非法 since → 全量', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.quotes.create({ date: '2026-08-10', lines: [line(1, 10)] })
+    await box.quotes.create({ date: '2026-08-11', lines: [line(2, 20)] })
+
+    // 强制两个可区分的 updated_at
+    const p = path.join(ws, '.qihefilemanager', '报价.json')
+    const store = JSON.parse(await fsp.readFile(p, 'utf-8'))
+    const quotes = (store as { quotes: Record<string, { updated_at: string }> }).quotes
+    const keys = Object.keys(quotes)
+    quotes[keys[0]].updated_at = '2026-08-20T09:00:00.000Z'
+    quotes[keys[1]].updated_at = '2026-08-20T10:00:00.000Z'
+    await fsp.writeFile(p, JSON.stringify(store, null, 2))
+
+    expect((await box.quotes.listSince()).length).toBe(2)
+    const inc = await box.quotes.listSince('2026-08-20T09:30:00.000Z')
+    expect(inc.length).toBe(1)
+    const invalid = await box.quotes.listSince('nope')
+    expect(invalid.length).toBe(2)
+  })
+})

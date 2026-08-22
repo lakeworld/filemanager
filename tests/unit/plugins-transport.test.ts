@@ -62,8 +62,10 @@ const HOST_WHITELIST = [
   'files',
   'log',
   'notify',
+  'quote', // v2.5.4（弹一 C-4）：quote 只读域（云桥 M3）
   'share', // v2.5.1（A2）：share 能力域
   'storage',
+  'supplier', // v2.5.4（弹一 C-1）：suppliers 能力域（云桥 M3）
   'workspace',
 ]
 
@@ -248,6 +250,14 @@ async function makeLoader(mainJs: string): Promise<{ loader: PluginLoader }> {
           relation: { link: async () => {}, unlink: async () => {} },
         },
         customersAccess: false,
+        suppliers: {
+          list: async () => [],
+          get: async () => null,
+          writeErpExt: async () => {},
+          syncProfile: async () => ({ applied: true }),
+        },
+        suppliersAccess: false,
+        quotes: { list: async () => [], get: async () => null },
         share: {
           listProductSets: async () => [],
           listCustomers: async () => [],

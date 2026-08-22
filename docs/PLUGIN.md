@@ -22,13 +22,25 @@
 - 宿主三段：主进程宿主（发现/校验/加载/握手/IPC 路由）、preload 透传命名空间、渲染层宿主（页面路由/Sidebar/右键菜单注入）。
 - 设计三要素：**本体纯净**（插件代码与状态不进本体目录与本体能手写的存储）、**内存克制**（未启用零内存、按需加载）、**启动快速**（插件不进 `app ready → 窗口可交互` 关键路径）。
 
+**协议分层图**（v2.5.4 弹一 C-5d，七层一句话职责；自下而上——各层职责单一，不构成重复实现）：
+
+| 层 | 一句话职责 |
+|---|---|
+| 清单 | `manifest.json` 声明身份/权限/激活/页面（校验 + 侧载收紧） |
+| 主进程能力域 | `PluginHost.customer/supplier/quote/share/files/...`——本体业务的白名单结构化出口（读域 + 写桥 + 事件） |
+| 渲染层桥 | `window.qihebox.ui.*`——页面/弹窗级的纯 UI 钩子（预填开表单，不过 IPC、永不自动建档） |
+| 宿主事件 | `host.events`——业务变化（`customerCreated`/`supplierCreated`/`fileArchived`/`importComplete`...）订阅总线 |
+| 插件事件桥 | 插件 → 渲染层广播（`qihebox:event:<channel>`）与插件 IPC 前缀通道 |
+| 插件 IPC | `qihebox:plugin:<ipcPrefix>:<action>`——插件自身的服务接口（callee 白名单 + 前缀唯一） |
+| ui 预填 | §5.7 表单注册表（`openCreatePrefill`/`openEditPrefill`）——AI/插件产出载荷 → 弹窗预填 → 用户确认建档 |
+
 ### 术语
 
 | 术语 | 含义 |
 |---|---|
 | 宿主（Host） | 应用本体 |
 | 握手 | 宿主调用插件入口 `activate(host)`，插件返回能力注册表（PluginRegistration） |
-| 能力 | 插件声明的扩展点：`ipc`（服务 API）、`pages`（页面）、`commands`（右键菜单命令） |
+| 能力 | 插件声明的扩展点：`ipc`（服务 API）、`pages`（页面）、`commands`（右键菜单命令 / 表单上下文槽命令） |
 | broken | 校验失败/熔断的插件状态：宿主不加载，管理页如实展示原因 |
 | 官方索引 | 官方插件目录（JSON 索引），应用内勾选下载的来源，包哈希经索引公布比对 |
 
@@ -92,8 +104,8 @@ export interface PluginManifest {
   }>
   commands?: Array<{
     id: string                     // 插件内唯一
-    label: PluginText
-    scope: 'file' | 'global'
+    label: PluginText              // 按钮/菜单文案
+    scope: 'file' | 'global'       // 'file'=右键菜单注入；'global'=表单上下文槽（v2.5.4，当前：新建发票弹窗 create 模式首行，随 registry 启停增减）
     when?: { exts?: string[] }     // 可见性过滤，防右键菜单污染
   }>
   description?: PluginText
@@ -243,14 +255,20 @@ export interface PluginRegistration {
   /** key = action，完整通道 = qihebox:plugin:<ipcPrefix>:<action> */
   ipc?: Record<string, (args: unknown) => Promise<unknown>>
   pages?: PluginManifest['pages']
-  /** key = manifest.commands[].id */
+  /** key = manifest.commands[].id；命令点击时宿主以 `callPlugin(pluginId, commandId, …)` 发往
+      同名 IPC action（qihebox:plugin:<ipcPrefix>:<commandId>）：数据回传请在 ipc 表注册同名
+      handler（返回任意 Promise<unknown>，如预填字段集合）；本回调仍须声明（manifest 一致性校验），
+      可不承载业务逻辑。 */
   commands?: Record<string, (ctx: { filePaths: string[]; host: PluginHost }) => Promise<void> | void>
   /** 停用清理：定时器、事件订阅、长连接 */
   dispose?: () => void
 }
 ```
 
+**IPC 返回值约定（v2.5.4 起）**：handler 返回值若已是 `{ success: boolean, error?, data? }` 形状（ApiResult），宿主**透传不重复包装**（调用侧得到单层信封）；其余任意 payload 由宿主统一装 `{success:true, data:<payload>}`。需要「业务失败不熔断」的插件：请在 handler 内自行捕获预期失败并返回 `{success:false, error:{code,message}}`，**不要 throw**（throw 计入宿主熔断计数，见 §2.3.2）。
+
 <!-- contract:v1:registration.ipc -->
+<!-- contract:v1:registration.api-result-passthrough -->
 <!-- contract:v1:registration.pages -->
 <!-- contract:v1:registration.commands -->
 <!-- contract:v1:registration.dispose -->
@@ -325,9 +343,9 @@ window.qihebox.settings = {
 ```ts
 customer: {
   /** 客户档案全量/增量列表；since = updated_at 严大于过滤（ISO 串，Date.parse 归一化），缺省全量 */
-  list(since?: string): Promise<unknown[]>
+  list(since?: string): Promise<CustomerProfile[]>
   /** 单客户档案；不存在（以目录为准）→ null */
-  get(name: string): Promise<unknown | null>
+  get(name: string): Promise<CustomerProfile | null>
   /** 仅写 erp_ext 命名空间（整体替换）；目录有而 JSON 无条目 → 补最小条目后写；目录亦无 → NOT_FOUND */
   writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
   /** 双向同步：写本体对齐字段（type/contact/phone/email/address/notes）+ erp_ext；
@@ -347,6 +365,34 @@ customer: {
 }
 ```
 
+**返回类型 `CustomerProfile`**（v2.5.4 类型收口，对齐 `src/plugins/types.ts`）：
+
+```ts
+interface CustomerProfile {
+  name: string
+  file_count: number           // 客户目录递归文件数
+  alias?: string; country?: string; contact?: string; source?: string
+  type?: '企业' | '个人'        // 缺省 = 未分类
+  phone?: string; email?: string; address?: string
+  tags: string[]
+  notes: string
+  related_product_sets?: string[]
+  erp_ext?: Record<string, unknown>
+  created_at: string; updated_at: string
+}
+```
+
+**事件 payload**（v2.5.4 起文档化，对齐宿主实现 src/main/ipc.ts；经 `host.events.on` 订阅）：
+
+| 事件 | payload |
+|---|---|
+| `customerCreated` | `{ name: string }` |
+| `customerUpdated` | `{ name: string; oldName?: string }`（重命名时 `oldName` 带旧名） |
+| `fileArchived` | `{ region: 'invoice' \| 'inbound' \| 'exchange' \| 'quote'; path: string; name: string }`（归档落盘的区 / 工作区相对路径 / 文件名；只投成功路径，批量逐条） |
+
+<!-- contract:v2.5.4:customer-profile -->
+<!-- contract:v2.5.4:event.payloads -->
+
 **错误码**（v2.5.1 实装，全部带 code → 不计入熔断计数）：`PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / INVALID_NAME / FIELD_DENIED / STALE / IO_ERROR`；`syncProfile` 的 `{ applied: false }` 即 STALE（回显式乐观锁：请求方回填的 `updated_at` 须严大于档案值，「同时」亦判 STALE 不后写）。
 
 **字段归属规则**（v2.4.9 定稿，替换 v2.4.7「ERP 不可写本体字段」表述）：
@@ -355,19 +401,17 @@ customer: {
 - box 权威（ERP 只读）：alias/country/source/related_product_sets
 - `erp_ext` 仅 ERP 写（本体只读不校验、API 面不含入参）
 
-**`erp_ext` schema**（v2.7 erp-bridge 写入目标，本体不校验但文档定稿）：
+**`erp_ext` schema**（v2.7 erp-bridge 写入目标，本体不校验但文档定稿；2026-08-20 已随云桥 M1 实装）：
 
 ```ts
 erp_ext?: {
-  code?: string             // 客户编码（启禾 OS权威）
-  status?: string           // 客户状态：正常/停用/黑名单（启禾 OS权威，active/inactive/blacklisted）
-  level?: string            // 客户等级（启禾 OS）
-  follow_status?: string    // 跟进状态（启禾 OS）
-  last_order?: string       // 最近订单号/时间（启禾 OS）
-  ai_profile?: unknown      // 启禾 OS AI 画像（只读展示）
-  // 后续按启禾 OS扩展追加，命名空间规则不变
+  code?: string             // 客户编码（启禾 OS权威，erp customers.code，云桥上行回填）
+  status?: string           // 客户状态：正常/停用/黑名单（启禾 OS权威，erp customers.status，云桥上行回填）
+  synced_at?: string        // 最近同步时间（云桥写，ISO）
+  // 后续按启禾 OS 扩展追加，命名空间规则不变
 }
 ```
+> 说明（2026-08-20，Q2）：原草案 `level/follow_status/last_order/ai_profile` 在 erp 侧无真实落点（契约悬空），已按桥接定稿**删除声明**；将来需要时按命名空间扩展规则追加。
 
 <!-- contract:v2.7:erp-ext.schema -->
 
@@ -381,6 +425,92 @@ erp_ext?: {
 - **冲突裁决通用规则**：同步冲突沿用本节记录级裁决——整条档案 `updated_at` 较新者为准，方向确定后仅写对方能力域白名单内的差异字段（见上「冲突规则」）。
 - **新增能力域 = 协议增量**：新增业务能力域遵循 §四「API 演进政策」（只增不删），随宿主版本发布；不删除、不改写既有能力域契约。
 
+### 5.5.1 suppliers 能力域与 `erp_ext` 契约（v2.5.4 弹一 C-1，云桥 M3）
+
+**suppliers 能力域**（照 §5.5 customers 薄壳模式：白名单收窄，不给通用文件读写）：
+
+| 能力 | 方向 | 说明 |
+|---|---|---|
+| `supplier.list` / `supplier.get` | ERP 读 | 供应商档案全量/增量（`since` 严大于）；目录缺失 → null |
+| `supplier.writeErpExt` | ERP 写 | 仅写 `erp_ext` 命名空间 |
+| `supplier.syncProfile` | ERP 写 | 双向同步：本体对齐字段（contact/phone/email/address/notes）+ `erp_ext`（回显乐观锁，供应商无 type） |
+| 事件 `supplierCreated` / `supplierUpdated` | box → ERP | 复用 `host.events` 总线，增量同步不靠轮询 |
+
+**权限门控**：`manifest.permissions.suppliers !== true` → 全部方法抛 `PERMISSION_DENIED`（**含读方法**，独立位——不复用 customers，不同数据域显式声明更诚实）。
+
+<!-- contract:v1:host.supplier -->
+
+```ts
+supplier: {
+  /** 供应商档案全量/增量列表；since = updated_at 严大于过滤（ISO 串，Date.parse 归一化），缺省全量 */
+  list(since?: string): Promise<SupplierProfile[]>
+  /** 单供应商档案；不存在（以目录为准）→ null */
+  get(name: string): Promise<SupplierProfile | null>
+  /** 仅写 erp_ext 命名空间（整体替换）；目录有而 JSON 无条目 → 补最小条目后写；目录亦无 → NOT_FOUND */
+  writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
+  /** 双向同步：写本体对齐字段（contact/phone/email/address/notes）+ erp_ext；
+   *  回显式乐观锁：req.updated_at ≤ 档案 updated_at → STALE；较新 → 仅写白名单差异字段；
+   *  box 权威字段（tags/related_product_sets）入参 → FIELD_DENIED */
+  syncProfile(req: {
+    name: string
+    fields?: { contact?: string; phone?: string; email?: string; address?: string; notes?: string }
+    erp_ext?: Record<string, unknown>
+    updated_at: string
+  }): Promise<{ applied: boolean }>
+}
+```
+
+**返回类型 `SupplierProfile`**（对齐 `src/plugins/types.ts` / `shared/types.ts SupplierInfo`）：
+
+```ts
+interface SupplierProfile {
+  name: string
+  file_count: number           // 供应商目录递归文件数
+  contact?: string; phone?: string; email?: string; address?: string
+  notes: string
+  tags: string[]
+  related_product_sets?: string[]
+  erp_ext?: Record<string, unknown>
+  created_at: string; updated_at: string
+}
+```
+
+**事件 payload**（对齐宿主实现 src/main/ipc.ts；经 `host.events.on` 订阅，只投成功路径）：
+
+| 事件 | payload |
+|---|---|
+| `supplierCreated` | `{ name: string }` |
+| `supplierUpdated` | `{ name: string; oldName?: string }`（创建/更新/重命名；重命名时 `oldName` 带旧名） |
+
+<!-- contract:v1:event.supplier -->
+
+**字段归属规则**（同 customers 域语义）：erp-bridge（经 `supplier.syncProfile`）可写 **本体对齐字段**（contact/phone/email/address/notes）与 `erp_ext`；box 权威（ERP 只读）：tags/related_product_sets；`erp_ext` 仅 ERP 写（本体只读不校验、API 面不含入参）。供应商无 type 字段（schema 零迁移，云桥 M3 口径）。
+
+### 5.5.2 quote 只读域（v2.5.4 弹一 C-4，云桥 M3）
+
+**报价台账只读投影**（增量读，供云桥插件上行推送前读取 box 报价数据）：
+
+| 能力 | 方向 | 说明 |
+|---|---|---|
+| `quote.list` / `quote.get` | 桥读 | 报价台账全量/增量（`since` 严大于）；单条不存在 → null |
+
+**权限门控**：**并入 `permissions.customers` 同一位**（C-2 拍板——客户/供应商/报价是同一桥插件的客户关系数据面，权限位不碎片化）；未声明 → 全部方法抛 `PERMISSION_DENIED`。
+
+**无任何写方法**：报价在 box 侧的建档永远走预填桥（§5.7 `openCreatePrefill('quote')` / `openEditPrefill`）手动确认；上行推送后 erp 回执（行 id 集合）存插件 storage——box 报价台账保持纯净。
+
+<!-- contract:v1:host.quote -->
+
+```ts
+quote: {
+  /** 报价台账全量/增量列表；since = updated_at 严大于过滤（ISO 串，Date.parse 归一化），缺省全量 */
+  list(since?: string): Promise<QuoteProfile[]>
+  /** 单条报价；不存在（无此单号）→ null */
+  get(quotationNo: string): Promise<QuoteProfile | null>
+}
+```
+
+返回类型 `QuoteProfile` = box 台账字段全量（`quotation_no` / `date` / `customer` / `lines[{product,sku,qty,unit_price,amount}]` / `total_amount` / `status('草稿'|'已确认'|'修订中')` / `confirmed_at?` / `notes?` / `file_path` / `quote_ext?` / `created_at` / `updated_at`），对齐 `shared/types.ts QuoteRecord`（运行时零改动）。
+
 ### 5.6 share 能力域（局域网共享与拉取，v2.5.1 实装）
 
 **定位**：为「把工作区发布到局域网 + 拉取进工作区」提供**契约内**通道。通用域（非 LAN 专属，协议地位平等）。本域与 v2.7 `com.qihe.share`（P2P 直传插件）**无关**。
@@ -389,9 +519,12 @@ erp_ext?: {
 
 <!-- contract:v1:host.share -->
 
+> **legacy 注记（v2.5.4 弹一 C-5b，协议真合并）**：`listCustomers`/`listProductSets` 方法**物理保留（只增不删，LAN 插件在用）**，实现与各实体域（`customer.list`/`supplier.list`）**同源**（同一 core 数据投影，仅剥离 `erp_ext`/`ocr_ext` 命名空间）。**新插件请用实体域**（`customer.list` / `supplier.list` / `quote.list`）——share 域仅为局域网协作保留的视图通道。
+
 ```ts
 share: {
-  /** 只读实体视图（字段白名单见下；不含 erp_ext / ocr_ext 命名空间） */
+  /** 只读实体视图（字段白名单见下；不含 erp_ext / ocr_ext 命名空间）——
+   *  v2.5.4 起同源转调实体域（legacy，见上注记） */
   listProductSets(): Promise<unknown[]>
   listCustomers(): Promise<unknown[]>
   /** 目录树一层（名称/类型/大小/mtime）；relPath 缺省 = 工作区根；
@@ -431,6 +564,65 @@ share: {
 - 共享面**无任何写端点**——对端写 = 拉取方主动 `writePulledFile` 进**自己**工作区；`.qihefilemanager/`（含 trash）永不暴露
 - `erp_ext` / `ocr_ext` 不进共享视图
 - **与 files 域分工**：`files` = 单文件读 + 导出写（插件自身操作）；`share` = 结构化视图 + Range 读 + 拉取写（跨机协作契约）。收窄张力取舍：share 域不为「通用文件浏览」开放，实体视图是协作语义的主通道
+
+### 5.7 ui 能力域：新建通用预填（v2.5.4 实装）
+
+**`window.qihebox.ui.openCreatePrefill`** —— 渲染层 UI 钩子（插件页面与宿主同窗口同 JS 上下文，直调即可）：跳转对应页面、打开新建弹窗并按载荷填好字段。**永不自动建档**——创建始终由用户在弹窗手点确认；纯 UI 动作，无返回值、无数据写入、不过 IPC、不需要 permissions 声明。
+
+```ts
+window.qihebox.ui.openCreatePrefill(
+  entity: 'customer' | 'productSet' | 'supplier' | 'quote' | 'invoice' | 'inbound',
+  payload: CreatePrefillPayload | CreatePrefillPayload[],  // 数组 = 批量，逐条确认（创建推进下一条 / 取消清空队列）
+): void
+```
+
+**载荷 = 各实体创建字段的全可选子集（传啥填啥；未知键忽略，非法值丢键）**：
+
+| entity | 载荷字段（全部可选） | 落点 |
+|---|---|---|
+| `customer` | name/alias/country/contact/source/type(企业\|个人）/phone/email/address/tags/notes/related_product_sets | `/clients` 新建客户弹窗 |
+| `productSet` | name/tags/notes | `/product-sets` 新建产品集弹窗 |
+| `supplier` | name/contact/phone/email/address/notes/tags/related_product_sets | `/suppliers` 新建区 |
+| `quote` | quotation_no/date/customer/lines[{product,sku,qty,unit_price}]/notes/file_path | `/quotes` 新建报价单弹窗 |
+| `invoice` | number/code/date/amount/seller/buyer/customer/due_date/file_path/tags/notes（status 不预填，新建恒「待报销」） | `/invoices` 发票 tab |
+| `inbound` | id/date/supplier/supplier_id/product_set/amount/notes/file_path | `/invoices` 入库 tab |
+
+**规则**：单批 ≤50 条（超出截断）；按自然键去重（customer/supplier/productSet=name、quote=quotation_no、invoice=number、inbound=id；缺键条目保留）；字符串 trim；枚举（customer.type）非法丢键；数组字段非数组成员丢弃；保存校验完全复用各实体既有 create 流程（预填不绕过任何校验）。未知 entity 静默忽略（调用方编程错误不落地）。
+
+**典型调用方**：erp-bridge「仅云端客户」面板（云字段 → customer 预填，含批量）；AI/OCR 识别插件（识别图片/文档产出 `{entity, fields}` → 同一入口预填——识别引擎在插件侧，宿主永不内置 AI 推理）。字段类型定义见宿主 `src/renderer/src/stores/createPrefillNormalize.ts`（`CreatePrefillPayload` 等）。
+
+<!-- contract:v2.5.4:ui.open-create-prefill -->
+
+#### 5.7.1 编辑预填（v2.5.4 弹一 C-6，表单注册表全表单化）
+
+**`window.qihebox.ui.openEditPrefill(entity, key, payload)`** —— 渲染层 UI 钩子（同 openCreatePrefill 语义）：**key = 实体自然键**（customer/supplier/productSet=name、quote=quotation_no、invoice=number、inbound=id），跳转对应详情/列表页、打开**编辑弹窗**——弹窗先加载该记录原值，payload 为「建议改动」覆盖为建议值，**保存仍由用户手点**（永不自动覆盖）。
+
+```ts
+window.qihebox.ui.openEditPrefill(
+  entity: 'customer' | 'productSet' | 'supplier' | 'quote' | 'invoice' | 'inbound',
+  key: string,                                          // 实体自然键
+  payload: CreatePrefillPayload,                        // 建议改动（与 create 同 schema，未知键忽略）
+): void
+```
+
+**规则**：单条制（不批量不去重——编辑是"改一条"）；payload 归一化同 §5.7（trim/枚举合法值/数组过滤）；原值由弹窗自身加载（key 对应记录不存在 → 忽略本次建议，不报错）；保存校验完全复用各实体既有 update/detail 流程。**语义分档（弹一 T3/E3 拍板）**：customer/supplier 保存后宿主事件（`customerUpdated`/`supplierUpdated`，§5.5.1）可被插件感知；quote/invoice/inbound 宿主无 created/updated 事件源——插件端"保存成功"需用户对话确认（不做自动回填承诺）。
+
+**全表单注册表（v2.5.4 覆盖「所有表单都能填」）**：
+
+| formId | 入口 | 落点 |
+|---|---|---|
+| `customer.create` / `customer.edit` | openCreatePrefill / openEditPrefill | `/clients`（新建弹窗 / 客户详情编辑弹窗） |
+| `productSet.create` / `productSet.edit` | 同上 | `/product-sets`（新建弹窗 / 编辑弹窗） |
+| `supplier.create` / `supplier.edit` | 同上 | `/suppliers`（新建区 / 供应商详情编辑弹窗） |
+| `quote.create` / `quote.edit` | 同上 | `/quotes`（新建弹窗 / 报价详情编辑弹窗） |
+| `invoice.create` / `invoice.edit` | 同上 | `/invoices` 发票 tab（新建 / 编辑弹窗） |
+| `inbound.create` / `inbound.edit` | 同上 | `/invoices` 入库 tab（新建 / 编辑弹窗） |
+
+<!-- contract:v2.5.4:ui.open-edit-prefill -->
+
+---
+
+## 六、安全与信任分级
 
 ---
 

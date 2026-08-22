@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import type { PluginInfo } from '../../src/shared/types'
 import {
   deriveFileCommands,
+  deriveGlobalCommands,
   deriveRoutes,
   deriveSidebarGroups,
   pluginModuleUrl,
@@ -117,6 +118,25 @@ describe('deriveFileCommands：列表 → 右键命令注入槽（PLAN §5.3）'
   it('无 when.exts 的命令不带 exts 字段（菜单对该命令全类型可见）', () => {
     const cmds = deriveFileCommands([fullPlugin({ id: 'com.qihe.hello' })])
     expect('exts' in cmds[1]).toBe(false)
+  })
+})
+
+describe('deriveGlobalCommands：列表 → 表单上下文命令槽（v2.5.4 Task 4 发票识别）', () => {
+  it('启用插件 scope=global 命令 → 注入条目（无 when 过滤）', () => {
+    expect(deriveGlobalCommands([fullPlugin({ id: 'com.qihe.hello' })])).toEqual([
+      { pluginId: 'com.qihe.hello', commandId: 'globalCmd', label: '全局命令' },
+    ])
+  })
+
+  it('scope=file 命令 / 禁用 / broken / 无 commands → 排除', () => {
+    expect(
+      deriveGlobalCommands([
+        fullPlugin({ id: 'com.qihe.a', state: 'disabled' }),
+        fullPlugin({ id: 'com.qihe.b', state: 'broken', brokenReason: '熔断' }),
+        plugin({ id: 'com.qihe.c', kind: ['ipc'] }),
+        plugin({ id: 'com.qihe.d', kind: ['commands'], commands: [{ id: 'f', label: 'x', scope: 'file' }] }),
+      ]),
+    ).toEqual([])
   })
 })
 

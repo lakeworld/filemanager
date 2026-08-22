@@ -1,9 +1,10 @@
 import { render } from "solid-js/web";
 import { lazy } from "solid-js";
-import { Router, Route } from "@solidjs/router";
+import { Router, Route, useNavigate } from "@solidjs/router";
 import type { RouteSectionProps } from "@solidjs/router";
 import App from "./App";
 import { PluginRoutes } from "./plugins/routes";
+import { initCreatePrefill } from "./stores/createPrefill";
 import "./index.css";
 // v2.5.2（视觉升级）：思源黑体（Noto Sans SC）中文子集——400 正文 + 700 标题加粗；
 // 自建精简 @font-face（仅 CJK 主区/标点/全角分片，拉丁走 Inter、emoji 走系统字体）
@@ -33,6 +34,9 @@ const Quotes = lazy(() => import("./pages/Quotes"));
 const QuoteDetail = lazy(() => import("./pages/QuoteDetail"));
 
 function RootApp(props: RouteSectionProps) {
+  // v2.5.4：注册全业务新建预填监听（PLAN-v2.5.4 §3.3；幂等，重复挂载不重复注册）
+  const navigate = useNavigate();
+  initCreatePrefill((path) => navigate(path));
   return <App {...props} />;
 }
 

@@ -123,6 +123,8 @@ const api = {
     copyPaths: (paths: string[]) => invoke('qihebox:files:copyPaths', paths),
     startDrag: (paths: string[]) => invoke('qihebox:files:startDrag', paths),
     workspaceUrl: (filePath: string) => invoke('qihebox:files:workspaceUrl', filePath),
+    // v2.5.4（发票识别 Task 4）：任一路径文件 mtime（开票日期缺失时按文件修改时间兜底 YYYY-MM-DD）
+    statPath: (filePath: string) => invoke('qihebox:files:statPath', filePath),
     openWithDefaultApp: (filePath: string) => invoke('qihebox:files:openWithDefaultApp', filePath),
     // v2.5.1（F4，D26）：读取工作区内文本文件（MD 预览用；白名单校验与 2MB 上限在 core）
     readTextFile: (filePath: string) => invoke('qihebox:files:readTextFile', filePath),
@@ -250,6 +252,22 @@ const api = {
       invoke('qihebox:settings:getDevMode') as Promise<ApiResult<boolean>>,
     setDevMode: (enabled: boolean): Promise<ApiResult<boolean>> =>
       invoke('qihebox:settings:setDevMode', enabled) as Promise<ApiResult<boolean>>,
+  },
+  // v2.5.4：全业务新建通用预填（PLAN-v2.5.4 §3.1/§3.2）——纯渲染层 UI 钩子，不过 IPC、永不自动建档；
+  // 内部传输 = window CustomEvent（contextIsolation 下 preload 与主世界共享 DOM），渲染层 stores/createPrefill 监听。
+  // 契约面只有本方法（类型见 qihebox.d.ts）；事件名为内部实现细节，不进公开契约。
+  ui: {
+    openCreatePrefill: (entity: string, payload: unknown): void => {
+      window.dispatchEvent(
+        new CustomEvent('qihebox:ui:open-create-prefill', { detail: { entity, payload } }),
+      )
+    },
+    // v2.5.4（弹一 C-6）：编辑预填单条制——key = 实体自然键，payload = 建议改动（原值弹窗自加载）
+    openEditPrefill: (entity: string, key: string, payload: unknown): void => {
+      window.dispatchEvent(
+        new CustomEvent('qihebox:ui:open-edit-prefill', { detail: { entity, key, payload } }),
+      )
+    },
   },
   events: {
     /** 订阅主进程事件，返回取消订阅函数 */

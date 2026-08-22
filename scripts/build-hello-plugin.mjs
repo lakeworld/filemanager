@@ -314,6 +314,13 @@ export async function buildHelloPlugin(opts = {}) {
     rendererFiles.push(zipName)
   }
 
+  // —— assets（可选）——<srcDir>/assets/** 原样入包（worker 运行时/主题等静态资源，存在即携带；无则零影响）
+  if (await fsp.stat(path.join(srcDir, 'assets')).catch(() => null)) {
+    const assetsFiles = await collectAssetEntries(srcDir)
+    entries.push(...assetsFiles)
+    log(`✓ assets/ 随包（${assetsFiles.length} 个文件）`)
+  }
+
   await fsp.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, `${manifest.id}.qbox`)
   await fsp.writeFile(outPath, packQbox(entries), { mode: 0o644 })
@@ -324,6 +331,23 @@ export async function buildHelloPlugin(opts = {}) {
   log(`✓ manifest.json 校验通过（结构级；完整校验由宿主登记期执行）`)
   log(`✓ 打包 → ${outPath}（${entries.length} 条目，${kb((await fsp.stat(outPath)).size)} KB）`)
   return { outPath, files: entries.map((e) => e.name) }
+}
+
+/** 收集 <srcDir>/assets/** 全部文件为 zip 条目（目录结构原样入包，不含空目录） */
+async function collectAssetEntries(srcDir) {
+  const base = path.join(srcDir, 'assets')
+  const out = []
+  const walk = async (dir, rel) => {
+    const entries = await fsp.readdir(dir, { withFileTypes: true }).catch(() => [])
+    for (const e of entries) {
+      const abs = path.join(dir, e.name)
+      const name = rel ? `${rel}/${e.name}` : e.name
+      if (e.isDirectory()) await walk(abs, name)
+      else out.push({ name: `assets/${name}`, data: await fsp.readFile(abs) })
+    }
+  }
+  await walk(base, '')
+  return out
 }
 
 // —— CLI（node scripts/build-hello-plugin.mjs [--src <dir>] [--out <dir>]）——

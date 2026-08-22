@@ -4,6 +4,8 @@ import { api } from "~/wails/api";
 import CreatePsModal from "./productSets/CreatePsModal";
 import EditInfoPsModal from "./productSets/EditInfoPsModal";
 import { tagList } from "~/stores/tags";
+import { prefillVersion, currentPrefill, advancePrefill, clearPrefill, currentEditPrefill, clearEditPrefill } from "~/stores/createPrefill";
+import type { ProductSetPrefill } from "~/stores/createPrefillNormalize";
 import TagChip from "~/components/TagChip";
 import ContextMenu from "~/components/ContextMenu";
 import ConfirmDialog from "~/components/ConfirmDialog";
@@ -25,6 +27,36 @@ export default function ProductSets() {
   const navigate = useNavigate();
   const params = useParams();
   const [showCreateModal, setShowCreateModal] = createSignal(false);
+  // v2.5.4 预填（PLAN-v2.5.4 §3.4）：预填载荷（null = 手动新建空表）
+  const [createInitial, setCreateInitial] = createSignal<ProductSetPrefill | null>(null);
+  // 预填消费：版本变化 → 有预填则开弹窗填表；只开不关
+  createEffect(() => {
+    prefillVersion("productSet");
+    const cur = currentPrefill("productSet") as ProductSetPrefill | null;
+    if (cur) {
+      setCreateInitial(cur);
+      setShowCreateModal(true);
+    }
+  });
+  /** 手动新建：防御性清队列 + 空表（v2.5.4） */
+  const openManualCreate = () => {
+    clearPrefill("productSet");
+    setCreateInitial(null);
+    setShowCreateModal(true);
+  };
+  // v2.5.4（弹一 C-6）：编辑预填消费（单条制）——key=产品集名 → 列表找记录 → 建议改动合并注入编辑弹窗。
+  // loading 门控防竞态；已加载仍未找到 = key 不存在 → 清空忽略。
+  createEffect(() => {
+    currentEditPrefill("productSet");
+    const edit = currentEditPrefill("productSet");
+    if (!edit) return;
+    if (loadingProductSets()) return;
+    const found = productSets().find((ps) => (ps as { name: string }).name === edit.key);
+    if (found) {
+      setEditingInfoPs({ ...found, ...(edit.payload as Partial<ProductSetInfo>) });
+    }
+    clearEditPrefill("productSet");
+  });
   // v2.5.1（T4）：列表加载守卫——初始 Skeleton 不闪空态（T0 坐实违规 ProductSets:310）
   const [loadingProductSets, setLoadingProductSets] = createSignal(true);
   const reloadProductSets = async () => {
@@ -312,7 +344,7 @@ export default function ProductSets() {
           <button class="btn-secondary" onClick={handleImportXlsx}>
             📂 XLSX 导入
           </button>
-          <button class="btn-primary" onClick={() => setShowCreateModal(true)}>
+          <button class="btn-primary" onClick={openManualCreate}>
             <span>➕</span> 新建产品集
           </button>
         </div>
@@ -327,7 +359,7 @@ export default function ProductSets() {
       }>
       <Show when={productSets().length > 0} fallback={
         <EmptyState icon="📦" title="暂无产品集" desc="创建您第一个产品集来开始管理">
-          <button class="btn-primary" onClick={() => setShowCreateModal(true)}>新建产品集</button>
+          <button class="btn-primary" onClick={openManualCreate}>新建产品集</button>
         </EmptyState>
       }>
         <Show when={!params.name}>
@@ -630,7 +662,20 @@ export default function ProductSets() {
       </Show>
       </Show>
 
-      <CreatePsModal open={showCreateModal()} onClose={() => setShowCreateModal(false)} onCreated={loadProductSets} />
+      <CreatePsModal
+        open={showCreateModal()}
+        onClose={() => setShowCreateModal(false)}
+        onCreated={() => {
+          loadProductSets();
+          advancePrefill("productSet");
+        }}
+        initial={createInitial()}
+        onCancel={() => {
+          clearPrefill("productSet");
+          setCreateInitial(null);
+          setShowCreateModal(false);
+        }}
+      />
       <EditInfoPsModal customer={editingInfoPs()} onClose={() => setEditingInfoPs(null)} onSaved={loadProductSets} />
       {/* Context Menu（统一组件，v2.3.x） */}
       <Show when={contextMenu.payload()}>

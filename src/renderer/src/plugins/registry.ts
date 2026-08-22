@@ -158,6 +158,24 @@ export function deriveFileCommands(list: PluginInfo[]): PluginFileCommand[] {
   return out
 }
 
+/**
+ * 纯派生：启用插件 scope='global' 命令 → 表单上下文命令槽（v2.5.4 Task 4，发票识别。
+ * 当前唯一消费者：新建发票弹窗 create 模式；触发 = callPlugin(pluginId, commandId, {})，
+ * 走插件既有 IPC action（ApiResult 信封），manifest.commands 仅作按钮槽可见性/标签声明）。
+ * 与 deriveFileCommands 同构；global 无 when.exts 过滤（表单上下文全域可见）。
+ */
+export function deriveGlobalCommands(list: PluginInfo[]): PluginFileCommand[] {
+  const out: PluginFileCommand[] = []
+  for (const p of list) {
+    if (p.state !== 'enabled' || !Array.isArray(p.commands)) continue
+    for (const c of p.commands) {
+      if (c.scope !== 'global') continue
+      out.push({ pluginId: p.id, commandId: c.id, label: c.label })
+    }
+  }
+  return out
+}
+
 /** 响应式派生（Sidebar / routes.tsx / fileContextMenu 注入槽消费） */
 export function pluginSidebarGroups(): PluginSidebarGroup[] {
   return deriveSidebarGroups(pluginList())
@@ -167,6 +185,9 @@ export function pluginRoutes(): PluginRouteDef[] {
 }
 export function pluginFileCommands(): PluginFileCommand[] {
   return deriveFileCommands(pluginList())
+}
+export function pluginGlobalCommands(): PluginFileCommand[] {
+  return deriveGlobalCommands(pluginList())
 }
 
 /**

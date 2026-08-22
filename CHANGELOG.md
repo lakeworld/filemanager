@@ -1,5 +1,49 @@
 # 更新日志
 
+## v2.5.4 — 2026-08-20（开发中）：全业务预填 + 云桥 M3（供应商/报价双向）+ 协议真合并
+
+> 方案与验收：v2.5.4 全业务新建通用预填入口、云桥 M3 与 AI 助手、发票识别（AI 多模态填表）。
+
+### 发票识别（AI 多模态填表，2026-08-22）
+
+- **新建发票弹窗「从文件识别」按钮**（插件 global 命令表单上下文槽，协议 §三/§五.2 同步）：选中发票图片（拍照/截图/扫描图）或文字层数电票 PDF → 识别插件本地预处理（图片缩放 / PDF 抽文字）→ `x-qihe-client: box` 云端 AI 代理 → 阶跃 step-3.7-flash 多模态识别 → 字段白名单回填（有值覆盖、空字段不动）→ **识别成功即复制归档**入 `发票/年份/`（文件字段自动就位，绿字提示），确认登记只落账不二次复制；重复发票号拦截落账（归档副本保留并提示）；扫描版 PDF 提示转图。识别能力全在插件，本体零 AI；`ocr_ext` 不写
+
+### 云桥 M3（弹一，2026-08-22）
+
+- **新增 suppliers 能力域**（插件协议 §5.5.1）：`host.supplier` 的 `list`（增量 since）/`get`（读目录基准）/`writeErpExt`/`syncProfile`——供应商档案双向同步（启禾云权威 code/status 回填进 erp_ext）；`manifest.permissions.suppliers` 独立权限位；宿主事件 +2（`supplierCreated` / `supplierUpdated`，成功路径投递）
+- **新增 quote 只读域**（§5.5.2）：`host.quote.list(since)/get(quotation_no)` 报价台账只读投影，**无写方法**——报价建档仍走预填桥手动确认，box 报价台账保持纯净
+- **协议真合并**（C-5）：`makeEntityDomain` 泛型工厂合一 customer/supplier 的 list/get/writeErpExt/syncProfile + 门控拒绝（customer 域对外行为零变化）；`EntityProfile` 基型（name/erp_ext/updated_at）同源；share 域 `listCustomers`/`listProductSets` 标注 legacy（与实体域同源，仅剥离命名空间）
+- **预填全表单化**（§5.7.1）：新增 `window.qihebox.ui.openEditPrefill(entity, key, payload)`——6 实体 × create/edit 全表单注册表（12 个表单全部可预填）；编辑预填单条制（key=自然键，弹窗先加载原值再覆盖建议，保存仍由用户手点，永不自动覆盖）
+- 插件协议文档：§1 协议分层图（七层一句话职责）、供应商/报价域方法表 + 载荷 + 事件三段式
+- 常用调用方：erp-bridge v0.4.0「启禾云桥」——客户/供应商/报价三块「仅云端可见」清单 + 预填新建（本机 L5 矩阵 29/29 全绿）
+
+### AI 助手（弹二，2026-08-22，插件 com.qihe.cloud v0.2.0）
+
+- **AI 助手并入 com.qihe.cloud**：插件侧 AI 聊天面板（插件协议口子不变——本体零 `src/` 改动，AI 推理/网络/凭据全部在插件与云端，红线合规）
+- **本地编排 + 云端推理**：Pi agent（`@earendil-works/pi-coding-agent` 子进程）做工具编排；推理经内部本地网关转云端 OpenAI 兼容代理（模型白名单 step-3.7-flash）；**worker 零外网直连、零密钥**（LLM 密钥只在服务端）
+- **AI 工具面（boxCli）**：19 个白名单 op——7 读（customer/supplier/quote 只读台账 + workspace.info）+ 12 预填桥（6 实体 × create/edit）；**无任何写类 op，保存永远由用户在弹窗手点**；AI 视角默认脱敏（手机号/邮箱打码）
+- 生命周期纪律：首个 chat 才拉起 worker/网关（零常驻）、单条消息锁、崩溃 10s 退避、登出/dispose 成对清理
+
+### 新增
+
+- **全业务新建通用预填**（插件协议 §5.7）：`window.qihebox.ui.openCreatePrefill(entity, payload)`——插件携带客户/产品集/供应商/报价单/发票/入库单 6 类实体的任意字段子集，跳转对应页面、打开新建弹窗并预填；批量传数组逐条确认（创建推进下一条 / 取消清空队列），单批 ≤50 条、按自然键去重。**永不自动建档**：创建始终由用户在弹窗手点确认，保存校验完全复用各实体既有流程
+- 典型调用方：erp-bridge「仅云端可见客户」面板的「预填新建」（单条 + 多选批量，云上字段自动带入）；AI/OCR 类识别插件可复用同一入口（识别引擎在插件侧，宿主不内置 AI 推理）
+
+### 修复
+
+- 报价单/发票/入库单弹窗的下拉框（关联客户/供应商/产品集）在选项列表异步刷新重建后丢失选中值——选项变化后补应用一次 value
+
+### 插件协议（docs/PLUGIN.md）
+
+- 新增 §5.7 ui 能力域（openCreatePrefill 契约：6 实体载荷字段表 + 批量/去重/归一化规则）
+- `customer.list/get` 返回类型由 unknown 收窄为 `CustomerProfile`（仅类型收口，运行时不变）
+- customer 域事件 payload 文档化：`customerCreated` / `customerUpdated` / `fileArchived`
+
+### 测试
+
+- 单测 **753**（55 文件；+17：预填载荷归一化）
+- e2e **142**（+6：全业务预填链路——6 实体跳转开弹窗填表、批量推进/取消清空、手动新建空表回归）
+
 ## v2.5.3 热修轮 — 2026-08-19（托盘长时隐藏冻结根治：删隐藏预检，改「先显示、后验证」）
 
 > 事故取证 `docs/INTERNAL/动作-2026-08-19-托盘长时隐藏冻结定位.md`；方案与实施 `docs/INTERNAL/PLAN-v2.5.3-托盘冻结根治.md` / `动作-2026-08-19-托盘冻结根治实施.md`。

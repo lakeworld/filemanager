@@ -1,4 +1,4 @@
-import { Show, For } from "solid-js";
+import { Show, For, createEffect } from "solid-js";
 import Modal from "~/components/ui/Modal";
 import DatePicker from "~/components/DatePicker";
 import ArchiveField from "./ArchiveField";
@@ -8,6 +8,7 @@ import type { InboundFormState, InboundRecord, SupplierBrief } from "./types";
  * 入库单新建/编辑弹窗（v2.5.1 T3 波1 拆分 + overlay→Modal 迁移）：
  * 信号与保存逻辑保留在主文件（Invoices.tsx），本组件只做展示与字段编辑（props 显式化，D11）。
  * 供应商下拉交互（选择填 supplier+supplier_id、手输清空关联、已删除供应商灰显占位）逻辑原样搬迁。
+ * v2.5.4：供应商/产品集下拉 options 随 store 异步刷新重建时浏览器丢选中——变化后补应用 value（预填依赖）。
  */
 export default function InboundEditorModal(props: {
   editor: { mode: "create" } | { mode: "edit"; record: InboundRecord } | null;
@@ -23,6 +24,19 @@ export default function InboundEditorModal(props: {
   suppliers: SupplierBrief[];
   productSets: { name: string }[];
 }) {
+  // 下拉 options 重建后补应用选中值（v2.5.4 预填）
+  let supplierSelectRef: HTMLSelectElement | undefined;
+  let productSetSelectRef: HTMLSelectElement | undefined;
+  createEffect(() => {
+    props.suppliers;
+    const v = props.form.supplier_id;
+    if (supplierSelectRef && supplierSelectRef.value !== v) supplierSelectRef.value = v;
+  });
+  createEffect(() => {
+    props.productSets;
+    const v = props.form.product_set;
+    if (productSetSelectRef && productSetSelectRef.value !== v) productSetSelectRef.value = v;
+  });
   return (
     <Show when={props.editor}>
       <Modal open title={props.editor?.mode === "edit" ? "编辑入库单" : "新建入库单"} size="2xl" onClose={props.onClose}>
@@ -52,6 +66,7 @@ export default function InboundEditorModal(props: {
               {/* v2.4.9 S2：供应商下拉（选项来自 suppliers store；选择时填 supplier 为名 + supplier_id 为名）。
                   兼容手输：下方自由文本输入保留；手输时清空 supplier_id 关联。 */}
               <select
+                ref={(el) => { supplierSelectRef = el; }}
                 class="select w-full mb-2"
                 aria-label="供应商"
                 value={props.form.supplier_id}
@@ -87,6 +102,7 @@ export default function InboundEditorModal(props: {
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">关联产品集</label>
               <select
+                ref={(el) => { productSetSelectRef = el; }}
                 class="select w-full"
                 aria-label="关联产品集"
                 value={props.form.product_set}

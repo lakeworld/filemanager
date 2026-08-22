@@ -2,28 +2,44 @@
   qihe-box API 兼容性守护基线（API_VERSION=1 · 只增不删）
   生成器：tests/unit/helpers/apiSurface.ts · 更新：npm run api:update
   TypeScript: 5.9.3
-  break-reason: v2.5.1 A1/A2 能力域增量（只增不删）：PluginManifest.permissions 增 customers/share 可选布尔；PluginHost 增 customer/share 命名空间（11+6 方法）
+  break-reason: v2.5.4 弹一 C-5c：EntityProfile 基型同源——CustomerProfile/SupplierProfile 继承（name/erp_ext/updated_at 上移基型，运行时形状零变化，纯类型重组；契约语义不变）
 -->
 
 # qihe-box 插件协议 API 面（types / preload / ipc）
 ## types
 
+- CustomerProfile.address?: string
+- CustomerProfile.alias?: string
+- CustomerProfile.contact?: string
+- CustomerProfile.country?: string
+- CustomerProfile.created_at: string
+- CustomerProfile.email?: string
+- CustomerProfile.file_count: number
+- CustomerProfile.notes: string
+- CustomerProfile.phone?: string
+- CustomerProfile.related_product_sets?: string[]
+- CustomerProfile.source?: string
+- CustomerProfile.tags: string[]
+- CustomerProfile.type?: '企业' | '个人'
 - EntitlementStatus.expiresAt: string | null
 - EntitlementStatus.quota: { [key: string]: { used: number; limit: number; }; } | null
 - EntitlementStatus.tier: 'free' | 'subscribed'
+- EntityProfile.erp_ext?: Record<string, unknown>
+- EntityProfile.name: string
+- EntityProfile.updated_at: string
 - PluginBusinessError.code: string
 - PluginHost.account.getToken(): string | null
 - PluginHost.account.isLoggedIn(): boolean
 - PluginHost.account: { getToken(): string | null; isLoggedIn(): boolean; }
 - PluginHost.apiVersion: number
-- PluginHost.customer.get(name: string): Promise<unknown | null>
-- PluginHost.customer.list(since?: string): Promise<unknown[]>
+- PluginHost.customer.get(name: string): Promise<CustomerProfile | null>
+- PluginHost.customer.list(since?: string): Promise<CustomerProfile[]>
 - PluginHost.customer.relation.link(customerName: string, productSetName: string): Promise<void>
 - PluginHost.customer.relation.unlink(customerName: string, productSetName: string): Promise<void>
 - PluginHost.customer.relation: { link(customerName: string, productSetName: string): Promise<void>; unlink(customerName: string, productSetName: string): Promise<void>; }
 - PluginHost.customer.syncProfile(req: { name: string; fields?: { type?: '企业' | '个人'; contact?: string; phone?: string; email?: string; address?: string; notes?: string; }; erp_ext?: Record<string, unknown>; updated_at: string; }): Promise<{ applied: boolean; }>
 - PluginHost.customer.writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
-- PluginHost.customer: { list(since?: string): Promise<unknown[]>; get(name: string): Promise<unknown | null>; writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>; syncProfile(req: { name: string; fields?: { type?: '企业' | '个人'; contact?: string; phone?: string; email?: string; address?: string; notes?: string; }; erp_ext?: Record<string, unknown>; updated_at: string; }): Promise<{ applied: boolean; }>; relation: { link(customerName: string, productSetName: string): Promise<void>; unlink(customerName: string, productSetName: string): Promise<void>; }; }
+- PluginHost.customer: { list(since?: string): Promise<CustomerProfile[]>; get(name: string): Promise<CustomerProfile | null>; writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>; syncProfile(req: { name: string; fields?: { type?: '企业' | '个人'; contact?: string; phone?: string; email?: string; address?: string; notes?: string; }; erp_ext?: Record<string, unknown>; updated_at: string; }): Promise<{ applied: boolean; }>; relation: { link(customerName: string, productSetName: string): Promise<void>; unlink(customerName: string, productSetName: string): Promise<void>; }; }
 - PluginHost.dialog.openDirectory(opts: unknown): Promise<string>
 - PluginHost.dialog.openFile(opts: unknown): Promise<string>
 - PluginHost.dialog: { openFile(opts: unknown): Promise<string>; openDirectory(opts: unknown): Promise<string>; }
@@ -38,6 +54,9 @@
 - PluginHost.files: { readText(relPath: string): Promise<string>; readBuffer(relPath: string): Promise<Uint8Array>; writeExport(fileName: string, data: string | Uint8Array): Promise<void>; }
 - PluginHost.log(level: 'info' | 'warn' | 'error', msg: string): void
 - PluginHost.notify(title: string, body: string): boolean
+- PluginHost.quote.get(quotationNo: string): Promise<QuoteProfile | null>
+- PluginHost.quote.list(since?: string): Promise<QuoteProfile[]>
+- PluginHost.quote: { list(since?: string): Promise<QuoteProfile[]>; get(quotationNo: string): Promise<QuoteProfile | null>; }
 - PluginHost.share.ensureCustomer(name: string): Promise<'created' | 'exists'>
 - PluginHost.share.ensureProductSet(name: string): Promise<'created' | 'exists'>
 - PluginHost.share.getMetadata(relPath: string): Promise<{ tags: string[]; notes: string; }>
@@ -52,6 +71,11 @@
 - PluginHost.storage.get(key: string): Promise<unknown>
 - PluginHost.storage.set(key: string, value: unknown): Promise<void>
 - PluginHost.storage: { get(key: string): Promise<unknown>; set(key: string, value: unknown): Promise<void>; }
+- PluginHost.supplier.get(name: string): Promise<SupplierProfile | null>
+- PluginHost.supplier.list(since?: string): Promise<SupplierProfile[]>
+- PluginHost.supplier.syncProfile(req: { name: string; fields?: { contact?: string; phone?: string; email?: string; address?: string; notes?: string; }; erp_ext?: Record<string, unknown>; updated_at: string; }): Promise<{ applied: boolean; }>
+- PluginHost.supplier.writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
+- PluginHost.supplier: { list(since?: string): Promise<SupplierProfile[]>; get(name: string): Promise<SupplierProfile | null>; writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>; syncProfile(req: { name: string; fields?: { contact?: string; phone?: string; email?: string; address?: string; notes?: string; }; erp_ext?: Record<string, unknown>; updated_at: string; }): Promise<{ applied: boolean; }>; }
 - PluginHost.workspace.currentPath(): string | null
 - PluginHost.workspace.list(): unknown
 - PluginHost.workspace: { currentPath(): string | null; list(): unknown; }
@@ -88,7 +112,8 @@
 - PluginManifest.permissions.network?: string[]
 - PluginManifest.permissions.notification?: boolean
 - PluginManifest.permissions.share?: boolean
-- PluginManifest.permissions?: { network?: string[]; clipboard?: boolean; notification?: boolean; account?: boolean; customers?: boolean; share?: boolean; }
+- PluginManifest.permissions.suppliers?: boolean
+- PluginManifest.permissions?: { network?: string[]; clipboard?: boolean; notification?: boolean; account?: boolean; customers?: boolean; suppliers?: boolean; share?: boolean; }
 - PluginManifest.syncScope?: 'global' | 'local'
 - PluginManifest.transport?: 'inproc'
 - PluginManifest.version: string
@@ -96,13 +121,43 @@
 - PluginRegistration.dispose?: () => void
 - PluginRegistration.ipc?: Record<string, (args: unknown) => Promise<unknown>>
 - PluginRegistration.pages?: PluginManifest['pages']
+- QuoteProfile.confirmed_at?: string
+- QuoteProfile.created_at: string
+- QuoteProfile.customer?: string
+- QuoteProfile.date: string
+- QuoteProfile.file_path: string
+- QuoteProfile.lines: { product: string; sku?: string; qty: number; unit_price: number; amount: number; }[]
+- QuoteProfile.lines[].amount: number
+- QuoteProfile.lines[].product: string
+- QuoteProfile.lines[].qty: number
+- QuoteProfile.lines[].sku?: string
+- QuoteProfile.lines[].unit_price: number
+- QuoteProfile.notes?: string
+- QuoteProfile.quotation_no: string
+- QuoteProfile.quote_ext?: Record<string, unknown>
+- QuoteProfile.status: '草稿' | '已确认' | '修订中'
+- QuoteProfile.total_amount: number
+- QuoteProfile.updated_at: string
+- SupplierProfile.address?: string
+- SupplierProfile.contact?: string
+- SupplierProfile.created_at: string
+- SupplierProfile.email?: string
+- SupplierProfile.file_count: number
+- SupplierProfile.notes: string
+- SupplierProfile.phone?: string
+- SupplierProfile.related_product_sets?: string[]
+- SupplierProfile.tags: string[]
 - const API_VERSION = 1
 - function validateManifest(input: unknown): { ok: boolean; errors: string[]; }
+- interface CustomerProfile extends EntityProfile
 - interface EntitlementStatus
+- interface EntityProfile
 - interface PluginBusinessError extends Error
 - interface PluginHost
 - interface PluginManifest
 - interface PluginRegistration
+- interface QuoteProfile
+- interface SupplierProfile extends EntityProfile
 - type PluginText = string | { default: string; [locale: string]: string; }
 
 ## preload
