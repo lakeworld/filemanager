@@ -10,7 +10,7 @@
  * 状态机联动：status='已确认' 时明细行只读锁定（须先转修订中才能编辑——core 已强制，UI 同步禁用）。
  * 查重：新建手输单号重名 → core create 拒绝（error 含已有记录摘要）→ toast 提示，不提供强制继续。
  */
-import { Show, For, createSignal } from "solid-js";
+import { Show, For, createSignal, createEffect } from "solid-js";
 import { api } from "~/wails/api";
 import { currentWorkspace } from "~/stores/workspace";
 import { showToast } from "~/stores/notifyBanner";
@@ -18,6 +18,7 @@ import { openPreview } from "~/stores/preview";
 import DatePicker from "~/components/DatePicker";
 import Modal from "~/components/ui/Modal";
 import type { QuoteRecord, CustomerInfo, FileEntry } from "~/types";
+import type { QuotePrefill } from "~/stores/createPrefillNormalize";
 
 /** 明细行表单态（qty/unit_price 字符串输入，保存时校验转换；amount 实时计算） */
 interface LineForm {
@@ -74,19 +75,22 @@ export default function QuoteFormModal(props: {
   mode: "create" | "edit";
   /** edit 模式必传（status='已确认' 时明细行只读锁定） */
   record?: QuoteRecord;
+  /** v2.5.4 预填（PLAN-v2.5.4 §3.4）：仅 create 模式消费；组件随 Show 每次新开重挂载，初始化即 seed */
+  initial?: QuotePrefill | null;
   customers: CustomerInfo[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const isEdit = props.mode === "edit";
   const rec = props.record;
+  const prefill = !isEdit ? props.initial : null;
   const locked = isEdit && rec?.status === "已确认"; // 已确认：明细只读锁定（core 同步拒绝）
 
-  const [date, setDate] = createSignal(isEdit ? rec?.date ?? "" : toDateKey(new Date()));
-  const [customer, setCustomer] = createSignal(rec?.customer ?? "");
+  const [date, setDate] = createSignal(isEdit ? rec?.date ?? "" : prefill?.date ?? toDateKey(new Date()));
+  const [customer, setCustomer] = createSignal(isEdit ? rec?.customer ?? "" : prefill?.customer ?? "");
   // 新建：留空自动生成、可手输；编辑：单号只读展示（生成后不可改）
-  const [quotationNo, setQuotationNo] = createSignal(isEdit ? rec?.quotation_no ?? "" : "");
-  const [notes, setNotes] = createSignal(rec?.notes ?? "");
+  const [quotationNo, setQuotationNo] = createSignal(isEdit ? rec?.quotation_no ?? "" : prefill?.quotation_no ?? "");
+  const [notes, setNotes] = createSignal(isEdit ? rec?.notes ?? "" : prefill?.notes ?? "");
   const [lines, setLines] = createSignal<LineForm[]>(
     isEdit && rec
       ? rec.lines.map((l) => ({
@@ -95,9 +99,16 @@ export default function QuoteFormModal(props: {
           qty: String(l.qty),
           unit_price: String(l.unit_price),
         }))
-      : [blankLine()],
+      : prefill?.lines?.length
+        ? prefill.lines.map((l) => ({
+            product: l.product ?? "",
+            sku: l.sku ?? "",
+            qty: l.qty != null ? String(l.qty) : "",
+            unit_price: l.unit_price != null ? String(l.unit_price) : "",
+          }))
+        : [blankLine()],
   );
-  const [filePath, setFilePath] = createSignal(rec?.file_path ?? "");
+  const [filePath, setFilePath] = createSignal(isEdit ? rec?.file_path ?? "" : prefill?.file_path ?? "");
   // 本次弹窗内已归档但尚未保存的文件（archiveFile 立即落盘，取消/查重拒绝会留下孤儿文件，关闭时提示）
   const [stagedArchive, setStagedArchive] = createSignal("");
   // v2.5.3（P2-10）：保存中——按钮 disabled + save 入口守卫，防连点双创建（照 CreateClientModal saving 先例）
@@ -105,6 +116,15 @@ export default function QuoteFormModal(props: {
 
   const setLine = (i: number, patch: Partial<LineForm>) =>
     setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+
+  // v2.5.4（预填 e2e 抓出）：客户下拉 options 随 customers store 异步刷新重建时浏览器丢选中，
+  // Solid 不会在子节点变化时重设 value——customers 变化后补应用一次（预填/编辑初始选中依赖此）
+  let customerSelectRef: HTMLSelectElement | undefined;
+  createEffect(() => {
+    props.customers;
+    const v = customer();
+    if (customerSelectRef && customerSelectRef.value !== v) customerSelectRef.value = v;
+  });
 
   const addLine = () => setLines((prev) => [...prev, blankLine()]);
   const removeLine = (i: number) => setLines((prev) => (prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)));
@@ -240,6 +260,7 @@ export default function QuoteFormModal(props: {
           <div>
             <label class={labelCls}>关联客户</label>
             <select
+              ref={(el) => { customerSelectRef = el; }}
               class="w-full px-3 py-2 border border-surface-200 rounded-lg bg-white text-sm"
               value={customer()}
               onChange={(e) => setCustomer(e.currentTarget.value)}

@@ -1,4 +1,4 @@
-import { Show, For } from "solid-js";
+import { Show, For, createEffect } from "solid-js";
 import Modal from "~/components/ui/Modal";
 import DatePicker from "~/components/DatePicker";
 import TagInput from "~/components/TagInput";
@@ -6,10 +6,12 @@ import ArchiveField from "./ArchiveField";
 import { STATUSES } from "./utils";
 import type { InvoiceFormState, InvoiceStatus, InvoiceRecord, CustomerBrief } from "./types";
 import type { TagInfo } from "~/types";
+import type { PluginFileCommand } from "~/plugins/registry";
 /**
  * 发票新建/编辑弹窗（v2.5.1 T3 波1 拆分 + overlay→Modal 迁移）：
  * 信号与保存逻辑保留在主文件（Invoices.tsx），本组件只做展示与字段编辑（props 显式化，D11）。
  * 逻辑零改动：字段校验/归档/保存均在主文件 saveInvoice 等 handler。
+ * v2.5.4：客户下拉 options 随 customers store 异步刷新重建时浏览器丢选中——变化后补应用 value（预填依赖）。
  */
 export default function InvoiceEditorModal(props: {
   editor: { mode: "create" } | { mode: "edit"; record: InvoiceRecord } | null;
@@ -24,12 +26,59 @@ export default function InvoiceEditorModal(props: {
   missing: Record<string, boolean>;
   customers: CustomerBrief[];
   tagOptions: TagInfo[];
+  /** v2.5.4（Task 4）：global 命令槽——新建发票 create 模式渲染为识别按钮（无插件不显示） */
+  identifyCommands: PluginFileCommand[];
+  identifying?: boolean;
+  identifyWarnings?: string[];
+  /** 识别已归档副本的相对路径（识别成功即归档；空表示未识别） */
+  stagedArchivedRel?: string;
+  onIdentify: (cmd: PluginFileCommand) => void;
 }) {
+  // 客户下拉：options 重建后补应用选中值（v2.5.4 预填）
+  let customerSelectRef: HTMLSelectElement | undefined;
+  createEffect(() => {
+    props.customers;
+    const v = props.form.customer;
+    if (customerSelectRef && customerSelectRef.value !== v) customerSelectRef.value = v;
+  });
   return (
     <Show when={props.editor}>
       <Modal open title={props.editor?.mode === "edit" ? "编辑发票" : "新建发票"} size="2xl" onClose={props.onClose}>
         <div class="p-6">
           <h2 class="text-xl font-bold mb-4">{props.editor?.mode === "edit" ? "编辑发票" : "新建发票"}</h2>
+          {/* v2.5.4（Task 4）：global 命令槽（识别按钮）——仅 create 模式且有启用插件命令时渲染 */}
+          <Show when={props.editor?.mode === "create" && props.identifyCommands.length > 0}>
+            <div class="mb-4">
+              <div class="flex items-center gap-2 flex-wrap">
+                <For each={props.identifyCommands}>
+                  {(cmd) => (
+                    <button
+                      type="button"
+                      class="btn-secondary text-sm"
+                      disabled={props.identifying}
+                      onClick={() => void props.onIdentify(cmd)}
+                    >
+                      {props.identifying ? "识别中…" : cmd.label}
+                    </button>
+                  )}
+                </For>
+                <Show when={props.stagedArchivedRel}>
+                  <span class="text-xs text-emerald-700">
+                    已识别并归档：发票/{props.stagedArchivedRel}（确认登记即入账）
+                  </span>
+                </Show>
+              </div>
+              <Show when={props.identifyWarnings && props.identifyWarnings.length > 0}>
+                <div class="mt-2">
+                  <For each={props.identifyWarnings ?? []}>
+                    {(w) => (
+                      <p class="text-sm text-amber-600">⚠ {w}</p>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+          </Show>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">发票号码 *</label>
@@ -105,6 +154,7 @@ export default function InvoiceEditorModal(props: {
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">关联客户</label>
               <select
+                ref={(el) => { customerSelectRef = el; }}
                 class="select w-full"
                 aria-label="关联客户"
                 value={props.form.customer}

@@ -8,6 +8,10 @@ import type {
   WindowPrepareHideMessage,
   WindowRestoredMessage,
 } from '../../shared/types'
+import type {
+  CreatePrefillPayload,
+  PrefillEntity,
+} from './stores/createPrefillNormalize'
 
 interface QiheboxApi {
   account: {
@@ -103,6 +107,7 @@ interface QiheboxApi {
     copyPaths: (paths: string[]) => Promise<unknown>
     startDrag: (paths: string[]) => Promise<unknown>
     workspaceUrl: (filePath: string) => Promise<unknown>
+    statPath: (filePath: string) => Promise<unknown>
     openWithDefaultApp: (filePath: string) => Promise<unknown>
     readTextFile: (filePath: string) => Promise<unknown>
     videoThumbnail: (filePath: string) => Promise<unknown>
@@ -200,6 +205,18 @@ interface QiheboxApi {
   }
   events: {
     on: (channel: string, callback: (data: unknown) => void) => () => void
+  }
+  // v2.5.4：全业务新建通用预填（PLAN-v2.5.4 §3.1；纯渲染层 UI 钩子，不过 IPC、不自动建档；
+  // payload 全字段可选、传啥填啥；数组 = 批量逐条确认（创建推进 / 取消清空），单批 ≤50、自然键去重）
+  ui: {
+    openCreatePrefill: (
+      entity: PrefillEntity,
+      payload: CreatePrefillPayload | CreatePrefillPayload[],
+    ) => void
+    // v2.5.4（弹一 C-6）：编辑预填——key = 实体自然键（customer/supplier/productSet=name、
+    // quote=quotation_no、invoice=number、inbound=id）；payload = 建议改动（与 create 同 schema）；
+    // 弹窗先加载原值再覆盖建议；单条制、开弹窗后清空
+    openEditPrefill: (entity: PrefillEntity, key: string, payload: CreatePrefillPayload) => void
   }
   updater: {
     check: () => Promise<unknown>

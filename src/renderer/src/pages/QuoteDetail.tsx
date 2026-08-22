@@ -11,6 +11,7 @@ import { api } from "~/wails/api";
 import { currentWorkspace } from "~/stores/workspace";
 import { customers, loadCustomers } from "~/stores/clients";
 import { showToast } from "~/stores/notifyBanner";
+import { currentEditPrefill, clearEditPrefill } from "~/stores/createPrefill";
 import { openPreview } from "~/stores/preview";
 import EmptyState from "~/components/EmptyState";
 import ConfirmDialog from "~/components/ConfirmDialog";
@@ -58,6 +59,8 @@ export default function QuoteDetail() {
 
   const [record, setRecord] = createSignal<QuoteRecord | null>(null);
   const [editing, setEditing] = createSignal(false);
+  // v2.5.4（弹一 C-6）：编辑预填注入记录（建议改动合并后的记录传给弹窗；手动编辑时为 null 用原记录）
+  const [editRecord, setEditRecord] = createSignal<QuoteRecord | null>(null);
   const [confirmDelete, setConfirmDelete] = createSignal(false);
 
   const quotationNo = () => {
@@ -91,6 +94,18 @@ export default function QuoteDetail() {
       // 组件实例复用不重载、详情页停留在旧记录（照 ProductSets psName 先例）
       loadQuote(quotationNo());
     }
+  });
+  // v2.5.4（弹一 C-6）：编辑预填消费（单条制）——key=报价单号 → 建议改动合并到记录后打开编辑弹窗。
+  // 记录异步加载（loadQuote）：未就绪不消费不清；始终找不到 = 忽略（不崩）。
+  createEffect(() => {
+    currentEditPrefill("quote");
+    const edit = currentEditPrefill("quote");
+    if (!edit) return;
+    const cur = record();
+    if (!cur) return;
+    setEditRecord({ ...cur, ...(edit.payload as Partial<QuoteRecord>) });
+    setEditing(true);
+    clearEditPrefill("quote");
   });
 
   const customerExists = (name?: string) => !!name && customers().some((c) => c.name === name);
@@ -126,7 +141,7 @@ export default function QuoteDetail() {
                 <p class="text-surface-500 mt-1">报价单详情与状态流转</p>
               </div>
               <div class="flex items-center gap-2">
-                <button class="btn-secondary text-sm" onClick={() => setEditing(true)}>
+                <button class="btn-secondary text-sm" onClick={() => { setEditRecord(null); setEditing(true); }}>
                   ✏️ 编辑
                 </button>
                 <button
@@ -213,11 +228,11 @@ export default function QuoteDetail() {
         )}
       </Show>
 
-      {/* 编辑弹窗（status='已确认' 时明细行只读锁定） */}
+      {/* 编辑弹窗（status='已确认' 时明细行只读锁定；v2.5.4 C-6：编辑预填用合并记录） */}
       <Show when={editing() && record()}>
         <QuoteFormModal
           mode="edit"
-          record={record()!}
+          record={editRecord() ?? record()!}
           customers={customers() as CustomerInfo[]}
           onClose={() => setEditing(false)}
           onSaved={() => {

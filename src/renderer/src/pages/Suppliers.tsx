@@ -5,6 +5,8 @@ import Modal from "~/components/ui/Modal";
 import { tagList, loadTagDefs } from "~/stores/tags";
 import { currentWorkspace } from "~/stores/workspace";
 import { suppliers, loadSuppliers, suppliersLoading } from "~/stores/suppliers";
+import { prefillVersion, currentPrefill, advancePrefill, clearPrefill } from "~/stores/createPrefill";
+import type { SupplierPrefill } from "~/stores/createPrefillNormalize";
 import { showToast } from "~/stores/notifyBanner";
 import TagChip from "~/components/TagChip";
 import TagInput from "~/components/TagInput";
@@ -62,6 +64,40 @@ export default function Suppliers() {
 
   // —— 新建 ——
 
+  // v2.5.4 预填消费（PLAN-v2.5.4 §3.4）：版本变化 → seed 内联表单 + 打开新建区；只开不关
+  createEffect(() => {
+    prefillVersion("supplier");
+    const cur = currentPrefill("supplier") as SupplierPrefill | null;
+    if (!cur) return;
+    setNewName(cur.name ?? "");
+    setNewContact(cur.contact ?? "");
+    setNewPhone(cur.phone ?? "");
+    setNewEmail(cur.email ?? "");
+    setNewAddress(cur.address ?? "");
+    setNewNotes(cur.notes ?? "");
+    setNewTags(cur.tags ?? []);
+    setShowCreateModal(true);
+  });
+
+  /** 取消新建：清预填队列（P1-1）+ 关弹窗 */
+  const cancelCreate = () => {
+    clearPrefill("supplier");
+    setShowCreateModal(false);
+  };
+
+  /** 手动新建：防御性清队列 + 空表（v2.5.4） */
+  const openManualCreate = () => {
+    clearPrefill("supplier");
+    setNewName("");
+    setNewContact("");
+    setNewPhone("");
+    setNewEmail("");
+    setNewAddress("");
+    setNewNotes("");
+    setNewTags([]);
+    setShowCreateModal(true);
+  };
+
   const handleCreate = async () => {
     const name = newName().trim();
     if (!name) return;
@@ -85,6 +121,7 @@ export default function Suppliers() {
       setNewNotes("");
       setNewTags([]);
       loadSuppliers();
+      advancePrefill("supplier"); // v2.5.4：批量预填推进下一条（P1-1）
     } else {
       showToast("error", "创建失败", result.error || "未知错误");
     }
@@ -188,7 +225,7 @@ export default function Suppliers() {
           <h1 class="text-2xl font-bold text-surface-900">供应商</h1>
           <p class="text-surface-500 mt-1">管理供应商档案与往来文件（合同/对账单/往来文件）</p>
         </div>
-        <button class="btn-primary" onClick={() => setShowCreateModal(true)}>
+        <button class="btn-primary" onClick={openManualCreate}>
           <span>➕</span> 新建供应商
         </button>
       </div>
@@ -203,7 +240,7 @@ export default function Suppliers() {
           </div>
         }>
           <EmptyState icon="🏭" title="暂无供应商" desc="创建您第一个供应商来开始管理">
-            <button class="btn-primary" onClick={() => setShowCreateModal(true)}>新建供应商</button>
+            <button class="btn-primary" onClick={openManualCreate}>新建供应商</button>
           </EmptyState>
         </Show>
       }>
@@ -232,7 +269,7 @@ export default function Suppliers() {
 
       {/* 新建供应商弹窗（字段：名称/联系人/电话/邮箱/地址/标签/备注） */}
       <Show when={showCreateModal()}>
-        <Modal open title="新建供应商" size="xl" onClose={() => setShowCreateModal(false)}>
+        <Modal open title="新建供应商" size="xl" onClose={cancelCreate}>
           <div class="bg-white rounded-2xl w-full max-w-xl p-6 shadow-xl max-h-[90vh] overflow-y-auto overflow-x-hidden" onClick={(e) => e.stopPropagation()}>
             <h2 class="text-xl font-bold mb-4">新建供应商</h2>
             <div class="mb-4">
@@ -307,7 +344,7 @@ export default function Suppliers() {
               />
             </div>
             <div class="flex gap-3 justify-end">
-              <button class="btn-secondary" onClick={() => setShowCreateModal(false)}>取消</button>
+              <button class="btn-secondary" onClick={cancelCreate}>取消</button>
               <button class="btn-primary" onClick={handleCreate}>确认创建</button>
             </div>
           </div>

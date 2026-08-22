@@ -135,6 +135,31 @@ export function registerPluginHost(
           },
         },
         customersAccess: manifest.permissions?.customers === true,
+        // v2.5.4（弹一 C-1，云桥 M3）：suppliers 能力域适配器 + 门控（照 customers；core 错误经 mapCoreError）。
+        // list/get 投影规范化：SupplierProfile 承诺 notes/tags 恒存（core buildInfo 已填默认值，此处仅收窄类型）
+        suppliers: {
+          list: (since) =>
+            mapReject(box.suppliers.listSince(since)).then((l) =>
+              l.map((s) => ({ ...s, notes: s.notes ?? '', tags: s.tags ?? [] })),
+            ),
+          get: async (name) =>
+            mapReject(box.suppliers.get(name)).then((s) =>
+              s ? { ...s, notes: s.notes ?? '', tags: s.tags ?? [] } : null,
+            ),
+          writeErpExt: (name, ext) => mapReject(box.suppliers.writeErpExt(name, ext)),
+          syncProfile: async (req) => {
+            const r = await mapReject(box.suppliers.syncProfile(req))
+            // D6：applied:false = STALE（回显式乐观锁：req.updated_at ≤ 档案 updated_at）
+            if (!r.applied) throw fileError('STALE', '档案 updated_at 不早于请求，拒绝写入（STALE）')
+            return r
+          },
+        },
+        suppliersAccess: manifest.permissions?.suppliers === true,
+        // v2.5.4（弹一 C-4，云桥 M3）：quote 只读域适配器（只读投影 + 增量；门控并入 customers 同一位）
+        quotes: {
+          list: (since) => mapReject(box.quotes.listSince(since)),
+          get: async (quotationNo) => mapReject(box.quotes.get(quotationNo)).then((q) => q ?? null),
+        },
         share: {
           listProductSets: () => mapReject(shareView.listProductSets()),
           listCustomers: () => mapReject(shareView.listCustomers()),
@@ -178,9 +203,20 @@ export function registerPluginHost(
       return true
     }),
   )
-  ipcMain.handle('qihebox:plugins:call', (_e, pluginId: string, action: string, payload: unknown) =>
-    handle(() => loader.call(pluginId, action, payload)),
-  )
+  ipcMain.handle('qihebox:plugins:call', async (_e, pluginId: string, action: string, payload: unknown) => {
+    // v2.5.4（发票识别）：插件 IPC 返回值已是 ApiResult 形状 → 透传不重复包装（防双层信封）；
+    // 异常仍装 fail 信封（熔断由 loader 负责，此处只管通信形状）。
+    let r: unknown
+    try {
+      r = await loader.call(pluginId, action, payload)
+    } catch (err) {
+      return fail<unknown>(err)
+    }
+    if (r && typeof r === 'object' && 'success' in r && typeof (r as { success: unknown }).success === 'boolean') {
+      return r
+    }
+    return ok(r)
+  })
   ipcMain.handle('qihebox:plugins:install', (_e, source: { filePath: string }) =>
     handle(async () => {
       // v2.5 增量（PLAN §3.5，r2-执行P1-4 落点定死）：侧载收紧——devMode 校验放 handler 层，

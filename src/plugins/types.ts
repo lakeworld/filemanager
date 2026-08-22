@@ -50,6 +50,9 @@ export interface PluginManifest {
     /** customers 能力域（v2.5.1 A1，PLAN-v2.6-v2.7 §3.1）：声明后 host.customer.* 可用；
      *  未声明 → 全部方法抛 PERMISSION_DENIED（含读方法，与 account 恒 null 静默不同） */
     customers?: boolean
+    /** suppliers 能力域（v2.5.4 弹一 C-2，云桥 M3）：声明后 host.supplier.* 可用；
+     *  独立位（不复用 customers——不同数据域显式声明更诚实）；未声明 → PERMISSION_DENIED */
+    suppliers?: boolean
     /** share 能力域（v2.5.1 A2，PLAN-v2.6-v2.7 §3.2）：声明后 host.share.* 可用；未声明 → PERMISSION_DENIED */
     share?: boolean
   }
@@ -82,6 +85,80 @@ export interface PluginManifest {
   /** 插件自身图标（管理页展示；pages[].icon 是菜单图标，两者不同） */
   icon?: string
   homepage?: string
+}
+
+/**
+ * 实体档案基型（v2.5.4 弹一 C-5c，协议真合并）：customer/supplier 共享的公共字段——
+ * 宿主协议以「实体域」为核心组织，EntityProfile 保证各实体档案形状同源（name/erp_ext/updated_at 单点定义）。
+ */
+export interface EntityProfile {
+  name: string
+  /** erp-bridge 写回命名空间（本体只读不校验，插件经 writeErpExt 写） */
+  erp_ext?: Record<string, unknown>
+  updated_at: string
+}
+
+/**
+ * 客户档案（customer.list/get 返回形状，v2.5.4 类型收口 P1-7：对齐 shared/types.ts CustomerInfo，
+ * 运行时不变——此处仅把 unknown 收窄为协议承诺的字段集；file_count 恒存在（目录递归计数））
+ */
+export interface CustomerProfile extends EntityProfile {
+  /** 文件数统计（客户目录递归计数） */
+  file_count: number
+  alias?: string
+  country?: string
+  contact?: string
+  source?: string
+  /** 客户类型（启禾 OS company/individual 中文枚举；缺省=未分类） */
+  type?: '企业' | '个人'
+  phone?: string
+  email?: string
+  address?: string
+  tags: string[]
+  notes: string
+  /** 关联产品集名数组（唯一写点在客户侧） */
+  related_product_sets?: string[]
+  created_at: string
+}
+
+/**
+ * 供应商档案（supplier.list/get 返回形状，v2.5.4 弹一 C-1：对齐 shared/types.ts SupplierInfo，
+ * 运行时不变——此处仅把 unknown 收窄为协议承诺的字段集；file_count 恒存在（目录递归计数））
+ */
+export interface SupplierProfile extends EntityProfile {
+  /** 文件数统计（供应商目录递归计数） */
+  file_count: number
+  contact?: string
+  phone?: string
+  email?: string
+  address?: string
+  notes: string
+  tags: string[]
+  /** 关联产品集名数组（唯一写点在供应商侧） */
+  related_product_sets?: string[]
+  created_at: string
+}
+
+/**
+ * 报价单档案（quote.list/get 返回形状，v2.5.4 弹一 C-4：对齐 shared/types.ts QuoteRecord，
+ * 运行时不变；**只读投影**——host 不提供任何报价写方法，报价建档永远走预填桥手动确认）
+ */
+export interface QuoteProfile {
+  quotation_no: string
+  /** 报价日期 YYYY-MM-DD */
+  date: string
+  /** 关联客户名（存在性不校验） */
+  customer?: string
+  lines: { product: string; sku?: string; qty: number; unit_price: number; amount: number }[]
+  total_amount: number
+  status: '草稿' | '已确认' | '修订中'
+  confirmed_at?: string
+  notes?: string
+  file_path: string
+  /** keji 同步写回预留命名空间（本体只读不校验） */
+  quote_ext?: Record<string, unknown>
+  created_at: string
+  updated_at: string
 }
 
 /** 宿主 → 插件：activate(host) 注入的能力（PLUGIN.md §2.4.1）。v1 为进程内握手 */
@@ -142,9 +219,9 @@ export interface PluginHost {
    *  错误码：PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / INVALID_NAME / FIELD_DENIED / STALE / IO_ERROR */
   customer: {
     /** 客户档案全量/增量列表；since = updated_at 严大于过滤（ISO 串，Date.parse 归一化），缺省全量 */
-    list(since?: string): Promise<unknown[]>
+    list(since?: string): Promise<CustomerProfile[]>
     /** 单客户档案；不存在（以目录为准）→ null */
-    get(name: string): Promise<unknown | null>
+    get(name: string): Promise<CustomerProfile | null>
     /** 仅写 erp_ext 命名空间（整体替换）；目录有而 JSON 无条目 → 补最小条目后写；目录亦无 → NOT_FOUND */
     writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
     /** 双向同步：写本体对齐字段（type/contact/phone/email/address/notes）+ erp_ext；
@@ -161,6 +238,39 @@ export interface PluginHost {
       link(customerName: string, productSetName: string): Promise<void>
       unlink(customerName: string, productSetName: string): Promise<void>
     }
+  }
+
+  /** suppliers 能力域（v2.5.4 弹一 C-1，云桥 M3，照 customer 域薄壳模式）。
+   *  权限门控：manifest.permissions.suppliers !== true → 全部方法（含读）抛 PERMISSION_DENIED。
+   *  错误码：PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / INVALID_NAME / FIELD_DENIED / STALE / IO_ERROR */
+  supplier: {
+    /** 供应商档案全量/增量列表；since = updated_at 严大于过滤（ISO 串，Date.parse 归一化），缺省全量 */
+    list(since?: string): Promise<SupplierProfile[]>
+    /** 单供应商档案；不存在（以目录为准）→ null */
+    get(name: string): Promise<SupplierProfile | null>
+    /** 仅写 erp_ext 命名空间（整体替换）；目录有而 JSON 无条目 → 补最小条目后写；目录亦无 → NOT_FOUND */
+    writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
+    /** 双向同步：写本体对齐字段（contact/phone/email/address/notes）+ erp_ext；
+     *  回显式乐观锁：req.updated_at ≤ 档案 updated_at → STALE；较新 → 仅写白名单差异字段；
+     *  box 权威字段（tags/related_product_sets）入参 → FIELD_DENIED */
+    syncProfile(req: {
+      name: string
+      fields?: { contact?: string; phone?: string; email?: string; address?: string; notes?: string }
+      erp_ext?: Record<string, unknown>
+      updated_at: string
+    }): Promise<{ applied: boolean }>
+  }
+
+  /** quote 只读域（v2.5.4 弹一 C-4，云桥 M3）：报价台账只读投影（增量读）。
+   *  权限门控：**并入 `permissions.customers` 同一位**（C-2 拍板——客户/供应商/报价是同一桥插件的
+   *  客户关系数据面，权限位不碎片化）；未声明 → 全部方法抛 PERMISSION_DENIED。
+   *  **无任何写方法**——报价在 box 侧的建档永远走预填桥手动确认；上行推送后 erp 回执存插件 storage。
+   *  错误码：PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / IO_ERROR */
+  quote: {
+    /** 报价台账全量/增量列表；since = updated_at 严大于过滤（ISO 串，Date.parse 归一化），缺省全量 */
+    list(since?: string): Promise<QuoteProfile[]>
+    /** 单条报价；不存在（无此单号）→ null */
+    get(quotationNo: string): Promise<QuoteProfile | null>
   }
 
   /** share 能力域（v2.5.1 A2，PLAN-v2.6-v2.7 §3.2）：工作区只读实体视图 + 拉取写（局域网共享契约通道）。
@@ -390,9 +500,13 @@ export function validateManifest(input: unknown): { ok: boolean; errors: string[
       if (permissions.account !== undefined && typeof permissions.account !== 'boolean') {
         errors.push('permissions.account 须为布尔值')
       }
-      // —— 规则 ⑩（v2.5.1 A1/A2，PLAN-v2.6-v2.7 §3.1/§3.2）：permissions.customers / permissions.share 布尔校验 ——
+      // —— 规则 ⑩（v2.5.1 A1/A2 + v2.5.4 弹一 C-2，PLAN-v2.6-v2.7 §3.1/§3.2）：customers / suppliers / share 布尔校验 ——
       if (permissions.customers !== undefined && typeof permissions.customers !== 'boolean') {
         errors.push('permissions.customers 须为布尔值')
+      }
+      // v2.5.4（弹一 C-2，云桥 M3）：permissions.suppliers 独立位（不复用 customers——不同数据域显式声明更诚实）
+      if (permissions.suppliers !== undefined && typeof permissions.suppliers !== 'boolean') {
+        errors.push('permissions.suppliers 须为布尔值')
       }
       if (permissions.share !== undefined && typeof permissions.share !== 'boolean') {
         errors.push('permissions.share 须为布尔值')

@@ -33,6 +33,59 @@ import type { SupplierInfo, SupplierExtraInfo, SupplierCreateRequest, SupplierUp
 
 export type { SupplierInfo, SupplierExtraInfo, SupplierCreateRequest, SupplierUpdateRequest } from '../../shared/types'
 
+// —— v2.5.4（弹一 C-1，云桥 M3）：supplier 能力域 syncProfile 记录级裁决纯函数（镜像客户 resolveSyncProfile）——
+
+/** syncProfile 可写白名单（本体对齐字段）：box 权威字段（tags/related_product_sets）拒绝；供应商无 type */
+const SUPPLIER_SYNC_PROFILE_FIELDS = ['contact', 'phone', 'email', 'address', 'notes'] as const
+
+export interface SupplierSyncProfileResult {
+  applied: boolean
+  /** 白名单外字段入参（或空白 phone）→ 拒绝，host 层据此抛 FIELD_DENIED */
+  denied?: boolean
+  /** applied 时的新档案（供 host 层写回） */
+  next?: SupplierExtraInfo
+}
+
+/**
+ * 记录级裁决纯函数（D6 语义，镜像 resolveSyncProfile）：req.updated_at ≤ 档案 updated_at → STALE（不写）；
+ * 较新 → 仅合并白名单差异字段 + erp_ext；白名单外字段入参 → denied。
+ */
+export function resolveSupplierSyncProfile(
+  local: SupplierExtraInfo,
+  req: { fields?: Partial<Record<string, unknown>>; erp_ext?: Record<string, unknown>; updated_at: string },
+): SupplierSyncProfileResult {
+  const localMs = Date.parse(local.updated_at ?? '')
+  const reqMs = Date.parse(req.updated_at)
+  if (!Number.isFinite(localMs) || !Number.isFinite(reqMs) || reqMs <= localMs) {
+    return { applied: false }
+  }
+  const fields = req.fields ?? {}
+  for (const key of Object.keys(fields)) {
+    if (!(SUPPLIER_SYNC_PROFILE_FIELDS as readonly string[]).includes(key as (typeof SUPPLIER_SYNC_PROFILE_FIELDS)[number])) {
+      return { applied: false, denied: true }
+    }
+  }
+  const next: SupplierExtraInfo = { ...local }
+  let changed = false
+  for (const key of SUPPLIER_SYNC_PROFILE_FIELDS) {
+    const raw = (fields as Record<string, unknown>)[key]
+    if (raw === undefined) continue
+    const trimmed = String(raw).trim()
+    if (key === 'phone' && !trimmed) return { applied: false, denied: true }
+    if (next[key] !== trimmed) {
+      ;(next as Record<string, unknown>)[key] = trimmed
+      changed = true
+    }
+  }
+  if (req.erp_ext !== undefined) {
+    next.erp_ext = req.erp_ext
+    changed = true
+  }
+  if (!changed) return { applied: false }
+  next.updated_at = new Date(reqMs).toISOString()
+  return { applied: true, next }
+}
+
 export class SuppliersService {
   constructor(
     private workspace: WorkspaceService,
@@ -270,6 +323,81 @@ export class SuppliersService {
       }
       return this.buildInfo(ws, name, await countFiles(dir), entry)
     })
+  }
+
+  // —— v2.5.4（弹一 C-1，云桥 M3）：supplier 能力域（镜像客户 customer 域）——
+
+  /** 增量列表（since = updated_at 严大于 ms 过滤）；无 since → 全量 */
+  async listSince(since?: string): Promise<SupplierInfo[]> {
+    const all = await this.list()
+    if (!since) return all
+    const sinceMs = Date.parse(since)
+    if (!Number.isFinite(sinceMs)) return all
+    return all.filter((s) => {
+      const ms = Date.parse(s.updated_at ?? '')
+      return Number.isFinite(ms) && ms > sinceMs
+    })
+  }
+
+  /** 单供应商档案（目录基准同客户 D8）：目录不存在 → null */
+  async get(name: string): Promise<SupplierInfo | null> {
+    const ws = this.requireWS()
+    const n = name.trim()
+    if (!n) return null
+    const dir = supplierRootPath(ws, n)
+    const ok = await fsp.stat(dir).then(() => true).catch(() => false)
+    if (!ok) return null
+    const extra = await this.loadSuppliersInfo()
+    return this.buildInfo(ws, n, await countFiles(dir), extra[n])
+  }
+
+  /** 仅写 erp_ext 命名空间（整体替换，镜像客户 clients.writeErpExt）；目录有而 JSON 无条目 → 补最小条目后写；目录亦无 → 供应商不存在 */
+  async writeErpExt(name: string, ext: Record<string, unknown>): Promise<void> {
+    const ws = this.requireWS()
+    const n = name.trim()
+    await this.assertSupplierDir(ws, n)
+    const now = currentTimeString()
+    await this.mutateStore(ws, async (store, markChanged) => {
+      const entry: SupplierExtraInfo = store[n] ?? { created_at: now }
+      entry.erp_ext = ext ?? {}
+      entry.updated_at = currentTimeString()
+      store[n] = entry
+      markChanged()
+    })
+  }
+
+  /**
+   * 双向同步（D6 回显式乐观锁，镜像客户 syncProfile）：
+   * req.updated_at ≤ 档案 updated_at → { applied:false }（host 层抛 STALE）；
+   * 白名单外字段 → denied（host 层抛 FIELD_DENIED）；较新 → 仅写白名单差异字段 + erp_ext。
+   */
+  async syncProfile(req: {
+    name: string
+    fields?: Partial<Record<string, unknown>>
+    erp_ext?: Record<string, unknown>
+    updated_at: string
+  }): Promise<{ applied: boolean }> {
+    const ws = this.requireWS()
+    const name = req.name.trim()
+    if (!name) throw new Error('供应商名称不能为空')
+    await this.assertSupplierDir(ws, name)
+    const now = currentTimeString()
+    return this.mutateStore(ws, async (store, markChanged) => {
+      const entry: SupplierExtraInfo = store[name] ?? { created_at: now }
+      const verdict = resolveSupplierSyncProfile(entry, req)
+      if (!verdict.applied) {
+        if (verdict.denied) throw new Error('syncProfile 含白名单外字段（box 权威字段不可由 ERP 写）')
+        return { applied: false }
+      }
+      store[name] = verdict.next as SupplierExtraInfo
+      markChanged()
+      return { applied: true }
+    })
+  }
+
+  private async assertSupplierDir(ws: string, name: string): Promise<void> {
+    const ok = await fsp.stat(supplierRootPath(ws, name)).then(() => true).catch(() => false)
+    if (!ok) throw new Error('供应商不存在')
   }
 
   /**

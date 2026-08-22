@@ -22,6 +22,8 @@ import Loading from "~/components/Loading";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import QuoteStatusActions from "~/components/QuoteStatusActions";
 import QuoteFormModal from "~/components/QuoteFormModal";
+import { prefillVersion, currentPrefill, advancePrefill, clearPrefill } from "~/stores/createPrefill";
+import type { QuotePrefill } from "~/stores/createPrefillNormalize";
 import type { QuoteRecord, CustomerInfo, FileEntry } from "~/types";
 
 /** 台账列模板（与表头/行一致；minmax 保证窄窗口下可截断） */
@@ -68,6 +70,23 @@ export default function Quotes() {
   const [loading, setLoading] = createSignal(true);
   const [missingFiles, setMissingFiles] = createSignal<Record<string, boolean>>({});
   const [creating, setCreating] = createSignal(false);
+  // v2.5.4 预填（PLAN-v2.5.4 §3.4）：预填载荷（null = 手动新建空表）
+  const [createInitial, setCreateInitial] = createSignal<QuotePrefill | null>(null);
+  // 预填消费：版本变化 → 有预填则开弹窗填表；只开不关
+  createEffect(() => {
+    prefillVersion("quote");
+    const cur = currentPrefill("quote") as QuotePrefill | null;
+    if (cur) {
+      setCreateInitial(cur);
+      setCreating(true);
+    }
+  });
+  /** 手动新建：防御性清队列 + 空表（v2.5.4） */
+  const openManualCreate = () => {
+    clearPrefill("quote");
+    setCreateInitial(null);
+    setCreating(true);
+  };
   const [deleteTarget, setDeleteTarget] = createSignal<{ no: string } | null>(null);
 
   // —— 筛选信号（v2.4.9 M4：状态/客户/日期范围；"" = 全部/未限定）——
@@ -176,7 +195,7 @@ export default function Quotes() {
           <h1 class="text-2xl font-bold text-surface-900">报价管理</h1>
           <p class="text-surface-500 mt-1">报价单台账与文件归档</p>
         </div>
-        <button class="btn-primary text-sm" onClick={() => setCreating(true)}>
+        <button class="btn-primary text-sm" onClick={openManualCreate}>
           <span>➕</span> 新建报价
         </button>
       </div>
@@ -316,21 +335,27 @@ export default function Quotes() {
           {/* v2.5.2：首载 loading 兜底，空态不闪现 */}
           <Show when={!loading()} fallback={<Loading text="报价加载中…" />}>
             <EmptyState icon="📄" title="暂无报价" desc="点击「新建报价」登记第一张报价单">
-              <button class="btn-primary" onClick={() => setCreating(true)}>新建报价</button>
+              <button class="btn-primary" onClick={openManualCreate}>新建报价</button>
             </EmptyState>
           </Show>
         </div>
       </Show>
 
-      {/* 新建报价弹窗（明细行动态编辑 + 归档 + 单号留空自动生成） */}
+      {/* 新建报价弹窗（明细行动态编辑 + 归档 + 单号留空自动生成；v2.5.4：onClose=取消清队列，onSaved=创建推进） */}
       <Show when={creating()}>
         <QuoteFormModal
           mode="create"
+          initial={createInitial()}
           customers={customers() as CustomerInfo[]}
-          onClose={() => setCreating(false)}
+          onClose={() => {
+            clearPrefill("quote");
+            setCreateInitial(null);
+            setCreating(false);
+          }}
           onSaved={() => {
             setCreating(false);
             void loadQuotes();
+            advancePrefill("quote");
           }}
         />
       </Show>
