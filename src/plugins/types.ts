@@ -293,6 +293,10 @@ export interface PluginHost {
     /** 同名合并：存在 → 'exists'（零覆盖）；不存在 → 复用产品集/客户创建 → 'created' */
     ensureProductSet(name: string): Promise<'created' | 'exists'>
     ensureCustomer(name: string): Promise<'created' | 'exists'>
+    /** LAN v0.2.3：按需把第一层子文件夹注册进工作区白名单（图包/证书/文档/客户），宿主面板即可显示拉取来的新目录。
+     *  kind=image|cert|doc → 产品集/<holder>/{图包|证书|文档}/<name>；kind=customer → 客户/<holder>/<name>。
+     *  目录缺失 → 创建 + 注册；已存在 → 仅补注册；幂等去重。名称/holder 防穿越；kind 非法 → INVALID_NAME */
+    ensureSubfolder(kind: 'image' | 'cert' | 'doc' | 'customer', holder: string, name: string): Promise<void>
     /** 元数据合并导入：两级粒度；tags 并集；notes 本地为空采纳远端、本地非空且不同 → 保留本地（计入冲突清单）；
      *  单批 ≤ 500 条；返回冲突清单供插件提示 */
     mergePulledMetadata(entries: { path: string; tags: string[]; notes: string }[]): Promise<{ conflicts: string[] }>

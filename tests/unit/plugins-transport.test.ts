@@ -268,6 +268,7 @@ async function makeLoader(mainJs: string): Promise<{ loader: PluginLoader }> {
           writePulledFile: async () => {},
           ensureProductSet: async () => 'exists' as const,
           ensureCustomer: async () => 'exists' as const,
+          ensureSubfolder: async () => {},
           mergePulledMetadata: async () => ({ conflicts: [] }),
         },
         shareAccess: false,

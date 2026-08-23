@@ -62,6 +62,7 @@ async function makeDeps(overrides: AdapterSet = {}) {
         writePulledFile: async () => {},
         ensureProductSet: async () => 'exists' as const,
         ensureCustomer: async () => 'exists' as const,
+        ensureSubfolder: async () => {},
         mergePulledMetadata: async () => ({ conflicts: [] }),
       },
       shareAccess: overrides.shareAccess ?? true,
@@ -227,6 +228,7 @@ describe('createPluginHost：host.share 能力域（v2.5.1 A2）', () => {
       writePulledFile(p: string, c: Uint8Array, o: number): Promise<void>
       ensureProductSet(n: string): Promise<unknown>
       ensureCustomer(n: string): Promise<unknown>
+      ensureSubfolder(k: string, h: string, n: string): Promise<void>
       mergePulledMetadata(e: unknown[]): Promise<unknown>
     }
   }
@@ -244,6 +246,7 @@ describe('createPluginHost：host.share 能力域（v2.5.1 A2）', () => {
       () => h.share.writePulledFile('x', new Uint8Array(1), 0),
       () => h.share.ensureProductSet('x'),
       () => h.share.ensureCustomer('x'),
+      () => h.share.ensureSubfolder('image', 'x', 'sku'),
       () => h.share.mergePulledMetadata([]),
     ]
     for (const fn of fns) {
@@ -263,6 +266,7 @@ describe('createPluginHost：host.share 能力域（v2.5.1 A2）', () => {
         writePulledFile: async () => {},
         ensureProductSet: async () => 'created' as const,
         ensureCustomer: async () => 'created' as const,
+        ensureSubfolder: async () => {},
         mergePulledMetadata: async () => ({ conflicts: ['a'] }),
       },
     })
@@ -278,6 +282,7 @@ describe('createPluginHost：host.share 能力域（v2.5.1 A2）', () => {
         writePulledFile(p: string, c: Uint8Array, o: number): Promise<void>
         ensureProductSet(n: string): Promise<unknown>
         ensureCustomer(n: string): Promise<unknown>
+        ensureSubfolder(k: string, h: string, n: string): Promise<void>
         mergePulledMetadata(e: unknown[]): Promise<unknown>
       }
     }
