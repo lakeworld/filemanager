@@ -2,7 +2,7 @@
   qihe-box API 兼容性守护基线（API_VERSION=1 · 只增不删）
   生成器：tests/unit/helpers/apiSurface.ts · 更新：npm run api:update
   TypeScript: 5.9.3
-  break-reason: v2.5.4 弹一 C-5c：EntityProfile 基型同源——CustomerProfile/SupplierProfile 继承（name/erp_ext/updated_at 上移基型，运行时形状零变化，纯类型重组；契约语义不变）
+  break-reason: share 域新增 ensureSubfolder(kind,holder,name)（LAN v0.2.3 拉取子文件夹白名单自动注册；插件侧对旧宿主做能力探测兜底，运行期无破坏）
 -->
 
 # qihe-box 插件协议 API 面（types / preload / ipc）
@@ -59,6 +59,7 @@
 - PluginHost.quote: { list(since?: string): Promise<QuoteProfile[]>; get(quotationNo: string): Promise<QuoteProfile | null>; }
 - PluginHost.share.ensureCustomer(name: string): Promise<'created' | 'exists'>
 - PluginHost.share.ensureProductSet(name: string): Promise<'created' | 'exists'>
+- PluginHost.share.ensureSubfolder(kind: 'image' | 'cert' | 'doc' | 'customer', holder: string, name: string): Promise<void>
 - PluginHost.share.getMetadata(relPath: string): Promise<{ tags: string[]; notes: string; }>
 - PluginHost.share.listCustomers(): Promise<unknown[]>
 - PluginHost.share.listProductSets(): Promise<unknown[]>
@@ -67,7 +68,7 @@
 - PluginHost.share.readFileChunk(relPath: string, offset: number, length: number): Promise<Uint8Array>
 - PluginHost.share.statFile(relPath: string): Promise<{ size: number; mtime: string; }>
 - PluginHost.share.writePulledFile(targetRelPath: string, chunk: Uint8Array, offset: number): Promise<void>
-- PluginHost.share: { listProductSets(): Promise<unknown[]>; listCustomers(): Promise<unknown[]>; listTree(relPath?: string): Promise<unknown[]>; getMetadata(relPath: string): Promise<{ tags: string[]; notes: string; }>; statFile(relPath: string): Promise<{ size: number; mtime: string; }>; readFileChunk(relPath: string, offset: number, length: number): Promise<Uint8Array>; writePulledFile(targetRelPath: string, chunk: Uint8Array, offset: number): Promise<void>; ensureProductSet(name: string): Promise<'created' | 'exists'>; ensureCustomer(name: string): Promise<'created' | 'exists'>; mergePulledMetadata(entries: { path: string; tags: string[]; notes: string; }[]): Promise<{ conflicts: string[]; }>; }
+- PluginHost.share: { listProductSets(): Promise<unknown[]>; listCustomers(): Promise<unknown[]>; listTree(relPath?: string): Promise<unknown[]>; getMetadata(relPath: string): Promise<{ tags: string[]; notes: string; }>; statFile(relPath: string): Promise<{ size: number; mtime: string; }>; readFileChunk(relPath: string, offset: number, length: number): Promise<Uint8Array>; writePulledFile(targetRelPath: string, chunk: Uint8Array, offset: number): Promise<void>; ensureProductSet(name: string): Promise<'created' | 'exists'>; ensureCustomer(name: string): Promise<'created' | 'exists'>; ensureSubfolder(kind: 'image' | 'cert' | 'doc' | 'customer', holder: string, name: string): Promise<void>; mergePulledMetadata(entries: { path: string; tags: string[]; notes: string; }[]): Promise<{ conflicts: string[]; }>; }
 - PluginHost.storage.get(key: string): Promise<unknown>
 - PluginHost.storage.set(key: string, value: unknown): Promise<void>
 - PluginHost.storage: { get(key: string): Promise<unknown>; set(key: string, value: unknown): Promise<void>; }

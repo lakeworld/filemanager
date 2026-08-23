@@ -14,8 +14,13 @@ import {
   EXPORTS_DIR,
   EXCHANGE_DIR,
   APP_DATA_DIR,
+  IMAGES_DIR,
+  CERTS_DIR,
+  DOCS_DIR,
   productSetRootPath,
   customerRootPath,
+  assertSafeFolderName,
+  assertSafePathSegment,
 } from './paths'
 import type { BoxService } from './index'
 
@@ -241,6 +246,40 @@ export class ShareViewService {
       await this.box.clients.create({ name })
       return 'created'
     }
+  }
+
+  /** LAN v0.2.3：目录拉取后按需把第一层子文件夹注册进工作区白名单（让宿主面板显示拉来的目录）。
+   *  kind=image|cert|doc → 产品集/<holder>/<图包|证书|文档>/<name>；kind=customer → 客户/<holder>/<name>（holder 槽位传客户名）。
+   *  缺失目录 → 创建+注册；已存在 → 仅补注册（幂等去重）；名称/holder 防穿越；非白名单 kind 拒绝。 */
+  async ensureSubfolder(kind: 'image' | 'cert' | 'doc' | 'customer', holder: string, name: string): Promise<void> {
+    if (!['image', 'cert', 'doc', 'customer'].includes(kind)) throw new Error('不支持的子文件夹类别：kind')
+    const ws = this.requireWS()
+    const safe = assertSafeFolderName(name, '子文件夹名称')
+    const holderSafe = assertSafePathSegment(holder, kind === 'customer' ? '客户名称' : '产品集')
+    const dir =
+      kind === 'image'
+        ? path.join(ws, PRODUCT_SETS_DIR, holderSafe, IMAGES_DIR, safe)
+        : kind === 'cert'
+          ? path.join(ws, PRODUCT_SETS_DIR, holderSafe, CERTS_DIR, safe)
+          : kind === 'doc'
+            ? path.join(ws, PRODUCT_SETS_DIR, holderSafe, DOCS_DIR, safe)
+            : path.join(ws, CUSTOMERS_DIR, holderSafe, safe)
+    const existed = await fsp.stat(dir).then(() => true).catch(() => false)
+    if (!existed) await fsp.mkdir(dir, { recursive: true })
+    const cfg = await this.box.workspace.loadConfig(ws)
+    const list =
+      kind === 'image'
+        ? cfg.image_subfolders
+        : kind === 'cert'
+          ? cfg.cert_subfolders
+          : kind === 'doc'
+            ? (cfg.doc_subfolders ??= [])
+            : (cfg.customer_subfolders ??= [])
+    if (!list.includes(safe)) list.push(safe)
+    await this.box.workspace.saveConfig(ws, cfg)
+    const { globalWorkspaceIndex } = await import('./indexCache')
+    if (existed) globalWorkspaceIndex.invalidate(dir)
+    globalWorkspaceIndex.invalidate(path.dirname(dir))
   }
 
   /**

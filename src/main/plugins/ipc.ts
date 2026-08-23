@@ -170,6 +170,7 @@ export function registerPluginHost(
           writePulledFile: (p, c, o) => mapReject(shareView.writePulledFile(p, c, o)),
           ensureProductSet: (n) => mapReject(shareView.ensureProductSet(n)),
           ensureCustomer: (n) => mapReject(shareView.ensureCustomer(n)),
+          ensureSubfolder: (k, h, n) => mapReject(shareView.ensureSubfolder(k, h, n)),
           mergePulledMetadata: (e) => mapReject(shareView.mergePulledMetadata(e)),
         },
         shareAccess: manifest.permissions?.share === true,

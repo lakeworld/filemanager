@@ -224,3 +224,58 @@ describe('ShareViewService（v2.5.1 A2）', () => {
     await expect(svc.mergePulledMetadata(many)).rejects.toThrow('500')
   })
 })
+
+describe('ensureSubfolder（LAN v0.2.3 自动注册拉取子文件夹白名单）', () => {
+  it('图包子文件夹：缺失目录 → 创建 + 注册 + 幂等去重', async () => {
+    const { ws, box } = await makeBox()
+    const svc = new ShareViewService(box)
+    await svc.ensureSubfolder('image', '夏季新款', 'sku')
+    await svc.ensureSubfolder('image', '夏季新款', 'sku') // 幂等
+    const dir = path.join(ws, '产品集', '夏季新款', '图包', 'sku')
+    expect((await fsp.stat(dir)).isDirectory()).toBe(true)
+    const cfg = await box.workspace.loadConfig(ws)
+    expect(cfg.image_subfolders.filter((x) => x === 'sku')).toHaveLength(1)
+  })
+
+  it('已存在的目录：仅补注册，不抛「子文件夹已存在」', async () => {
+    const { ws, box } = await makeBox()
+    await fsp.mkdir(path.join(ws, '产品集', '夏季新款', '图包', '白底'), { recursive: true })
+    const svc = new ShareViewService(box)
+    await svc.ensureSubfolder('image', '夏季新款', '白底')
+    const cfg = await box.workspace.loadConfig(ws)
+    expect(cfg.image_subfolders).toContain('白底')
+  })
+
+  it.each([
+    ['cert', '证书', '质检'],
+    ['doc', '文档', '参数表'],
+  ])('%s 子文件夹注册到对应白名单', async (kind, label, name) => {
+    const { ws, box } = await makeBox()
+    const svc = new ShareViewService(box)
+    await svc.ensureSubfolder(kind as 'cert' | 'doc', '夏季新款', name)
+    const dir = path.join(ws, '产品集', '夏季新款', label, name)
+    expect((await fsp.stat(dir)).isDirectory()).toBe(true)
+    const cfg = await box.workspace.loadConfig(ws)
+    const list = kind === 'cert' ? cfg.cert_subfolders : cfg.doc_subfolders
+    expect(list).toContain(name)
+  })
+
+  it('客户子文件夹：客户/<名>/<子> + customer_subfolders 注册', async () => {
+    const { ws, box } = await makeBox()
+    const svc = new ShareViewService(box)
+    await svc.ensureCustomer('华东客户')
+    await svc.ensureSubfolder('customer', '华东客户', '沟通')
+    const dir = path.join(ws, '客户', '华东客户', '沟通')
+    expect((await fsp.stat(dir)).isDirectory()).toBe(true)
+    const cfg = await box.workspace.loadConfig(ws)
+    expect(cfg.customer_subfolders).toContain('沟通')
+  })
+
+  it('非法名称/非法 kind → 拒绝', async () => {
+    const { box } = await makeBox()
+    const svc = new ShareViewService(box)
+    await expect(svc.ensureSubfolder('image', '夏季新款', '../evil')).rejects.toThrow()
+    await expect(svc.ensureSubfolder('image', '../x', 'sku')).rejects.toThrow()
+    await expect(svc.ensureSubfolder('bogus' as never, '夏季新款', 'sku')).rejects.toThrow(/kind/)
+  })
+})

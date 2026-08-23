@@ -190,6 +190,7 @@ describe('host.files 模糊（工作区受限读写）', () => {
         writePulledFile: async () => {},
         ensureProductSet: async () => 'exists' as const,
         ensureCustomer: async () => 'exists' as const,
+        ensureSubfolder: async () => {},
         mergePulledMetadata: async () => ({ conflicts: [] }),
       },
       shareAccess: false,

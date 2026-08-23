@@ -206,6 +206,7 @@ export interface PluginHostDeps {
     writePulledFile(targetRelPath: string, chunk: Uint8Array, offset: number): Promise<void>
     ensureProductSet(name: string): Promise<'created' | 'exists'>
     ensureCustomer(name: string): Promise<'created' | 'exists'>
+    ensureSubfolder(kind: 'image' | 'cert' | 'doc' | 'customer', holder: string, name: string): Promise<void>
     mergePulledMetadata(entries: { path: string; tags: string[]; notes: string }[]): Promise<{ conflicts: string[] }>
   }
   /** manifest.permissions.share === true 时才接通；否则 host.share.* 全部抛 PERMISSION_DENIED */
@@ -540,6 +541,9 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
           throw permissionDenied('share')
         },
         ensureCustomer: async (): Promise<'created' | 'exists'> => {
+          throw permissionDenied('share')
+        },
+        ensureSubfolder: async (): Promise<void> => {
           throw permissionDenied('share')
         },
         mergePulledMetadata: async (): Promise<{ conflicts: string[] }> => {
