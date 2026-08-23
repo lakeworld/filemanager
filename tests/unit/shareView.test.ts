@@ -185,6 +185,36 @@ describe('ShareViewService（v2.5.1 A2）', () => {
     await expect(svc.writePulledFile('../x', new Uint8Array([1]), 0)).rejects.toThrow()
   })
 
+  it('writePulledFile：多级 sku 深路径两段写 → 落盘/回读/树大小一致（h2 疑点）', async () => {
+    const { ws, box } = await makeBox()
+    const svc = new ShareViewService(box)
+    const rel = '产品集/D1/图包/sku/SKU--01.jpg'
+    const part1 = new Uint8Array(1000).fill(0xab)
+    const part2 = new Uint8Array(500).fill(0xcd)
+    await svc.writePulledFile(rel, part1, 0)
+    await svc.writePulledFile(rel, part2, 1000)
+    const expected = Buffer.concat([Buffer.from(part1), Buffer.from(part2)])
+    expect(expected.length).toBe(1500)
+    // 目录树恰含 1 个 file 条目且 size=1500
+    const tree = (await svc.listTree('产品集/D1/图包/sku')) as { name: string; kind: string; size: number }[]
+    expect(tree).toHaveLength(1)
+    expect(tree[0].name).toBe('SKU--01.jpg')
+    expect(tree[0].kind).toBe('file')
+    expect(tree[0].size).toBe(1500)
+    // statFile 同路径 size=1500
+    const st = await svc.statFile(rel)
+    expect(st.size).toBe(1500)
+    // readFileChunk 回读 0..1500 与写入字节完全一致
+    const back = await svc.readFileChunk(rel, 0, 1500)
+    expect(Buffer.from(back).equals(expected)).toBe(true)
+    // 磁盘落盘核对（h2 疑点就是「拉取不落盘」）
+    const onDisk = await fsp.readFile(path.join(ws, '产品集', 'D1', '图包', 'sku', 'SKU--01.jpg'))
+    expect(onDisk.equals(expected)).toBe(true)
+    // 拒绝清单门禁不因新用例改变：隐藏目录仍抛错
+    await expect(svc.writePulledFile('.qihefilemanager/x', new Uint8Array([1]), 0)).rejects.toThrow('隐藏目录')
+    await expect(svc.writePulledFile('导出/x', new Uint8Array([1]), 0)).rejects.toThrow('隐藏目录')
+  })
+
   it('ensureProductSet / ensureCustomer：同名合并 → exists，新建 → created', async () => {
     const { box } = await makeBox()
     await box.workspace.productSetCreate({ name: 'PS1' })
