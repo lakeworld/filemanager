@@ -15,6 +15,10 @@ release/
 # Test / debug
 *.log
 tests/e2e/fixtures/*.qbox
+# 内部插件宿主 e2e 已迁移至私有插件仓（e2e-host/，2026-08-23）；公开树禁止再出现内部插件测试，兜底防复发
+tests/e2e/zz-*.spec.ts
+tests/e2e/cloud-ai-injection.spec.ts
+tests/e2e/fixtures/identify-mock/
 test-results/
 memory-soak-results/
 playwright-report/
