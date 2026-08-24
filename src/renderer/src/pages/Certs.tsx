@@ -163,6 +163,18 @@ export default function Certs() {
     }
   });
 
+  // v2.5.5：LAN 拉取自动注册证书子文件夹 → 即时刷新面板（可见性反馈；订阅模式照 accountChanged）
+  createEffect(() => {
+    const unsub = window.qihebox.events.on("share:subfolder-registered", (data) => {
+      const info = data as { kind?: string } | null;
+      if (!info || info.kind !== "cert") return;
+      void loadWorkspaceConfig();
+      void loadProductSets();
+      void loadAllCerts();
+    });
+    onCleanup(unsub);
+  });
+
   // v2.4.7（评审 P2）：path→修改时间戳 预解析 Map——仅 items 变化时重算一次，
   // 排序比较器查 Map 比数字，避免每对元素都 new Date()（照 Images.tsx modifiedTs 先例）
   const modifiedTs = createMemo(() => {

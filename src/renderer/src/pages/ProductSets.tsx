@@ -18,6 +18,7 @@ import {
   currentWorkspace,
   productSets,
   loadProductSets,
+  loadWorkspaceConfig,
   setSelectedProductSet,
   workspaceConfig,
 } from "~/stores/workspace";
@@ -137,6 +138,17 @@ export default function ProductSets() {
     if (currentWorkspace()) {
       void reloadProductSets();
     }
+  });
+
+  // v2.5.5：LAN 拉取自动注册 图包/证书/文档 子文件夹 → 即时刷新产品集面板（可见性反馈）
+  createEffect(() => {
+    const unsub = window.qihebox.events.on("share:subfolder-registered", (data) => {
+      const info = data as { kind?: string } | null;
+      if (!info || (info.kind !== "image" && info.kind !== "cert" && info.kind !== "doc")) return;
+      void loadWorkspaceConfig();
+      void reloadProductSets();
+    });
+    onCleanup(unsub);
   });
 
   createEffect(() => {
