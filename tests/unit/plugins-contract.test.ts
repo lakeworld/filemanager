@@ -41,6 +41,9 @@ import {
   assertIpcManifestMatchesSource,
   BASELINE_PATH,
 } from './helpers/apiSurface'
+// v2.5.5（B2）：prefill 数字字段 pickNumber 边界（协议稳定性收口，PLAN §三）
+import { normalizePrefill } from '../../src/renderer/src/stores/createPrefillNormalize'
+import type { InvoicePrefill, QuotePrefill } from '../../src/renderer/src/stores/createPrefillNormalize'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(here, '../..')
@@ -997,6 +1000,59 @@ describe('契约对账（docs/PLUGIN.md ↔ 实现）', () => {
       const anchorId = `contract:v1:host.${camelToKebab(name)}`
       expect(Object.hasOwn(CONTRACT, anchorId), `host.${name} 缺契约锚点 ${anchorId}`).toBe(true)
     }
+  })
+})
+
+// —— v2.5.5（B2）：prefill 数字字段 pickNumber 边界（协议稳定性收口，PLAN §三）——
+describe('pickNumber 边界（预填数字字段归一化：finite 直收 / 数值字符串转换 / 0 合法 / 其余丢弃）', () => {
+  it('0 合法（number 与 数值字符串均收为 0）', () => {
+    expect((normalizePrefill('invoice', { amount: 0 }) as InvoicePrefill).amount).toBe(0)
+    expect((normalizePrefill('invoice', { amount: '0' }) as InvoicePrefill).amount).toBe(0)
+    expect((normalizePrefill('invoice', { amount: '0.00' }) as InvoicePrefill).amount).toBe(0)
+  })
+
+  it('数值字符串转换（含 trim、负数、小数）', () => {
+    expect((normalizePrefill('invoice', { amount: '123.45' }) as InvoicePrefill).amount).toBe(123.45)
+    expect((normalizePrefill('invoice', { amount: '-9.9' }) as InvoicePrefill).amount).toBe(-9.9)
+    expect((normalizePrefill('invoice', { amount: '  88  ' }) as InvoicePrefill).amount).toBe(88)
+  })
+
+  it('负数允许（finite 直收）', () => {
+    expect((normalizePrefill('invoice', { amount: -12.5 }) as InvoicePrefill).amount).toBe(-12.5)
+    expect((normalizePrefill('invoice', { amount: '-12.5' }) as InvoicePrefill).amount).toBe(-12.5)
+  })
+
+  it('NaN / Infinity / -Infinity 丢弃（number 与字符串注入均不收）', () => {
+    expect((normalizePrefill('invoice', { amount: NaN }) as InvoicePrefill).amount).toBeUndefined()
+    expect((normalizePrefill('invoice', { amount: Infinity }) as InvoicePrefill).amount).toBeUndefined()
+    expect((normalizePrefill('invoice', { amount: -Infinity }) as InvoicePrefill).amount).toBeUndefined()
+    expect((normalizePrefill('invoice', { amount: 'NaN' }) as InvoicePrefill).amount).toBeUndefined()
+    expect((normalizePrefill('invoice', { amount: 'Infinity' }) as InvoicePrefill).amount).toBeUndefined()
+  })
+
+  it('垃圾字符串注入丢弃（含空串/纯空白/夹数字垃圾）', () => {
+    expect((normalizePrefill('invoice', { amount: 'abc' }) as InvoicePrefill).amount).toBeUndefined()
+    expect((normalizePrefill('invoice', { amount: '1.2.3' }) as InvoicePrefill).amount).toBeUndefined()
+    expect((normalizePrefill('invoice', { amount: '12abc34' }) as InvoicePrefill).amount).toBeUndefined()
+    expect((normalizePrefill('invoice', { amount: '' }) as InvoicePrefill).amount).toBeUndefined()
+    expect((normalizePrefill('invoice', { amount: '   ' }) as InvoicePrefill).amount).toBeUndefined()
+  })
+
+  it('quote 明细行 qty/unit_price 走同一 pickNumber（0/负数/小数/垃圾）', () => {
+    const out = normalizePrefill('quote', {
+      lines: [
+        { qty: 0, unit_price: -1.5 },
+        { qty: '2', unit_price: '3.5' },
+        { qty: NaN, unit_price: 'abc' },
+        { qty: 'x', unit_price: Infinity },
+      ],
+    }) as QuotePrefill
+    expect(out.lines).toEqual([
+      { qty: 0, unit_price: -1.5 },
+      { qty: 2, unit_price: 3.5 },
+      {},
+      {},
+    ])
   })
 })
 

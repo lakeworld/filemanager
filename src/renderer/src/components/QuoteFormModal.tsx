@@ -16,6 +16,7 @@ import { currentWorkspace } from "~/stores/workspace";
 import { showToast } from "~/stores/notifyBanner";
 import { openPreview } from "~/stores/preview";
 import DatePicker from "~/components/DatePicker";
+import MoneyInput from "~/components/MoneyInput"; // v2.5.5（B2）：数量/单价输入统一
 import Modal from "~/components/ui/Modal";
 import ConfirmDialog from "~/components/ConfirmDialog"; // v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认
 import type { QuoteRecord, CustomerInfo, FileEntry } from "~/types";
@@ -401,25 +402,21 @@ export default function QuoteFormModal(props: {
                     disabled={locked}
                     onInput={(e) => setLine(i(), { sku: e.currentTarget.value })}
                   />
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
+                  <MoneyInput
                     class={inputCls}
                     placeholder="1"
+                    min={1}
                     value={l.qty}
                     disabled={locked}
-                    onInput={(e) => setLine(i(), { qty: e.currentTarget.value })}
+                    onChange={(v) => setLine(i(), { qty: v })}
                   />
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                  <MoneyInput
                     class={inputCls}
                     placeholder="0.00"
+                    min={0}
                     value={l.unit_price}
                     disabled={locked}
-                    onInput={(e) => setLine(i(), { unit_price: e.currentTarget.value })}
+                    onChange={(v) => setLine(i(), { unit_price: v })}
                   />
                   <span class={`text-right tabular-nums text-sm ${Number.isNaN(lineAmount(l)) ? "text-surface-300" : "text-surface-900"}`}>
                     {fmtMoney(lineAmount(l))}
