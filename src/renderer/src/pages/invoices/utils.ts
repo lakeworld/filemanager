@@ -61,10 +61,5 @@ export function fileTypeOf(name: string): string {
 export function baseNameOf(relPath: string): string {
   return relPath.split("/").pop() || relPath;
 }
-
-// 台账列模板（与表头/合计行一致；minmax 保证窄窗口下可截断）
-export const INVOICE_COL_TEMPLATE =
-  "minmax(110px,1.1fr) minmax(85px,0.85fr) minmax(130px,1.3fr) minmax(130px,1.3fr) minmax(80px,0.8fr) minmax(165px,1.35fr) minmax(95px,0.95fr) minmax(90px,0.9fr) minmax(105px,0.85fr)";
-// 入库单列模板
-export const INBOUND_COL_TEMPLATE =
-  "minmax(110px,1.1fr) minmax(90px,0.9fr) minmax(150px,1.5fr) minmax(120px,1.2fr) minmax(85px,0.85fr) minmax(150px,1.5fr) minmax(105px,0.85fr)";
+// v2.5.5（B3 任务 A）：卡片化去表格——旧表头列模板 INVOICE_COL_TEMPLATE / INBOUND_COL_TEMPLATE 随
+// InvoiceTable.tsx / InboundTable.tsx 删除而移除（列宽语义被卡片网格取代）。

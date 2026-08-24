@@ -24,7 +24,9 @@ import QuoteStatusActions from "~/components/QuoteStatusActions";
 import QuoteFormModal from "~/components/QuoteFormModal";
 import { prefillVersion, currentPrefill, advancePrefill, clearPrefill } from "~/stores/createPrefill";
 import type { QuotePrefill } from "~/stores/createPrefillNormalize";
-import type { QuoteRecord, CustomerInfo, FileEntry } from "~/types";
+// v2.5.5（B3 任务 D）：孤儿未建档纯函数（复用发票/入库筛选模块，node 直测）
+import { currentOrphans } from "./invoices/filterUtils";
+import type { QuoteRecord, CustomerInfo, FileEntry, OrphanReport } from "~/types";
 
 /** 台账列模板（与表头/行一致；minmax 保证窄窗口下可截断） */
 const QUOTE_COL_TEMPLATE =
@@ -88,6 +90,35 @@ export default function Quotes() {
     setCreating(true);
   };
   const [deleteTarget, setDeleteTarget] = createSignal<{ no: string } | null>(null);
+  // v2.5.5（B3 任务 D）：报价区孤儿扫描（目录有文件但台账无记录 → 提示条补建/删除）
+  const [orphanReport, setOrphanReport] = createSignal<OrphanReport | null>(null);
+
+  /** 扫描报价区孤儿（内部业务 IPC qihebox:orphans:scan，协议面零变更） */
+  const scanQuoteOrphans = async () => {
+    const ws = currentWorkspace()?.path;
+    if (!ws) return;
+    const r = await api.orphans.scan().catch(() => null);
+    if (r?.success && r.data) setOrphanReport(r.data);
+  };
+  /** 报价孤儿（已登记即退出视图，防补建残留） */
+  const quoteOrphans = () => currentOrphans(orphanReport()?.quote ?? [], quotes().map((r) => r.file_path));
+
+  /** 孤儿补建：带 file_path 预填新建（复用 ui.openCreatePrefill → 本页 prefill effect 打开弹窗） */
+  const recoverQuoteOrphan = (rel: string) => {
+    window.qihebox.ui.openCreatePrefill("quote", { file_path: rel });
+  };
+  /** 孤儿删除：走回收站 file 单条目（账物分离，不级联删台账） */
+  const deleteQuoteOrphan = async (rel: string) => {
+    const ws = currentWorkspace()?.path;
+    if (!ws) return;
+    const r = await api.files.delete([`${ws.replace(/\\/g, "/")}/${rel}`]).catch(() => null);
+    if (r?.success) {
+      showToast("success", "孤儿文件已删除（已进回收站）");
+      void scanQuoteOrphans();
+    } else {
+      showToast("error", "删除失败", r?.error || "未知错误");
+    }
+  };
 
   // —— 筛选信号（v2.4.9 M4：状态/客户/日期范围；"" = 全部/未限定）——
   const [statusFilter, setStatusFilter] = createSignal("");
@@ -139,6 +170,7 @@ export default function Quotes() {
     if (currentWorkspace()) {
       loadCustomers();
       loadQuotes();
+      scanQuoteOrphans(); // v2.5.5（B3 任务 D）：报价区孤儿扫描
     }
   });
 
@@ -199,6 +231,39 @@ export default function Quotes() {
           <span>➕</span> 新建报价
         </button>
       </div>
+
+      {/* v2.5.5（B3 任务 D）：报价区孤儿提示条——发现未登记档案文件 → 一键补建/删除（同发票机制） */}
+      <Show when={quoteOrphans().length > 0}>
+        <div class="mb-4 p-3 bg-warning-50 border border-warning-200 rounded-xl shrink-0">
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-warning-800">
+              发现 {quoteOrphans().length} 个未登记档案文件（报价区有文件但台账无记录）
+            </span>
+          </div>
+          <div class="mt-2 flex flex-col gap-1.5 max-h-44 overflow-y-auto">
+            <For each={quoteOrphans()}>
+              {(rel) => (
+                <div class="flex items-center gap-3 bg-white rounded-lg px-3 py-1.5">
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm text-surface-900 truncate" title={rel}>{baseNameOf(rel)}</div>
+                    <div class="text-xs text-surface-400 truncate" title={rel}>{rel}</div>
+                  </div>
+                  <button class="btn-secondary text-xs shrink-0" title="带此文件预填新建报价单" onClick={() => recoverQuoteOrphan(rel)}>
+                    补建
+                  </button>
+                  <button
+                    class="text-xs px-3 py-1.5 text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg hover:text-danger-600 shrink-0"
+                    title="删除该文件（走回收站，不影响任何台账记录）"
+                    onClick={() => void deleteQuoteOrphan(rel)}
+                  >
+                    删除
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
+        </div>
+      </Show>
 
       {/* 筛选区（v2.4.9 M4：状态/客户/日期范围；客户下拉只列现存 customers()，已删客户报价仅「全部」可见） */}
       <div class="flex flex-col md:flex-row gap-3 mb-4 shrink-0">

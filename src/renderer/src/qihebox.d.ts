@@ -89,6 +89,10 @@ interface QiheboxApi {
     remove: (id: string, opts?: unknown) => Promise<unknown>
     archiveFile: (sourcePath: string, date: string) => Promise<unknown>
   }
+  // v2.5.5（B3，任务 D）：孤儿未建档扫描（内部业务 IPC，协议面零变更——不在 plugins-api-surface 跟踪面）
+  orphans: {
+    scan: () => Promise<unknown>
+  }
   files: {
     list: (req: unknown) => Promise<unknown>
     import: (req: unknown) => Promise<unknown>

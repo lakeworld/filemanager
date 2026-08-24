@@ -36,23 +36,21 @@ import { customers, loadCustomers } from "~/stores/clients";
 import { suppliers, loadSuppliers } from "~/stores/suppliers";
 import { openPreview } from "~/stores/preview";
 import {
-  STATUSES,
-  isDueSoon,
-  nextStatusOf,
-  statusChipClass,
   toDateKey,
   fmtMoney,
   baseNameOf,
   fileTypeOf,
-  INVOICE_COL_TEMPLATE,
-  INBOUND_COL_TEMPLATE,
 } from "./invoices/utils";
-import ArchiveField from "./invoices/ArchiveField";
 import InvoiceEditorModal from "./invoices/InvoiceEditorModal";
 import InboundEditorModal from "./invoices/InboundEditorModal";
-import InvoiceTable from "./invoices/InvoiceTable";
-import InboundTable from "./invoices/InboundTable";
+// v2.5.5（B3 任务 A）：表格 → 卡片化（旧 InvoiceTable.tsx / InboundTable.tsx 已删除，改卡片网格）
+import InvoiceCards from "./invoices/InvoiceCards";
+import InboundCards from "./invoices/InboundCards";
 import InvoiceToolbar from "./invoices/InvoiceToolbar";
+import InboundToolbar from "./invoices/InboundToolbar";
+import OrphanList from "./invoices/OrphanList";
+// v2.5.5（B3 任务 C）：筛选组合纯函数（可 node 直测，tests/unit/filterUtils.test.ts）
+import { filterInvoices, filterInbound, currentOrphans } from "./invoices/filterUtils";
 import DeleteRecordModal from "./invoices/DeleteRecordModal";
 import ConfirmDialog from "~/components/ConfirmDialog"; // v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认（应用内样式化，禁用 window.confirm）
 import { loadTagDefs, tagList } from "~/stores/tags";
@@ -66,7 +64,7 @@ import TagInput from "~/components/TagInput";
 import VirtualGrid from "~/components/VirtualGrid";
 import EmptyState from "~/components/EmptyState";
 import Loading from "~/components/Loading";
-import type { InvoiceRecord, InboundRecord, FileEntry } from "~/types";
+import type { InvoiceRecord, InboundRecord, FileEntry, OrphanReport } from "~/types";
 import type { InvoiceFormState, InboundFormState } from "./invoices/types";
 
 // —— 本地类型（镜像 core 请求类型；wails/api.ts 门面类型落位后可由 ~/types 导入替代）——
@@ -175,6 +173,21 @@ export default function Invoices() {
   const [customerFilter, setCustomerFilter] = createSignal("");
   const [dueSoonOnly, setDueSoonOnly] = createSignal(false);
   const [query, setQuery] = createSignal("");
+
+  // —— v2.5.5（B3 任务 B/C）：多选 + 筛选增强（日期/金额/归档/视图；查询发票与入库各自）——
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = createSignal<string[]>([]);
+  const [selectedInboundIds, setSelectedInboundIds] = createSignal<string[]>([]);
+  const [dateFrom, setDateFrom] = createSignal("");
+  const [dateTo, setDateTo] = createSignal("");
+  const [amountMin, setAmountMin] = createSignal("");
+  const [amountMax, setAmountMax] = createSignal("");
+  const [hasFile, setHasFile] = createSignal<"" | "yes" | "no">("");
+  const [viewMode, setViewMode] = createSignal<"records" | "orphans">("records");
+  const [inboundQuery, setInboundQuery] = createSignal("");
+  // —— v2.5.5（B3 任务 D）：孤儿未建档扫描结果（发票区/入库区；报价区在 Quotes 页）——
+  const [orphanReport, setOrphanReport] = createSignal<OrphanReport | null>(null);
+  // 批量删除确认目标（发票/入库 各自）
+  const [batchDeleteTarget, setBatchDeleteTarget] = createSignal<"invoice" | "inbound" | null>(null);
 
   // —— 入库单 ——
   const [inboundRecords, setInboundRecords] = createSignal<InboundRecord[]>([]);
@@ -342,7 +355,23 @@ export default function Invoices() {
       loadSuppliers(); // v2.4.9 S2：入库单供应商下拉选项
       loadInvoices();
       loadInbound();
+      scanOrphans(); // v2.5.5（B3 任务 D）：孤儿未建档扫描（发票/入库区）
     }
+  });
+
+  // v2.5.5（B3 任务 B/C）：进入「未建档文件」视图 → 重扫孤儿 + 清空选择（批量操作仅台账视图生效）；
+  // 切 tab 清空选择（发票/入库各自选中集合不跨 tab 混用）
+  createEffect(() => {
+    if (viewMode() === "orphans") {
+      setSelectedInvoiceIds([]);
+      setSelectedInboundIds([]);
+      void scanOrphans();
+    }
+  });
+  createEffect(() => {
+    tab();
+    setSelectedInvoiceIds([]);
+    setSelectedInboundIds([]);
   });
 
   // 深链：?dueSoon=1 → 进入即开启「30 天待办」筛选（仪表盘「发票待办」区块跳转，PLAN §4.3）
@@ -351,22 +380,149 @@ export default function Invoices() {
     if (q && typeof q === "string" && (q === "1" || q === "true")) setDueSoonOnly(true);
   });
 
-  // —— 台账页内过滤（状态/客户/30 天待办/号码·开票方·购买方搜索）+ 合计 ——
+  // —— 台账页内过滤（筛选组合在 filterUtils.ts 纯函数；list() 全量拉取后由本页过滤/搜索/合计）——
+  /** 金额输入 → number | undefined（空/非法 → undefined = 不限定） */
+  const toNum = (s: string): number | undefined => {
+    if (s.trim() === "") return undefined;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : undefined;
+  };
   const filteredInvoices = () => {
-    const s = statusFilter();
-    const c = customerFilter();
-    const d = dueSoonOnly();
-    const q = query().trim().toLowerCase();
-    return invoices().filter((r) => {
-      if (s && r.status !== s) return false;
-      if (c && r.customer !== c) return false;
-      if (d && !isDueSoon(r)) return false;
-      if (q && ![r.number, r.seller, r.buyer].some((v) => v.toLowerCase().includes(q))) return false;
-      return true;
+    const hf = hasFile();
+    return filterInvoices(invoices(), {
+      status: statusFilter(),
+      customer: customerFilter(),
+      dueSoonOnly: dueSoonOnly(),
+      query: query(),
+      dateFrom: dateFrom(),
+      dateTo: dateTo(),
+      amountMin: toNum(amountMin()),
+      amountMax: toNum(amountMax()),
+      hasFile: hf === "" ? undefined : hf,
+    });
+  };
+  const filteredInbound = () => {
+    const hf = hasFile();
+    return filterInbound(inboundRecords(), {
+      query: inboundQuery(),
+      dateFrom: dateFrom(),
+      dateTo: dateTo(),
+      amountMin: toNum(amountMin()),
+      amountMax: toNum(amountMax()),
+      hasFile: hf === "" ? undefined : hf,
     });
   };
   const totalAmount = () =>
     filteredInvoices().reduce((sum, r) => sum + (Number.isFinite(r.amount) ? r.amount : 0), 0);
+  const inboundTotalAmount = () =>
+    filteredInbound().reduce((sum, r) => sum + (r.amount !== undefined && Number.isFinite(r.amount) ? r.amount : 0), 0);
+
+  // —— v2.5.5（B3 任务 B）：多选（照 Images selectedPaths 模式；选中集合按当前可见裁剪防幽灵选择）——
+  const toggleInvoiceSelection = (number: string) =>
+    setSelectedInvoiceIds((prev) => (prev.includes(number) ? prev.filter((n) => n !== number) : [...prev, number]));
+  const toggleInboundSelection = (id: string) =>
+    setSelectedInboundIds((prev) => (prev.includes(id) ? prev.filter((n) => n !== id) : [...prev, id]));
+  const invoiceVisibleIds = () => new Set(filteredInvoices().map((r) => r.number));
+  const inboundVisibleIds = () => new Set(filteredInbound().map((r) => r.id));
+  const effectiveSelectedInvoices = () => selectedInvoiceIds().filter((n) => invoiceVisibleIds().has(n));
+  const effectiveSelectedInbound = () => selectedInboundIds().filter((id) => inboundVisibleIds().has(id));
+  const selectAllVisibleInvoices = () => setSelectedInvoiceIds(filteredInvoices().map((r) => r.number));
+  const selectAllVisibleInbound = () => setSelectedInboundIds(filteredInbound().map((r) => r.id));
+  const selectedInvoiceAmount = () => {
+    const byNumber = new Map(invoices().map((r) => [r.number, r] as const));
+    return effectiveSelectedInvoices().reduce((sum, n) => {
+      const amt = byNumber.get(n)?.amount;
+      return sum + (typeof amt === "number" && Number.isFinite(amt) ? amt : 0);
+    }, 0);
+  };
+
+  // —— v2.5.5（B3 任务 D）：孤儿扫描与操作（内部业务 IPC qihebox:orphans:scan；协议面零变更）——
+  const scanOrphans = async () => {
+    const ws = currentWorkspace()?.path;
+    if (!ws) return;
+    const r = await api.orphans.scan().catch(() => null);
+    if (r?.success && r.data) setOrphanReport(r.data);
+  };
+  /** 发票区孤儿（已登记即退出，防补建残留） */
+  const invoiceOrphans = () => currentOrphans(orphanReport()?.invoice ?? [], invoices().map((r) => r.file_path));
+  /** 入库区孤儿 */
+  const inboundOrphans = () => currentOrphans(orphanReport()?.inbound ?? [], inboundRecords().map((r) => r.file_path));
+
+  /** 孤儿删除：走回收站 file 单条目（账物分离，不级联删台账） */
+  const deleteOrphanFile = async (rel: string) => {
+    const ws = currentWorkspace()?.path;
+    if (!ws) return;
+    const r = await api.files.delete([`${ws.replace(/\\/g, "/")}/${rel}`]).catch(() => null);
+    if (r?.success) {
+      showToast("success", "孤儿文件已删除（已进回收站）");
+      void scanOrphans();
+    } else {
+      showToast("error", "删除失败", r?.error || "未知错误");
+    }
+  };
+
+  /** 孤儿补建：带 file_path 预填新建（复用 ui.openCreatePrefill → 页面 prefill effect 打开弹窗） */
+  const recoverInvoiceOrphan = (rel: string) => {
+    window.qihebox.ui.openCreatePrefill("invoice", { file_path: rel });
+  };
+  const recoverInboundOrphan = (rel: string) => {
+    window.qihebox.ui.openCreatePrefill("inbound", { file_path: rel });
+  };
+
+  // —— v2.5.5（B3 任务 B）：批量操作（发票）——
+  const batchTargetStatus = () => {
+    const recs = invoices().filter((r) => effectiveSelectedInvoices().includes(r.number));
+    return recs.length > 0 && recs.every((r) => r.status === "已报销") ? "待报销" : "已报销";
+  };
+  const batchSetStatus = async () => {
+    const ids = effectiveSelectedInvoices();
+    if (ids.length === 0) return;
+    const target = batchTargetStatus();
+    let ok = 0;
+    for (const n of ids) {
+      const r = await api.invoices.setStatus(n, target).catch(() => null);
+      if (r?.success) ok++;
+    }
+    setSelectedInvoiceIds([]);
+    showToast(ok === ids.length ? "success" : "error", `已将 ${ok}/${ids.length} 张发票设为「${target}」`);
+    void loadInvoices();
+  };
+  const confirmBatchDelete = async () => {
+    const t = batchDeleteTarget();
+    if (!t) return;
+    setBatchDeleteTarget(null);
+    if (t === "invoice") {
+      const ids = effectiveSelectedInvoices();
+      for (const n of ids) await api.invoices.remove(n, { deleteFile: false }).catch(() => null);
+      setSelectedInvoiceIds([]);
+      showToast("success", `已删除 ${ids.length} 条发票记录（归档文件保留）`);
+      void loadInvoices();
+    } else {
+      const ids = effectiveSelectedInbound();
+      for (const id of ids) await api.inbound.remove(id, { deleteFile: false }).catch(() => null);
+      setSelectedInboundIds([]);
+      showToast("success", `已删除 ${ids.length} 条入库单记录（归档文件保留）`);
+      void loadInbound();
+    }
+  };
+  const handleBatchExport = async () => {
+    const records = invoices().filter((r) => effectiveSelectedInvoices().includes(r.number));
+    if (records.length === 0) return;
+    const path = await api.dialog.saveFile("导出发票台账", `发票台账_${toDateKey(new Date())}.xlsx`);
+    if (!path) return;
+    const r = await api.invoices.exportXlsx(path, records);
+    if (r.success) showToast("success", "Excel 台账已导出");
+    else showToast("error", "导出失败", r.error || "未知错误");
+  };
+  /** 批量 AI 识别（≤10）：B3 只放占位按钮，B4 任务接线 */
+  const handleBatchIdentify = () => {
+    const n = effectiveSelectedInvoices().length;
+    if (n > 10) {
+      showToast("info", "批量 AI 识别一次最多 10 张", `当前已选 ${n} 张`);
+      return;
+    }
+    showToast("info", "批量 AI 识别（≤10）", "B4 接线中");
+  };
 
   const customerExists = (name: string) => customers().some((c) => c.name === name);
 
@@ -889,65 +1045,248 @@ export default function Invoices() {
           statusFilter={statusFilter()}
           customerFilter={customerFilter()}
           dueSoonOnly={dueSoonOnly()}
+          dateFrom={dateFrom()}
+          dateTo={dateTo()}
+          amountMin={amountMin()}
+          amountMax={amountMax()}
+          hasFile={hasFile()}
+          viewMode={viewMode()}
           onQuery={setQuery}
           onStatusFilter={setStatusFilter}
           onCustomerFilter={setCustomerFilter}
           onDueSoonOnly={setDueSoonOnly}
+          onDateFrom={setDateFrom}
+          onDateTo={setDateTo}
+          onAmountMin={setAmountMin}
+          onAmountMax={setAmountMax}
+          onHasFile={setHasFile}
+          onViewMode={setViewMode}
           customers={customers()}
         />
 
-        <Show when={invoices().length === 0} fallback={
+        {/* v2.5.5（B3 任务 D）：未建档文件视图——孤儿（目录有文件但台账无记录）补建/删除 */}
+        <Show when={viewMode() === "orphans"}>
           <div class="flex-1 min-h-0 flex flex-col">
-            <div class="card p-2 flex flex-col flex-1 min-h-0">
+            <div class="card p-3 flex flex-col flex-1 min-h-0">
               <div class="flex items-center justify-between px-3 py-2 shrink-0">
                 <span class="text-sm text-surface-500">
-                  共 {filteredInvoices().length} 条 · 金额合计
-                  <span class="font-medium text-surface-900"> ¥{fmtMoney(totalAmount())}</span>
+                  未建档文件（{invoiceOrphans().length}）——归档目录有文件但台账无记录，可补建或删除
                 </span>
-                <div class="flex gap-2">
-                  <button class="btn-secondary text-sm" onClick={() => void handleExport()}>
-                    📊 导出 Excel
-                  </button>
-                  <button class="btn-primary text-sm" onClick={openInvoiceCreate}>
-                    <span>➕</span> 新建发票
-                  </button>
-                </div>
               </div>
-
-              <InvoiceTable
-                rows={filteredInvoices()}
-                missing={missingFiles()}
-                customerExists={customerExists}
-                onSetStatus={(number, status) => void handleSetStatus(number, status)}
-                onPreview={previewInvoiceFile}
-                onEdit={openInvoiceEdit}
-                onDelete={(rec) => requestDelete("invoice", rec.number, rec.number)}
-                scrollResetKey={`${statusFilter()}|${customerFilter()}|${dueSoonOnly()}|${query()}`}
+              <OrphanList
+                orphans={invoiceOrphans()}
+                kind="invoice"
+                onRecover={recoverInvoiceOrphan}
+                onDelete={(rel) => void deleteOrphanFile(rel)}
+                onPreview={previewRelPath}
               />
             </div>
           </div>
-        }>
-          <div class="flex-1 flex items-center justify-center">
-            {/* v2.5.2：首载 loading 兜底，空态不闪现 */}
-            <Show when={!loading()} fallback={<Loading text="发票加载中…" />}>
-              <EmptyState icon="🧾" title="暂无发票" desc="点击「新建发票」登记第一张发票">
-                <button class="btn-primary" onClick={openInvoiceCreate}>新建发票</button>
-              </EmptyState>
-            </Show>
-          </div>
+        </Show>
+
+        <Show when={viewMode() === "records"}>
+          <Show when={invoices().length === 0} fallback={
+            <div class="flex-1 min-h-0 flex flex-col">
+              <div class="card p-2 flex flex-col flex-1 min-h-0">
+                <div class="flex items-center justify-between px-3 py-2 shrink-0">
+                  <span class="text-sm text-surface-500">
+                    共 {filteredInvoices().length} 条 · 金额合计
+                    <span class="font-medium text-surface-900"> ¥{fmtMoney(totalAmount())}</span>
+                    <Show when={effectiveSelectedInvoices().length > 0}>
+                      <span class="ml-3 text-primary-700">
+                        已选 {effectiveSelectedInvoices().length} · 合计
+                        <span class="font-medium"> ¥{fmtMoney(selectedInvoiceAmount())}</span>
+                      </span>
+                    </Show>
+                  </span>
+                  <div class="flex gap-2">
+                    <button class="btn-secondary text-sm" onClick={() => void handleExport()}>
+                      📊 导出 Excel
+                    </button>
+                    <button class="btn-primary text-sm" onClick={openInvoiceCreate}>
+                      <span>➕</span> 新建发票
+                    </button>
+                  </div>
+                </div>
+
+                {/* v2.5.5（B3 任务 B）：批量工具条（选中 ≥1 浮现） */}
+                <Show when={effectiveSelectedInvoices().length > 0}>
+                  <div class="flex items-center justify-between mb-2 mx-1 px-3 py-2 bg-primary-50 border border-primary-100 rounded-xl shrink-0">
+                    <span class="text-sm text-primary-700">已选择 {effectiveSelectedInvoices().length} 张发票</span>
+                    <div class="flex gap-2">
+                      <button class="px-3 py-1.5 text-sm text-primary-700 hover:bg-white rounded-lg" onClick={selectAllVisibleInvoices}>
+                        全选可见
+                      </button>
+                      <button
+                        class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg"
+                        onClick={() => void batchSetStatus()}
+                        title="待报销 ↔ 已报销"
+                      >
+                        批量改状态（{batchTargetStatus()}）
+                      </button>
+                      <button
+                        class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg"
+                        onClick={() => void handleBatchExport()}
+                      >
+                        批量导出 Excel
+                      </button>
+                      <button
+                        class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg"
+                        onClick={handleBatchIdentify}
+                        title="批量 AI 识别（≤10 张，B4 任务接线）"
+                      >
+                        批量 AI 识别
+                      </button>
+                      <button
+                        class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg"
+                        onClick={() => setBatchDeleteTarget("invoice")}
+                      >
+                        🗑️ 批量删除
+                      </button>
+                    </div>
+                  </div>
+                </Show>
+
+                <InvoiceCards
+                  rows={filteredInvoices()}
+                  missing={missingFiles()}
+                  customerExists={customerExists}
+                  selectedIds={effectiveSelectedInvoices()}
+                  onToggleSelect={toggleInvoiceSelection}
+                  onSetStatus={(number, status) => void handleSetStatus(number, status)}
+                  onPreview={previewInvoiceFile}
+                  onEdit={openInvoiceEdit}
+                  onDelete={(rec) => requestDelete("invoice", rec.number, rec.number)}
+                  scrollResetKey={`${statusFilter()}|${customerFilter()}|${dueSoonOnly()}|${query()}|${dateFrom()}|${dateTo()}|${amountMin()}|${amountMax()}|${hasFile()}`}
+                />
+              </div>
+            </div>
+          }>
+            <div class="flex-1 flex items-center justify-center">
+              {/* v2.5.2：首载 loading 兜底，空态不闪现 */}
+              <Show when={!loading()} fallback={<Loading text="发票加载中…" />}>
+                <EmptyState icon="🧾" title="暂无发票" desc="点击「新建发票」登记第一张发票">
+                  <button class="btn-primary" onClick={openInvoiceCreate}>新建发票</button>
+                </EmptyState>
+              </Show>
+            </div>
+          </Show>
         </Show>
       </Show>
 
       {/* ============ 入库单 Tab ============ */}
       <Show when={tab() === "inbound"}>
-        <InboundTable
-          rows={inboundRecords()}
-          suppliers={suppliers()}
-          loading={inboundLoading()}
-          onCreate={openInboundCreate}
-          onPreview={previewInboundFile}
-          onEdit={openInboundEdit}
-          onDelete={(rec) => requestDelete("inbound", rec.id, rec.id)}
+        <InboundToolbar
+          query={inboundQuery()}
+          dateFrom={dateFrom()}
+          dateTo={dateTo()}
+          amountMin={amountMin()}
+          amountMax={amountMax()}
+          hasFile={hasFile()}
+          viewMode={viewMode()}
+          onQuery={setInboundQuery}
+          onDateFrom={setDateFrom}
+          onDateTo={setDateTo}
+          onAmountMin={setAmountMin}
+          onAmountMax={setAmountMax}
+          onHasFile={setHasFile}
+          onViewMode={setViewMode}
+        />
+
+        {/* v2.5.5（B3 任务 D）：入库未建档文件视图 */}
+        <Show when={viewMode() === "orphans"}>
+          <div class="flex-1 min-h-0 flex flex-col">
+            <div class="card p-3 flex flex-col flex-1 min-h-0">
+              <div class="flex items-center justify-between px-3 py-2 shrink-0">
+                <span class="text-sm text-surface-500">
+                  未建档文件（{inboundOrphans().length}）——归档目录有文件但台账无记录，可补建或删除
+                </span>
+              </div>
+              <OrphanList
+                orphans={inboundOrphans()}
+                kind="inbound"
+                onRecover={recoverInboundOrphan}
+                onDelete={(rel) => void deleteOrphanFile(rel)}
+                onPreview={previewRelPath}
+              />
+            </div>
+          </div>
+        </Show>
+
+        <Show when={viewMode() === "records"}>
+          <Show when={inboundRecords().length === 0} fallback={
+            <div class="flex-1 min-h-0 flex flex-col">
+              <div class="card p-2 flex flex-col flex-1 min-h-0">
+                <div class="flex items-center justify-between px-3 py-2 shrink-0">
+                  <span class="text-sm text-surface-500">
+                    共 {filteredInbound().length} 条 · 金额合计
+                    <span class="font-medium text-surface-900"> ¥{fmtMoney(inboundTotalAmount())}</span>
+                    <Show when={effectiveSelectedInbound().length > 0}>
+                      <span class="ml-3 text-primary-700">已选 {effectiveSelectedInbound().length} 条</span>
+                    </Show>
+                  </span>
+                  <button class="btn-primary text-sm" onClick={openInboundCreate}>
+                    <span>➕</span> 新建入库单
+                  </button>
+                </div>
+
+                {/* v2.5.5（B3 任务 B）：入库批量工具条 */}
+                <Show when={effectiveSelectedInbound().length > 0}>
+                  <div class="flex items-center justify-between mb-2 mx-1 px-3 py-2 bg-primary-50 border border-primary-100 rounded-xl shrink-0">
+                    <span class="text-sm text-primary-700">已选择 {effectiveSelectedInbound().length} 条入库单</span>
+                    <div class="flex gap-2">
+                      <button class="px-3 py-1.5 text-sm text-primary-700 hover:bg-white rounded-lg" onClick={selectAllVisibleInbound}>
+                        全选可见
+                      </button>
+                      <button
+                        class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg"
+                        onClick={() => setBatchDeleteTarget("inbound")}
+                      >
+                        🗑️ 批量删除
+                      </button>
+                    </div>
+                  </div>
+                </Show>
+
+                <InboundCards
+                  rows={filteredInbound()}
+                  suppliers={suppliers()}
+                  loading={inboundLoading()}
+                  selectedIds={effectiveSelectedInbound()}
+                  onToggleSelect={toggleInboundSelection}
+                  onPreview={previewInboundFile}
+                  onEdit={openInboundEdit}
+                  onDelete={(rec) => requestDelete("inbound", rec.id, rec.id)}
+                  scrollResetKey={`${inboundQuery()}|${dateFrom()}|${dateTo()}|${amountMin()}|${amountMax()}|${hasFile()}`}
+                />
+              </div>
+            </div>
+          }>
+            <div class="flex-1 flex items-center justify-center">
+              {/* v2.5.3（P2-6）：首载 loading 兜底，空态不闪现 */}
+              <Show when={!inboundLoading()} fallback={<Loading text="入库单加载中…" />}>
+                <EmptyState icon="📥" title="暂无入库单" desc="点击「新建入库单」登记第一条记录">
+                  <button class="btn-primary" onClick={openInboundCreate}>新建入库单</button>
+                </EmptyState>
+              </Show>
+            </div>
+          </Show>
+        </Show>
+      </Show>
+
+      {/* v2.5.5（B3 任务 B）：批量删除二次确认 */}
+      <Show when={batchDeleteTarget()}>
+        <ConfirmDialog
+          title="批量删除记录"
+          message={
+            batchDeleteTarget() === "invoice"
+              ? `确定删除选中的 ${effectiveSelectedInvoices().length} 张发票记录吗？（归档文件保留，仅删除台账记录）`
+              : `确定删除选中的 ${effectiveSelectedInbound().length} 条入库单记录吗？（归档文件保留，仅删除台账记录）`
+          }
+          confirmLabel="删除"
+          danger
+          onConfirm={() => void confirmBatchDelete()}
+          onCancel={() => setBatchDeleteTarget(null)}
         />
       </Show>
 

@@ -103,6 +103,11 @@ const api = {
     archiveFile: (sourcePath: string, date: string) =>
       invoke('qihebox:inbound:archiveFile', sourcePath, date),
   },
+  // v2.5.5（B3，任务 D）：孤儿未建档扫描（内部业务 IPC，协议面零变更——不在 api:update 跟踪面：
+  //  apiSurface 只跟踪 plugins/types、preload plugins/settings、qihebox:plugins:*/settings:* 通道）
+  orphans: {
+    scan: () => invoke('qihebox:orphans:scan'),
+  },
   files: {
     list: (req: unknown) => invoke('qihebox:files:list', req),
     import: (req: unknown) => invoke('qihebox:files:import', req),
