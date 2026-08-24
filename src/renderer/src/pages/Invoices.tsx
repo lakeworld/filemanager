@@ -519,6 +519,10 @@ export default function Invoices() {
     if (r.success) showToast("success", "Excel 台账已导出");
     else showToast("error", "导出失败", r.error || "未知错误");
   };
+  // v2.5.5 打磨：批量 AI 识别按钮随插件命令浮现（com.qihe.cloud enabled + invoice.identifyFiles 注册才显示）
+  const batchIdentifyAvailable = () =>
+    pluginGlobalCommands().some((c) => c.commandId === "invoice.identifyFiles");
+
   /** 批量 AI 识别（≤10）：B4 接线——打开工作区文件多选面板（T0 定案：不用宿主 dialog，面板返回 paths） */
   const handleBatchIdentify = () => {
     const cmd = pluginGlobalCommands().find((c) => c.commandId === "invoice.identifyFiles");
@@ -1196,10 +1200,12 @@ export default function Invoices() {
                     <button class="btn-secondary text-sm" onClick={() => void handleExport()}>
                       📊 导出 Excel
                     </button>
-                    {/* v2.5.5（B4）：批量 AI 识别——常驻页头（T0：工作区文件多选面板，不依赖台账选中） */}
-                    <button class="btn-secondary text-sm" onClick={handleBatchIdentify} title="批量 AI 识别（≤10 张）">
-                      🤖 批量 AI 识别
-                    </button>
+                    {/* v2.5.5（B4）：批量 AI 识别——常驻页头；v2.5.5 打磨：有插件命令才浮现 */}
+                    <Show when={batchIdentifyAvailable()}>
+                      <button class="btn-secondary text-sm" onClick={handleBatchIdentify} title="批量 AI 识别（≤10 张）">
+                        🤖 批量 AI 识别
+                      </button>
+                    </Show>
                     <button class="btn-primary text-sm" onClick={openInvoiceCreate}>
                       <span>➕</span> 新建发票
                     </button>
@@ -1257,7 +1263,10 @@ export default function Invoices() {
               <Show when={!loading()} fallback={<Loading text="发票加载中…" />}>
                 <EmptyState icon="🧾" title="暂无发票" desc="点击「新建发票」登记第一张发票">
                   <div class="flex gap-2 mt-2">
-                    <button class="btn-secondary" onClick={handleBatchIdentify} title="批量 AI 识别（≤10 张）">🤖 批量 AI 识别</button>
+                    {/* v2.5.5 打磨：批量 AI 识别随插件命令浮现 */}
+                    <Show when={batchIdentifyAvailable()}>
+                      <button class="btn-secondary" onClick={handleBatchIdentify} title="批量 AI 识别（≤10 张）">🤖 批量 AI 识别</button>
+                    </Show>
                     <button class="btn-primary" onClick={openInvoiceCreate}>新建发票</button>
                   </div>
                 </EmptyState>
