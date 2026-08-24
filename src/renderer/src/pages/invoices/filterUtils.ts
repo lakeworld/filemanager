@@ -7,7 +7,7 @@
  * 已补建（登记）的孤儿自动退出视图，防残留。
  * 纯结构：只 import 类型与同目录纯函数（utils.ts），不 import 任何渲染层 store/组件。
  */
-import type { InvoiceRecord, InboundRecord } from "../../types";
+import type { InvoiceRecord, InboundRecord, QuoteRecord } from "../../types";
 import { isDueSoon } from "./utils";
 
 /** 发票台账筛选条件（"" / undefined = 不限定；日期为 YYYY-MM-DD 字典序比较含两端） */
@@ -85,6 +85,32 @@ export function filterInbound(records: InboundRecord[], f: InboundFilters): Inbo
     if (!matchesQuery(f.query ?? "", [r.id, r.supplier])) return false;
     if (!inDateRange(r.date, f.dateFrom, f.dateTo)) return false;
     if (!inAmountRange(r.amount ?? NaN, f.amountMin, f.amountMax)) return false;
+    if (!matchesHasFile(r.file_path ?? "", f.hasFile)) return false;
+    return true;
+  });
+}
+
+/** 报价筛选条件（v2.5.5 打磨：报价页筛选对齐发票——搜索/状态/客户 + 日期/金额/归档） */
+export interface QuoteFilters {
+  status?: string;
+  customer?: string;
+  /** 搜索：命中 报价单号/客户（小写包含） */
+  query?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  amountMin?: number;
+  amountMax?: number;
+  hasFile?: "yes" | "no";
+}
+
+/** 报价组合筛选（搜索/状态/客户/日期/金额/归档叠加；金额取 total_amount） */
+export function filterQuotes(records: QuoteRecord[], f: QuoteFilters): QuoteRecord[] {
+  return records.filter((r) => {
+    if (f.status && r.status !== f.status) return false;
+    if (f.customer && r.customer !== f.customer) return false;
+    if (!matchesQuery(f.query ?? "", [r.quotation_no, r.customer ?? ""])) return false;
+    if (!inDateRange(r.date, f.dateFrom, f.dateTo)) return false;
+    if (!inAmountRange(r.total_amount, f.amountMin, f.amountMax)) return false;
     if (!matchesHasFile(r.file_path ?? "", f.hasFile)) return false;
     return true;
   });
