@@ -71,7 +71,7 @@
 ## 更多
 
 - 与 [启禾 OS](https://www.qihebook.cloud/)（AI 原生 ERP）同生态：文件管理是独立的免费桌面工具，不依赖启禾 OS 账号即可使用
-- 详细功能说明见 [HELP.md](HELP.md)；版本更新记录见 [CHANGELOG.md](CHANGELOG.md)；最新版发布说明见 [docs/RELEASE-2.5.4.md](docs/RELEASE-2.5.4.md)
+- 详细功能说明见 [HELP.md](HELP.md)；版本更新记录见 [CHANGELOG.md](CHANGELOG.md)；最新版发布说明见 [docs/RELEASE-2.5.5.md](docs/RELEASE-2.5.5.md)
 
 ---
 
