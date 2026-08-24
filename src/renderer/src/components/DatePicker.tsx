@@ -1,6 +1,7 @@
 import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import { pushLayer } from "~/components/ui/layerStack";
+import { dateQuickPick, type DateQuickPickMode } from "~/lib/dateQuickPicks";
 
 /**
  * 日期选择器（v2.3.x UI 统一批，复刻 ERP DateField + CalendarPicker 交互）。
@@ -8,6 +9,9 @@ import { pushLayer } from "~/components/ui/layerStack";
  * 面板经 Portal 渲染到 body + position:fixed（宿主弹窗 overflow-auto 不会裁剪），
  * 坐标取自触发元素 getBoundingClientRect()，bottom-left 对齐；越界时自动翻转
  * （右缘越界右对齐、下缘越界在触发元素上方展开）；滚动/窗口变化/外部点击/ESC 关闭。
+ *
+ * v2.5.5 打磨：①头部增加年步进（上一年/下一年，配合月步进快速定位）②底部快捷选择
+ * 芯片——今天/月初/月末/年初（dateQuickPick 纯函数，node 直测）③点击相邻月格子同步切换视图。
  */
 export default function DatePicker(props: {
   value: string;
@@ -75,6 +79,22 @@ export default function DatePicker(props: {
 
   const select = (d: Date) => {
     props.onChange(toDateKey(d));
+    // v2.5.5 打磨：点击相邻月格子 → 视图同步到该月（更跟手，不跳转也保持当前月）
+    setView((v) =>
+      d.getMonth() === v.month && d.getFullYear() === v.year
+        ? v
+        : { year: d.getFullYear(), month: d.getMonth() },
+    );
+    setIsOpen(false);
+  };
+
+  const changeYear = (delta: number) => {
+    setView((v) => ({ year: v.year + delta, month: v.month }));
+  };
+
+  /** v2.5.5 打磨：快捷选择（今天/月初/月末/年初），立即关闭 */
+  const quickPick = (mode: DateQuickPickMode) => {
+    props.onChange(dateQuickPick(mode, new Date()));
     setIsOpen(false);
   };
 
@@ -185,27 +205,47 @@ export default function DatePicker(props: {
             style={{ left: `${pos().left}px`, top: `${pos().top}px` }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* 年月切换 */}
+            {/* 年月切换（v2.5.5 打磨：加年步进，长距定位不用狂点月） */}
             <div class="flex items-center justify-between mb-2">
-              <button
-                type="button"
-                class="w-7 h-7 flex items-center justify-center rounded-md text-surface-500 hover:bg-surface-100 hover:text-primary-600 transition-colors"
-                aria-label="上个月"
-                onClick={() => changeMonth(-1)}
-              >
-                ◀
-              </button>
+              <div class="flex gap-0.5">
+                <button
+                  type="button"
+                  class="w-7 h-7 flex items-center justify-center rounded-md text-surface-500 hover:bg-surface-100 hover:text-primary-600 transition-colors"
+                  aria-label="上一年"
+                  onClick={() => changeYear(-1)}
+                >
+                  ◀◀
+                </button>
+                <button
+                  type="button"
+                  class="w-7 h-7 flex items-center justify-center rounded-md text-surface-500 hover:bg-surface-100 hover:text-primary-600 transition-colors"
+                  aria-label="上个月"
+                  onClick={() => changeMonth(-1)}
+                >
+                  ◀
+                </button>
+              </div>
               <div class="text-sm font-medium text-surface-900">
                 {view().year}年{view().month + 1}月
               </div>
-              <button
-                type="button"
-                class="w-7 h-7 flex items-center justify-center rounded-md text-surface-500 hover:bg-surface-100 hover:text-primary-600 transition-colors"
-                aria-label="下个月"
-                onClick={() => changeMonth(1)}
-              >
-                ▶
-              </button>
+              <div class="flex gap-0.5">
+                <button
+                  type="button"
+                  class="w-7 h-7 flex items-center justify-center rounded-md text-surface-500 hover:bg-surface-100 hover:text-primary-600 transition-colors"
+                  aria-label="下个月"
+                  onClick={() => changeMonth(1)}
+                >
+                  ▶
+                </button>
+                <button
+                  type="button"
+                  class="w-7 h-7 flex items-center justify-center rounded-md text-surface-500 hover:bg-surface-100 hover:text-primary-600 transition-colors"
+                  aria-label="下一年"
+                  onClick={() => changeYear(1)}
+                >
+                  ▶▶
+                </button>
+              </div>
             </div>
 
             {/* 星期表头 */}
@@ -236,8 +276,42 @@ export default function DatePicker(props: {
               </For>
             </div>
 
-            {/* 底部：清空日期 */}
-            <div class="flex justify-end pt-2 mt-2 border-t border-surface-100">
+            {/* 底部：快捷选择（v2.5.5 打磨）+ 清空日期 */}
+            <div class="flex items-center justify-between pt-2 mt-2 border-t border-surface-100">
+              <div class="flex gap-1">
+                <button
+                  type="button"
+                  class="text-xs text-primary-600 px-2 py-1 rounded-md hover:bg-primary-50 transition-colors"
+                  aria-label="快捷：今天"
+                  onClick={() => quickPick("today")}
+                >
+                  今天
+                </button>
+                <button
+                  type="button"
+                  class="text-xs text-primary-600 px-2 py-1 rounded-md hover:bg-primary-50 transition-colors"
+                  aria-label="快捷：月初"
+                  onClick={() => quickPick("monthStart")}
+                >
+                  月初
+                </button>
+                <button
+                  type="button"
+                  class="text-xs text-primary-600 px-2 py-1 rounded-md hover:bg-primary-50 transition-colors"
+                  aria-label="快捷：月末"
+                  onClick={() => quickPick("monthEnd")}
+                >
+                  月末
+                </button>
+                <button
+                  type="button"
+                  class="text-xs text-primary-600 px-2 py-1 rounded-md hover:bg-primary-50 transition-colors"
+                  aria-label="快捷：年初"
+                  onClick={() => quickPick("yearStart")}
+                >
+                  年初
+                </button>
+              </div>
               <button
                 type="button"
                 class="text-xs text-surface-400 px-2 py-1 rounded-md hover:bg-danger-50 hover:text-danger-600 transition-colors"

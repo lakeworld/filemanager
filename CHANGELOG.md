@@ -24,6 +24,7 @@
 - **MoneyInput 统一**：发票/入库/报价三处金额输入统一过滤+失焦格式化（金额即输即清非法字符，千分位）
 - **LAN 白名单收口**（插件 com.qihe.lan v0.2.3 补丁）：传输拉到的新子文件夹自动注册（图包/证书/文档/客户全部入口），面板即时可见，完成通知带「已加入白名单」
 - 内部 `qihebox:orphans:scan` 业务 IPC（插件协议面零变更，`api:update` 无 diff）
+- **打磨**：批量 AI 识别按钮仅在安装并启用 com.qihe.cloud（含 `invoice.identifyFiles` 命令）时浮现；日期选择器增强——年步进跳转、快捷芯片（今天/月初/月末/年初）、点击相邻月格子同步视图
 
 > 宿主协议零变更（`src/plugins/types.ts` / `docs/PLUGIN.md` / preload plugins·settings / `plugins:`/`settings:` IPC 均未动）；与插件契约接触点以 `关系:` 行为准。
 > 打包与发布：详见 `docs/INTERNAL/RELEASE-RUNBOOK.md`；性能实测与内存门禁见 `docs/PERF.md`。
