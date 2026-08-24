@@ -2,6 +2,7 @@ import { Show, For, createEffect } from "solid-js";
 import Modal from "~/components/ui/Modal";
 import DatePicker from "~/components/DatePicker";
 import TagInput from "~/components/TagInput";
+import MoneyInput from "~/components/MoneyInput"; // v2.5.5（B2）：金额输入统一
 import ArchiveField from "./ArchiveField";
 import { STATUSES } from "./utils";
 import type { InvoiceFormState, InvoiceStatus, InvoiceRecord, CustomerBrief } from "./types";
@@ -121,12 +122,11 @@ export default function InvoiceEditorModal(props: {
             </div>
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">金额（价税合计，元）*</label>
-              <input
-                type="number"
+              <MoneyInput
                 class="input w-full"
                 placeholder="如：1250.50"
                 value={props.form.amount}
-                onInput={(e) => props.setField("amount", e.currentTarget.value)}
+                onChange={(v) => props.setField("amount", v)}
               />
             </div>
             <div>
