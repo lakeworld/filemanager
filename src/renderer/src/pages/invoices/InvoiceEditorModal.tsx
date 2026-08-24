@@ -20,6 +20,9 @@ export default function InvoiceEditorModal(props: {
   /** v2.5.3（P2-10）：保存中——提交按钮 disabled 防连点双创建 */
   saving?: boolean;
   onClose: () => void;
+  /** v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc/取消走 onCloseRequest（二次确认），否则直关 */
+  dirty?: boolean;
+  onCloseRequest?: () => void;
   onSave: () => void;
   onPickFile: () => void;
   onPreviewFile: () => void;
@@ -30,8 +33,8 @@ export default function InvoiceEditorModal(props: {
   identifyCommands: PluginFileCommand[];
   identifying?: boolean;
   identifyWarnings?: string[];
-  /** 识别已归档副本的相对路径（识别成功即归档；空表示未识别） */
-  stagedArchivedRel?: string;
+  /** v2.5.5（B1 P0 归档后移）：识别到的源文件名（待归档展示；空表示未识别）——不再传已归档 rel */
+  stagedIdentifyName?: string;
   onIdentify: (cmd: PluginFileCommand) => void;
 }) {
   // 客户下拉：options 重建后补应用选中值（v2.5.4 预填）
@@ -43,7 +46,15 @@ export default function InvoiceEditorModal(props: {
   });
   return (
     <Show when={props.editor}>
-      <Modal open title={props.editor?.mode === "edit" ? "编辑发票" : "新建发票"} size="2xl" onClose={props.onClose}>
+      <Modal
+        open
+        title={props.editor?.mode === "edit" ? "编辑发票" : "新建发票"}
+        size="2xl"
+        onClose={props.onClose}
+        // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc 走 onCloseRequest（二次确认）
+        dirty={props.dirty}
+        onCloseRequest={props.onCloseRequest}
+      >
         <div class="p-6">
           <h2 class="text-xl font-bold mb-4">{props.editor?.mode === "edit" ? "编辑发票" : "新建发票"}</h2>
           {/* v2.5.4（Task 4）：global 命令槽（识别按钮）——仅 create 模式且有启用插件命令时渲染 */}
@@ -62,9 +73,9 @@ export default function InvoiceEditorModal(props: {
                     </button>
                   )}
                 </For>
-                <Show when={props.stagedArchivedRel}>
+                <Show when={props.stagedIdentifyName}>
                   <span class="text-xs text-emerald-700">
-                    已识别并归档：发票/{props.stagedArchivedRel}（确认登记即入账）
+                    已识别待归档：{props.stagedIdentifyName}（确认登记时归档）
                   </span>
                 </Show>
               </div>
@@ -204,7 +215,8 @@ export default function InvoiceEditorModal(props: {
             />
           </div>
           <div class="flex gap-3 justify-end mt-6">
-            <button class="btn-secondary" onClick={props.onClose}>取消</button>
+            {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 onCloseRequest（二次确认） */}
+            <button class="btn-secondary" onClick={() => (props.onCloseRequest ? props.onCloseRequest() : props.onClose())}>取消</button>
             <button class="btn-primary" onClick={() => void props.onSave()} disabled={props.saving}>
               {props.editor?.mode === "edit" ? "保存" : "确认登记"}
             </button>

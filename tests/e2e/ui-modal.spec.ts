@@ -179,4 +179,54 @@ test.describe('Modal 底座（v2.5.1 T2）', () => {
       await fsp.rm(wsDir, { recursive: true, force: true })
     }
   })
+
+  // —— B1 P0 Modal 脏守卫（PLAN §二 修复2）：dirty 时遮罩/Esc 走「放弃未保存内容？」二次确认 ——
+  test('脏守卫：编辑器输入字段后遮罩 → 确认弹窗；继续编辑不关 / 放弃修改关闭', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-dirty-e2e-'))
+    try {
+      await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+      await navigateTo('/invoices')
+      await page.getByRole('button', { name: /新建发票/ }).first().click()
+      const dialog = page.getByRole('dialog', { name: '新建发票' })
+      await expect(dialog).toBeVisible({ timeout: 15000 })
+      // 输入号码 → 脏
+      await dialog.locator('input[placeholder="如：25312000000012345678"]').fill('DIRTY-001')
+      // 遮罩点击 → 出现「放弃未保存内容？」确认
+      await page.mouse.click(10, 10)
+      const confirm = page.getByRole('dialog', { name: '放弃未保存内容？' })
+      await expect(confirm).toBeVisible({ timeout: 5000 })
+      // 继续编辑 → 确认框关、弹窗不关（内容保持）
+      await confirm.getByRole('button', { name: '继续编辑' }).click()
+      await expect(confirm).toHaveCount(0)
+      await expect(dialog).toBeVisible()
+      await expect(dialog.locator('input[placeholder="如：25312000000012345678"]')).toHaveValue('DIRTY-001')
+      // 再遮罩 → 确认 → 放弃修改 → 关闭
+      await page.mouse.click(10, 10)
+      await expect(confirm).toBeVisible({ timeout: 5000 })
+      await confirm.getByRole('button', { name: '放弃修改' }).click()
+      await expect(dialog).toHaveCount(0)
+      // 台账无记录（放弃未保存 = 不落库）
+      const list = await page.evaluate(async () => (window as any).qihebox.invoices.list())
+      expect(list.data).toHaveLength(0)
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true })
+    }
+  })
+
+  test('脏守卫：dirty=false（未改动）→ 遮罩直关不弹确认', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-dirty-clean-e2e-'))
+    try {
+      await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+      await navigateTo('/invoices')
+      await page.getByRole('button', { name: /新建发票/ }).first().click()
+      const dialog = page.getByRole('dialog', { name: '新建发票' })
+      await expect(dialog).toBeVisible({ timeout: 15000 })
+      // 未改动 → 遮罩直关、无确认
+      await page.mouse.click(10, 10)
+      await expect(dialog).toHaveCount(0)
+      await expect(page.getByRole('dialog', { name: '放弃未保存内容？' })).toHaveCount(0)
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true })
+    }
+  })
 })

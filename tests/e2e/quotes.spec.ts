@@ -155,7 +155,8 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     await expect(modal).toBeVisible()
     await fillLine(modal, 0, { product: '归档品', sku: '', qty: '1', unit_price: '2' })
     await modal.getByRole('button', { name: /选择本地文件并归档/ }).click()
-    await expect(modal.getByText(/qihebox-quote-src/)).toBeVisible({ timeout: 10000 })
+    // B1 P0 归档后移：选文件只暂存、不落盘（报价区无副本）；保存时才归档
+    expect(await countFiles(path.join(wsDir, '报价'))).toBe(0)
     await modal.getByRole('button', { name: '确认创建' }).click()
     await expect(modal).not.toBeVisible()
 
@@ -384,5 +385,83 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     await expect(page.getByText('QT-FLT-002', { exact: true })).toBeVisible()
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  /** 递归统计目录下文件数（含子目录；目录不存在 → 0） */
+  const countFiles = async (dir: string): Promise<number> => {
+    let n = 0
+    const stack = [dir]
+    while (stack.length > 0) {
+      const cur = stack.pop()!
+      const entries = await fsp.readdir(cur, { withFileTypes: true }).catch(() => [])
+      for (const e of entries) {
+        const full = path.join(cur, e.name)
+        if (e.isDirectory()) stack.push(full)
+        else if (e.isFile()) n++
+      }
+    }
+    return n
+  }
+
+  /** 主进程 dialog.showOpenDialog 打桩：返回固定源文件路径 */
+  const stubOpenDialog = async (filePath: string) => {
+    await app.evaluate(async ({ dialog }, p) => {
+      ;(dialog as unknown as { showOpenDialog: unknown }).showOpenDialog = async () =>
+        ({ canceled: false, filePaths: [p] }) as never
+    }, filePath)
+  }
+
+  // —— B1 P0 归档后移（PLAN §二 修复1）：报价选文件只暂存、保存才落盘 ——
+  test('P0：新建报价选文件 → 遮罩关闭（脏守卫确认）→ 报价区零落盘 + 台账无记录', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-p0-quote-e2e-'))
+    const src = path.join(wsDir, '..', `e2e-p0-报价-${Date.now()}.pdf`)
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    try {
+      await fsp.writeFile(src, '%PDF-1.4')
+      await stubOpenDialog(src)
+      await gotoRoute('/quotes')
+      await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
+      await page.getByRole('button', { name: '➕ 新建报价' }).click()
+      const modal = page.getByRole('dialog', { name: '新建报价单' })
+      await expect(modal).toBeVisible()
+      await modal.getByRole('button', { name: /选择本地文件并归档/ }).click()
+      // 遮罩 → 脏守卫确认 → 放弃修改 → 关闭
+      await page.mouse.click(10, 10)
+      const confirm = page.getByRole('dialog', { name: '放弃未保存内容？' })
+      await expect(confirm).toBeVisible({ timeout: 5000 })
+      await confirm.getByRole('button', { name: '放弃修改' }).click()
+      await expect(modal).toHaveCount(0)
+      expect(await countFiles(path.join(wsDir, '报价'))).toBe(0)
+      const list = await page.evaluate(async () => (window as any).qihebox.quotes.list())
+      expect(list.data).toHaveLength(0)
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+    }
+  })
+
+  test('P0：新建报价选文件 → 保存 → 归档副本存在 + 台账记录 file_path 正确', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-p0-quote-save-e2e-'))
+    const src = path.join(wsDir, '..', `e2e-p0-save-报价-${Date.now()}.pdf`)
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    try {
+      await fsp.writeFile(src, '%PDF-1.4')
+      await stubOpenDialog(src)
+      await gotoRoute('/quotes')
+      await page.getByRole('button', { name: '➕ 新建报价' }).click()
+      const modal = page.getByRole('dialog', { name: '新建报价单' })
+      await expect(modal).toBeVisible()
+      await modal.getByRole('button', { name: /选择本地文件并归档/ }).click()
+      await fillLine(modal, 0, { product: '报价存档品', sku: '', qty: '1', unit_price: '1' })
+      await modal.getByRole('button', { name: '确认创建' }).click()
+      await expect(modal).not.toBeVisible()
+      const list = await page.evaluate(async () => (window as any).qihebox.quotes.list())
+      expect(list.success).toBe(true)
+      const rec = list.data[0]
+      expect(rec.file_path).toMatch(/^报价\/\d{4}\//)
+      await expect(fsp.stat(path.join(wsDir, ...rec.file_path.split('/')))).resolves.toBeTruthy()
+      expect(await countFiles(path.join(wsDir, '报价'))).toBe(1)
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+    }
   })
 })

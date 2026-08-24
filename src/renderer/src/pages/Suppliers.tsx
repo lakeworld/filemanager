@@ -42,6 +42,9 @@ export default function Suppliers() {
   const [newNotes, setNewNotes] = createSignal("");
   // v2.4.9 打磨 M1：新建弹窗标签（TagInput，同客户弹窗范式）
   const [newTags, setNewTags] = createSignal<string[]>([]);
+  // v2.5.5（B1-B）：脏守卫——新建弹窗打开时表单初值快照 + 确认弹窗开关
+  const [createSnapshot, setCreateSnapshot] = createSignal<Record<string, unknown> | null>(null);
+  const [discardCreate, setDiscardCreate] = createSignal(false);
 
   // 重命名弹窗状态（列表入口；改名后走 qihebox:suppliers:rename，级联在 core 已做）
   const [renameTarget, setRenameTarget] = createSignal<SupplierInfo | null>(null);
@@ -69,13 +72,24 @@ export default function Suppliers() {
     prefillVersion("supplier");
     const cur = currentPrefill("supplier") as SupplierPrefill | null;
     if (!cur) return;
-    setNewName(cur.name ?? "");
-    setNewContact(cur.contact ?? "");
-    setNewPhone(cur.phone ?? "");
-    setNewEmail(cur.email ?? "");
-    setNewAddress(cur.address ?? "");
-    setNewNotes(cur.notes ?? "");
-    setNewTags(cur.tags ?? []);
+    const seeded = {
+      name: cur.name ?? "",
+      contact: cur.contact ?? "",
+      phone: cur.phone ?? "",
+      email: cur.email ?? "",
+      address: cur.address ?? "",
+      notes: cur.notes ?? "",
+      tags: cur.tags ?? [],
+    };
+    setNewName(seeded.name);
+    setNewContact(seeded.contact);
+    setNewPhone(seeded.phone);
+    setNewEmail(seeded.email);
+    setNewAddress(seeded.address);
+    setNewNotes(seeded.notes);
+    setNewTags(seeded.tags);
+    setCreateSnapshot(seeded); // v2.5.5（B1-B）：脏守卫初始快照
+    setDiscardCreate(false);
     setShowCreateModal(true);
   });
 
@@ -85,16 +99,47 @@ export default function Suppliers() {
     setShowCreateModal(false);
   };
 
+  /** v2.5.5（B1-B）：新建弹窗脏判定 = 表单字段相对打开快照有改动 */
+  const createDirty = () => {
+    const snap = createSnapshot();
+    if (!snap) return false;
+    return (
+      newName() !== snap.name ||
+      newContact() !== snap.contact ||
+      newPhone() !== snap.phone ||
+      newEmail() !== snap.email ||
+      newAddress() !== snap.address ||
+      newNotes() !== snap.notes ||
+      JSON.stringify(newTags()) !== JSON.stringify(snap.tags)
+    );
+  };
+
+  /** 关闭请求：dirty → 弹「放弃未保存内容？」；否则直关（取消按钮与遮罩/Esc 同路） */
+  const requestCloseCreate = () => {
+    if (discardCreate()) return; // 确认弹窗打开期间防叠加触发
+    if (createDirty()) setDiscardCreate(true);
+    else cancelCreate();
+  };
+
+  /** 放弃修改（确认后）：真实关闭 */
+  const confirmDiscardCreate = () => {
+    setDiscardCreate(false);
+    cancelCreate();
+  };
+
   /** 手动新建：防御性清队列 + 空表（v2.5.4） */
   const openManualCreate = () => {
     clearPrefill("supplier");
-    setNewName("");
-    setNewContact("");
-    setNewPhone("");
-    setNewEmail("");
-    setNewAddress("");
-    setNewNotes("");
-    setNewTags([]);
+    const empty = { name: "", contact: "", phone: "", email: "", address: "", notes: "", tags: [] as string[] };
+    setNewName(empty.name);
+    setNewContact(empty.contact);
+    setNewPhone(empty.phone);
+    setNewEmail(empty.email);
+    setNewAddress(empty.address);
+    setNewNotes(empty.notes);
+    setNewTags(empty.tags);
+    setCreateSnapshot(empty); // v2.5.5（B1-B）：脏守卫初始快照
+    setDiscardCreate(false);
     setShowCreateModal(true);
   };
 
@@ -269,7 +314,15 @@ export default function Suppliers() {
 
       {/* 新建供应商弹窗（字段：名称/联系人/电话/邮箱/地址/标签/备注） */}
       <Show when={showCreateModal()}>
-        <Modal open title="新建供应商" size="xl" onClose={cancelCreate}>
+        <Modal
+          open
+          title="新建供应商"
+          size="xl"
+          onClose={cancelCreate}
+          // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc 走 onCloseRequest（二次确认）
+          dirty={createDirty()}
+          onCloseRequest={requestCloseCreate}
+        >
           <div class="bg-white rounded-2xl w-full max-w-xl p-6 shadow-xl max-h-[90vh] overflow-y-auto overflow-x-hidden" onClick={(e) => e.stopPropagation()}>
             <h2 class="text-xl font-bold mb-4">新建供应商</h2>
             <div class="mb-4">
@@ -344,11 +397,25 @@ export default function Suppliers() {
               />
             </div>
             <div class="flex gap-3 justify-end">
-              <button class="btn-secondary" onClick={cancelCreate}>取消</button>
+              {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestCloseCreate（二次确认） */}
+              <button class="btn-secondary" onClick={requestCloseCreate}>取消</button>
               <button class="btn-primary" onClick={handleCreate}>确认创建</button>
             </div>
           </div>
         </Modal>
+      </Show>
+
+      {/* v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认（新建供应商；独立 Modal 叠层） */}
+      <Show when={discardCreate()}>
+        <ConfirmDialog
+          title="放弃未保存内容？"
+          message="该弹窗有未保存的修改，放弃后将不会保存任何内容。"
+          confirmLabel="放弃修改"
+          cancelLabel="继续编辑"
+          danger
+          onConfirm={confirmDiscardCreate}
+          onCancel={() => setDiscardCreate(false)}
+        />
       </Show>
 
       {/* 重命名弹窗（入口：卡片右键菜单；改名后 inbound 级联在 core BoxService.renameSupplier） */}

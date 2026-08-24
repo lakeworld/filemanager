@@ -17,6 +17,9 @@ export default function InboundEditorModal(props: {
   /** v2.5.3（P2-10）：保存中——提交按钮 disabled 防连点双创建 */
   saving?: boolean;
   onClose: () => void;
+  /** v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc/取消走 onCloseRequest（二次确认），否则直关 */
+  dirty?: boolean;
+  onCloseRequest?: () => void;
   onSave: () => void;
   onPickFile: () => void;
   onPreviewFile: () => void;
@@ -39,7 +42,15 @@ export default function InboundEditorModal(props: {
   });
   return (
     <Show when={props.editor}>
-      <Modal open title={props.editor?.mode === "edit" ? "编辑入库单" : "新建入库单"} size="2xl" onClose={props.onClose}>
+      <Modal
+        open
+        title={props.editor?.mode === "edit" ? "编辑入库单" : "新建入库单"}
+        size="2xl"
+        onClose={props.onClose}
+        // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc 走 onCloseRequest（二次确认）
+        dirty={props.dirty}
+        onCloseRequest={props.onCloseRequest}
+      >
         <div class="p-6">
           <h2 class="text-xl font-bold mb-4">{props.editor?.mode === "edit" ? "编辑入库单" : "新建入库单"}</h2>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -145,7 +156,8 @@ export default function InboundEditorModal(props: {
             />
           </div>
           <div class="flex gap-3 justify-end mt-6">
-            <button class="btn-secondary" onClick={props.onClose}>取消</button>
+            {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 onCloseRequest（二次确认） */}
+            <button class="btn-secondary" onClick={() => (props.onCloseRequest ? props.onCloseRequest() : props.onClose())}>取消</button>
             <button class="btn-primary" onClick={() => void props.onSave()} disabled={props.saving}>
               {props.editor?.mode === "edit" ? "保存" : "确认登记"}
             </button>

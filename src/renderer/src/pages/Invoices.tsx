@@ -54,6 +54,7 @@ import InvoiceTable from "./invoices/InvoiceTable";
 import InboundTable from "./invoices/InboundTable";
 import InvoiceToolbar from "./invoices/InvoiceToolbar";
 import DeleteRecordModal from "./invoices/DeleteRecordModal";
+import ConfirmDialog from "~/components/ConfirmDialog"; // v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认（应用内样式化，禁用 window.confirm）
 import { loadTagDefs, tagList } from "~/stores/tags";
 import { prefillVersion, currentPrefill, advancePrefill, clearPrefill, currentEditPrefill, clearEditPrefill } from "~/stores/createPrefill";
 import { normalizePrefill } from "~/stores/createPrefillNormalize";
@@ -193,18 +194,23 @@ export default function Invoices() {
   const [deleteTarget, setDeleteTarget] = createSignal<{ kind: "invoice" | "inbound"; key: string; name: string; withFile: boolean } | null>(null);
   // v2.5.3（P2-10）：保存中——发票/入库单弹窗共用（一次只开一个弹窗），按钮 disabled + handler 入口守卫防连点双创建
   const [saving, setSaving] = createSignal(false);
-  // v2.4.7（评审 P2）：本次弹窗内已归档但尚未保存的文件（工作区相对路径）——archiveFile 立即落盘，
-  // 取消/查重拒绝会留下孤儿文件，关闭弹窗时提示可删除（最小实现：文案说明，不提供删除按钮）
-  const [stagedArchive, setStagedArchive] = createSignal("");
-  // v2.5.4（Task 4 修订，设计 §1.5-P1.3）：识别成功即归档——sourcePath 为原始挑选路径（展示用），
-  // archivedRel 为归档副本相对路径；确认只落账（file_path 已就位）
+  // v2.4.7（评审 P2）：本次弹窗内已选文件但尚未保存的待归档源（B1 P0 归档后移——选文件只暂存，
+  // 保存回调里才 archiveFile 落盘；取消/遮罩/Esc 零落盘）。date = 归档年份口径的日期（手动/入库流=表单日期）。
+  const [stagedArchive, setStagedArchive] = createSignal<{ sourcePath: string; date: string } | null>(null);
+  // v2.5.4（Task 4 修订；B1 P0 归档后移）：识别到的源路径+识别日期（待保存时归档），不再含 archivedRel——
+  // 识别成功不落盘，保存回调里才 archiveFile；重复识别只是替换暂存源，不再产生副本
   const [stagedIdentifySource, setStagedIdentifySource] = createSignal<{
     sourcePath: string;
     fileName: string;
-    archivedRel: string;
+    date: string;
   } | null>(null);
   const [identifying, setIdentifying] = createSignal(false);
   const [identifyWarnings, setIdentifyWarnings] = createSignal<string[]>([]);
+  // —— v2.5.5（B1 任务 B）：脏守卫初始快照——弹窗打开时的表单初值，判断「相对打开是否有改动」 ——
+  const [invoiceFormSnapshot, setInvoiceFormSnapshot] = createSignal<InvoiceFormState | null>(null);
+  const [inboundFormSnapshot, setInboundFormSnapshot] = createSignal<InboundFormState | null>(null);
+  // 脏守卫确认目标（发票/入库 共用；一次只开一个编辑器弹窗）：null = 无待确认
+  const [discardTarget, setDiscardTarget] = createSignal<"invoice" | "inbound" | null>(null);
 
   // —— v2.5.4 预填消费（PLAN-v2.5.4 §3.4）：版本变化 → 切 tab + seed 表单 + 开新建弹窗；只开不关 ——
   createEffect(() => {
@@ -213,14 +219,16 @@ export default function Invoices() {
     if (!cur) return;
     setStagedIdentifySource(null); // v2.5.4：新预填/新建前清识别暂存
     setIdentifyWarnings([]);
-    setInvoiceForm({
+    const seeded: InvoiceFormState = {
       number: cur.number ?? "", code: cur.code ?? "",
       date: cur.date ?? toDateKey(new Date()),
       amount: cur.amount != null ? String(cur.amount) : "",
       seller: cur.seller ?? "", buyer: cur.buyer ?? "",
       status: "待报销", customer: cur.customer ?? "", due_date: cur.due_date ?? "",
       file_path: cur.file_path ?? "", tags: cur.tags ?? [], notes: cur.notes ?? "",
-    });
+    };
+    setInvoiceForm(seeded);
+    setInvoiceFormSnapshot(seeded); // v2.5.5（B1-B）：脏守卫初始快照（预填即基准）
     setTab("invoices");
     setInvoiceEditor({ mode: "create" });
   });
@@ -228,13 +236,15 @@ export default function Invoices() {
     prefillVersion("inbound");
     const cur = currentPrefill("inbound") as InboundPrefill | null;
     if (!cur) return;
-    setInboundForm({
+    const seededInbound: InboundFormState = {
       id: cur.id ?? "", date: cur.date ?? toDateKey(new Date()),
       supplier: cur.supplier ?? "", supplier_id: cur.supplier_id ?? "",
       product_set: cur.product_set ?? "",
       amount: cur.amount != null ? String(cur.amount) : "",
       notes: cur.notes ?? "", file_path: cur.file_path ?? "",
-    });
+    };
+    setInboundForm(seededInbound);
+    setInboundFormSnapshot(seededInbound); // v2.5.5（B1-B）：脏守卫初始快照
     setTab("inbound");
     setInboundEditor({ mode: "create" });
   });
@@ -409,18 +419,22 @@ export default function Invoices() {
   // —— 台账 新建/编辑 ——
   const openInvoiceCreate = () => {
     clearPrefill("invoice"); // v2.5.4：手动新建防御性清队列
+    setStagedArchive(null);
     setStagedIdentifySource(null);
     setIdentifyWarnings([]);
-    setInvoiceForm({
+    const seeded: InvoiceFormState = {
       number: "", code: "", date: toDateKey(new Date()), amount: "", seller: "", buyer: "",
       status: "待报销", customer: "", due_date: "", file_path: "", tags: [], notes: "",
-    });
+    };
+    setInvoiceForm(seeded);
+    setInvoiceFormSnapshot(seeded); // v2.5.5（B1-B）：脏守卫初始快照
     setInvoiceEditor({ mode: "create" });
   };
   const openInvoiceEdit = (rec: InvoiceRecord) => {
+    setStagedArchive(null); // 编辑模式手动换绑才暂存
     setStagedIdentifySource(null); // 编辑模式无识别槽
     setIdentifyWarnings([]);
-    setInvoiceForm({
+    const seeded: InvoiceFormState = {
       number: rec.number,
       code: rec.code ?? "",
       date: rec.date,
@@ -433,7 +447,9 @@ export default function Invoices() {
       file_path: rec.file_path,
       tags: rec.tags ?? [],
       notes: rec.notes ?? "",
-    });
+    };
+    setInvoiceForm(seeded);
+    setInvoiceFormSnapshot(seeded); // v2.5.5（B1-B）：脏守卫初始快照（编辑基准 = 记录现值）
     setInvoiceEditor({ mode: "edit", record: rec });
   };
 
@@ -447,10 +463,10 @@ export default function Invoices() {
    */
   const identifyFromFile = async (cmd: { pluginId: string; commandId: string }) => {
     if (identifying()) return; // 连点守卫
-    const already = stagedIdentifySource()?.archivedRel;
+    const already = stagedIdentifySource();
     if (already) {
-      // 识别即归档后再次识别 → 明示会增加副本，防静默多归档
-      showToast("info", "本单已识别归档过，再次识别将新增一份归档副本", `已有副本：发票/${already}（旧副本保留）`);
+      // B1 P0 归档后移：重复识别只替换暂存源（保存时才归档一次），不再产生副本、不再静默孤儿
+      showToast("info", "本单已识别过，再次识别将替换待归档源", `原源文件：${already.fileName}（未落盘，原地保留）`);
     }
     setIdentifying(true);
     try {
@@ -476,20 +492,12 @@ export default function Invoices() {
         setIdentifyWarnings(warnings);
         const src = typeof d.sourcePath === "string" ? d.sourcePath.trim() : "";
         if (src) {
-          // —— UX 修订（用户拍板 2026-08-22 晚）：识别成功即归档，不等确认 ——
-          // 归档年份 = 识别日期 → 文件 mtime 兜底 → 今年；归档副本立即回填 file_path
+          // —— B1 P0 归档后移（用户拍板 2026-08-24）：识别成功只暂存源+识别日期，保存时才 archiveFile ——
+          // 归档年份口径保留（B0 §九）：识别日期 → 文件 mtime 兜底 → 今年（保存回调消费）
           let archDate = norm.date;
           if (!archDate) archDate = await dateFromFileMtime(src);
           if (!archDate) archDate = toDateKey(new Date());
-          const arch = await api.invoices.archiveFile(src, archDate);
-          if (arch.success && arch.data) {
-            const rel = arch.data;
-            setStagedIdentifySource({ sourcePath: src, fileName: baseNameOf(src), archivedRel: rel });
-            setInvoiceForm((prev) => ({ ...prev, file_path: rel }));
-          } else {
-            showToast("error", "文件归档失败", arch.error || "识别字段已保留，请手动选择文件归档");
-            setStagedIdentifySource(null);
-          }
+          setStagedIdentifySource({ sourcePath: src, fileName: baseNameOf(src), date: archDate });
         } else {
           setStagedIdentifySource(null); // 用户取消选择 → 静默
         }
@@ -503,7 +511,7 @@ export default function Invoices() {
     }
   };
 
-  /** 选本地文件 → archiveFile 归档（按开票日期年份）→ 以相对路径回填表单 */
+  /** 选本地文件 → 只暂存待归档源（B1 P0 归档后移：保存时才 archiveFile，取消/逃逸零落盘） */
   const pickInvoiceFile = async () => {
     const date = invoiceForm().date;
     if (!date) {
@@ -512,31 +520,53 @@ export default function Invoices() {
     }
     const src = await api.dialog.openFile("选择发票文件", [{ displayName: "所有文件", pattern: "*" }]);
     if (!src) return;
-    const r = await api.invoices.archiveFile(src, date);
-    if (r.success && r.data) {
-      setInvoiceField("file_path", r.data);
-      // v2.4.7：记录本次归档，弹窗未保存关闭时提示可删除
-      setStagedArchive(r.data);
-    } else {
-      showToast("error", "文件归档失败", r.error || "未知错误");
-    }
+    setStagedArchive({ sourcePath: src, date });
+    showToast("info", "已暂存待归档", `${baseNameOf(src)}（确认登记时归档）`);
   };
 
-  /** 关闭新建/编辑弹窗：本次已归档未保存的文件提示可删除（取消或遮罩点击共用） */
+  /** 关闭新建/编辑弹窗：只清暂存 + 关闭，零落盘（脏守卫在 dirty 时接管二次确认，此处不再 toast） */
   const closeInvoiceEditor = () => {
-    const staged = stagedArchive();
-    const identified = stagedIdentifySource()?.archivedRel;
-    if (staged) {
-      showToast("info", "刚归档的文件未保存为发票记录", `「${staged}」已落在 发票/<年份>/ 归档目录。如不需要，请到文件管理中删除该文件。`);
-    } else if (identified) {
-      // 识别即归档流：取消/关闭同样提示（文件已在发票区，只是没有台账记录）
-      showToast("info", "识别归档的文件未登记为发票记录", `「${identified}」已落在发票区。如不需要，请到文件管理中删除该文件。`);
-    }
-    setStagedArchive("");
+    setStagedArchive(null);
     setStagedIdentifySource(null); // 识别源只暂存，取消/关闭即弃（源文件原地不动）
     setIdentifyWarnings([]);
     setInvoiceEditor(null);
     clearPrefill("invoice"); // v2.5.4：取消 = 清预填队列（P1-1；保存成功不经过本函数）
+  };
+
+  /** v2.5.5（B1-B）：发票弹窗脏判定 = 暂存源（识别/手动）OR 预填 file_path（防孤儿）OR 表单相对打开快照有改动 */
+  const invoiceDirty = () => {
+    if (stagedArchive() || stagedIdentifySource()) return true;
+    const f = invoiceForm();
+    if (invoiceEditor()?.mode === "create" && f.file_path !== "") return true; // 预填 file_path 未登记 → 防孤儿（B0 §六）
+    const snap = invoiceFormSnapshot();
+    if (!snap) return false;
+    return JSON.stringify(f) !== JSON.stringify(snap);
+  };
+
+  /** 发票弹窗关闭请求：dirty → 弹「放弃未保存内容？」；否则直关 */
+  const requestCloseInvoice = () => {
+    if (discardTarget()) return; // 确认弹窗打开期间防叠加触发
+    if (invoiceDirty()) setDiscardTarget("invoice");
+    else closeInvoiceEditor();
+  };
+
+  /** 放弃修改（确认后）：真实关闭 */
+  const confirmDiscard = () => {
+    const t = discardTarget();
+    setDiscardTarget(null);
+    if (t === "invoice") closeInvoiceEditor();
+    else if (t === "inbound") closeInboundEditor();
+  };
+
+  /** B1 P0 保存失败回滚：删除本次归档刚产生的副本（只删精确 rel，force+catch，走回收站 file API 不级联台账；
+   *  暂存源保留——用户修正后可重试，重试时重新归档） */
+  const rollbackArchived = async (rel: string) => {
+    const ws = currentWorkspace()?.path;
+    if (!ws || !rel) return;
+    const r = await api.files.delete([`${ws.replace(/\\/g, "/")}/${rel}`]).catch(() => null);
+    if (!r?.success) {
+      console.warn("[rollbackArchived] 回滚删除归档副本失败", rel, r?.error);
+    }
   };
 
   const saveInvoice = async () => {
@@ -566,24 +596,33 @@ export default function Invoices() {
       return;
     }
 
-    // 文件来源 + 日期解析（识别流已在识别成功时归档、file_path 就位；日期缺失走 mtime 兜底）
-    const staged = stagedIdentifySource();
+    // —— B1 P0 归档后移：文件来源解析 ——
+    // 识别流暂存源（stagedIdentifySource）/ 手动选文件暂存源（stagedArchive）在保存时才 archiveFile；
+    // 无暂存源时用表单 file_path（插件预填或编辑既有，直接登记不复制）。归档年份口径保留（B0 §九）。
+    const stagedId = stagedIdentifySource();
+    const stagedManual = stagedArchive();
     const filePath = f.file_path;
     let date = f.date;
-    if (editor?.mode === "create" && staged) {
-      if (!date) {
-        date = await dateFromFileMtime(staged.sourcePath);
-        if (!date) {
-          showToast("info", "请选择开票日期");
-          return;
-        }
-        showToast("info", "开票日期未识别，已按发票文件修改时间归档", date);
-      }
-      if (!filePath) {
-        showToast("info", "发票文件未归档成功，请手动选择归档", "");
+    let archiveSource = "";
+    let archiveDate = "";
+    if (stagedId) {
+      archiveSource = stagedId.sourcePath;
+      archiveDate = stagedId.date || date;
+      if (!date) date = archiveDate;
+    } else if (stagedManual) {
+      archiveSource = stagedManual.sourcePath;
+      archiveDate = stagedManual.date || date;
+      if (!date) date = archiveDate;
+    }
+    if (archiveSource && !archiveDate) {
+      archiveDate = await dateFromFileMtime(archiveSource);
+      if (!archiveDate) {
+        showToast("info", "请选择开票日期");
         return;
       }
-    } else {
+      showToast("info", "开票日期未识别，已按发票文件修改时间归档", archiveDate);
+    }
+    if (!archiveSource) {
       if (!filePath) {
         showToast("info", "请先选择并归档发票文件");
         return;
@@ -610,23 +649,34 @@ export default function Invoices() {
     try {
       let result;
       if (editor?.mode === "edit") {
+        // 换绑：先归档暂存源，再 update（失败回滚本次刚归档的副本；未换绑缺省 → core 保持原 file_path）
+        let fpForUpdate = filePath;
+        if (archiveSource) {
+          const arch = await api.invoices.archiveFile(archiveSource, archiveDate);
+          if (arch.success && arch.data) {
+            fpForUpdate = arch.data;
+          } else {
+            showToast("error", "文件归档失败", arch.error || "未知错误");
+            return;
+          }
+        }
         const orig = editor.record;
         result = await api.invoices.update({
           number: orig.number,
           newNumber: number !== orig.number ? number : undefined,
           ...common,
-          // 未换绑文件时缺省（undefined）→ core 保持原 file_path
-          file_path: filePath !== orig.file_path ? filePath : undefined,
+          file_path: fpForUpdate !== orig.file_path ? fpForUpdate : undefined,
         });
+        if (!result.success && archiveSource) await rollbackArchived(fpForUpdate);
       } else {
-        // —— 时序收口（设计 §1.4-D + 识别即归档修订）：checkNumber 预检 → create。
-        //    识别流的 file_path 已在识别成功时归档就位（此处不再二次复制）——
+        // —— 时序收口（设计 §1.4-D + B1 P0 归档后移）：checkNumber 查重预检 → 归档 → create ——
+        //    先查重后归档：查重拒绝不产生孤儿；create 失败回滚本次归档副本
         const dup = await api.invoices.checkNumber(number);
         if (dup.success && dup.data) {
           showToast(
             "error",
             "保存失败",
-            `发票号码 ${number} 已存在（状态：${dup.data.status}，日期：${dup.data.date}）；文件如已归档仍留在发票区`,
+            `发票号码 ${number} 已存在（状态：${dup.data.status}，日期：${dup.data.date}）`,
           );
           return;
         }
@@ -634,10 +684,21 @@ export default function Invoices() {
           showToast("error", "查重失败", dup.error || "未知错误");
           return;
         }
-        result = await api.invoices.create({ ...common, number, file_path: filePath });
+        let fpForCreate = filePath;
+        if (archiveSource) {
+          const arch = await api.invoices.archiveFile(archiveSource, archiveDate);
+          if (arch.success && arch.data) {
+            fpForCreate = arch.data;
+          } else {
+            showToast("error", "文件归档失败", arch.error || "未知错误");
+            return;
+          }
+        }
+        result = await api.invoices.create({ ...common, number, file_path: fpForCreate });
+        if (!result.success && archiveSource) await rollbackArchived(fpForCreate);
       }
       if (result.success) {
-        setStagedArchive(""); // 已保存为记录，文件不再孤儿
+        setStagedArchive(null); // 已保存为记录，文件不再孤儿
         setStagedIdentifySource(null);
         setIdentifyWarnings([]);
         setInvoiceEditor(null);
@@ -655,14 +716,18 @@ export default function Invoices() {
   // —— 入库单 新建/编辑 ——
   const openInboundCreate = () => {
     clearPrefill("inbound"); // v2.5.4：手动新建防御性清队列
-    setInboundForm({
+    setStagedArchive(null);
+    const seeded: InboundFormState = {
       id: "", date: toDateKey(new Date()), supplier: "", supplier_id: "", product_set: "",
       amount: "", notes: "", file_path: "",
-    });
+    };
+    setInboundForm(seeded);
+    setInboundFormSnapshot(seeded); // v2.5.5（B1-B）：脏守卫初始快照
     setInboundEditor({ mode: "create" });
   };
   const openInboundEdit = (rec: InboundRecord) => {
-    setInboundForm({
+    setStagedArchive(null);
+    const seeded: InboundFormState = {
       id: rec.id,
       date: rec.date,
       supplier: rec.supplier,
@@ -671,7 +736,9 @@ export default function Invoices() {
       amount: rec.amount !== undefined ? String(rec.amount) : "",
       notes: rec.notes ?? "",
       file_path: rec.file_path,
-    });
+    };
+    setInboundForm(seeded);
+    setInboundFormSnapshot(seeded); // v2.5.5（B1-B）：脏守卫初始快照（编辑基准 = 记录现值）
     setInboundEditor({ mode: "edit", record: rec });
   };
 
@@ -686,25 +753,32 @@ export default function Invoices() {
     }
     const src = await api.dialog.openFile("选择入库文件", [{ displayName: "所有文件", pattern: "*" }]);
     if (!src) return;
-    const r = await api.inbound.archiveFile(src, date);
-    if (r.success && r.data) {
-      setInboundField("file_path", r.data);
-      // v2.4.7：记录本次归档，弹窗未保存关闭时提示可删除
-      setStagedArchive(r.data);
-    } else {
-      showToast("error", "文件归档失败", r.error || "未知错误");
-    }
+    setStagedArchive({ sourcePath: src, date }); // B1 P0 归档后移：只暂存，保存时才落盘
+    showToast("info", "已暂存待归档", `${baseNameOf(src)}（确认登记时归档）`);
   };
 
-  /** 关闭新建/编辑弹窗：本次已归档未保存的文件提示可删除（取消或遮罩点击共用） */
+  /** 关闭新建/编辑弹窗：只清暂存 + 关闭，零落盘（脏守卫在 dirty 时接管二次确认） */
   const closeInboundEditor = () => {
-    const staged = stagedArchive();
-    if (staged) {
-      showToast("info", "刚归档的文件未保存为入库单", `「${staged}」已落在 入库/<年份>/ 归档目录。如不需要，请到文件管理中删除该文件。`);
-    }
-    setStagedArchive("");
+    setStagedArchive(null);
     setInboundEditor(null);
     clearPrefill("inbound"); // v2.5.4：取消 = 清预填队列（P1-1；保存成功不经过本函数）
+  };
+
+  /** v2.5.5（B1-B）：入库弹窗脏判定 = 暂存源 OR 预填 file_path（防孤儿）OR 表单相对打开快照有改动 */
+  const inboundDirty = () => {
+    if (stagedArchive()) return true;
+    const f = inboundForm();
+    if (inboundEditor()?.mode === "create" && f.file_path !== "") return true; // 预填 file_path 未登记 → 防孤儿（B0 §六）
+    const snap = inboundFormSnapshot();
+    if (!snap) return false;
+    return JSON.stringify(f) !== JSON.stringify(snap);
+  };
+
+  /** 入库弹窗关闭请求：dirty → 弹「放弃未保存内容？」；否则直关 */
+  const requestCloseInbound = () => {
+    if (discardTarget()) return; // 确认弹窗打开期间防叠加触发
+    if (inboundDirty()) setDiscardTarget("inbound");
+    else closeInboundEditor();
   };
 
   const saveInbound = async () => {
@@ -715,10 +789,6 @@ export default function Invoices() {
       showToast("info", "单据编号不能为空");
       return;
     }
-    if (!f.file_path) {
-      showToast("info", "请先选择并归档入库文件");
-      return;
-    }
     if (!f.date) {
       showToast("info", "请选择入库日期");
       return;
@@ -727,21 +797,39 @@ export default function Invoices() {
       showToast("info", "供应商不能为空");
       return;
     }
-    const req: InboundCreateRequest = {
-      id: f.id.trim(),
-      date: f.date,
-      supplier: f.supplier.trim(),
-      supplier_id: f.supplier_id.trim() || undefined,
-      product_set: f.product_set.trim() || undefined,
-      file_path: f.file_path,
-      amount: f.amount.trim() !== "" ? Number(f.amount) : undefined,
-      notes: f.notes.trim() || undefined,
-    };
+    // B1 P0 归档后移：暂存源在保存时才 archiveFile；无暂存源用表单 file_path（预填/编辑既有）
+    const staged = stagedArchive();
+    let filePath = f.file_path;
     setSaving(true);
     try {
+      if (staged) {
+        const arch = await api.inbound.archiveFile(staged.sourcePath, staged.date || f.date);
+        if (arch.success && arch.data) {
+          filePath = arch.data;
+        } else {
+          showToast("error", "文件归档失败", arch.error || "未知错误");
+          return;
+        }
+      }
+      if (!filePath) {
+        showToast("info", "请先选择并归档入库文件");
+        return;
+      }
+      const req: InboundCreateRequest = {
+        id: f.id.trim(),
+        date: f.date,
+        supplier: f.supplier.trim(),
+        supplier_id: f.supplier_id.trim() || undefined,
+        product_set: f.product_set.trim() || undefined,
+        file_path: filePath,
+        amount: f.amount.trim() !== "" ? Number(f.amount) : undefined,
+        notes: f.notes.trim() || undefined,
+      };
       const result = editor?.mode === "edit" ? await api.inbound.update(editor.record.id, req) : await api.inbound.create(req);
+      // 保存失败（含 core 查重拒绝）→ 回滚本次刚归档的副本（暂存源保留，可修正重试）
+      if (!result.success && staged) await rollbackArchived(filePath);
       if (result.success) {
-        setStagedArchive(""); // 已保存为记录，文件不再孤儿
+        setStagedArchive(null); // 已保存为记录，文件不再孤儿
         setInboundEditor(null);
         showToast("success", editor?.mode === "edit" ? "入库单已更新" : "入库单已登记");
         void loadInbound();
@@ -870,6 +958,9 @@ export default function Invoices() {
         setField={setInvoiceField}
         saving={saving()}
         onClose={closeInvoiceEditor}
+        // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc/取消走 onCloseRequest（二次确认）
+        dirty={invoiceDirty()}
+        onCloseRequest={requestCloseInvoice}
         onSave={() => void saveInvoice()}
         onPickFile={pickInvoiceFile}
         onPreviewFile={() => invoiceForm().file_path && previewRelPath(invoiceForm().file_path)}
@@ -879,7 +970,7 @@ export default function Invoices() {
         identifyCommands={pluginGlobalCommands()}
         identifying={identifying()}
         identifyWarnings={identifyWarnings()}
-        stagedArchivedRel={stagedIdentifySource()?.archivedRel ?? ""}
+        stagedIdentifyName={stagedIdentifySource()?.fileName ?? ""}
         onIdentify={(cmd) => void identifyFromFile(cmd)}
       />
       <InboundEditorModal
@@ -888,6 +979,9 @@ export default function Invoices() {
         setField={setInboundField}
         saving={saving()}
         onClose={closeInboundEditor}
+        // v2.5.5（B1-B）：脏守卫
+        dirty={inboundDirty()}
+        onCloseRequest={requestCloseInbound}
         onSave={() => void saveInbound()}
         onPickFile={pickInboundFile}
         onPreviewFile={() => inboundForm().file_path && previewRelPath(inboundForm().file_path)}
@@ -901,6 +995,19 @@ export default function Invoices() {
         onCancel={() => setDeleteTarget(null)}
         onConfirm={confirmDelete}
       />
+      {/* v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认（发票/入库共用；确认弹窗为独立 Modal 叠层，
+          打开期间其遮罩/Esc 不会叠加触发下层编辑器守卫——layerStack 只派栈顶） */}
+      <Show when={discardTarget()}>
+        <ConfirmDialog
+          title="放弃未保存内容？"
+          message="该弹窗有未保存的修改或待归档文件，放弃后将不会保存任何内容（已选文件不会归档）。"
+          confirmLabel="放弃修改"
+          cancelLabel="继续编辑"
+          danger
+          onConfirm={confirmDiscard}
+          onCancel={() => setDiscardTarget(null)}
+        />
+      </Show>
     </div>
   );
 }

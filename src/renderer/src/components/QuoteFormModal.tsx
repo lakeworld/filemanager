@@ -17,6 +17,7 @@ import { showToast } from "~/stores/notifyBanner";
 import { openPreview } from "~/stores/preview";
 import DatePicker from "~/components/DatePicker";
 import Modal from "~/components/ui/Modal";
+import ConfirmDialog from "~/components/ConfirmDialog"; // v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认
 import type { QuoteRecord, CustomerInfo, FileEntry } from "~/types";
 import type { QuotePrefill } from "~/stores/createPrefillNormalize";
 
@@ -86,12 +87,12 @@ export default function QuoteFormModal(props: {
   const prefill = !isEdit ? props.initial : null;
   const locked = isEdit && rec?.status === "已确认"; // 已确认：明细只读锁定（core 同步拒绝）
 
-  const [date, setDate] = createSignal(isEdit ? rec?.date ?? "" : prefill?.date ?? toDateKey(new Date()));
-  const [customer, setCustomer] = createSignal(isEdit ? rec?.customer ?? "" : prefill?.customer ?? "");
-  // 新建：留空自动生成、可手输；编辑：单号只读展示（生成后不可改）
-  const [quotationNo, setQuotationNo] = createSignal(isEdit ? rec?.quotation_no ?? "" : prefill?.quotation_no ?? "");
-  const [notes, setNotes] = createSignal(isEdit ? rec?.notes ?? "" : prefill?.notes ?? "");
-  const [lines, setLines] = createSignal<LineForm[]>(
+  // —— v2.5.5（B1-B）：初始快照（mount 时捕获；组件随 Show 每次新开重挂载，即打开基准）——
+  const initDate = isEdit ? rec?.date ?? "" : prefill?.date ?? toDateKey(new Date());
+  const initCustomer = isEdit ? rec?.customer ?? "" : prefill?.customer ?? "";
+  const initNo = isEdit ? rec?.quotation_no ?? "" : prefill?.quotation_no ?? "";
+  const initNotes = isEdit ? rec?.notes ?? "" : prefill?.notes ?? "";
+  const initLines: LineForm[] =
     isEdit && rec
       ? rec.lines.map((l) => ({
           product: l.product,
@@ -106,13 +107,22 @@ export default function QuoteFormModal(props: {
             qty: l.qty != null ? String(l.qty) : "",
             unit_price: l.unit_price != null ? String(l.unit_price) : "",
           }))
-        : [blankLine()],
-  );
-  const [filePath, setFilePath] = createSignal(isEdit ? rec?.file_path ?? "" : prefill?.file_path ?? "");
-  // 本次弹窗内已归档但尚未保存的文件（archiveFile 立即落盘，取消/查重拒绝会留下孤儿文件，关闭时提示）
-  const [stagedArchive, setStagedArchive] = createSignal("");
+        : [blankLine()];
+  const initFilePath = isEdit ? rec?.file_path ?? "" : prefill?.file_path ?? "";
+
+  const [date, setDate] = createSignal(initDate);
+  const [customer, setCustomer] = createSignal(initCustomer);
+  // 新建：留空自动生成、可手输；编辑：单号只读展示（生成后不可改）
+  const [quotationNo, setQuotationNo] = createSignal(initNo);
+  const [notes, setNotes] = createSignal(initNotes);
+  const [lines, setLines] = createSignal<LineForm[]>(initLines);
+  const [filePath, setFilePath] = createSignal(initFilePath);
+  // B1 P0 归档后移：本次弹窗内已选文件但尚未保存的待归档源（选文件只暂存，保存时才 archiveFile）
+  const [stagedArchive, setStagedArchive] = createSignal<{ sourcePath: string; date: string } | null>(null);
   // v2.5.3（P2-10）：保存中——按钮 disabled + save 入口守卫，防连点双创建（照 CreateClientModal saving 先例）
   const [saving, setSaving] = createSignal(false);
+  // v2.5.5（B1-B）：脏守卫「放弃未保存内容？」确认弹窗开关（防叠加触发）
+  const [discardOpen, setDiscardOpen] = createSignal(false);
 
   const setLine = (i: number, patch: Partial<LineForm>) =>
     setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -142,7 +152,7 @@ export default function QuoteFormModal(props: {
     return round2(sum);
   };
 
-  /** 选本地文件 → 归档到 报价/<YYYY>/（年份取报价日期）→ 相对路径回填表单 */
+  /** 选本地文件 → 只暂存待归档源（B1 P0 归档后移：保存时才 archiveFile，取消/逃逸零落盘） */
   const pickFile = async () => {
     const d = date();
     if (!d) {
@@ -151,23 +161,46 @@ export default function QuoteFormModal(props: {
     }
     const src = await api.dialog.openFile("选择报价文件", [{ displayName: "所有文件", pattern: "*" }]);
     if (!src) return;
-    const r = await api.quotes.archiveFile(src, d);
-    if (r.success && r.data) {
-      setFilePath(r.data);
-      setStagedArchive(r.data);
-    } else {
-      showToast("error", "文件归档失败", r.error || "未知错误");
-    }
+    setStagedArchive({ sourcePath: src, date: d });
+    showToast("info", "已暂存待归档", `${baseNameOf(src)}（确认创建时归档）`);
   };
 
-  /** 关闭弹窗：本次已归档未保存的文件提示可删除（取消或遮罩点击共用；不提供删除按钮） */
+  /** 关闭弹窗：只清暂存 + 关闭，零落盘（脏守卫在 dirty 时接管二次确认，此处不再 toast） */
   const close = () => {
-    const staged = stagedArchive();
-    if (staged) {
-      showToast("info", "刚归档的文件未保存为报价记录", `「${staged}」已落在 报价/<年份>/ 归档目录。如不需要，请到文件管理中删除该文件。`);
-    }
-    setStagedArchive("");
+    setStagedArchive(null);
+    setDiscardOpen(false);
     props.onClose();
+  };
+
+  /** v2.5.5（B1-B）：脏判定 = 暂存源 OR create 模式预填 file_path（防孤儿）OR 表单相对打开快照有改动 */
+  const dirty = () => {
+    if (stagedArchive()) return true;
+    if (!isEdit && filePath() !== "") return true; // 预填 file_path 未登记 → 防孤儿（B0 §六）
+    return (
+      date() !== initDate ||
+      customer() !== initCustomer ||
+      quotationNo() !== initNo ||
+      notes() !== initNotes ||
+      filePath() !== initFilePath ||
+      JSON.stringify(lines()) !== JSON.stringify(initLines)
+    );
+  };
+
+  /** 关闭请求：dirty → 弹「放弃未保存内容？」；否则直关（取消按钮与遮罩/Esc 同路） */
+  const requestClose = () => {
+    if (discardOpen()) return; // 确认弹窗打开期间防叠加触发
+    if (dirty()) setDiscardOpen(true);
+    else close();
+  };
+
+  /** B1 P0 保存失败回滚：删除本次归档刚产生的副本（只删精确 rel，force+catch，走回收站 file API 不级联台账） */
+  const rollbackArchived = async (rel: string) => {
+    const ws = currentWorkspace()?.path;
+    if (!ws || !rel) return;
+    const r = await api.files.delete([`${ws.replace(/\\/g, "/")}/${rel}`]).catch(() => null);
+    if (!r?.success) {
+      console.warn("[rollbackArchived] 回滚删除归档副本失败", rel, r?.error);
+    }
   };
 
   const save = async () => {
@@ -199,12 +232,23 @@ export default function QuoteFormModal(props: {
     }
     const c = customer().trim();
     const n = notes().trim();
-    const fp = filePath();
+    const staged = stagedArchive(); // B1 P0 归档后移：暂存源（待归档），保存时才 archiveFile
+    let fp = filePath();
 
     setSaving(true);
     try {
       let result;
       if (isEdit && rec) {
+        // 换绑：先归档暂存源，再 update（失败回滚本次刚归档的副本；未换绑缺省 → core 保持原 file_path）
+        if (staged) {
+          const arch = await api.quotes.archiveFile(staged.sourcePath, staged.date || date());
+          if (arch.success && arch.data) {
+            fp = arch.data;
+          } else {
+            showToast("error", "文件归档失败", arch.error || "未知错误");
+            return;
+          }
+        }
         const req = {
           quotation_no: rec.quotation_no,
           date: date(),
@@ -216,7 +260,20 @@ export default function QuoteFormModal(props: {
           file_path: fp !== rec.file_path ? fp || undefined : undefined,
         };
         result = await api.quotes.update(req);
+        if (!result.success && staged) await rollbackArchived(fp);
       } else {
+        // —— B1 P0 归档后移：先归档暂存源，再 create ——
+        // 注：quotes.checkNumber 未在 IPC 面暴露（协议面零变更），无法保存前预检；
+        //     core create 对重复单号拒绝 → 用「归档 → create → 失败回滚」等效闭环，不留孤儿
+        if (staged) {
+          const arch = await api.quotes.archiveFile(staged.sourcePath, staged.date || date());
+          if (arch.success && arch.data) {
+            fp = arch.data;
+          } else {
+            showToast("error", "文件归档失败", arch.error || "未知错误");
+            return;
+          }
+        }
         result = await api.quotes.create({
           quotation_no: quotationNo().trim() || undefined,
           date: date(),
@@ -225,9 +282,10 @@ export default function QuoteFormModal(props: {
           notes: n || undefined,
           file_path: fp || undefined,
         });
+        if (!result.success && staged) await rollbackArchived(fp);
       }
       if (result.success) {
-        setStagedArchive("");
+        setStagedArchive(null);
         showToast("success", isEdit ? "报价单已更新" : "报价单已创建");
         props.onSaved();
       } else {
@@ -243,7 +301,16 @@ export default function QuoteFormModal(props: {
   const labelCls = "block text-sm font-medium text-surface-700 mb-1";
 
   return (
-    <Modal open title={isEdit ? "编辑报价单" : "新建报价单"} size="3xl" onClose={close}>
+    <>
+      <Modal
+        open
+        title={isEdit ? "编辑报价单" : "新建报价单"}
+        size="3xl"
+        onClose={close}
+        // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc 走 onCloseRequest（二次确认）
+        dirty={dirty()}
+        onCloseRequest={requestClose}
+      >
       <div class="p-6">
         <h2 class="text-xl font-bold mb-4">{isEdit ? "编辑报价单" : "新建报价单"}</h2>
         <Show when={locked}>
@@ -426,12 +493,26 @@ export default function QuoteFormModal(props: {
         </div>
 
         <div class="flex gap-3 justify-end mt-6">
-          <button class="btn-secondary" onClick={close}>取消</button>
+          {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestClose（二次确认） */}
+          <button class="btn-secondary" onClick={requestClose}>取消</button>
           <button class="btn-primary" onClick={() => void save()} disabled={saving()}>
             {isEdit ? "保存" : "确认创建"}
           </button>
         </div>
       </div>
-    </Modal>
+      </Modal>
+      {/* v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认（独立 Modal 叠层，打开期间遮罩/Esc 不叠加触发） */}
+      <Show when={discardOpen()}>
+        <ConfirmDialog
+          title="放弃未保存内容？"
+          message="该弹窗有未保存的修改或待归档文件，放弃后将不会保存任何内容（已选文件不会归档）。"
+          confirmLabel="放弃修改"
+          cancelLabel="继续编辑"
+          danger
+          onConfirm={close}
+          onCancel={() => setDiscardOpen(false)}
+        />
+      </Show>
+    </>
   );
 }
