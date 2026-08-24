@@ -152,6 +152,18 @@ export default function Images() {
     }
   });
 
+  // v2.5.5：LAN 拉取自动注册图包子文件夹 → 即时刷新面板（可见性反馈；订阅模式照 accountChanged）
+  createEffect(() => {
+    const unsub = window.qihebox.events.on("share:subfolder-registered", (data) => {
+      const info = data as { kind?: string } | null;
+      if (!info || info.kind !== "image") return;
+      void loadWorkspaceConfig();
+      void loadProductSets();
+      void loadAllImages();
+    });
+    onCleanup(unsub);
+  });
+
   // v2.4.4：标签筛选下拉选项——当前 items（按类型加载后）实际出现的全部标签，去重排序
   const allTags = () => {
     const set = new Set<string>();

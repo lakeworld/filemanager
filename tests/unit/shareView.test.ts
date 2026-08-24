@@ -308,4 +308,21 @@ describe('ensureSubfolder（LAN v0.2.3 自动注册拉取子文件夹白名单�
     await expect(svc.ensureSubfolder('image', '../x', 'sku')).rejects.toThrow()
     await expect(svc.ensureSubfolder('bogus' as never, '夏季新款', 'sku')).rejects.toThrow(/kind/)
   })
+
+  it('v2.5.5：注册成功后触发 onSubfolderRegistered 回调（渲染侧面板刷新事件源）', async () => {
+    const { box } = await makeBox()
+    const registered: { kind: string; holder: string; name: string }[] = []
+    const svc = new ShareViewService(box, { onSubfolderRegistered: (info) => registered.push(info) })
+    await svc.ensureSubfolder('image', '夏季新款', '白底')
+    await svc.ensureSubfolder('customer', '华东客户', '沟通')
+    await svc.ensureSubfolder('cert', '夏季新款', '质检')
+    await svc.ensureSubfolder('doc', '夏季新款', '说明书')
+    // 四类 kind 逐一核对回调携带正确载荷（渲染侧刷新据此路由）
+    expect(registered).toEqual([
+      { kind: 'image', holder: '夏季新款', name: '白底' },
+      { kind: 'customer', holder: '华东客户', name: '沟通' },
+      { kind: 'cert', holder: '夏季新款', name: '质检' },
+      { kind: 'doc', holder: '夏季新款', name: '说明书' },
+    ])
+  })
 })

@@ -59,9 +59,15 @@ interface TreeEntry {
   mtime: string
 }
 
+/** v2.5.5：share 域注册后的可见性反馈钩子——装配层据此向渲染侧广播面板刷新 */
+export interface ShareViewHooks {
+  /** 子文件夹自动注册成功回调（payload：kind/holder/name；幂等重注册也触发，渲染侧刷新幂等） */
+  onSubfolderRegistered?: (info: { kind: 'image' | 'cert' | 'doc' | 'customer'; holder: string; name: string }) => void
+}
+
 /** 拉取写结果（writePulledFile 幂等语义） */
 export class ShareViewService {
-  constructor(private box: BoxService) {}
+  constructor(private box: BoxService, private hooks?: ShareViewHooks) {}
 
   private requireWS(): string {
     const ws = this.box.workspace.currentWorkspacePath()
@@ -280,6 +286,8 @@ export class ShareViewService {
     const { globalWorkspaceIndex } = await import('./indexCache')
     if (existed) globalWorkspaceIndex.invalidate(dir)
     globalWorkspaceIndex.invalidate(path.dirname(dir))
+    // v2.5.5：注册成功后通知装配层 → 渲染侧面板即时刷新（可见性反馈）
+    this.hooks?.onSubfolderRegistered?.({ kind, holder: holderSafe, name: safe })
   }
 
   /**

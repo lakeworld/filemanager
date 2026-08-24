@@ -839,6 +839,9 @@ export default function Settings() {
             </div>
           </div>
 
+          {/* v2.5.5：LAN 自动注册说明（PLAN §四 决策 3——子文件夹管理段可见性反馈） */}
+          <p class="text-xs text-surface-400 mb-2">LAN 传输来的文件夹会自动加入对应清单（图包/证书/文档/客户），无需手动添加。</p>
+
           {/* Image Subfolders */}
           <div class="card p-6">
             <h2 class="text-lg font-semibold mb-4">图包子文件夹</h2>

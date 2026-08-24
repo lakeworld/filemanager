@@ -87,7 +87,12 @@ export function registerPluginHost(
 
   const bus = new HostEventBus((level, msg) => void log(level, msg))
   // v2.5.1（A2）：share 能力域 core 实例（装配层单例，host.share 适配器注入）
-  const shareView = new ShareViewService(box)
+  // v2.5.5：子文件夹自动注册 → 广播渲染侧面板即时刷新（参照 accountChanged 等既有 events.on 通道）
+  const shareView = new ShareViewService(box, {
+    onSubfolderRegistered: (info) => {
+      for (const win of BrowserWindow.getAllWindows()) sendTo(win, 'qihebox:event:share:subfolder-registered', info)
+    },
+  })
   const loader = new PluginLoader({
     registry,
     root,

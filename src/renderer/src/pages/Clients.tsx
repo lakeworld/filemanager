@@ -4,7 +4,7 @@ import { api } from "~/wails/api";
 import CreateClientModal from "./clients/CreateClientModal";
 import EditInfoModal from "./clients/EditInfoModal";
 import { tagList, loadTagDefs } from "~/stores/tags";
-import { currentWorkspace, workspaceConfig, productSets, loadProductSets } from "~/stores/workspace";
+import { currentWorkspace, workspaceConfig, loadWorkspaceConfig, productSets, loadProductSets } from "~/stores/workspace";
 import { customers, loadCustomers } from "~/stores/clients";
 import { prefillVersion, currentPrefill, advancePrefill, clearPrefill, currentEditPrefill, clearEditPrefill } from "~/stores/createPrefill";
 import type { CustomerPrefill } from "~/stores/createPrefillNormalize";
@@ -160,6 +160,17 @@ export default function Clients() {
       loadTagDefs();
       loadCustomerQuotes();
     }
+  });
+
+  // v2.5.5：LAN 拉取自动注册客户子文件夹 → 即时刷新客户面板（可见性反馈；订阅模式照 accountChanged）
+  createEffect(() => {
+    const unsub = window.qihebox.events.on("share:subfolder-registered", (data) => {
+      const info = data as { kind?: string } | null;
+      if (!info || info.kind !== "customer") return;
+      void loadWorkspaceConfig();
+      void reloadCustomers();
+    });
+    onCleanup(unsub);
   });
 
   /** 该客户报价列表（名字引用过滤；改名成功后须重载——filter 依据跟随新名） */
