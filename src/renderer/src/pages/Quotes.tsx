@@ -25,7 +25,9 @@ import QuoteFormModal from "~/components/QuoteFormModal";
 import { prefillVersion, currentPrefill, advancePrefill, clearPrefill } from "~/stores/createPrefill";
 import type { QuotePrefill } from "~/stores/createPrefillNormalize";
 // v2.5.5（B3 任务 D）：孤儿未建档纯函数（复用发票/入库筛选模块，node 直测）
-import { currentOrphans } from "./invoices/filterUtils";
+// v2.5.5 打磨：报价筛选对齐发票——filterQuotes / OrphanList 复用
+import { currentOrphans, filterQuotes } from "./invoices/filterUtils";
+import OrphanList from "./invoices/OrphanList";
 import type { QuoteRecord, CustomerInfo, FileEntry, OrphanReport } from "~/types";
 
 /** 台账列模板（与表头/行一致；minmax 保证窄窗口下可截断） */
@@ -121,10 +123,16 @@ export default function Quotes() {
   };
 
   // —— 筛选信号（v2.4.9 M4：状态/客户/日期范围；"" = 全部/未限定）——
+  // v2.5.5 打磨：对齐发票——搜索 / 金额范围 / 有无归档 / 视图（台账|未建档）
   const [statusFilter, setStatusFilter] = createSignal("");
   const [customerFilter, setCustomerFilter] = createSignal("");
   const [dateFrom, setDateFrom] = createSignal("");
   const [dateTo, setDateTo] = createSignal("");
+  const [query, setQuery] = createSignal("");
+  const [amountMin, setAmountMin] = createSignal("");
+  const [amountMax, setAmountMax] = createSignal("");
+  const [hasFile, setHasFile] = createSignal<"" | "yes" | "no">("");
+  const [viewMode, setViewMode] = createSignal<"records" | "orphans">("records");
 
   // v2.5.3（P2-12）：卸载即递增加载代（模块级）——未完成的加载链校验失效后立即退出
   onCleanup(() => {
@@ -183,27 +191,35 @@ export default function Quotes() {
     }
   });
 
-  // —— 页内过滤（状态/客户/日期范围；报价页无搜索框，不做关键词搜索；list() 全量返回，渲染层过滤同发票）——
-  const filteredQuotes = () => {
-    const s = statusFilter();
-    const c = customerFilter();
-    const df = dateFrom();
-    const dt = dateTo();
-    return quotes().filter((r) => {
-      if (s && r.status !== s) return false;
-      if (c && r.customer !== c) return false;
-      // date 为 "YYYY-MM-DD" 字符串，字典序即时间序；区间比较含两端
-      if (df && r.date < df) return false;
-      if (dt && r.date > dt) return false;
-      return true;
+  // —— 页内过滤（v2.5.5 打磨：组合筛选下沉 filterQuotes 纯函数，对齐发票/入库；list() 全量返回，渲染层过滤）——
+  const filteredQuotes = () =>
+    filterQuotes(quotes(), {
+      status: statusFilter() || undefined,
+      customer: customerFilter() || undefined,
+      query: query() || undefined,
+      dateFrom: dateFrom() || undefined,
+      dateTo: dateTo() || undefined,
+      amountMin: amountMin() !== "" ? Number(amountMin()) : undefined,
+      amountMax: amountMax() !== "" ? Number(amountMax()) : undefined,
+      hasFile: hasFile() || undefined,
     });
-  };
+
+  // v2.5.5 打磨：进入「未建档文件」视图 → 重扫孤儿（对齐发票 B3）
+  createEffect(() => {
+    if (viewMode() === "orphans") void scanQuoteOrphans();
+  });
 
   const customerExists = (name?: string) => !!name && customers().some((c) => c.name === name);
 
   const previewFile = (rec: QuoteRecord) => {
     if (!rec.file_path) return;
     const entry = fileEntryOf(rec.file_path);
+    if (entry) openPreview(entry, { onDelete: () => void loadQuotes() });
+  };
+
+  /** v2.5.5 打磨：孤儿视图预览（相对路径 → FileEntry → openPreview，同发票） */
+  const previewQuoteRel = (rel: string) => {
+    const entry = fileEntryOf(rel);
     if (entry) openPreview(entry, { onDelete: () => void loadQuotes() });
   };
 
@@ -265,52 +281,111 @@ export default function Quotes() {
         </div>
       </Show>
 
-      {/* 筛选区（v2.4.9 M4：状态/客户/日期范围；客户下拉只列现存 customers()，已删客户报价仅「全部」可见） */}
-      <div class="flex flex-col md:flex-row gap-3 mb-4 shrink-0">
-        <select
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
-          aria-label="状态筛选"
-          value={statusFilter()}
-          onChange={(e) => setStatusFilter(e.currentTarget.value)}
-        >
-          <option value="">全部状态</option>
-          <For each={QUOTE_STATUSES}>
-            {(s) => <option value={s}>{s}</option>}
-          </For>
-        </select>
-        <select
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
-          aria-label="客户筛选"
-          value={customerFilter()}
-          onChange={(e) => setCustomerFilter(e.currentTarget.value)}
-        >
-          <option value="">全部客户</option>
-          <For each={customers()}>
-            {(c) => <option value={c.name}>{c.name}</option>}
-          </For>
-        </select>
-        <input
-          type="date"
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm"
-          aria-label="起始日期"
-          value={dateFrom()}
-          onInput={(e) => setDateFrom(e.currentTarget.value)}
-        />
-        <span class="text-surface-400 self-center text-sm shrink-0">至</span>
-        <input
-          type="date"
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm"
-          aria-label="结束日期"
-          value={dateTo()}
-          onInput={(e) => setDateTo(e.currentTarget.value)}
-        />
+      {/* 筛选区（v2.5.5 打磨：对齐发票——搜索/状态/客户 + 日期/金额/有无归档/视图；下单只列现存 customers()） */}
+      <div class="flex flex-col gap-2 mb-4 shrink-0">
+        <div class="flex flex-col md:flex-row gap-3">
+          <input
+            type="text"
+            class="input flex-1"
+            placeholder="搜索报价单号 / 客户..."
+            value={query()}
+            onInput={(e) => setQuery(e.currentTarget.value)}
+          />
+          <select
+            class="select"
+            aria-label="状态筛选"
+            value={statusFilter()}
+            onChange={(e) => setStatusFilter(e.currentTarget.value)}
+          >
+            <option value="">全部状态</option>
+            <For each={QUOTE_STATUSES}>
+              {(s) => <option value={s}>{s}</option>}
+            </For>
+          </select>
+          <select
+            class="select"
+            aria-label="客户筛选"
+            value={customerFilter()}
+            onChange={(e) => setCustomerFilter(e.currentTarget.value)}
+          >
+            <option value="">全部客户</option>
+            <For each={customers()}>
+              {(c) => <option value={c.name}>{c.name}</option>}
+            </For>
+          </select>
+        </div>
+        {/* v2.5.5 打磨：第二行对齐发票——日期/金额/有无归档/视图 */}
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="text-xs text-surface-400 shrink-0">日期</label>
+          <input type="date" class="px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white" aria-label="起始日期" value={dateFrom()} onInput={(e) => setDateFrom(e.currentTarget.value)} />
+          <span class="text-surface-400 text-sm">至</span>
+          <input type="date" class="px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white" aria-label="结束日期" value={dateTo()} onInput={(e) => setDateTo(e.currentTarget.value)} />
+          <span class="w-px h-6 bg-surface-200 shrink-0" />
+          <label class="text-xs text-surface-400 shrink-0">金额</label>
+          <input
+            type="number"
+            class="w-28 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+            aria-label="金额下限"
+            placeholder="下限"
+            value={amountMin()}
+            onInput={(e) => setAmountMin(e.currentTarget.value)}
+          />
+          <span class="text-surface-400 text-sm">至</span>
+          <input
+            type="number"
+            class="w-28 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+            aria-label="金额上限"
+            placeholder="上限"
+            value={amountMax()}
+            onInput={(e) => setAmountMax(e.currentTarget.value)}
+          />
+          <span class="w-px h-6 bg-surface-200 shrink-0" />
+          <select
+            class="select"
+            aria-label="归档文件筛选"
+            value={hasFile()}
+            onChange={(e) => setHasFile(e.currentTarget.value as "" | "yes" | "no")}
+          >
+            <option value="">全部归档</option>
+            <option value="yes">有归档文件</option>
+            <option value="no">无归档文件</option>
+          </select>
+          <select
+            class="select"
+            aria-label="视图切换"
+            value={viewMode()}
+            onChange={(e) => setViewMode(e.currentTarget.value as "records" | "orphans")}
+          >
+            <option value="records">台账视图</option>
+            <option value="orphans">未建档文件</option>
+          </select>
+        </div>
       </div>
 
-      <Show when={quotes().length === 0} fallback={
+      {/* v2.5.5 打磨：未建档（孤儿）视图——对齐发票 B3（补建/删除/预览，复用 OrphanList） */}
+      <Show when={viewMode() === "orphans"}>
+        <div class="flex-1 min-h-0 overflow-hidden">
+          <OrphanList
+            orphans={quoteOrphans()}
+            kind="quote"
+            onRecover={recoverQuoteOrphan}
+            onDelete={(rel) => void deleteQuoteOrphan(rel)}
+            onPreview={previewQuoteRel}
+          />
+        </div>
+      </Show>
+
+      <Show when={viewMode() === "records" && quotes().length === 0} fallback={
+        <Show when={viewMode() === "records"}>
         <div class="flex-1 min-h-0 flex flex-col">
           <div class="card p-2 flex flex-col flex-1 min-h-0">
             <div class="flex items-center justify-between px-3 py-2 shrink-0">
-              <span class="text-sm text-surface-500">共 {filteredQuotes().length} 条报价</span>
+              <span class="text-sm text-surface-500">
+                共 {filteredQuotes().length} 条报价 · 金额合计
+                <span class="font-medium text-surface-900">
+                  ¥{fmtMoney(filteredQuotes().reduce((a, r) => a + r.total_amount, 0))}
+                </span>
+              </span>
             </div>
 
             <Show when={filteredQuotes().length === 0} fallback={
@@ -333,7 +408,7 @@ export default function Quotes() {
                     columns={1}
                     gap={8}
                     // v2.4.9 M4：筛选变化时滚动归零（VirtualGrid scrollResetKey 约定，对齐发票 Invoices.tsx）
-                    scrollResetKey={`${statusFilter()}|${customerFilter()}|${dateFrom()}|${dateTo()}`}
+                    scrollResetKey={`${statusFilter()}|${customerFilter()}|${query()}|${dateFrom()}|${dateTo()}|${amountMin()}|${amountMax()}|${hasFile()}`}
                     renderItem={(rec) => (
                   <div
                     class={`px-3 py-2 rounded-lg grid items-center gap-2 text-sm transition-colors hover:bg-surface-50 ${missingFiles()[rec.file_path] ? "opacity-60" : ""}`}
@@ -395,6 +470,7 @@ export default function Quotes() {
             </Show>
           </div>
         </div>
+        </Show>
       }>
         <div class="flex-1 flex items-center justify-center">
           {/* v2.5.2：首载 loading 兜底，空态不闪现 */}

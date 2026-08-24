@@ -2,13 +2,14 @@ import { describe, it, expect } from 'vitest'
 import {
   filterInvoices,
   filterInbound,
+  filterQuotes,
   currentOrphans,
   filterOrphansByQuery,
   inDateRange,
   inAmountRange,
   matchesHasFile,
 } from '../../src/renderer/src/pages/invoices/filterUtils'
-import type { InvoiceRecord, InboundRecord } from '../../src/renderer/src/types'
+import type { InvoiceRecord, InboundRecord, QuoteRecord } from '../../src/renderer/src/types'
 
 function inv(partial: Partial<InvoiceRecord>): InvoiceRecord {
   return {
@@ -120,5 +121,57 @@ describe('发票/入库筛选纯函数（B3 任务 C）', () => {
     expect(filterOrphansByQuery(orphans, 'a.pdf')).toEqual(['发票/2026/a.pdf'])
     expect(filterOrphansByQuery(orphans, '2025')).toEqual(['发票/2025/b.pdf'])
     expect(filterOrphansByQuery(orphans, '')).toEqual(orphans)
+  })
+})
+
+describe('filterQuotes（v2.5.5 打磨：报价筛选对齐发票）', () => {
+  const q = (over: Partial<QuoteRecord> = {}): QuoteRecord => ({
+    quotation_no: 'Q-1',
+    date: '2026-08-15',
+    total_amount: 100,
+    status: '草稿',
+    file_path: '报价/2026/Q-1.pdf',
+    lines: [],
+    created_at: '2026-08-15T00:00:00.000Z',
+    updated_at: '2026-08-15T00:00:00.000Z',
+    ...over,
+  })
+
+  it('状态 / 客户 过滤', () => {
+    const rows = [
+      q({ quotation_no: 'Q-1', status: '草稿', customer: '客户甲' }),
+      q({ quotation_no: 'Q-2', status: '已确认', customer: '客户乙' }),
+    ]
+    expect(filterQuotes(rows, { status: '已确认' }).map((r) => r.quotation_no)).toEqual(['Q-2'])
+    expect(filterQuotes(rows, { customer: '客户甲' }).map((r) => r.quotation_no)).toEqual(['Q-1'])
+  })
+
+  it('搜索命中 单号/客户（不区分大小写）', () => {
+    const rows = [
+      q({ quotation_no: 'QJ-001', customer: '湖州山水' }),
+      q({ quotation_no: 'QJ-002', customer: '上海启禾' }),
+    ]
+    expect(filterQuotes(rows, { query: 'QJ-00' }).map((r) => r.quotation_no)).toEqual(['QJ-001', 'QJ-002'])
+    expect(filterQuotes(rows, { query: '湖州' }).map((r) => r.quotation_no)).toEqual(['QJ-001'])
+    expect(filterQuotes(rows, { query: 'zzz' })).toEqual([])
+  })
+
+  it('日期区间 / 金额区间（total_amount）/ 有无归档 叠加', () => {
+    const rows = [
+      q({ quotation_no: 'Q-1', date: '2026-08-01', total_amount: 10, file_path: '报价/2026/Q-1.pdf' }),
+      q({ quotation_no: 'Q-2', date: '2026-08-20', total_amount: 200, file_path: '报价/2026/Q-2.pdf' }),
+      q({ quotation_no: 'Q-3', date: '2026-09-01', total_amount: 300, file_path: '' }),
+    ]
+    expect(filterQuotes(rows, { dateFrom: '2026-08-20', dateTo: '2026-09-01' }).map((r) => r.quotation_no)).toEqual(['Q-2', 'Q-3'])
+    expect(filterQuotes(rows, { amountMin: 200, amountMax: 300 }).map((r) => r.quotation_no)).toEqual(['Q-2', 'Q-3'])
+    expect(filterQuotes(rows, { hasFile: 'no' }).map((r) => r.quotation_no)).toEqual(['Q-3'])
+    expect(filterQuotes(rows, { hasFile: 'yes' }).map((r) => r.quotation_no)).toEqual(['Q-1', 'Q-2'])
+    // 全条件叠加：8/20 起 + 金额 ≥200 + 有归档 → 仅 Q-2
+    expect(filterQuotes(rows, { dateFrom: '2026-08-20', amountMin: 200, hasFile: 'yes' }).map((r) => r.quotation_no)).toEqual(['Q-2'])
+  })
+
+  it('无筛选条件 → 原样返回', () => {
+    const rows = [q(), q({ quotation_no: 'Q-2' })]
+    expect(filterQuotes(rows, {}).map((r) => r.quotation_no)).toEqual(['Q-1', 'Q-2'])
   })
 })
