@@ -5,6 +5,8 @@ import Modal from "./ui/Modal";
  * - 对外 props 完全不变（title/message/confirmLabel/danger/onConfirm/onCancel），15 处调用点零改动
  * - danger=true 时确认按钮为红色（btn-danger）
  * - 行为增益（登记 CHANGELOG）：Esc/overlay 关闭 + 焦点困守由 Modal/layerStack 提供（测试 P2）
+ * - v2.5.5（P0，B1 任务 B）：新增可选 cancelLabel（默认「取消」）——脏守卫「放弃未保存内容？」
+ *   确认弹窗用「继续编辑」语义；不传时行为零变化。
  */
 export default function ConfirmDialog(props: {
   title: string;
@@ -13,6 +15,7 @@ export default function ConfirmDialog(props: {
   danger?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  cancelLabel?: string;
 }) {
   return (
     <Modal open title={props.title} onClose={props.onCancel} size="md">
@@ -21,7 +24,7 @@ export default function ConfirmDialog(props: {
         <p class="text-sm text-surface-600 mb-6">{props.message}</p>
         <div class="flex gap-3 justify-end">
           <button class="btn-secondary" onClick={props.onCancel}>
-            取消
+            {props.cancelLabel ?? "取消"}
           </button>
           <button class={props.danger ? "btn-danger" : "btn-primary"} onClick={props.onConfirm}>
             {props.confirmLabel ?? "确认"}

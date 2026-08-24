@@ -46,6 +46,9 @@ export default function SupplierDetail() {
   const [editAddress, setEditAddress] = createSignal("");
   const [editTags, setEditTags] = createSignal<string[]>([]);
   const [editNotes, setEditNotes] = createSignal("");
+  // v2.5.5（B1-B）：脏守卫——编辑弹窗打开时表单初值快照 + 确认弹窗开关
+  const [editSnapshot, setEditSnapshot] = createSignal<Record<string, unknown> | null>(null);
+  const [discardEdit, setDiscardEdit] = createSignal(false);
 
   const [confirmDelete, setConfirmDelete] = createSignal<{ name: string } | null>(null);
 
@@ -88,13 +91,50 @@ export default function SupplierDetail() {
   // —— 档案编辑 ——
 
   const openEditInfo = (s: SupplierInfo) => {
+    const seeded = {
+      contact: s.contact || "",
+      phone: s.phone || "",
+      email: s.email || "",
+      address: s.address || "",
+      tags: s.tags ?? [],
+      notes: s.notes || "",
+    };
     setEditingInfo(s);
-    setEditContact(s.contact || "");
-    setEditPhone(s.phone || "");
-    setEditEmail(s.email || "");
-    setEditAddress(s.address || "");
-    setEditTags(s.tags ?? []);
-    setEditNotes(s.notes || "");
+    setEditContact(seeded.contact);
+    setEditPhone(seeded.phone);
+    setEditEmail(seeded.email);
+    setEditAddress(seeded.address);
+    setEditTags(seeded.tags);
+    setEditNotes(seeded.notes);
+    setEditSnapshot(seeded); // v2.5.5（B1-B）：脏守卫初始快照
+    setDiscardEdit(false);
+  };
+
+  /** v2.5.5（B1-B）：编辑弹窗脏判定 = 表单字段相对打开快照有改动 */
+  const editDirty = () => {
+    const snap = editSnapshot();
+    if (!snap) return false;
+    return (
+      editContact() !== snap.contact ||
+      editPhone() !== snap.phone ||
+      editEmail() !== snap.email ||
+      editAddress() !== snap.address ||
+      editNotes() !== snap.notes ||
+      JSON.stringify(editTags()) !== JSON.stringify(snap.tags)
+    );
+  };
+
+  /** 关闭请求：dirty → 弹「放弃未保存内容？」；否则直关（取消按钮与遮罩/Esc 同路） */
+  const requestCloseEdit = () => {
+    if (discardEdit()) return; // 确认弹窗打开期间防叠加触发
+    if (editDirty()) setDiscardEdit(true);
+    else setEditingInfo(null);
+  };
+
+  /** 放弃修改（确认后）：真实关闭 */
+  const confirmDiscardEdit = () => {
+    setDiscardEdit(false);
+    setEditingInfo(null);
   };
 
   const handleSaveInfo = async () => {
@@ -299,7 +339,15 @@ export default function SupplierDetail() {
 
       {/* 编辑档案弹窗 */}
       <Show when={editingInfo()}>
-        <Modal open title="编辑供应商档案" size="xl" onClose={() => setEditingInfo(null)}>
+        <Modal
+          open
+          title="编辑供应商档案"
+          size="xl"
+          onClose={() => setEditingInfo(null)}
+          // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc 走 onCloseRequest（二次确认）
+          dirty={editDirty()}
+          onCloseRequest={requestCloseEdit}
+        >
           <div class="bg-white rounded-2xl w-full max-w-xl p-6 shadow-xl max-h-[90vh] overflow-y-auto overflow-x-hidden" onClick={(e) => e.stopPropagation()}>
             <h2 class="text-xl font-bold mb-4">编辑供应商档案</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -363,11 +411,25 @@ export default function SupplierDetail() {
               />
             </div>
             <div class="flex gap-3 justify-end">
-              <button class="btn-secondary" onClick={() => setEditingInfo(null)}>取消</button>
+              {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestCloseEdit（二次确认） */}
+              <button class="btn-secondary" onClick={requestCloseEdit}>取消</button>
               <button class="btn-primary" onClick={() => void handleSaveInfo()}>保存</button>
             </div>
           </div>
         </Modal>
+      </Show>
+
+      {/* v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认（编辑供应商档案；独立 Modal 叠层） */}
+      <Show when={discardEdit()}>
+        <ConfirmDialog
+          title="放弃未保存内容？"
+          message="该弹窗有未保存的修改，放弃后将不会保存任何内容。"
+          confirmLabel="放弃修改"
+          cancelLabel="继续编辑"
+          danger
+          onConfirm={confirmDiscardEdit}
+          onCancel={() => setDiscardEdit(false)}
+        />
       </Show>
 
       {/* 删除供应商确认弹窗（照客户：「移入回收站」可在回收站恢复） */}

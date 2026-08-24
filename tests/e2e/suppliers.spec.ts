@@ -206,10 +206,9 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     await supplierSelect.selectOption('入库供应商')
     await expect(modal.getByPlaceholder('供应商名称')).toHaveValue('入库供应商')
 
-    // 其余必填：单据编号 + 归档文件（打桩对话框 → archiveFile 复制入库）
+    // 其余必填：单据编号 + 归档文件（打桩对话框 → 选文件只暂存，B1 P0 归档后移：保存时才落盘）
     await modal.getByPlaceholder('如：RK-2026-001').fill('RK-E2E-001')
     await modal.getByRole('button', { name: /选择本地文件并归档/ }).click()
-    await expect(modal.getByText(/qihebox-inbound-src/)).toBeVisible({ timeout: 10000 })
 
     // 保存 → 单据带 supplier_id（core 透传不硬校验；名字引用 = 供应商名）
     await modal.getByRole('button', { name: '确认登记' }).click()
@@ -221,6 +220,9 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     expect(rec).toBeTruthy()
     expect(rec.supplier).toBe('入库供应商')
     expect(rec.supplier_id).toBe('入库供应商')
+    // B1 P0：保存后才归档 → 入库区副本存在且 file_path 正确（账物一致）
+    expect(rec.file_path).toMatch(/^入库\/\d{4}\//)
+    await expect(fsp.stat(path.join(wsDir, ...rec.file_path.split('/')))).resolves.toBeTruthy()
 
     await fsp.rm(src, { force: true }).catch(() => {})
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})

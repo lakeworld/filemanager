@@ -10,6 +10,8 @@ import { pushLayer, isTop } from "./layerStack";
  * - 进入过渡 opacity + scale-95→100 150ms（transform/opacity only，D13）
  * - open=false 时 UNMOUNT 不渲染（对齐现状 Show 语义）
  * 业务态守卫（如 MoveDialog 闲时可关、BatchTagDialog 关闭带副作用）由调用方在 onClose 内实现。
+ * v2.5.5（P0）：脏守卫底座——可选 dirty/onCloseRequest：dirty 时遮罩/Esc 改调 onCloseRequest
+ * （调用方弹「放弃未保存内容？」二次确认），非 dirty 直接 onClose；lockOpen 恒真优先。
  * Solid 纪律（D11）：禁解构 props，一律 props.x 访问。
  */
 
@@ -33,6 +35,13 @@ interface ModalProps {
   tone?: "default" | "dark";
   /** 进行中禁关（ArchiveProgressDialog）：Esc/overlay 均不触发 onClose */
   lockOpen?: boolean;
+  /**
+   * v2.5.5（P0，B1 任务 B）：脏守卫——dirty 为真且提供了 onCloseRequest 时，
+   * 遮罩/Esc 改调 onCloseRequest（调用方实现「放弃未保存内容？」二次确认）而非直接 onClose；
+   * dirty 为假或无 onCloseRequest → 行为不变（直接 onClose）。lockOpen 恒真优先。
+   */
+  dirty?: boolean;
+  onCloseRequest?: () => void;
   title?: string;
   children: JSX.Element;
 }
@@ -46,8 +55,15 @@ function ModalInner(props: ModalProps) {
 
   const canClose = () => !props.lockOpen;
 
+  /** 统一关闭入口：lockOpen 恒真优先；dirty 且有 onCloseRequest → 走守卫；否则直接 onClose */
+  const requestClose = () => {
+    if (!canClose()) return;
+    if (props.dirty && props.onCloseRequest) props.onCloseRequest();
+    else props.onClose();
+  };
+
   const handleEscape = () => {
-    if (canClose()) props.onClose();
+    requestClose();
   };
 
   const focusFirst = () => {
@@ -100,7 +116,7 @@ function ModalInner(props: ModalProps) {
     <div
       class={props.tone === "dark" ? "modal-overlay-dark" : "modal-overlay"}
       onClick={() => {
-        if (canClose()) props.onClose();
+        requestClose();
       }}
     >
       <div
