@@ -51,6 +51,8 @@ import InboundToolbar from "./invoices/InboundToolbar";
 import OrphanList from "./invoices/OrphanList";
 // v2.5.5（B3 任务 C）：筛选组合纯函数（可 node 直测，tests/unit/filterUtils.test.ts）
 import { filterInvoices, filterInbound, currentOrphans } from "./invoices/filterUtils";
+import { planBatchPaths, summarizeBatchData, missingDraftFields, type BatchSummary } from "./invoices/batchIdentify";
+import BatchIdentifyModal from "./invoices/BatchIdentifyModal";
 import DeleteRecordModal from "./invoices/DeleteRecordModal";
 import ConfirmDialog from "~/components/ConfirmDialog"; // v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认（应用内样式化，禁用 window.confirm）
 import { loadTagDefs, tagList } from "~/stores/tags";
@@ -224,6 +226,9 @@ export default function Invoices() {
   const [inboundFormSnapshot, setInboundFormSnapshot] = createSignal<InboundFormState | null>(null);
   // 脏守卫确认目标（发票/入库 共用；一次只开一个编辑器弹窗）：null = 无待确认
   const [discardTarget, setDiscardTarget] = createSignal<"invoice" | "inbound" | null>(null);
+  // —— v2.5.5（B4）：批量 AI 识别——文件多选面板开关 / 批量登记确认摘要 / 批量执行中（连点守卫）——
+  const [batchPickOpen, setBatchPickOpen] = createSignal(false);
+  const [batchSummary, setBatchSummary] = createSignal<BatchSummary | null>(null);
 
   // —— v2.5.4 预填消费（PLAN-v2.5.4 §3.4）：版本变化 → 切 tab + seed 表单 + 开新建弹窗；只开不关 ——
   createEffect(() => {
@@ -514,14 +519,102 @@ export default function Invoices() {
     if (r.success) showToast("success", "Excel 台账已导出");
     else showToast("error", "导出失败", r.error || "未知错误");
   };
-  /** 批量 AI 识别（≤10）：B3 只放占位按钮，B4 任务接线 */
+  /** 批量 AI 识别（≤10）：B4 接线——打开工作区文件多选面板（T0 定案：不用宿主 dialog，面板返回 paths） */
   const handleBatchIdentify = () => {
-    const n = effectiveSelectedInvoices().length;
-    if (n > 10) {
-      showToast("info", "批量 AI 识别一次最多 10 张", `当前已选 ${n} 张`);
+    const cmd = pluginGlobalCommands().find((c) => c.commandId === "invoice.identifyFiles");
+    if (!cmd) {
+      showToast("error", "批量识别不可用", "未安装/未启用 com.qihe.cloud 插件（发票批量识别命令）");
       return;
     }
-    showToast("info", "批量 AI 识别（≤10）", "B4 接线中");
+    setBatchPickOpen(true);
+  };
+
+  /** B4：面板确认 → callPlugin invoice.identifyFiles → 结果分类 → 弹「批量登记」确认（识别不落盘，登记才归档） */
+  const runBatchIdentify = async (paths: string[]) => {
+    const plan = planBatchPaths(paths);
+    if (!plan.ok) {
+      showToast("error", "批量识别", plan.error);
+      return;
+    }
+    setBatchPickOpen(false);
+    const cmd = pluginGlobalCommands().find((c) => c.commandId === "invoice.identifyFiles");
+    if (!cmd) {
+      showToast("error", "批量识别不可用", "未安装/未启用 com.qihe.cloud 插件");
+      return;
+    }
+    try {
+      const r = await callPlugin(cmd.pluginId, cmd.commandId, { paths: plan.capped });
+      if (!r.success) {
+        showToast("error", "批量识别失败", r.error || "未知错误");
+        return;
+      }
+      const summary = summarizeBatchData(r.data);
+      if (summary.drafts.length === 0) {
+        const failNames = summary.failed.map((f) => baseNameOf(f.sourcePath)).join("、");
+        showToast(
+          "info",
+          "批量识别：无成功条目",
+          `失败 ${summary.failed.length} 张${failNames ? `（${failNames}）` : ""}${summary.ignored ? `；忽略 ${summary.ignored} 张` : ""}`,
+        );
+        return;
+      }
+      setBatchSummary(summary); // 弹「批量登记 N 张？」确认（取消 = 零落盘）
+    } catch (err) {
+      showToast("error", "批量识别异常", err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /** B4：确认批量登记——逐条「保存时才归档」：archiveFile → create，create 失败回滚刚归档副本（B1 语义） */
+  const confirmBatchCreate = async () => {
+    const summary = batchSummary();
+    if (!summary) return;
+    setBatchSummary(null);
+    let ok = 0;
+    const failed: { sourcePath: string; message: string }[] = [...summary.failed];
+    for (const draft of summary.drafts) {
+      const missing = missingDraftFields(draft);
+      if (missing.length > 0) {
+        failed.push({ sourcePath: draft.sourcePath, message: `识别字段不全（缺${missing.join("、")}）` });
+        continue;
+      }
+      let archDate = draft.fields.date || "";
+      if (!archDate) archDate = await dateFromFileMtime(draft.sourcePath).catch(() => "");
+      if (!archDate) archDate = toDateKey(new Date());
+      const arch = await api.invoices.archiveFile(draft.sourcePath, archDate);
+      if (!arch.success || !arch.data) {
+        failed.push({ sourcePath: draft.sourcePath, message: arch.error || "归档失败" });
+        continue;
+      }
+      const rel = arch.data;
+      const res = await api.invoices.create({
+        number: draft.fields.number || "",
+        code: draft.fields.code || "",
+        date: archDate,
+        amount: draft.fields.amount ?? 0,
+        seller: draft.fields.seller || "",
+        buyer: draft.fields.buyer || "",
+        status: "待报销",
+        customer: draft.fields.customer || "",
+        due_date: draft.fields.due_date,
+        tags: draft.fields.tags,
+        notes: draft.fields.notes || "",
+        file_path: rel,
+      });
+      if (res.success) {
+        ok++;
+      } else {
+        await rollbackArchived(rel);
+        failed.push({ sourcePath: draft.sourcePath, message: res.error || "登记失败（已回滚归档副本）" });
+      }
+    }
+    const failNames = failed.map((f) => baseNameOf(f.sourcePath)).join("、");
+    showToast(
+      ok > 0 ? "success" : "error",
+      `批量登记完成：成功 ${ok} / 失败 ${failed.length} / 忽略 ${summary.ignored}`,
+      failed.length > 0 ? `失败：${failNames}` : undefined,
+    );
+    void loadInvoices();
+    void loadInbound();
   };
 
   const customerExists = (name: string) => customers().some((c) => c.name === name);
@@ -1103,6 +1196,10 @@ export default function Invoices() {
                     <button class="btn-secondary text-sm" onClick={() => void handleExport()}>
                       📊 导出 Excel
                     </button>
+                    {/* v2.5.5（B4）：批量 AI 识别——常驻页头（T0：工作区文件多选面板，不依赖台账选中） */}
+                    <button class="btn-secondary text-sm" onClick={handleBatchIdentify} title="批量 AI 识别（≤10 张）">
+                      🤖 批量 AI 识别
+                    </button>
                     <button class="btn-primary text-sm" onClick={openInvoiceCreate}>
                       <span>➕</span> 新建发票
                     </button>
@@ -1129,13 +1226,6 @@ export default function Invoices() {
                         onClick={() => void handleBatchExport()}
                       >
                         批量导出 Excel
-                      </button>
-                      <button
-                        class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg"
-                        onClick={handleBatchIdentify}
-                        title="批量 AI 识别（≤10 张，B4 任务接线）"
-                      >
-                        批量 AI 识别
                       </button>
                       <button
                         class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg"
@@ -1166,7 +1256,10 @@ export default function Invoices() {
               {/* v2.5.2：首载 loading 兜底，空态不闪现 */}
               <Show when={!loading()} fallback={<Loading text="发票加载中…" />}>
                 <EmptyState icon="🧾" title="暂无发票" desc="点击「新建发票」登记第一张发票">
-                  <button class="btn-primary" onClick={openInvoiceCreate}>新建发票</button>
+                  <div class="flex gap-2 mt-2">
+                    <button class="btn-secondary" onClick={handleBatchIdentify} title="批量 AI 识别（≤10 张）">🤖 批量 AI 识别</button>
+                    <button class="btn-primary" onClick={openInvoiceCreate}>新建发票</button>
+                  </div>
                 </EmptyState>
               </Show>
             </div>
@@ -1345,6 +1438,23 @@ export default function Invoices() {
           danger
           onConfirm={confirmDiscard}
           onCancel={() => setDiscardTarget(null)}
+        />
+      </Show>
+
+      {/* v2.5.5（B4）：批量 AI 识别——工作区文件多选面板 + 批量登记确认 */}
+      <BatchIdentifyModal
+        open={batchPickOpen()}
+        onClose={() => setBatchPickOpen(false)}
+        onConfirm={(paths) => void runBatchIdentify(paths)}
+      />
+      <Show when={batchSummary()}>
+        <ConfirmDialog
+          title={`批量登记 ${batchSummary()!.drafts.length} 张发票？`}
+          message={`识别成功 ${batchSummary()!.drafts.length} 张（确认后逐张归档并登记）、失败 ${batchSummary()!.failed.length} 张${batchSummary()!.ignored ? `、忽略 ${batchSummary()!.ignored} 张` : ""}。取消则零落盘。`}
+          confirmLabel="批量登记"
+          cancelLabel="再看看"
+          onConfirm={() => void confirmBatchCreate()}
+          onCancel={() => setBatchSummary(null)}
         />
       </Show>
     </div>
