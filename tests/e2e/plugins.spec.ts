@@ -212,7 +212,8 @@ test.describe('插件宿主 e2e（v2.5）', () => {
     await page.evaluate(async () => (window as any).qihebox.plugins.list())
     await gotoRoute('/settings/plugins')
     await expect(page.getByText(HELLO_ID)).toBeVisible()
-    await expect(page.getByText(`v${HELLO_VERSION}`)).toBeVisible()
+    // v2.5.5 起 shell 徽标与应用版本相同（v2.5.5）——收敛到 main 域避免与插件清单版本标签撞车
+    await expect(page.getByRole("main").getByText(`v${HELLO_VERSION}`)).toBeVisible()
 
     // 5. 重启持久化：devMode 开关重启后保持开启（settings.json 落盘 userData）
     await killApp()
