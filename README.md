@@ -2,7 +2,7 @@
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)]()
-[![Version](https://img.shields.io/badge/Version-v2.5.4-green.svg)]()
+[![Version](https://img.shields.io/badge/Version-v2.5.5-green.svg)]()
 
 > **官网下载（Windows / Linux）：https://www.qihebook.cloud/file-manager**
 > 开源免费 · 无需注册 · 下载即用
