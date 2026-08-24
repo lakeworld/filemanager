@@ -22,6 +22,7 @@ import { setAutoLaunch, isAutoLaunch } from './autoLaunchMain'
 import { isPathInsideWorkspaceReal, isProtectedConfigPath, classifyFileType } from './core/paths'
 import { FilesService, ImportCancelledError } from './core/files'
 import { ZipCancelledError, compressToZip } from './core/archive'
+import { compareArchiveDirs } from './core/orphans'
 import { openFileWithDefaultApp } from './open'
 import {
   getMainWindow,
@@ -294,6 +295,26 @@ export function registerIpc(
       const r = await box.inbound.archiveFile(sourcePath, date)
       hooks.onFileArchived?.({ region: 'inbound', path: sourcePath, name: path.basename(sourcePath) })
       return r
+    }),
+  )
+
+  // —— v2.5.5（B3，任务 D）：孤儿未建档扫描（内部业务 IPC，协议面零变更）——
+  // 薄透传：从当前工作区三台账 list() 提取 file_path 注入 core compareArchiveDirs（B1 已交付，
+  // 可 node 直测）→ 返回 ApiResult<OrphanReport>。无工作区 → 空报告（渲染层视为无孤儿）。
+  ipcMain.handle('qihebox:orphans:scan', () =>
+    handle(async () => {
+      const ws = box.workspace.currentWorkspacePath()
+      if (!ws) return { invoice: [], inbound: [], quote: [] }
+      const [inv, inb, q] = await Promise.all([
+        box.invoices.list(),
+        box.inbound.list(),
+        box.quotes.list(),
+      ])
+      return compareArchiveDirs(ws, {
+        invoice: inv.map((r) => r.file_path),
+        inbound: inb.map((r) => r.file_path),
+        quote: q.map((r) => r.file_path),
+      })
     }),
   )
 

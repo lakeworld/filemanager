@@ -163,3 +163,11 @@ export interface AccountStatus {
   email: string;
   sessionExpired: boolean;
 }
+
+/** 孤儿未建档比对结果（v2.5.5 B3；与 main core/orphans.ts OrphanReport 结构一致，结构类型兼容）：
+ *  三区（发票/入库/报价）未登记档案文件的工作区相对路径（/ 分隔）。 */
+export interface OrphanReport {
+  invoice: string[];
+  inbound: string[];
+  quote: string[];
+}

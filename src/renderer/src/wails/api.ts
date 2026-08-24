@@ -49,6 +49,7 @@ import type {
   InvoiceListFilter,
   InboundCreateRequest,
   InboundUpdateRequest,
+  OrphanReport,
 } from "~/types";
 
 /**
@@ -166,6 +167,10 @@ export const api = {
       qb.inbound.remove(id, opts ?? null) as Promise<ApiResult<boolean>>,
     archiveFile: (sourcePath: string, date: string) =>
       qb.inbound.archiveFile(sourcePath, date) as Promise<ApiResult<string>>,
+  },
+  // v2.5.5（B3，任务 D）：孤儿未建档扫描（内部业务 IPC，协议面零变更）
+  orphans: {
+    scan: () => qb.orphans.scan() as Promise<ApiResult<OrphanReport>>,
   },
   files: {
     list: (req: FileListRequest) => qb.files.list(req as any) as Promise<ApiResult<FileEntry[]>>,
