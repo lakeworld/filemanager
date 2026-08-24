@@ -85,9 +85,13 @@ test.describe('发票/入库卡片化 + 批量 + 孤儿（B3）', () => {
 
       // —— 批量改状态（待报销 → 已报销，全选 2 张）——
       await page.getByRole('button', { name: /批量改状态/ }).click()
-      const list = await page.evaluate(async () => (window as any).qihebox.invoices.list())
-      expect(list.success).toBe(true)
-      expect(list.data.filter((r: any) => r.status === '已报销').length).toBe(2)
+      // CI 慢环境下批改状态落账为异步（本地即时、CI 首轮实测 1/0）——轮询等到两笔均已报销
+      await expect
+        .poll(async () => {
+          const list = await page.evaluate(async () => (window as any).qihebox.invoices.list())
+          return list.success ? list.data.filter((r: any) => r.status === '已报销').length : -1
+        }, { timeout: 10000 })
+        .toBe(2)
 
       // —— 孤儿扫描（B3 任务 D）：直接写盘未登记文件 → scan 扫出 ——
       await fsp.mkdir(path.join(wsDir, '发票', '2026'), { recursive: true })
