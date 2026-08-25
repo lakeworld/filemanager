@@ -241,25 +241,23 @@ app.on('window-all-closed', () => {
 })
 
 // —— 账号服务（v2.2.0：可选登录 + AI + 心跳）——
-// token 优先 safeStorage 加密；Linux 无 keyring 时降级明文（本地单用户，JWT 过期即失效）。
+// token 存储（v2.5.5 修复）：统一明文 raw: 前缀——safeStorage 在 Linux 环境可用性波动
+// （登录时有 keyring、重启后无 → enc: 解密失败 → 登录态丢失，AI 助手等账号能力锁「登录后可用」），
+// 实测 Electron 31 下 basic_text 亦不可用（isEncryptionAvailable=false 且 encryptString 抛错）。
+// 安全模型与既有明文降级一致：本地单用户 + JWT 过期即失效（encryptToken 原 isEncryptionAvailable=false 分支）。
+// 旧 enc: 数据（safeStorage 加密）尝试解密，失败 → 按未登录（提示重新登录）。
 function encryptToken(plain: string): string {
-  try {
-    if (safeStorage.isEncryptionAvailable()) {
-      return 'enc:' + safeStorage.encryptString(plain).toString('base64')
-    }
-  } catch {
-    // fallthrough 到明文降级
-  }
   return 'raw:' + plain
 }
 
 function decryptToken(encoded: string): string {
   try {
-    if (encoded.startsWith('enc:')) {
-      return safeStorage.decryptString(Buffer.from(encoded.slice(4), 'base64'))
-    }
     if (encoded.startsWith('raw:')) {
       return encoded.slice(4)
+    }
+    if (encoded.startsWith('enc:')) {
+      // 旧版 safeStorage 加密数据：本环境可用则解密（一次性迁移），失败按未登录（重登后落 raw:）
+      return safeStorage.decryptString(Buffer.from(encoded.slice(4), 'base64'))
     }
   } catch {
     return ''
