@@ -145,7 +145,7 @@ export function registerIpc(
   ipcMain.handle('qihebox:workspace:create', (_e, p: string) => handle(() => box.workspace.create(p)))
   ipcMain.handle('qihebox:workspace:open', (_e, p: string) => handle(() => box.workspace.open(p)))
   ipcMain.handle('qihebox:workspace:switch', (_e, p: string) => handle(() => box.workspace.switchTo(p)))
-  ipcMain.handle('qihebox:workspace:renameSubfolder', (_e, type: 'image' | 'cert', oldName: string, newName: string) =>
+  ipcMain.handle('qihebox:workspace:renameSubfolder', (_e, type: 'image' | 'cert' | 'customer' | 'supplier' | 'doc', oldName: string, newName: string) =>
     handle(() => box.workspace.renameSubfolder(type, oldName, newName)),
   )
 

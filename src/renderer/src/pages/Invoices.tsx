@@ -1408,11 +1408,8 @@ export default function Invoices() {
         missing={missingFiles()}
         customers={customers()}
         tagOptions={tagList()}
-        identifyCommands={pluginGlobalCommands()}
-        identifying={identifying()}
-        identifyWarnings={identifyWarnings()}
+        // v2.5.5（用户拍板）：新建发票表单识别按钮已移除——仅保留识别暂存源展示（保存链仍消费 stagedIdentifySource）
         stagedIdentifyName={stagedIdentifySource()?.fileName ?? ""}
-        onIdentify={(cmd) => void identifyFromFile(cmd)}
       />
       <InboundEditorModal
         editor={inboundEditor()}

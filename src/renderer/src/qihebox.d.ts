@@ -25,8 +25,8 @@ interface QiheboxApi {
     create: (path: string) => Promise<unknown>
     open: (path: string) => Promise<unknown>
     switch: (path: string) => Promise<unknown>
-    // v2.5.3（P2-19）：renameSubfolder 类型收口（与 main core workspace.ts 联合一致）
-    renameSubfolder: (type: "image" | "cert" | "customer" | "doc", oldName: string, newName: string) => Promise<unknown>
+    // v2.5.3（P2-19）：renameSubfolder 类型收口（与 main core workspace.ts 联合一致）；v2.5.5 补 supplier
+    renameSubfolder: (type: "image" | "cert" | "customer" | "supplier" | "doc", oldName: string, newName: string) => Promise<unknown>
   }
   config: {
     get: () => Promise<unknown>
