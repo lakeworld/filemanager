@@ -27,7 +27,9 @@ import {
   ensureWorkspaceDirs,
   readJsonFile,
   isPathInsideWorkspaceReal,
+  classifyFileType,
 } from './paths'
+import type { DirBrowseEntry } from './dirBrowse'
 import { mutateJsonFile } from './jsonStore'
 import { WorkspaceService } from './workspace'
 import { parseExpiryDate, currentTimeString } from './metadata'
@@ -280,6 +282,8 @@ export class QuotesService {
       return full
     })
     this.logger?.info(`报价单创建: ${rec.quotation_no}`)
+    // v2.5.5（打磨 2）：建单即建文档文件夹（报价/<YYYY>/<单号>/），详情页拖拽落地目录已就绪
+    await this.ensureQuoteDocDir(rec.quotation_no, rec.date).catch(() => undefined)
     return { ...rec, lines: (rec.lines ?? []).map((l) => ({ ...l })) }
   }
 
@@ -406,5 +410,96 @@ export class QuotesService {
     // v2.4.x：归档改变 报价/ 区目录内容 → 失效该目录的索引快照（查询时重建）
     globalWorkspaceIndex.invalidate(targetDir)
     return path.join(QUOTES_DIR, year, name).split(path.sep).join('/')
+  }
+
+  // —— v2.5.5（打磨 2）：报价文档文件夹（对齐产品集「目录即真相」——多份文档拖拽复制进
+  //    报价/<YYYY>/<单号>/，不建独立归档链；目录内文件即文档）——
+
+  /** 文档文件夹相对路径：报价/<YYYY>/<单号>/（YYYY = 报价日期年份） */
+  private quoteDocRel(no: string, date: string): string {
+    const year = this.assertDate(date).slice(0, 4)
+    return `${QUOTES_DIR}/${year}/${no}`
+  }
+
+  /** 文档文件夹绝对路径 */
+  private quoteDocAbs(ws: string, no: string, date: string): string {
+    return path.join(ws, ...this.quoteDocRel(no, date).split('/'))
+  }
+
+  /** 单号须可作目录名（拒绝路径分隔符/空字节） */
+  private assertDocDirNo(no: string): string {
+    const n = (no ?? '').trim()
+    if (!n) throw new Error('报价单号不能为空')
+    if (/[/\\\0]/.test(n)) throw new Error('报价单号不能包含路径分隔符')
+    return n
+  }
+
+  /** 确保文档文件夹存在（创建/更新报价保存时调用）；返回相对路径 */
+  async ensureQuoteDocDir(no: string, date: string): Promise<string> {
+    const ws = this.requireWS()
+    const n = this.assertDocDirNo(no)
+    const rel = this.quoteDocRel(n, date)
+    await fsp.mkdir(this.quoteDocAbs(ws, n, date), { recursive: true })
+    return rel
+  }
+
+  /** 复制文件到文档文件夹（拖拽落地，账物同区）；返回复制后的工作区相对路径列表 */
+  async copyIntoQuoteDoc(no: string, date: string, sourcePaths: string[]): Promise<string[]> {
+    const ws = this.requireWS()
+    const n = this.assertDocDirNo(no)
+    if (!Array.isArray(sourcePaths) || sourcePaths.length === 0) throw new Error('没有要复制的文件')
+    const dirRel = await this.ensureQuoteDocDir(n, date)
+    const dirAbs = this.quoteDocAbs(ws, n, date)
+    const out: string[] = []
+    for (const src of sourcePaths) {
+      const st = await fsp.stat(src).catch(() => null)
+      if (!st || !st.isFile()) continue
+      const ext = path.extname(src)
+      const base = sanitizeName(path.basename(src, ext))
+      const name = await resolveConflictName(dirAbs, `${base}${ext}`, '_{n}', ext)
+      await fsp.copyFile(src, path.join(dirAbs, name))
+      out.push(`${dirRel}/${name}`)
+    }
+    if (out.length > 0) globalWorkspaceIndex.invalidate(dirAbs)
+    return out
+  }
+
+  /** 文档文件夹内文件列表（详情页显示；目录不存在/空 → 空数组） */
+  async listQuoteDocs(no: string, date: string): Promise<DirBrowseEntry[]> {
+    const ws = this.requireWS()
+    const dir = this.quoteDocAbs(ws, this.assertDocDirNo(no), date)
+    let entries
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true })
+    } catch {
+      return []
+    }
+    const out: DirBrowseEntry[] = []
+    for (const e of entries) {
+      if (!e.isFile() || e.name.startsWith('.')) continue
+      const full = path.join(dir, e.name)
+      const st = await fsp.stat(full).catch(() => null)
+      out.push({
+        name: e.name,
+        path: full,
+        size: st?.size ?? 0,
+        modified: st?.mtime.toISOString() ?? '',
+        file_type: classifyFileType(e.name),
+        thumbnail_path: null,
+      })
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+  }
+
+  /** 文档文件数（列表行 📎 探活；目录不存在 → 0） */
+  async quoteDocCount(no: string, date: string): Promise<number> {
+    const ws = this.requireWS()
+    const dir = this.quoteDocAbs(ws, this.assertDocDirNo(no), date)
+    try {
+      const entries = await fsp.readdir(dir, { withFileTypes: true })
+      return entries.filter((e) => e.isFile() && !e.name.startsWith('.')).length
+    } catch {
+      return 0
+    }
   }
 }

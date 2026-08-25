@@ -274,6 +274,49 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
 
+  test('文档文件夹（打磨 2）：详情页文档区显示 + docCopy 落盘 + 行 📎 + 孤儿不误报', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-quotes-docs-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    await page.evaluate(async () =>
+      (window as any).qihebox.quotes.create({
+        quotation_no: 'QT-DOC-002',
+        date: '2026-08-12',
+        customer: '文档客户',
+        lines: [{ product: '文档品', qty: 1, unit_price: 5, amount: 5 }],
+      }),
+    )
+    // 工作区外源文件 → 模拟拖拽落地（docCopy 复制进 报价/<YYYY>/<单号>/）
+    const srcDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-quotes-src-'))
+    const srcA = path.join(srcDir, '报价单.pdf')
+    await fsp.writeFile(srcA, 'pdf-a')
+    const srcB = path.join(srcDir, '产品图.jpg')
+    await fsp.writeFile(srcB, 'img-b')
+    await page.evaluate(
+      async ({ no, date, paths }) => (window as any).qihebox.quotes.docCopy(no, date, paths),
+      { no: 'QT-DOC-002', date: '2026-08-12', paths: [srcA, srcB] },
+    )
+    // 落盘断言
+    const docDir = path.join(wsDir, '报价', '2026', 'QT-DOC-002')
+    await expect(fsp.stat(path.join(docDir, '报价单.pdf'))).resolves.toBeTruthy()
+    await expect(fsp.stat(path.join(docDir, '产品图.jpg'))).resolves.toBeTruthy()
+    // 详情页文档区显示 2 张卡片（标题 文档（2））
+    await gotoRoute('/quotes/QT-DOC-002')
+    await expect(page.getByRole('heading', { name: 'QT-DOC-002' })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText('文档（2）')).toBeVisible()
+    await expect(page.getByText('报价单.pdf', { exact: true })).toBeVisible()
+    await expect(page.getByText('产品图.jpg', { exact: true })).toBeVisible()
+    // 列表行 📎2
+    await gotoRoute('/quotes')
+    await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText('📎2', { exact: true })).toBeVisible()
+    // 孤儿扫描：文档文件夹（目录名=单号）不报孤儿
+    const orph = await page.evaluate(async () => (window as any).qihebox.orphans.scan())
+    expect(orph.success).toBe(true)
+    expect(orph.data.quote).toEqual([])
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+    await fsp.rm(srcDir, { recursive: true, force: true }).catch(() => {})
+  })
+
   test('删除账物分离：删除记录 → 台账无该单、归档文件仍在（fsp.stat）', async () => {
     const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-quotes-e2e5-'))
     await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)

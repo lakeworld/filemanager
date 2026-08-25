@@ -70,6 +70,10 @@ interface QiheboxApi {
     setStatus: (quotationNo: string, status: string) => Promise<unknown>
     delete: (quotationNo: string) => Promise<unknown>
     archiveFile: (sourcePath: string, date: string) => Promise<unknown>
+    // v2.5.5（打磨 2）：报价文档文件夹（报价/<YYYY>/<单号>/）
+    docList: (no: string, date: string) => Promise<unknown>
+    docCopy: (no: string, date: string, sourcePaths: string[]) => Promise<unknown>
+    docCount: (no: string, date: string) => Promise<unknown>
   }
   invoices: {
     list: (filter?: unknown) => Promise<unknown>
@@ -114,6 +118,8 @@ interface QiheboxApi {
     previewUrl: (filePath: string) => Promise<unknown>
     // v2.5.5（打磨 2）：外部文件预览 URL（批量识别任意系统文件夹）
     externalUrl: (filePath: string) => Promise<unknown>
+    // v2.5.5（打磨 2）：拖拽落地取系统文件路径（Electron webUtils）
+    getDroppedPaths: (files: File[]) => string[]
     copyPaths: (paths: string[]) => Promise<unknown>
     startDrag: (paths: string[]) => Promise<unknown>
     workspaceUrl: (filePath: string) => Promise<unknown>

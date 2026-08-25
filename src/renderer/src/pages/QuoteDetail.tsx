@@ -17,12 +17,23 @@ import EmptyState from "~/components/EmptyState";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import QuoteStatusActions from "~/components/QuoteStatusActions";
 import QuoteFormModal from "~/components/QuoteFormModal";
-import type { QuoteRecord, CustomerInfo, FileEntry } from "~/types";
+import FileThumbnail from "~/components/FileThumbnail";
+import ContextMenu from "~/components/ContextMenu";
+import { useContextMenu } from "~/hooks/useContextMenu";
+import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
+import type { QuoteRecord, CustomerInfo, FileEntry, DirBrowseEntry } from "~/types";
 
 function fmtMoney(n: number): string {
   return Number.isFinite(n)
     ? n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : "-";
+}
+
+function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function fileEntryOf(relPath: string): FileEntry | null {
@@ -62,6 +73,55 @@ export default function QuoteDetail() {
   // v2.5.4（弹一 C-6）：编辑预填注入记录（建议改动合并后的记录传给弹窗；手动编辑时为 null 用原记录）
   const [editRecord, setEditRecord] = createSignal<QuoteRecord | null>(null);
   const [confirmDelete, setConfirmDelete] = createSignal(false);
+
+  // v2.5.5（打磨 2）：报价文档文件夹（报价/<YYYY>/<单号>/）——拖拽复制多文档
+  const [docs, setDocs] = createSignal<DirBrowseEntry[]>([]);
+  const [dragOver, setDragOver] = createSignal(false);
+  const docCtx = useContextMenu<DirBrowseEntry>();
+
+  const loadDocs = async () => {
+    const cur = record();
+    if (!cur) return;
+    const r = await api.quotes.docList(cur.quotation_no, cur.date).catch(() => null);
+    if (r?.success) setDocs(r.data ?? []);
+  };
+  createEffect(() => {
+    if (record()) void loadDocs();
+  });
+
+  /** 拖拽落地：系统文件路径 → 复制进报价文档文件夹 */
+  const handleDocDrop = async (e: DragEvent) => {
+    setDragOver(false);
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    const cur = record();
+    if (!cur) return;
+    const paths = window.qihebox.files.getDroppedPaths(Array.from(files));
+    if (paths.length === 0) {
+      showToast("error", "未能读取拖入文件的路径");
+      return;
+    }
+    const r = await api.quotes.docCopy(cur.quotation_no, cur.date, paths);
+    if (r.success) {
+      showToast("success", `已复制 ${r.data?.length ?? 0} 个文件到文档文件夹`);
+      void loadDocs();
+    } else {
+      showToast("error", "复制失败", r.error || "未知错误");
+    }
+  };
+
+  const docMenuItems = () => {
+    const d = docCtx.payload();
+    if (!d) return [];
+    return buildFileContextMenuItems({
+      file: d,
+      onPreview: () => openPreview(d, { onDelete: () => void loadDocs() }),
+      onOpenDefault: (f) => void api.files.openWithDefaultApp(f.path),
+      onShowInExplorer: (paths) => void api.files.showFilesInExplorer(paths),
+      onCopy: (paths) => void api.files.copyFilesToClipboard(paths),
+      onDelete: () => void loadDocs(),
+    });
+  };
 
   const quotationNo = () => {
     const no = params.no || "";
@@ -224,8 +284,57 @@ export default function QuoteDetail() {
                 </div>
               </div>
             </div>
+
+            {/* 文档文件夹（v2.5.5 打磨 2）：报价/<YYYY>/<单号>/——拖拽复制多文档（对齐产品集） */}
+            <div class="card p-6 shrink-0 mt-6">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="text-lg font-semibold text-surface-900">文档（{docs().length}）</h3>
+                <span class="text-xs text-surface-400">拖拽文件到下方，复制到 报价/{rec().date.slice(0, 4)}/{rec().quotation_no}/</span>
+              </div>
+              <div
+                class={`rounded-xl border-2 border-dashed p-4 min-h-[120px] transition-colors ${dragOver() ? "border-primary-400 bg-primary-50" : "border-surface-200"}`}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => { e.preventDefault(); void handleDocDrop(e); }}
+              >
+                <Show when={docs().length === 0} fallback={
+                  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                    <For each={docs()}>
+                      {(d) => (
+                        <div
+                          class="card p-2 cursor-pointer select-none hover:shadow-card-hover"
+                          onClick={() => openPreview(d, { onDelete: () => void loadDocs() })}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            docCtx.open(e, d);
+                          }}
+                          title={`${d.name}\n单击预览 · 右键更多操作`}
+                        >
+                          <div class="h-20 rounded-lg bg-surface-100 overflow-hidden flex items-center justify-center">
+                            <FileThumbnail filePath={d.path} fileType={d.file_type} />
+                          </div>
+                          <div class="text-xs font-medium truncate mt-1.5 px-0.5">{d.name}</div>
+                          <div class="text-[10px] text-surface-400 px-0.5">{formatBytes(d.size)}</div>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                }>
+                  <div class="flex flex-col items-center justify-center gap-1 py-6 text-surface-400">
+                    <span class="text-2xl">📎</span>
+                    <span class="text-sm">还没有文档——把报价单、合同、产品图等直接拖进来</span>
+                  </div>
+                </Show>
+              </div>
+            </div>
           </>
         )}
+      </Show>
+
+      {/* v2.5.5（打磨 2）：文档卡片右键菜单 */}
+      <Show when={docCtx.show()}>
+        <ContextMenu x={docCtx.x()} y={docCtx.y()} onClose={docCtx.close} items={docMenuItems()} />
       </Show>
 
       {/* 编辑弹窗（status='已确认' 时明细行只读锁定；v2.5.4 C-6：编辑预填用合并记录） */}

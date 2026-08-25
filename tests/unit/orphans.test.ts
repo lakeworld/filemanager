@@ -76,4 +76,32 @@ describe('孤儿档案比对（PLAN §二 修复3）', () => {
     const r2 = await compareArchiveDirs(ws)
     expect(r2.invoice).toEqual([])
   })
+
+  it('报价文档文件夹（目录名 = 台账单号）→ 跳过不报孤儿；同区普通孤儿仍报', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const rec = await box.quotes.create({
+      quotation_no: 'QT-DOC-001',
+      date: '2026-08-12',
+      lines: [{ product: 'p', qty: 1, unit_price: 1, amount: 1 }],
+    })
+    // 模拟拖拽复制进文档文件夹（报价/<YYYY>/<单号>/）
+    await writeFile(path.join(ws, '报价', '2026', 'QT-DOC-001', '报价单.pdf'))
+    await writeFile(path.join(ws, '报价', '2026', 'QT-DOC-001', '合同.docx'))
+    // 同区未登记文件（不属任何单号目录）仍为孤儿
+    await writeFile(path.join(ws, '报价', '2026', 'orphan.pdf'))
+    const r = await compareArchiveDirs(
+      ws,
+      { invoice: [], inbound: [], quote: [rec.file_path ?? ''] },
+      new Set([rec.quotation_no]),
+    )
+    expect(r.quote).toEqual(['报价/2026/orphan.pdf'])
+    // 不传 quoteNos → 文档文件夹文件会被计为孤儿（兼容旧口径；顺序与 readdir 一致，排序比较）
+    const r2 = await compareArchiveDirs(ws, { invoice: [], inbound: [], quote: [rec.file_path ?? ''] })
+    expect([...r2.quote].sort()).toEqual(
+      ['报价/2026/QT-DOC-001/报价单.pdf', '报价/2026/QT-DOC-001/合同.docx', '报价/2026/orphan.pdf'].sort(),
+    )
+  })
 })
