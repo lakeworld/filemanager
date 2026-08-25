@@ -184,6 +184,33 @@ describe('v2.4.7 files scope（§4.6）', () => {
     expect(box.metadata.fileMetadataKey(dest)).toBe('客户/张三/报价/张三_报价_contract_1.pdf')
   })
 
+  it('importFiles scope=supplier：归档到 供应商/<名>/<子文件夹>，命名模板 product_set 槽位 = 供应商名（v2.5.5 对齐对称用例）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await fsp.mkdir(path.join(ws, '供应商', '恒通', '合同'), { recursive: true })
+
+    const src = path.join(ws, '..', 'statement.pdf')
+    await fsp.writeFile(src, 'pdf-bytes')
+    const r = await box.files.importFiles({
+      source_paths: [src],
+      target_product_set: '恒通',
+      target_folder: '对账单',
+      target_type: 'image', // supplier scope 忽略
+      sub_folder: '对账单',
+      scope: 'supplier',
+    })
+    expect(r.imported).toHaveLength(1)
+    expect(r.failed).toHaveLength(0)
+    // v2.4.9 S5：默认模板含 sequence——单文件批次编号 '1'
+    expect(r.imported[0].name).toBe('恒通_对账单_statement_1.pdf')
+
+    const dest = path.join(ws, '供应商', '恒通', '对账单', '恒通_对账单_statement_1.pdf')
+    await expect(fsp.stat(dest)).resolves.toBeTruthy()
+    expect(box.metadata.fileMetadataKey(dest)).toBe('供应商/恒通/对账单/恒通_对账单_statement_1.pdf')
+  })
+
   it('moveFiles scope=customer：结构化目标 = 客户/<名>/<子文件夹>（target_type 忽略），元数据随路径迁移', async () => {
     const home = await tmp()
     const ws = await tmp()

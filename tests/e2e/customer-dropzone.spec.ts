@@ -9,11 +9,13 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 
 /**
  * 客户详情空文件区（v2.4.8 修复回归）：
- * 档案卡高时 flex-1 曾把文件区压缩成小条（实测虚线框仅 68px），「拖放文件到此处」提示溢出框外。
+ * 档案卡高时 flex-1 曾把文件区压缩成小条（实测虚线框仅 68px），空态提示溢出框外。
  * 修复：文件区容器 min-h-[420px]，内容超高时外层 main 滚动。
+ * v2.5.5 对齐：客户区空态文案改「还没有文件 / 点工具栏「选择文件并添加」导入」（无拖放入口），
+ * 断言随之改文本匹配；布局断言（框高、框内包含）不变。
  * 断言：虚线框内容区 ≥ EmptyState 高度（h3 完整可见于框内）、框高 ≥ 200px。
  */
-test.describe('客户详情空文件区拖放提示', () => {
+test.describe('客户详情空文件区空态提示', () => {
   let app: ElectronApplication
   let page: Page
   let wsDir: string
@@ -53,7 +55,7 @@ test.describe('客户详情空文件区拖放提示', () => {
     if (wsDir) await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
 
-  test('拖放提示完整显示在虚线框内（文件区保底高度）', async () => {
+  test('空态提示完整显示在虚线框内（文件区保底高度）', async () => {
     await page.getByRole('button', { name: /客户/ }).first().click()
     await page.getByRole('heading', { name: '客户', exact: true }).waitFor({ timeout: 10000 })
     await page.getByText('空态客户', { exact: true }).click()
@@ -66,11 +68,11 @@ test.describe('客户详情空文件区拖放提示', () => {
         return { x: r.x, y: r.y, w: r.width, h: r.height }
       })[0]
       const hint = Array.from(document.querySelectorAll<HTMLElement>('h3,p')).find((el) =>
-        el.textContent?.trim().startsWith('拖放文件到此处'),
+        el.textContent?.trim().startsWith('还没有文件'),
       )
       const hintRect = hint ? hint.getBoundingClientRect() : null
       const desc = Array.from(document.querySelectorAll<HTMLElement>('p')).find((el) =>
-        el.textContent?.trim().startsWith('支持图片'),
+        el.textContent?.trim().startsWith('点工具栏'),
       )
       const descRect = desc ? desc.getBoundingClientRect() : null
       return {

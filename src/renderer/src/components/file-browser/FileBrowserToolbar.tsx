@@ -11,6 +11,9 @@ export default function FileBrowserToolbar(props: {
   typeLabel: string;
   isCustomer: boolean;
   isSupplier: boolean;
+  /** v2.5.5（对齐）：客户/供应商文件区显示「选择文件并添加」按钮（产品集区拖出拖入，红线不显示） */
+  showImport: boolean;
+  onImportFiles: () => void;
   onNavigate: (sub: string) => void;
   onDeleteSubfolder: () => void;
   onNewSubfolder: () => void;
@@ -30,6 +33,12 @@ export default function FileBrowserToolbar(props: {
         </For>
       </div>
       <div class="flex gap-2">
+        {/* v2.5.5（对齐）：按钮导入入口——客户/供应商文件区专属（台账/业务层不用拖拽；产品集区拖出拖入是红线，不显示） */}
+        <Show when={props.showImport}>
+          <button class="btn-secondary text-sm" onClick={props.onImportFiles}>
+            📂 选择文件并添加
+          </button>
+        </Show>
         {/* v2.4.9 S2：supplier 子文件夹为固定集（决策 1），隐藏新建/删除按钮保持不变式 */}
         <Show when={!props.isSupplier}>
           <button

@@ -327,6 +327,23 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   const handleCopySelected = () => handleCopyPaths(selectedFilePaths());
   const handleShowSelectedInExplorer = () => handleShowPathsInExplorer(selectedFilePaths());
 
+  // v2.5.5（对齐）：客户/供应商文件区按钮导入——多选对话框 → 既有导入管道（importFiles + scope，
+  // 命名模板/冲突后缀/元数据/缩略图全复用）；进度 toast 与完成刷新由 GlobalDropOverlay 全局事件接管。
+  // 产品集区（拖出拖入）不显示此入口（红线）。
+  const handleImportFiles = async () => {
+    const paths = await api.dialog.openFiles("选择文件（可多选）", [{ displayName: "所有文件", pattern: "*" }]);
+    if (!paths || paths.length === 0) return;
+    await api.files.import({
+      source_paths: paths,
+      target_product_set: props.entity,
+      target_folder: props.subFolder,
+      target_type: "",
+      sub_folder: props.subFolder,
+      scope: props.scope,
+      cancelToken: crypto.randomUUID(),
+    });
+  };
+
   onMount(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
@@ -485,6 +502,8 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         typeLabel={typeLabel()}
         isCustomer={isCustomer()}
         isSupplier={isSupplier()}
+        showImport={isEntityScope()}
+        onImportFiles={() => void handleImportFiles()}
         onNavigate={(sub) => navigate(folderPath(sub))}
         onDeleteSubfolder={handleDeleteSubfolder}
         onNewSubfolder={() => setShowNewFolder(true)}
@@ -551,7 +570,13 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         </Show>
         <Show when={filteredFiles().length > 0} fallback={
           <Show when={loading()} fallback={
-            <EmptyState icon="📂" title={tagFilter() ? "没有匹配标签的文件" : "拖放文件到此处"} desc={tagFilter() ? "换个标签试试" : "支持图片、PDF 等文件"} />
+            // v2.5.5（对齐）：客户/供应商区本就无拖放处理——空态不再谎称「拖放文件到此处」，改指按钮入口；
+            // 产品集区拖入是红线交互，文案保持原样
+            <EmptyState
+              icon="📂"
+              title={tagFilter() ? "没有匹配标签的文件" : isEntityScope() ? "还没有文件" : "拖放文件到此处"}
+              desc={tagFilter() ? "换个标签试试" : isEntityScope() ? "点工具栏「选择文件并添加」导入" : "支持图片、PDF 等文件"}
+            />
           }>
             <Loading text="文件加载中…" />
           </Show>
