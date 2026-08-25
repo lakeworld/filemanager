@@ -4,6 +4,8 @@ import {
   planBatchPaths,
   summarizeBatchData,
   missingDraftFields,
+  mergePickedPaths,
+  mergeBatchSummary,
   type BatchDraft,
 } from '../../src/renderer/src/pages/invoices/batchIdentify'
 
@@ -94,5 +96,50 @@ describe('missingDraftFields（建票必填体检）', () => {
 describe('BATCH_LIMIT', () => {
   it('= 10（与插件契约一致）', () => {
     expect(BATCH_LIMIT).toBe(10)
+  })
+})
+
+describe('mergePickedPaths（v2.5.6 选文件去重 + 截断）', () => {
+  it('重复路径去重，保序（已有在前）', () => {
+    const r = mergePickedPaths(['/a.pdf', '/b.pdf'], ['/b.pdf', '/c.pdf'])
+    expect(r).toEqual({ paths: ['/a.pdf', '/b.pdf', '/c.pdf'], overflow: 0 })
+  })
+
+  it('合并后超 10 → 截断 + overflow 计数', () => {
+    const existing = Array.from({ length: 8 }, (_, i) => `/e${i}`)
+    const incoming = Array.from({ length: 5 }, (_, i) => `/n${i}`)
+    const r = mergePickedPaths(existing, incoming)
+    expect(r.paths).toHaveLength(10)
+    expect(r.overflow).toBe(3)
+  })
+
+  it('空白串/非字符串/非数组防御跳过', () => {
+    expect(mergePickedPaths(['/a'], ['  ', 1 as unknown as string, '/b']).paths).toEqual(['/a', '/b'])
+    expect(mergePickedPaths(['/a'], null).paths).toEqual(['/a'])
+  })
+})
+
+describe('mergeBatchSummary（v2.5.6 暂存区幂等合并）', () => {
+  const ok = (p: string): BatchDraft => ({
+    fields: { number: 'A1', amount: 1, seller: '甲', buyer: '乙' },
+    sourcePath: p,
+    warnings: [],
+  })
+
+  it('重试成功：替换同路径草稿 + 从失败列表摘掉', () => {
+    const prev = { drafts: [ok('/a')], failed: [{ sourcePath: '/b', message: '坏' }], ignored: 0 }
+    const next = { drafts: [ok('/b')], failed: [], ignored: 0 }
+    const m = mergeBatchSummary(prev, next)
+    expect(m.drafts.map((d) => d.sourcePath)).toEqual(['/a', '/b'])
+    expect(m.failed).toEqual([])
+  })
+
+  it('重试仍失败：更新失败信息；已成功路径不被失败覆盖', () => {
+    const prev = { drafts: [ok('/a')], failed: [{ sourcePath: '/b', message: '坏1' }], ignored: 1 }
+    const next = { drafts: [], failed: [{ sourcePath: '/b', message: '坏2' }, { sourcePath: '/a', message: '不应出现' }], ignored: 0 }
+    const m = mergeBatchSummary(prev, next)
+    expect(m.failed).toEqual([{ sourcePath: '/b', message: '坏2' }])
+    expect(m.drafts).toHaveLength(1)
+    expect(m.ignored).toBe(0)
   })
 })
