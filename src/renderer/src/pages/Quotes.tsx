@@ -22,6 +22,9 @@ import Loading from "~/components/Loading";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import QuoteStatusActions from "~/components/QuoteStatusActions";
 import QuoteFormModal from "~/components/QuoteFormModal";
+import ContextMenu from "~/components/ContextMenu";
+import { useContextMenu } from "~/hooks/useContextMenu";
+import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import { prefillVersion, currentPrefill, advancePrefill, clearPrefill } from "~/stores/createPrefill";
 import type { QuotePrefill } from "~/stores/createPrefillNormalize";
 // v2.5.5（B3 任务 D）：孤儿未建档纯函数（复用发票/入库筛选模块，node 直测）
@@ -92,6 +95,8 @@ export default function Quotes() {
     setCreating(true);
   };
   const [deleteTarget, setDeleteTarget] = createSignal<{ no: string } | null>(null);
+  // v2.5.5（打磨 2）：台账行右键菜单（预览/系统打开/在文件夹中显示/复制）
+  const ctxMenu = useContextMenu<QuoteRecord>();
   // v2.5.5（B3 任务 D）：报价区孤儿扫描（目录有文件但台账无记录 → 提示条补建/删除）
   const [orphanReport, setOrphanReport] = createSignal<OrphanReport | null>(null);
 
@@ -221,6 +226,21 @@ export default function Quotes() {
   const previewQuoteRel = (rel: string) => {
     const entry = fileEntryOf(rel);
     if (entry) openPreview(entry, { onDelete: () => void loadQuotes() });
+  };
+
+  /** v2.5.5 打磨 2：台账行右键菜单（仅归档文件存在时提供文件操作） */
+  const quoteMenuItems = () => {
+    const rec = ctxMenu.payload();
+    if (!rec?.file_path) return [];
+    const entry = fileEntryOf(rec.file_path);
+    if (!entry) return [];
+    return buildFileContextMenuItems({
+      file: entry,
+      onPreview: () => previewFile(rec),
+      onOpenDefault: (f) => void api.files.openWithDefaultApp(f.path),
+      onShowInExplorer: (paths) => void api.files.showFilesInExplorer(paths),
+      onCopy: (paths) => void api.files.copyFilesToClipboard(paths),
+    });
   };
 
   const confirmDelete = async () => {
@@ -413,6 +433,12 @@ export default function Quotes() {
                   <div
                     class={`px-3 py-2 rounded-lg grid items-center gap-2 text-sm transition-colors hover:bg-surface-50 ${missingFiles()[rec.file_path] ? "opacity-60" : ""}`}
                     style={{ "grid-template-columns": QUOTE_COL_TEMPLATE }}
+                    onDblClick={() => previewFile(rec)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      ctxMenu.open(e, rec);
+                    }}
                   >
                     <button
                       class="font-medium text-primary-700 hover:underline text-left truncate min-w-0"
@@ -511,6 +537,10 @@ export default function Quotes() {
           onConfirm={() => void confirmDelete()}
           onCancel={() => setDeleteTarget(null)}
         />
+      </Show>
+
+      <Show when={ctxMenu.show()}>
+        <ContextMenu x={ctxMenu.x()} y={ctxMenu.y()} onClose={ctxMenu.close} items={quoteMenuItems()} />
       </Show>
     </div>
   );

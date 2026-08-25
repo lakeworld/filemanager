@@ -171,3 +171,21 @@ export interface OrphanReport {
   inbound: string[];
   quote: string[];
 }
+
+/** 任意目录浏览结果（v2.5.5 打磨 2；镜像 main core/dirBrowse.ts 契约，结构类型兼容）：
+ *  批量 AI 识别选任意系统文件夹时列出子文件夹 + 发票候选文件。 */
+export interface DirBrowseEntry {
+  name: string;
+  path: string;
+  size: number;
+  modified: string;
+  file_type: string;
+  thumbnail_path: string | null;
+}
+
+export interface DirBrowseResult {
+  dir: string;
+  /** 子文件夹名（相对当前目录，点击可进入） */
+  dirs: string[];
+  files: DirBrowseEntry[];
+}

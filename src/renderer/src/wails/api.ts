@@ -50,6 +50,7 @@ import type {
   InboundCreateRequest,
   InboundUpdateRequest,
   OrphanReport,
+  DirBrowseResult,
 } from "~/types";
 
 /**
@@ -171,6 +172,10 @@ export const api = {
   // v2.5.5（B3，任务 D）：孤儿未建档扫描（内部业务 IPC，协议面零变更）
   orphans: {
     scan: () => qb.orphans.scan() as Promise<ApiResult<OrphanReport>>,
+  },
+  // v2.5.5（打磨 2）：任意目录浏览（发票批量识别选文件夹；内部业务 IPC，协议面零变更）
+  dirs: {
+    list: (dirPath: string) => qb.dirs.list(dirPath) as Promise<ApiResult<DirBrowseResult>>,
   },
   files: {
     list: (req: FileListRequest) => qb.files.list(req as any) as Promise<ApiResult<FileEntry[]>>,

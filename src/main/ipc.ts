@@ -23,6 +23,7 @@ import { isPathInsideWorkspaceReal, isProtectedConfigPath, classifyFileType } fr
 import { FilesService, ImportCancelledError } from './core/files'
 import { ZipCancelledError, compressToZip } from './core/archive'
 import { compareArchiveDirs } from './core/orphans'
+import { listInvoiceDir } from './core/dirBrowse'
 import { openFileWithDefaultApp } from './open'
 import {
   getMainWindow,
@@ -633,6 +634,9 @@ export function registerIpc(
   // —— XLSX ——
   ipcMain.handle('qihebox:xlsx:exportTemplate', (_e, p: string) => handle(() => box.xlsxExportTemplate(p)))
   ipcMain.handle('qihebox:xlsx:import', (_e, p: string) => handle(() => box.xlsxImport(p)))
+
+  // —— 目录浏览（发票批量识别选任意系统文件夹；内部业务 IPC，协议面零变更）——
+  ipcMain.handle('qihebox:dir:list', (_e, dirPath: string) => handle(() => listInvoiceDir(dirPath)))
 
   // —— 对话框 ——
   ipcMain.handle('qihebox:dialog:openDirectory', (_e, title: string) =>

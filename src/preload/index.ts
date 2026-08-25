@@ -108,6 +108,10 @@ const api = {
   orphans: {
     scan: () => invoke('qihebox:orphans:scan'),
   },
+  // v2.5.5（打磨 2）：任意目录浏览（发票批量识别选文件夹；内部业务 IPC，协议面零变更）
+  dirs: {
+    list: (dirPath: string) => invoke('qihebox:dir:list', dirPath),
+  },
   files: {
     list: (req: unknown) => invoke('qihebox:files:list', req),
     import: (req: unknown) => invoke('qihebox:files:import', req),
