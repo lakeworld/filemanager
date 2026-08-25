@@ -29,8 +29,14 @@ export interface OrphanReport {
   quote: string[]
 }
 
-/** 递归收集 dir 下全部文件相对路径（/ 分隔，以工作区为基准；目录不存在/不可读 → 静默空） */
-async function collectFiles(ws: string, dir: string, out: string[]): Promise<void> {
+/** 递归收集 dir 下全部文件相对路径（/ 分隔，以工作区为基准；目录不存在/不可读 → 静默空）。
+ *  skipDirs：目录名命中即整目录跳过（v2.5.5 打磨 2——报价文档文件夹 报价/<YYYY>/<单号>/ 属台账内文件，不得计为孤儿） */
+async function collectFiles(
+  ws: string,
+  dir: string,
+  out: string[],
+  skipDirs?: Set<string>,
+): Promise<void> {
   let entries: import('node:fs').Dirent[]
   try {
     entries = await fsp.readdir(dir, { withFileTypes: true })
@@ -38,13 +44,18 @@ async function collectFiles(ws: string, dir: string, out: string[]): Promise<voi
     return
   }
   for (const e of entries) {
+    if (skipDirs?.has(e.name)) continue
     const full = path.join(dir, e.name)
-    if (e.isDirectory()) await collectFiles(ws, full, out)
+    if (e.isDirectory()) await collectFiles(ws, full, out, skipDirs)
     else if (e.isFile()) out.push(path.relative(ws, full).split(path.sep).join('/'))
   }
 }
 
-export async function compareArchiveDirs(ws: string, ledger?: ArchiveLedger): Promise<OrphanReport> {
+export async function compareArchiveDirs(
+  ws: string,
+  ledger?: ArchiveLedger,
+  quoteNos?: Set<string>,
+): Promise<OrphanReport> {
   const invoiceSet = new Set(ledger?.invoice ?? [])
   const inboundSet = new Set(ledger?.inbound ?? [])
   const quoteSet = new Set(ledger?.quote ?? [])
@@ -54,7 +65,7 @@ export async function compareArchiveDirs(ws: string, ledger?: ArchiveLedger): Pr
   await Promise.all([
     collectFiles(ws, path.join(ws, INVOICES_DIR), invoice),
     collectFiles(ws, path.join(ws, INBOUND_DIR), inbound),
-    collectFiles(ws, path.join(ws, QUOTES_DIR), quote),
+    collectFiles(ws, path.join(ws, QUOTES_DIR), quote, quoteNos),
   ])
   return {
     invoice: invoice.filter((f) => !invoiceSet.has(f)),

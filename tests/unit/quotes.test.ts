@@ -472,4 +472,38 @@ describe('quote 只读域 listSince（v2.5.4 C-4/M3）', () => {
     const invalid = await box.quotes.listSince('nope')
     expect(invalid.length).toBe(2)
   })
+
+  it('文档文件夹（打磨 2）：建单建目录 / 拖拽复制去重 / 列表 / 计数 / 单号约束', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const rec = await box.quotes.create({ date: '2026-08-12', lines: [line(1, 100)] })
+    // 建单即建文档文件夹 报价/<YYYY>/<单号>/
+    const dir = path.join(ws, '报价', '2026', rec.quotation_no)
+    await expect(fsp.stat(dir)).resolves.toBeTruthy()
+    // 拖拽复制：同名冲突自动 _1 去重；源文件在工作区外
+    const src = await tmp()
+    await fsp.writeFile(path.join(src, '报价单.pdf'), 'pdf')
+    await fsp.writeFile(path.join(src, '合同.docx'), 'docx')
+    const rels = await box.quotes.copyIntoQuoteDoc(rec.quotation_no, rec.date, [
+      path.join(src, '报价单.pdf'),
+      path.join(src, '报价单.pdf'),
+      path.join(src, '合同.docx'),
+    ])
+    expect(rels).toHaveLength(3)
+    expect(rels[1]).toContain('_1')
+    // 列表 + 计数（file_type 分类）
+    const docs = await box.quotes.listQuoteDocs(rec.quotation_no, rec.date)
+    expect(docs).toHaveLength(3)
+    expect(docs.some((d) => d.file_type === 'pdf')).toBe(true)
+    expect(docs.every((d) => d.path.startsWith(dir))).toBe(true)
+    expect(await box.quotes.quoteDocCount(rec.quotation_no, rec.date)).toBe(3)
+    // 不存在的单号目录 → 计数 0、列表空
+    expect(await box.quotes.quoteDocCount('QT-NOPE-999', '2026-08-12')).toBe(0)
+    expect(await box.quotes.listQuoteDocs('QT-NOPE-999', '2026-08-12')).toEqual([])
+    // 单号含路径分隔符 → 拒绝（目录名约束）
+    await expect(box.quotes.ensureQuoteDocDir('A/B', '2026-08-12')).rejects.toThrow()
+    await expect(box.quotes.copyIntoQuoteDoc('A\\B', '2026-08-12', [path.join(src, '合同.docx')])).rejects.toThrow()
+  })
 })

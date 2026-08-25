@@ -76,6 +76,8 @@ export default function Quotes() {
   // v2.5.2：首载 loading——空态不闪现（照 FileBrowserView 先例）
   const [loading, setLoading] = createSignal(true);
   const [missingFiles, setMissingFiles] = createSignal<Record<string, boolean>>({});
+  // v2.5.5（打磨 2）：报价文档文件夹文件数（行 📎 探活；单号 → 文档数）
+  const [docCounts, setDocCounts] = createSignal<Record<string, number>>({});
   const [creating, setCreating] = createSignal(false);
   // v2.5.4 预填（PLAN-v2.5.4 §3.4）：预填载荷（null = 手动新建空表）
   const [createInitial, setCreateInitial] = createSignal<QuotePrefill | null>(null);
@@ -198,6 +200,22 @@ export default function Quotes() {
     setMissingFiles(missing);
   };
 
+  /** v2.5.5（打磨 2）：批量探活报价文档文件夹文件数（并发 ≤8，同探活模式）——行 📎 N */
+  const checkDocCounts = async (list: QuoteRecord[], s: number) => {
+    const counts: Record<string, number> = {};
+    const queue = list.map((r) => r);
+    const workers = Array.from({ length: 8 }, async () => {
+      while (queue.length > 0) {
+        const r = queue.shift()!;
+        const res = await api.quotes.docCount(r.quotation_no, r.date).catch(() => null);
+        if (res?.success && (res.data ?? 0) > 0) counts[r.quotation_no] = res.data ?? 0;
+      }
+    });
+    await Promise.all(workers);
+    if (s !== quoteLoadSeq) return;
+    setDocCounts(counts);
+  };
+
   const loadQuotes = async () => {
     const s = ++quoteLoadSeq;
     setLoading(true);
@@ -207,6 +225,7 @@ export default function Quotes() {
       if (result.success && result.data) {
         setQuotes(result.data);
         void checkFilesExistence(result.data, s);
+        void checkDocCounts(result.data, s);
       }
     } finally {
       // 仅当前链仍最新时复位（过期链的 finally 不得关闭新链的 loading）
@@ -526,6 +545,11 @@ export default function Quotes() {
                       onClick={() => navigate(`/quotes/${encodeURIComponent(rec.quotation_no)}`)}
                     >
                       {rec.quotation_no}
+                      <Show when={docCounts()[rec.quotation_no]}>
+                        <span class="ml-1 text-xs text-surface-400" title="文档文件夹文件数">
+                          📎{docCounts()[rec.quotation_no]}
+                        </span>
+                      </Show>
                     </button>
                     <span class="text-surface-500 truncate min-w-0">{rec.date}</span>
                     {/* 客户删除 → 字面值灰显（S2b 供应商已删除灰显先例）；存在 → chip 点击跳客户详情 */}

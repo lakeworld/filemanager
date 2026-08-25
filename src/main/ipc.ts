@@ -252,6 +252,16 @@ export function registerIpc(
       return r
     }),
   )
+  // v2.5.5（打磨 2）：报价文档文件夹（报价/<YYYY>/<单号>/，目录即真相，内部业务 IPC 协议面零变更）
+  ipcMain.handle('qihebox:quotes:docList', (_e, no: string, date: string) =>
+    handle(() => box.quotes.listQuoteDocs(no, date)),
+  )
+  ipcMain.handle('qihebox:quotes:docCopy', (_e, no: string, date: string, sourcePaths: string[]) =>
+    handle(() => box.quotes.copyIntoQuoteDoc(no, date, sourcePaths)),
+  )
+  ipcMain.handle('qihebox:quotes:docCount', (_e, no: string, date: string) =>
+    handle(() => box.quotes.quoteDocCount(no, date)),
+  )
 
   // —— v2.4.7：发票台账（invoices.json，PLAN §6）——
   ipcMain.handle('qihebox:invoices:list', (_e, filter) => handle(() => box.invoices.list(filter)))
@@ -315,7 +325,7 @@ export function registerIpc(
         invoice: inv.map((r) => r.file_path),
         inbound: inb.map((r) => r.file_path),
         quote: q.map((r) => r.file_path),
-      })
+      }, new Set(q.map((r) => r.quotation_no)))
     }),
   )
 

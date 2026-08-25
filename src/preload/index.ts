@@ -80,6 +80,11 @@ const api = {
     delete: (quotationNo: string) => invoke('qihebox:quotes:delete', quotationNo),
     archiveFile: (sourcePath: string, date: string) =>
       invoke('qihebox:quotes:archiveFile', sourcePath, date),
+    // v2.5.5（打磨 2）：报价文档文件夹（报价/<YYYY>/<单号>/，拖拽复制多文档）
+    docList: (no: string, date: string) => invoke('qihebox:quotes:docList', no, date),
+    docCopy: (no: string, date: string, sourcePaths: string[]) =>
+      invoke('qihebox:quotes:docCopy', no, date, sourcePaths),
+    docCount: (no: string, date: string) => invoke('qihebox:quotes:docCount', no, date),
   },
   invoices: {
     list: (filter?: unknown) => invoke('qihebox:invoices:list', filter),
@@ -131,6 +136,8 @@ const api = {
     previewUrl: (filePath: string) => invoke('qihebox:files:previewUrl', filePath),
     // v2.5.5（打磨 2）：外部文件预览 URL（批量识别任意系统文件夹；qihebox://ext/，与工作区无关）
     externalUrl: (filePath: string) => invoke('qihebox:files:externalUrl', filePath),
+    // v2.5.5（打磨 2）：拖拽落地取系统文件路径（Electron webUtils；拖入文件复制到报价文档文件夹）
+    getDroppedPaths: (files: File[]) => files.map((f) => webUtils.getPathForFile(f)).filter(Boolean),
     copyPaths: (paths: string[]) => invoke('qihebox:files:copyPaths', paths),
     startDrag: (paths: string[]) => invoke('qihebox:files:startDrag', paths),
     workspaceUrl: (filePath: string) => invoke('qihebox:files:workspaceUrl', filePath),

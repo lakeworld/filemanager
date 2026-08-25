@@ -7,6 +7,7 @@ import type {
   ProductSetStats as ProductSetStatsType,
   FileEntry,
   FileMetadata,
+  DirBrowseEntry,
   DashboardStats as DashboardStatsType,
   SearchResult,
   ImportFileRequest,
@@ -137,6 +138,13 @@ export const api = {
     delete: (quotationNo: string) => qb.quotes.delete(quotationNo) as Promise<ApiResult<boolean>>,
     archiveFile: (sourcePath: string, date: string) =>
       qb.quotes.archiveFile(sourcePath, date) as Promise<ApiResult<string>>,
+    // v2.5.5（打磨 2）：报价文档文件夹（报价/<YYYY>/<单号>/）
+    docList: (no: string, date: string) =>
+      qb.quotes.docList(no, date) as Promise<ApiResult<DirBrowseEntry[]>>,
+    docCopy: (no: string, date: string, sourcePaths: string[]) =>
+      qb.quotes.docCopy(no, date, sourcePaths) as Promise<ApiResult<string[]>>,
+    docCount: (no: string, date: string) =>
+      qb.quotes.docCount(no, date) as Promise<ApiResult<number>>,
   },
   invoices: {
     list: (filter?: InvoiceListFilter) =>
