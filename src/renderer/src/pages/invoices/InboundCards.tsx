@@ -80,11 +80,12 @@ export default function InboundCards(props: {
           gap={12}
           scrollResetKey={props.scrollResetKey}
           renderItem={(rec) => {
-            const selected = props.selectedIds.includes(rec.id);
+            // v2.5.5（单选打勾修复）：响应式 getter（renderItem 顶层 const 不追踪 → checked 不更新）
+            const isSel = () => props.selectedIds.includes(rec.id);
             const supplierDeleted = !!rec.supplier_id && !props.suppliers.some((s) => s.name === rec.supplier_id);
             return (
               <div
-                class={`card p-3 flex flex-col h-full relative select-none group transition-colors hover:shadow-card-hover cursor-pointer ${selected ? "border-primary-500 bg-primary-50" : ""}`}
+                class={`card p-3 flex flex-col h-full relative select-none group transition-colors hover:shadow-card-hover cursor-pointer ${isSel() ? "border-primary-500 bg-primary-50" : ""}`}
                 onClick={(e) => {
                   const t = e.target as HTMLElement;
                   if (t.closest("button, input, a")) return;
@@ -104,7 +105,7 @@ export default function InboundCards(props: {
                     type="checkbox"
                     class="w-4 h-4 accent-primary-600 mt-1 shrink-0 cursor-pointer"
                     aria-label={`选择入库单 ${rec.id}`}
-                    checked={selected}
+                    checked={isSel()}
                     onClick={(e) => e.stopPropagation()}
                     onChange={() => props.onToggleSelect(rec.id)}
                   />
