@@ -35,7 +35,7 @@ import type { QuoteRecord, CustomerInfo, FileEntry, OrphanReport } from "~/types
 
 /** 台账列模板（与表头/行一致；minmax 保证窄窗口下可截断） */
 const QUOTE_COL_TEMPLATE =
-  "minmax(150px,1.2fr) minmax(95px,0.9fr) minmax(120px,1.1fr) minmax(220px,1.7fr) minmax(95px,0.8fr) minmax(80px,0.65fr)";
+  "24px minmax(150px,1.2fr) minmax(95px,0.9fr) minmax(120px,1.1fr) minmax(220px,1.7fr) minmax(95px,0.8fr) minmax(80px,0.65fr)";
 
 /** 报价状态枚举（对齐 core paths.ts QUOTE_STATUSES 口径；筛选下拉 + URL ?status= 预选校验共用） */
 const QUOTE_STATUSES: QuoteRecord["status"][] = ["草稿", "已确认", "修订中"];
@@ -477,6 +477,7 @@ export default function Quotes() {
                   class="px-3 py-2 text-xs text-surface-400 grid items-center gap-2 shrink-0"
                   style={{ "grid-template-columns": QUOTE_COL_TEMPLATE }}
                 >
+                  <span />
                   <span>单号</span>
                   <span>日期</span>
                   <span>客户</span>
@@ -511,6 +512,14 @@ export default function Quotes() {
                     }}
                     title="单击选中 · 双击预览归档文件 · 右键更多操作"
                   >
+                    <input
+                      type="checkbox"
+                      class="w-4 h-4 accent-primary-600 cursor-pointer"
+                      aria-label={`选择报价 ${rec.quotation_no}`}
+                      checked={qSelected}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleQuoteSelect(rec.quotation_no)}
+                    />
                     <button
                       class="font-medium text-primary-700 hover:underline text-left truncate min-w-0"
                       title="查看报价详情"
