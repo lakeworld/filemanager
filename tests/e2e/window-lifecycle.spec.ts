@@ -197,8 +197,14 @@ test.describe('窗口生命周期（v2.5.3 常驻轻壳 T5 + 托盘冻结热修�
   test('单轮恢复：显示后白屏自检必跑且通过，零升级', async () => {
     const before = await escalationCounts()
     await hideShowRound()
-    // 自检在 show 后 300ms 抓帧（可见态正常 <100ms）——等 600ms 让自检跑完
-    await page.waitForTimeout(600)
+    // 自检在 show 后 300ms 抓帧；高负载下自检点可能命中加载中——main 等加载 settle 后才
+    // 真正跑自检（上限 5s，2026-08-25 flake 修复），故不用固定 600ms，改有界轮询「自检通过」日志（10s 截止）
+    const deadline = Date.now() + 10000
+    while (Date.now() < deadline) {
+      const log = await readMainLog(app)
+      if (countLogLines(log, /显示后自检通过/) > before.checkPassed) break
+      await new Promise((r) => setTimeout(r, 200))
+    }
     const after = await escalationCounts()
     expect(after.checkPassed - before.checkPassed, 'parked 恢复 show 必须武装并跑完显示后白屏自检').toBeGreaterThanOrEqual(1)
     expect(after.blankConfirmed - before.blankConfirmed, '健康自检不得确认白屏').toBe(0)

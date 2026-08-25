@@ -31,6 +31,12 @@
 - **客户/供应商详情「文件区」新增「📂 选择文件并添加」按钮**（FileBrowserView 工具栏，仅 customer/supplier scope 显示；产品集文件区拖拽为红线，零改动）：多选系统文件 → 复用既有 `qihebox:files:import` 业务 IPC 复制进当前子文件夹（`客户/<名>/<子文件夹>/` / `供应商/<名>/<子文件夹>/`，自动改名 `<实体名>_<子文件夹>_<原名>_<序号>.<ext>` 防冲突）；文件区空态文案对齐（客户/供应商不再出现「拖放文件到此处」）
 - 进度 toast 与列表自动刷新复用 GlobalDropOverlay 的 `import:progress`/`import:complete` 全局链路，组件不另接线；协议面零变更（api:update 无 diff）；单测 845→846、e2e 154→156
 
+### 修复（2026-08-25，v2.5.5 发布后修复）
+
+- **`npm run test:e2e` 的 pretest 失败修复**：`pretest:e2e` 仍引用已迁走的 identify-mock 夹具构建段（d87c387 已迁至插件仓 e2e-host）——删除已迁段（hello 插件构建段保留）
+- **窗口显示后白屏自检加载容错**：原自检命中「渲染层仍在加载」时静默跳过（无日志），高负载场景下自检整轮不跑；现等待加载 settle（100ms 轮询、5s 兜底）后真跑，超时按 unknown 不升级
+- 测试基线：单测 846 不变、e2e **156/156 全绿**（156 用例 / 36 文件，含全量负载 flake 场景）
+
 > 宿主协议零变更（`src/plugins/types.ts` / `docs/PLUGIN.md` / preload plugins·settings / `plugins:`/`settings:` IPC 均未动）；与插件契约接触点以 `关系:` 行为准。
 > 打包与发布：详见 `docs/INTERNAL/RELEASE-RUNBOOK.md`；性能实测与内存门禁见 `docs/PERF.md`。
 

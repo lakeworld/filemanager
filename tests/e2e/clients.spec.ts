@@ -350,8 +350,8 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
     // 落盘：默认命名模板 客户名_子文件夹_原名_序号
     const dir = path.join(wsDir, '客户', '导入客户', '报价')
     // 全量并行负载下导入落盘可能慢于默认 5s（供应商同款断言实测 flake）→ 放宽 20s
-    await expect(fsp.stat(path.join(dir, '导入客户_报价_合同_1.pdf')), { timeout: 20000 }).resolves.toBeTruthy()
-    await expect(fsp.stat(path.join(dir, '导入客户_报价_发票_2.pdf')), { timeout: 20000 }).resolves.toBeTruthy()
+    await expect.poll(() => fsp.stat(path.join(dir, '导入客户_报价_合同_1.pdf')), { timeout: 20000 }).toBeTruthy()
+    await expect.poll(() => fsp.stat(path.join(dir, '导入客户_报价_发票_2.pdf')), { timeout: 20000 }).toBeTruthy()
     // 文件区自动刷新（import:complete 全局事件）→ 卡片可见
     await expect(page.getByText('导入客户_报价_合同_1.pdf', { exact: true })).toBeVisible({ timeout: 15000 })
 

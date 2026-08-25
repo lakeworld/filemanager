@@ -18,7 +18,7 @@
     "test:watch": "vitest",
     "api:update": "node scripts/update-api-surface.mjs",
     "test:e2e": "playwright test",
-    "pretest:e2e": "node scripts/build-hello-plugin.mjs && node scripts/build-hello-plugin.mjs --src tests/e2e/fixtures/identify-mock --out tests/e2e/fixtures && mv tests/e2e/fixtures/com.qihe.mock.identify.qbox tests/e2e/fixtures/qbox-identify-mock.qbox",
+    "pretest:e2e": "node scripts/build-hello-plugin.mjs",
     "conformance": "node tests/e2e/conformance/run-conformance.mjs",
     "preconformance": "node scripts/build-hello-plugin.mjs",
     "test:memory-soak": "playwright test --config=playwright.memory-soak.config.ts",
