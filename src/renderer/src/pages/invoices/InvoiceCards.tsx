@@ -109,11 +109,16 @@ export default function InvoiceCards(props: {
                   }}
                   title="单击选中 · 双击预览归档文件 · 右键更多操作"
                 >
-                  {/* 金额主视觉（v2.5.5 打磨 2：移除常显复选框——单击卡片即选中，选中反馈=边框+底色+已选工具条） */}
+                  {/* 选择框 + 金额主视觉（v2.5.5 打磨 2：对齐产品集 Images——单击卡片也选中，选择框保留作选中反馈/直接勾选） */}
                   <div class="flex items-start justify-between gap-2 shrink-0">
-                    <div class="mt-0.5 text-xs text-surface-300" title={selected ? "已选中，单击取消" : "单击选中"}>
-                      {selected ? "✓" : ""}
-                    </div>
+                    <input
+                      type="checkbox"
+                      class="w-4 h-4 accent-primary-600 mt-1 shrink-0 cursor-pointer"
+                      aria-label={`选择发票 ${rec.number}`}
+                      checked={selected}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => props.onToggleSelect(rec.number)}
+                    />
                     <div class="text-right min-w-0">
                       <span class="text-xl font-bold tabular-nums text-surface-900 leading-tight block truncate" title={`金额 ¥${fmtMoney(rec.amount)}`}>
                         ¥{fmtMoney(rec.amount)}
