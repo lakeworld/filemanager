@@ -513,10 +513,11 @@ export default function Quotes() {
                     // v2.4.9 M4：筛选变化时滚动归零（VirtualGrid scrollResetKey 约定，对齐发票 Invoices.tsx）
                     scrollResetKey={`${statusFilter()}|${customerFilter()}|${query()}|${dateFrom()}|${dateTo()}|${amountMin()}|${amountMax()}|${hasFile()}`}
                     renderItem={(rec) => {
-                      const qSelected = effectiveSelectedQuotes().includes(rec.quotation_no);
+                      // v2.5.5（单选打勾修复）：响应式 getter（renderItem 顶层 const 不追踪 → checked/高亮不更新）
+                      const isSel = () => effectiveSelectedQuotes().includes(rec.quotation_no);
                       return (
                   <div
-                    class={`px-3 py-2 rounded-lg grid items-center gap-2 text-sm transition-colors cursor-pointer ${qSelected ? "bg-primary-50 ring-1 ring-primary-300" : "hover:bg-surface-50"} ${missingFiles()[rec.file_path] ? "opacity-60" : ""}`}
+                    class={`px-3 py-2 rounded-lg grid items-center gap-2 text-sm transition-colors cursor-pointer ${isSel() ? "bg-primary-50 ring-1 ring-primary-300" : "hover:bg-surface-50"} ${missingFiles()[rec.file_path] ? "opacity-60" : ""}`}
                     style={{ "grid-template-columns": QUOTE_COL_TEMPLATE }}
                     onClick={(e) => {
                       const t = e.target as HTMLElement;
@@ -535,7 +536,7 @@ export default function Quotes() {
                       type="checkbox"
                       class="w-4 h-4 accent-primary-600 cursor-pointer"
                       aria-label={`选择报价 ${rec.quotation_no}`}
-                      checked={qSelected}
+                      checked={isSel()}
                       onClick={(e) => e.stopPropagation()}
                       onChange={() => toggleQuoteSelect(rec.quotation_no)}
                     />

@@ -91,10 +91,12 @@ export default function InvoiceCards(props: {
             gap={12}
             scrollResetKey={props.scrollResetKey}
             renderItem={(rec) => {
-              const selected = props.selectedIds.includes(rec.number);
+              // v2.5.5（单选打勾修复）：必须是响应式 getter——renderItem 顶层 const 是普通值，
+              // JSX 不追踪 → 单击选中后 checked/高亮不更新（工具条页面级正常，卡片内不响应）
+              const isSel = () => props.selectedIds.includes(rec.number);
               return (
                 <div
-                  class={`card p-3 flex flex-col h-full relative select-none group transition-colors hover:shadow-card-hover cursor-pointer ${selected ? "border-primary-500 bg-primary-50" : ""} ${props.missing[rec.file_path] ? "opacity-70" : ""}`}
+                  class={`card p-3 flex flex-col h-full relative select-none group transition-colors hover:shadow-card-hover cursor-pointer ${isSel() ? "border-primary-500 bg-primary-50" : ""} ${props.missing[rec.file_path] ? "opacity-70" : ""}`}
                   onDblClick={() => props.onPreview(rec)}
                   onClick={(e) => {
                     // 单击卡片空白区域 = 切换选中（避开状态徽章/客户chip/悬停按钮/复选框等交互元素）
@@ -115,7 +117,7 @@ export default function InvoiceCards(props: {
                       type="checkbox"
                       class="w-4 h-4 accent-primary-600 mt-1 shrink-0 cursor-pointer"
                       aria-label={`选择发票 ${rec.number}`}
-                      checked={selected}
+                      checked={isSel()}
                       onClick={(e) => e.stopPropagation()}
                       onChange={() => props.onToggleSelect(rec.number)}
                     />
