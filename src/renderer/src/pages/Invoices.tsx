@@ -51,8 +51,13 @@ import InboundToolbar from "./invoices/InboundToolbar";
 import OrphanList from "./invoices/OrphanList";
 // v2.5.5（B3 任务 C）：筛选组合纯函数（可 node 直测，tests/unit/filterUtils.test.ts）
 import { filterInvoices, filterInbound, currentOrphans } from "./invoices/filterUtils";
-import { planBatchPaths, summarizeBatchData, missingDraftFields, type BatchSummary } from "./invoices/batchIdentify";
+import { planBatchPaths, summarizeBatchData, missingDraftFields, type BatchDraft } from "./invoices/batchIdentify";
 import BatchIdentifyModal from "./invoices/BatchIdentifyModal";
+import StagedIdentifyList from "./invoices/StagedIdentifyList";
+import {
+  stagedDrafts, stagedFailed, stagedCount, stageBatchSummary,
+  removeStagedDraft, removeStagedFailed, stagedFailedPaths, clearStagedIdentify,
+} from "~/stores/identifyStaging";
 import DeleteRecordModal from "./invoices/DeleteRecordModal";
 import ConfirmDialog from "~/components/ConfirmDialog"; // v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认（应用内样式化，禁用 window.confirm）
 import { loadTagDefs, tagList } from "~/stores/tags";
@@ -226,9 +231,13 @@ export default function Invoices() {
   const [inboundFormSnapshot, setInboundFormSnapshot] = createSignal<InboundFormState | null>(null);
   // 脏守卫确认目标（发票/入库 共用；一次只开一个编辑器弹窗）：null = 无待确认
   const [discardTarget, setDiscardTarget] = createSignal<"invoice" | "inbound" | null>(null);
-  // —— v2.5.5（B4）：批量 AI 识别——文件多选面板开关 / 批量登记确认摘要 / 批量执行中（连点守卫）——
+  // —— v2.5.5（B4）/ v2.5.6：批量 AI 识别——文件多选面板开关 / 识别中（进度浮层 + 连点守卫）/ 全部登记中 ——
+  // v2.5.6：识别结果落「未建档」视图常驻待确认区（stores/identifyStaging），用户确认才归档（盲确认框已废）
   const [batchPickOpen, setBatchPickOpen] = createSignal(false);
-  const [batchSummary, setBatchSummary] = createSignal<BatchSummary | null>(null);
+  const [batchIdentifying, setBatchIdentifying] = createSignal(0);
+  const [batchRegistering, setBatchRegistering] = createSignal(false);
+  // v2.5.6：单条「登记…」开弹窗消费的暂存草稿——取消/放弃时回填待确认区，保存成功不回填
+  const [modalStagedDraft, setModalStagedDraft] = createSignal<BatchDraft | null>(null);
 
   // —— v2.5.4 预填消费（PLAN-v2.5.4 §3.4）：版本变化 → 切 tab + seed 表单 + 开新建弹窗；只开不关 ——
   createEffect(() => {
@@ -533,7 +542,11 @@ export default function Invoices() {
     setBatchPickOpen(true);
   };
 
-  /** B4：面板确认 → callPlugin invoice.identifyFiles → 结果分类 → 弹「批量登记」确认（识别不落盘，登记才归档） */
+  /**
+   * B4/v2.5.6：面板确认 → callPlugin invoice.identifyFiles（进度浮层反馈）→ 结果幂等落暂存区
+   * （stores/identifyStaging，会话级、零落盘）→ 切到「未建档」视图待确认区 + toast 提醒。
+   * 归档只在用户确认后发生：单条「登记…」开弹窗（保存才归档）/「全部登记」逐条 archiveFile→create。
+   */
   const runBatchIdentify = async (paths: string[]) => {
     const plan = planBatchPaths(paths);
     if (!plan.ok) {
@@ -546,6 +559,7 @@ export default function Invoices() {
       showToast("error", "批量识别不可用", "未安装/未启用 com.qihe.cloud 插件");
       return;
     }
+    setBatchIdentifying(plan.capped.length);
     try {
       const r = await callPlugin(cmd.pluginId, cmd.commandId, { paths: plan.capped });
       if (!r.success) {
@@ -553,68 +567,129 @@ export default function Invoices() {
         return;
       }
       const summary = summarizeBatchData(r.data);
-      if (summary.drafts.length === 0) {
-        const failNames = summary.failed.map((f) => baseNameOf(f.sourcePath)).join("、");
-        showToast(
-          "info",
-          "批量识别：无成功条目",
-          `失败 ${summary.failed.length} 张${failNames ? `（${failNames}）` : ""}${summary.ignored ? `；忽略 ${summary.ignored} 张` : ""}`,
-        );
+      summary.ignored += plan.ignored; // 面板已 ≤10 截断，此处仅为重试/直连路径兜底
+      if (summary.drafts.length === 0 && summary.failed.length === 0) {
+        showToast("info", "批量识别：无结果", summary.ignored ? `忽略 ${summary.ignored} 张` : undefined);
         return;
       }
-      setBatchSummary(summary); // 弹「批量登记 N 张？」确认（取消 = 零落盘）
+      stageBatchSummary(summary); // 落暂存区（零落盘）——合并去重/摘失败由 mergeBatchSummary 保证
+      setTab("invoices");
+      setViewMode("orphans"); // 直接带用户到待确认区
+      showToast(
+        summary.failed.length > 0 ? "info" : "success",
+        `识别完成：${summary.drafts.length} 条待确认${summary.failed.length ? `，失败 ${summary.failed.length} 条` : ""}${summary.ignored ? `，忽略 ${summary.ignored} 张` : ""}`,
+        "已放入「未建档」视图待确认区——确认登记后才归档",
+      );
     } catch (err) {
       showToast("error", "批量识别异常", err instanceof Error ? err.message : String(err));
+    } finally {
+      setBatchIdentifying(0);
     }
   };
 
-  /** B4：确认批量登记——逐条「保存时才归档」：archiveFile → create，create 失败回滚刚归档副本（B1 语义） */
-  const confirmBatchCreate = async () => {
-    const summary = batchSummary();
-    if (!summary) return;
-    setBatchSummary(null);
+  /** v2.5.6：待确认区「重试失败项」——失败路径重走识别（结果幂等并入暂存区） */
+  const retryStagedFailed = () => {
+    const paths = stagedFailedPaths();
+    if (paths.length === 0) return;
+    void runBatchIdentify(paths);
+  };
+
+  /**
+   * v2.5.6：单条「登记…」——seed 表单 + 暂存识别源（复用 B1 保存归档链：确认登记才 archiveFile，
+   * 取消/放弃零落盘且草稿回填待确认区）+ 开新建弹窗；字段不全的条目在此由用户补全。
+   */
+  const confirmStagedOne = async (draft: BatchDraft) => {
+    clearPrefill("invoice"); // 手动入口防御性清队列（同 openInvoiceCreate）
+    setStagedArchive(null);
+    setIdentifyWarnings(draft.warnings);
+    // 归档年份口径与 identifyFromFile 一致：识别日期 → 文件 mtime 兜底 → 今天
+    let archDate = draft.fields.date || "";
+    if (!archDate) archDate = await dateFromFileMtime(draft.sourcePath).catch(() => "");
+    if (!archDate) archDate = toDateKey(new Date());
+    const seeded: InvoiceFormState = {
+      number: draft.fields.number ?? "", code: draft.fields.code ?? "",
+      date: draft.fields.date ?? toDateKey(new Date()),
+      amount: draft.fields.amount != null && draft.fields.amount !== 0 ? String(draft.fields.amount) : "",
+      seller: draft.fields.seller ?? "", buyer: draft.fields.buyer ?? "",
+      status: "待报销", customer: draft.fields.customer ?? "", due_date: draft.fields.due_date ?? "",
+      file_path: "", tags: draft.fields.tags ?? [], notes: draft.fields.notes ?? "",
+    };
+    setInvoiceForm(seeded);
+    setInvoiceFormSnapshot(seeded); // 脏守卫基准（暂存源置位即脏，关闭必二次确认）
+    setTab("invoices");
+    setStagedIdentifySource({ sourcePath: draft.sourcePath, fileName: baseNameOf(draft.sourcePath), date: archDate });
+    setModalStagedDraft(draft);
+    setInvoiceEditor({ mode: "create" });
+    removeStagedDraft(draft.sourcePath);
+  };
+
+  /** v2.5.6：待确认区预览源文件（绝对路径，同 BatchIdentifyModal 的 FileEntry 构造） */
+  const previewStagedSource = (p: string) =>
+    void openPreview({
+      name: baseNameOf(p),
+      path: p,
+      size: 0,
+      modified: "",
+      file_type: /\.pdf$/i.test(p) ? "pdf" : "image",
+      thumbnail_path: null,
+    });
+
+  /**
+   * v2.5.6：「全部登记」——只登记字段齐全的暂存草稿，逐条「保存时才归档」语义：
+   * archiveFile → create，create 失败回滚刚归档副本（B1 语义）；成功条目移出暂存区，
+   * 失败/字段不全条目留区（可修正后重试或逐条登记）。
+   */
+  const registerAllStaged = async () => {
+    if (batchRegistering()) return; // 连点守卫
+    const ready = stagedDrafts().filter((d) => missingDraftFields(d).length === 0);
+    const heldBack = stagedDrafts().length - ready.length;
+    if (ready.length === 0) {
+      showToast("info", "没有字段齐全的待确认条目", "可逐条「登记…」补全后保存");
+      return;
+    }
+    setBatchRegistering(true);
     let ok = 0;
-    const failed: { sourcePath: string; message: string }[] = [...summary.failed];
-    for (const draft of summary.drafts) {
-      const missing = missingDraftFields(draft);
-      if (missing.length > 0) {
-        failed.push({ sourcePath: draft.sourcePath, message: `识别字段不全（缺${missing.join("、")}）` });
-        continue;
+    const failed: { sourcePath: string; message: string }[] = [];
+    try {
+      for (const draft of ready) {
+        let archDate = draft.fields.date || "";
+        if (!archDate) archDate = await dateFromFileMtime(draft.sourcePath).catch(() => "");
+        if (!archDate) archDate = toDateKey(new Date());
+        const arch = await api.invoices.archiveFile(draft.sourcePath, archDate);
+        if (!arch.success || !arch.data) {
+          failed.push({ sourcePath: draft.sourcePath, message: arch.error || "归档失败" });
+          continue;
+        }
+        const rel = arch.data;
+        const res = await api.invoices.create({
+          number: draft.fields.number || "",
+          code: draft.fields.code || "",
+          date: archDate,
+          amount: draft.fields.amount ?? 0,
+          seller: draft.fields.seller || "",
+          buyer: draft.fields.buyer || "",
+          status: "待报销",
+          customer: draft.fields.customer || "",
+          due_date: draft.fields.due_date,
+          tags: draft.fields.tags,
+          notes: draft.fields.notes || "",
+          file_path: rel,
+        });
+        if (res.success) {
+          ok++;
+          removeStagedDraft(draft.sourcePath);
+        } else {
+          await rollbackArchived(rel);
+          failed.push({ sourcePath: draft.sourcePath, message: res.error || "登记失败（已回滚归档副本）" });
+        }
       }
-      let archDate = draft.fields.date || "";
-      if (!archDate) archDate = await dateFromFileMtime(draft.sourcePath).catch(() => "");
-      if (!archDate) archDate = toDateKey(new Date());
-      const arch = await api.invoices.archiveFile(draft.sourcePath, archDate);
-      if (!arch.success || !arch.data) {
-        failed.push({ sourcePath: draft.sourcePath, message: arch.error || "归档失败" });
-        continue;
-      }
-      const rel = arch.data;
-      const res = await api.invoices.create({
-        number: draft.fields.number || "",
-        code: draft.fields.code || "",
-        date: archDate,
-        amount: draft.fields.amount ?? 0,
-        seller: draft.fields.seller || "",
-        buyer: draft.fields.buyer || "",
-        status: "待报销",
-        customer: draft.fields.customer || "",
-        due_date: draft.fields.due_date,
-        tags: draft.fields.tags,
-        notes: draft.fields.notes || "",
-        file_path: rel,
-      });
-      if (res.success) {
-        ok++;
-      } else {
-        await rollbackArchived(rel);
-        failed.push({ sourcePath: draft.sourcePath, message: res.error || "登记失败（已回滚归档副本）" });
-      }
+    } finally {
+      setBatchRegistering(false);
     }
     const failNames = failed.map((f) => baseNameOf(f.sourcePath)).join("、");
     showToast(
       ok > 0 ? "success" : "error",
-      `批量登记完成：成功 ${ok} / 失败 ${failed.length} / 忽略 ${summary.ignored}`,
+      `批量登记完成：成功 ${ok}${failed.length ? ` / 失败 ${failed.length}` : ""}${heldBack ? ` / 字段不全留区 ${heldBack}` : ""}`,
       failed.length > 0 ? `失败：${failNames}` : undefined,
     );
     void loadInvoices();
@@ -782,6 +857,12 @@ export default function Invoices() {
     setStagedArchive(null);
     setStagedIdentifySource(null); // 识别源只暂存，取消/关闭即弃（源文件原地不动）
     setIdentifyWarnings([]);
+    // v2.5.6：待确认区单条「登记…」取消/放弃 → 草稿回填待确认区（保存成功路径不经过本函数）
+    const back = modalStagedDraft();
+    if (back) {
+      setModalStagedDraft(null);
+      stageBatchSummary({ drafts: [back], failed: [], ignored: 0 });
+    }
     setInvoiceEditor(null);
     clearPrefill("invoice"); // v2.5.4：取消 = 清预填队列（P1-1；保存成功不经过本函数）
   };
@@ -954,6 +1035,7 @@ export default function Invoices() {
         setStagedArchive(null); // 已保存为记录，文件不再孤儿
         setStagedIdentifySource(null);
         setIdentifyWarnings([]);
+        setModalStagedDraft(null); // v2.5.6：登记成功，待确认草稿消费完毕不回填
         setInvoiceEditor(null);
         showToast("success", editor?.mode === "edit" ? "发票已更新" : "发票已登记");
         void loadInvoices();
@@ -1163,6 +1245,22 @@ export default function Invoices() {
 
         {/* v2.5.5（B3 任务 D）：未建档文件视图——孤儿（目录有文件但台账无记录）补建/删除 */}
         <Show when={viewMode() === "orphans"}>
+          <div class="flex-1 min-h-0 flex flex-col gap-3">
+            {/* v2.5.6：AI 识别待确认区（常驻，确认登记才归档；识别完成自动落此视图） */}
+            <Show when={stagedCount() > 0}>
+              <StagedIdentifyList
+                drafts={stagedDrafts()}
+                failed={stagedFailed()}
+                registering={batchRegistering()}
+                onConfirmOne={(d) => void confirmStagedOne(d)}
+                onRemoveDraft={removeStagedDraft}
+                onRegisterAll={() => void registerAllStaged()}
+                onRetryFailed={retryStagedFailed}
+                onDismissFailed={removeStagedFailed}
+                onClear={clearStagedIdentify}
+                onPreview={previewStagedSource}
+              />
+            </Show>
           <div class="flex-1 min-h-0 flex flex-col">
             <div class="card p-3 flex flex-col flex-1 min-h-0">
               <div class="flex items-center justify-between px-3 py-2 shrink-0">
@@ -1179,9 +1277,21 @@ export default function Invoices() {
               />
             </div>
           </div>
+          </div>
         </Show>
 
         <Show when={viewMode() === "records"}>
+          {/* v2.5.6：AI 识别待确认提醒横幅（常驻，待确认区清空自消） */}
+          <Show when={stagedCount() > 0}>
+            <div class="card px-4 py-2.5 mb-3 flex items-center justify-between gap-3 border-primary-200 bg-primary-50/40 shrink-0" data-testid="staged-identify-banner">
+              <span class="text-sm text-primary-800">
+                🤖 AI 识别待确认 {stagedCount()} 条——尚未归档，确认登记后才落账
+              </span>
+              <button class="btn-secondary text-xs shrink-0" onClick={() => setViewMode("orphans")}>
+                去确认
+              </button>
+            </div>
+          </Show>
           <Show when={invoices().length === 0} fallback={
             <div class="flex-1 min-h-0 flex flex-col">
               <div class="card p-2 flex flex-col flex-1 min-h-0">
@@ -1457,15 +1567,14 @@ export default function Invoices() {
         onClose={() => setBatchPickOpen(false)}
         onConfirm={(paths) => void runBatchIdentify(paths)}
       />
-      <Show when={batchSummary()}>
-        <ConfirmDialog
-          title={`批量登记 ${batchSummary()!.drafts.length} 张发票？`}
-          message={`识别成功 ${batchSummary()!.drafts.length} 张（确认后逐张归档并登记）、失败 ${batchSummary()!.failed.length} 张${batchSummary()!.ignored ? `、忽略 ${batchSummary()!.ignored} 张` : ""}。取消则零落盘。`}
-          confirmLabel="批量登记"
-          cancelLabel="再看看"
-          onConfirm={() => void confirmBatchCreate()}
-          onCancel={() => setBatchSummary(null)}
-        />
+      {/* v2.5.6：批量识别进度浮层（识别期间阻塞反馈；结果落「未建档」待确认区，旧盲确认框已废） */}
+      <Show when={batchIdentifying() > 0}>
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-surface-900/40" data-testid="batch-identifying">
+          <div class="card px-6 py-5 flex items-center gap-3">
+            <span class="w-5 h-5 border-2 border-primary-200 border-t-primary-600 rounded-full animate-spin shrink-0" />
+            <span class="text-sm text-surface-700">正在批量识别 {batchIdentifying()} 张发票，云端识别中…</span>
+          </div>
+        </div>
       </Show>
     </div>
   );

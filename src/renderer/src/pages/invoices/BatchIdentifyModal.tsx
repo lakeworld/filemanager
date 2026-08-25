@@ -7,7 +7,7 @@ import { useContextMenu } from "~/hooks/useContextMenu";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import { openPreview } from "~/stores/preview";
 import { baseNameOf } from "./utils";
-import { BATCH_LIMIT } from "./batchIdentify";
+import { BATCH_LIMIT, mergePickedPaths } from "./batchIdentify";
 import type { FileEntry } from "~/types";
 
 /**
@@ -43,13 +43,12 @@ export default function BatchIdentifyModal(props: {
       { displayName: "PDF / 图片", pattern: "*.pdf;*.png;*.jpg;*.jpeg;*.webp;*.gif" },
     ]);
     if (!paths || paths.length === 0) return;
-    const merged = [...selected(), ...paths.map(toEntry)];
-    if (merged.length > BATCH_LIMIT) {
-      showToast("info", "批量 AI 识别一次最多 10 张", `已选 ${merged.length} 张，超出部分已忽略`);
-      setSelected(merged.slice(0, BATCH_LIMIT));
-    } else {
-      setSelected(merged);
+    // v2.5.6：按路径去重（重复选同一文件不再产生重复条目）+ ≤10 截断（mergePickedPaths 纯函数，单测锁定）
+    const m = mergePickedPaths(selected().map((f) => f.path), paths);
+    if (m.overflow > 0) {
+      showToast("info", "批量 AI 识别一次最多 10 张", `超出 ${m.overflow} 张已忽略`);
     }
+    setSelected(m.paths.map(toEntry));
   };
 
   const remove = (p: string) => setSelected(selected().filter((f) => f.path !== p));

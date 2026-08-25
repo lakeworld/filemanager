@@ -96,3 +96,42 @@ export function missingDraftFields(draft: BatchDraft): string[] {
   if (!f.buyer || !f.buyer.trim()) missing.push("购买方");
   return missing;
 }
+
+/**
+ * v2.5.6：面板选文件合并——按路径去重（重复选同一文件不再产生重复条目）+ ≤10 截断。
+ * 返回合并后列表与超量忽略数（供 toast 提示）；空白串/非字符串防御性跳过。
+ */
+export function mergePickedPaths(
+  existing: string[],
+  incoming: unknown,
+): { paths: string[]; overflow: number } {
+  const seen = new Set(existing);
+  const merged = [...existing];
+  if (Array.isArray(incoming)) {
+    for (const p of incoming) {
+      if (typeof p !== "string" || p.trim() === "") continue;
+      if (seen.has(p)) continue;
+      seen.add(p);
+      merged.push(p);
+    }
+  }
+  return { paths: merged.slice(0, BATCH_LIMIT), overflow: Math.max(0, merged.length - BATCH_LIMIT) };
+}
+
+/**
+ * v2.5.6：暂存区合并（初始识别 / 失败重试共用）——按 sourcePath 幂等合并：
+ * 新成功条目替换同路径旧草稿并把它从失败列表摘掉；新失败条目替换同路径旧失败。
+ * ignored 取最新一轮（重试只带重试子集，语义为当轮忽略数）。
+ */
+export function mergeBatchSummary(prev: BatchSummary, next: BatchSummary): BatchSummary {
+  const drafts = new Map(prev.drafts.map((d) => [d.sourcePath, d]));
+  const failed = new Map(prev.failed.map((f) => [f.sourcePath, f]));
+  for (const d of next.drafts) {
+    drafts.set(d.sourcePath, d);
+    failed.delete(d.sourcePath);
+  }
+  for (const f of next.failed) {
+    if (!drafts.has(f.sourcePath)) failed.set(f.sourcePath, f);
+  }
+  return { drafts: [...drafts.values()], failed: [...failed.values()], ignored: next.ignored };
+}
