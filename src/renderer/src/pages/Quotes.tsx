@@ -97,6 +97,41 @@ export default function Quotes() {
   const [deleteTarget, setDeleteTarget] = createSignal<{ no: string } | null>(null);
   // v2.5.5（打磨 2）：台账行右键菜单（预览/系统打开/在文件夹中显示/复制）
   const ctxMenu = useContextMenu<QuoteRecord>();
+  // v2.5.5（打磨 2）：行单击选中 + 批量工具条（对齐发票/入库：全选可见/批量改状态/批量删除）
+  const [selectedQuoteIds, setSelectedQuoteIds] = createSignal<string[]>([]);
+  const toggleQuoteSelect = (no: string) =>
+    setSelectedQuoteIds((prev) => (prev.includes(no) ? prev.filter((x) => x !== no) : [...prev, no]));
+  const visibleQuoteNos = () => new Set(filteredQuotes().map((r) => r.quotation_no));
+  const effectiveSelectedQuotes = () => selectedQuoteIds().filter((no) => visibleQuoteNos().has(no));
+  const selectAllVisibleQuotes = () => setSelectedQuoteIds(filteredQuotes().map((r) => r.quotation_no));
+  /** 批量改状态（草稿/修订中 → 已确认；账物分离不碰文件） */
+  const batchSetQuoteStatus = async () => {
+    const nos = effectiveSelectedQuotes();
+    if (nos.length === 0) return;
+    let ok = 0;
+    for (const no of nos) {
+      const r = await api.quotes.setStatus(no, "已确认").catch(() => null);
+      if (r?.success) ok++;
+    }
+    setSelectedQuoteIds([]);
+    showToast(ok === nos.length ? "success" : "info", `已确认 ${ok}/${nos.length} 条报价`, ok === nos.length ? undefined : "部分失败，请重试");
+    void loadQuotes();
+  };
+  /** 批量删除（账物分离：只删台账记录，归档文件保留）——经 ConfirmDialog 确认（对齐发票/入库） */
+  const [batchDeleteConfirm, setBatchDeleteConfirm] = createSignal(false);
+  const confirmBatchDeleteQuotes = async () => {
+    setBatchDeleteConfirm(false);
+    const nos = effectiveSelectedQuotes();
+    if (nos.length === 0) return;
+    let ok = 0;
+    for (const no of nos) {
+      const r = await api.quotes.delete(no).catch(() => null);
+      if (r?.success) ok++;
+    }
+    setSelectedQuoteIds([]);
+    showToast(ok === nos.length ? "success" : "info", `已删除 ${ok}/${nos.length} 条报价记录（归档文件保留）`, ok === nos.length ? undefined : "部分失败，请重试");
+    void loadQuotes();
+  };
   // v2.5.5（B3 任务 D）：报价区孤儿扫描（目录有文件但台账无记录 → 提示条补建/删除）
   const [orphanReport, setOrphanReport] = createSignal<OrphanReport | null>(null);
 
@@ -405,8 +440,36 @@ export default function Quotes() {
                 <span class="font-medium text-surface-900">
                   ¥{fmtMoney(filteredQuotes().reduce((a, r) => a + r.total_amount, 0))}
                 </span>
+                <Show when={effectiveSelectedQuotes().length > 0}>
+                  <span class="ml-3 text-primary-700">已选 {effectiveSelectedQuotes().length} 条</span>
+                </Show>
               </span>
             </div>
+
+            {/* v2.5.5 打磨 2：报价批量工具条（选中 ≥1 浮现，对齐发票/入库） */}
+            <Show when={effectiveSelectedQuotes().length > 0}>
+              <div class="flex items-center justify-between mb-2 mx-1 px-3 py-2 bg-primary-50 border border-primary-100 rounded-xl shrink-0">
+                <span class="text-sm text-primary-700">已选择 {effectiveSelectedQuotes().length} 条报价</span>
+                <div class="flex gap-2">
+                  <button class="px-3 py-1.5 text-sm text-primary-700 hover:bg-white rounded-lg" onClick={selectAllVisibleQuotes}>
+                    全选可见
+                  </button>
+                  <button
+                    class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg"
+                    onClick={() => void batchSetQuoteStatus()}
+                    title="选中报价批量流转为「已确认」（草稿/修订中）"
+                  >
+                    批量改状态（已确认）
+                  </button>
+                  <button
+                    class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg"
+                    onClick={() => setBatchDeleteConfirm(true)}
+                  >
+                    🗑️ 批量删除
+                  </button>
+                </div>
+              </div>
+            </Show>
 
             <Show when={filteredQuotes().length === 0} fallback={
               <>
@@ -429,16 +492,24 @@ export default function Quotes() {
                     gap={8}
                     // v2.4.9 M4：筛选变化时滚动归零（VirtualGrid scrollResetKey 约定，对齐发票 Invoices.tsx）
                     scrollResetKey={`${statusFilter()}|${customerFilter()}|${query()}|${dateFrom()}|${dateTo()}|${amountMin()}|${amountMax()}|${hasFile()}`}
-                    renderItem={(rec) => (
+                    renderItem={(rec) => {
+                      const qSelected = effectiveSelectedQuotes().includes(rec.quotation_no);
+                      return (
                   <div
-                    class={`px-3 py-2 rounded-lg grid items-center gap-2 text-sm transition-colors hover:bg-surface-50 ${missingFiles()[rec.file_path] ? "opacity-60" : ""}`}
+                    class={`px-3 py-2 rounded-lg grid items-center gap-2 text-sm transition-colors cursor-pointer ${qSelected ? "bg-primary-50 ring-1 ring-primary-300" : "hover:bg-surface-50"} ${missingFiles()[rec.file_path] ? "opacity-60" : ""}`}
                     style={{ "grid-template-columns": QUOTE_COL_TEMPLATE }}
+                    onClick={(e) => {
+                      const t = e.target as HTMLElement;
+                      if (t.closest("button, input, a")) return;
+                      toggleQuoteSelect(rec.quotation_no);
+                    }}
                     onDblClick={() => previewFile(rec)}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
                       ctxMenu.open(e, rec);
                     }}
+                    title="单击选中 · 双击预览归档文件 · 右键更多操作"
                   >
                     <button
                       class="font-medium text-primary-700 hover:underline text-left truncate min-w-0"
@@ -485,7 +556,8 @@ export default function Quotes() {
                       </button>
                     </div>
                   </div>
-                )}
+                );
+                    }}
               />
                 </div>
               </>
@@ -536,6 +608,18 @@ export default function Quotes() {
           danger
           onConfirm={() => void confirmDelete()}
           onCancel={() => setDeleteTarget(null)}
+        />
+      </Show>
+
+      {/* v2.5.5 打磨 2：报价批量删除确认（对齐发票/入库） */}
+      <Show when={batchDeleteConfirm()}>
+        <ConfirmDialog
+          title="批量删除报价记录"
+          message={`确定删除已选的 ${effectiveSelectedQuotes().length} 条报价记录吗？只删除台账记录，归档文件保留。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={() => void confirmBatchDeleteQuotes()}
+          onCancel={() => setBatchDeleteConfirm(false)}
         />
       </Show>
 

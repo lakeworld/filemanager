@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import { api } from "~/wails/api";
 import { getPreviewKind } from "../../../shared/fileKind";
+import { currentWorkspace } from "~/stores/workspace";
 import type { FileEntry, FileMetadata } from "~/types";
 
 const defaultMetadata: FileMetadata = {
@@ -37,9 +38,17 @@ let previewGen = 0;
 // 「开→开」切换文件与「关→开」同样触发复位（契约语义：复位随会话变化，而非仅随关闭）
 const [previewSessionKey, setPreviewSessionKey] = createSignal(0);
 
-/** v2.5.3（T7）O1：当前预览代（openPreview/closePreview 递增）。
+/** v2.5.5（T7）O1：当前预览代（openPreview/closePreview 递增）。
  * 调用方在异步 IPC 前后各取一次并比对，判断预览会话是否已变化（防止旧失败文案写进新预览）。 */
 export const currentPreviewGen = (): number => previewGen;
+
+/** 路径是否在工作区内（批量识别任意系统文件夹的文件在工作区外，预览走 qihebox://ext/） */
+const isInsideWorkspace = (p: string): boolean => {
+  const ws = currentWorkspace()?.path;
+  if (!ws) return false;
+  const norm = (s: string) => s.replace(/\\/g, "/").replace(/\/+$/, "");
+  return norm(p).startsWith(norm(ws) + "/");
+};
 
 const loadMetadata = async (file: FileEntry, gen: number) => {
   // v2.4.2：主进程按文件绝对路径推导元数据 key（含子文件夹），不再传 productSet/fileName
@@ -73,7 +82,9 @@ export const openPreview = async (file: FileEntry, context?: PreviewContext) => 
   // v2.4.6：图片预览优先走主进程 2048px 降采样副本（qihebox://thumb/）——
   // 全尺寸原图解码位图 ~96MB 是渲染进程 RSS 膨胀主因，副本压到 ≤16MB；
   // 生成失败/非图片返回空串 → 回退原 workspaceUrl 原图逻辑，功能不受影响
-  if (file.file_type === "image") {
+  // v2.5.5（打磨 2）：工作区外文件（批量识别任意文件夹）走 qihebox://ext/，不走降采样/工作区协议
+  const insideWs = isInsideWorkspace(file.path);
+  if (file.file_type === "image" && insideWs) {
     const thumbResult = await api.files.previewUrl(file.path);
     // v2.5.3（T7）：代际守卫——等待期间已关闭或已打开其他文件 → 丢弃过期结果
     if (gen !== previewGen) return;
@@ -84,7 +95,9 @@ export const openPreview = async (file: FileEntry, context?: PreviewContext) => 
     }
   }
 
-  const urlResult = await api.files.workspaceUrl(file.path);
+  const urlResult = insideWs
+    ? await api.files.workspaceUrl(file.path)
+    : await api.files.externalUrl(file.path);
   // v2.5.3（T7）：代际守卫——等待期间已关闭或已打开其他文件 → 丢弃过期结果
   if (gen !== previewGen) return;
   if (urlResult.success && urlResult.data) {

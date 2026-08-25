@@ -112,6 +112,8 @@ interface QiheboxApi {
     ensureThumbnail: (filePath: string) => Promise<unknown>
     thumbnailUrl: (filePath: string) => Promise<unknown>
     previewUrl: (filePath: string) => Promise<unknown>
+    // v2.5.5（打磨 2）：外部文件预览 URL（批量识别任意系统文件夹）
+    externalUrl: (filePath: string) => Promise<unknown>
     copyPaths: (paths: string[]) => Promise<unknown>
     startDrag: (paths: string[]) => Promise<unknown>
     workspaceUrl: (filePath: string) => Promise<unknown>

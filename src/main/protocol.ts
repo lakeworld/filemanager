@@ -34,6 +34,13 @@ export function thumbnailFileUrl(thumbPath: string): string {
   return `qihebox://thumb/${encoded}`
 }
 
+/** 外部文件 URL（v2.5.5 打磨 2）：批量识别选任意系统文件夹时预览——
+ *  qihebox://ext/<base64url(绝对路径)>，与工作区无关：realpath 存在即放行（用户主动选择预览的文件） */
+export function externalFileUrl(filePath: string): string {
+  const encoded = Buffer.from(filePath, 'utf-8').toString('base64url')
+  return `qihebox://ext/${encoded}`
+}
+
 // —— v2.5（PLAN §4.3）：插件包内资源 URL（qihebox://plugin/<id>/<relpath>）——
 
 /** 插件 id 格式：域名倒序（与 src/plugins/types.ts ID_RE 同源，不跨模块引用保持 protocol 自治） */
@@ -191,7 +198,7 @@ export function registerQiheboxProtocol(
       if (request.method !== 'GET') {
         return new Response('method not allowed', { status: 405 })
       }
-      if (url.hostname !== 'file' && url.hostname !== 'thumb' && url.hostname !== 'plugin') {
+      if (url.hostname !== 'file' && url.hostname !== 'thumb' && url.hostname !== 'plugin' && url.hostname !== 'ext') {
         void log('error', `[protocol] bad host: ${url.hostname} ${request.url}`)
         return new Response('bad request', { status: 400 })
       }
@@ -226,19 +233,23 @@ export function registerQiheboxProtocol(
       filePath = filePath.trim()
       if (!filePath) return new Response('missing file parameter', { status: 400 })
 
+      // v2.5.5（打磨 2）：外部文件 host——realpath 存在即放行（批量识别任意系统文件夹预览；
+      // 与工作区无关，base64url 编码 + realpath 校验仍防逃逸形态，仅服务用户主动选择的路径）
+      const resolved = path.resolve(filePath)
+      const targetReal = await fsp.realpath(resolved).catch(() => null)
+      if (!targetReal) return new Response('file not found', { status: 404 })
+      if (url.hostname === 'ext') {
+        return serveFile(targetReal, request, undefined)
+      }
+
       const ws = box.workspace.currentWorkspacePath()
       if (!ws) return new Response('no workspace open', { status: 503 })
 
       // v2.4.2（D7）：realpath 解析后再做前缀比对（防符号链接/junction 逃逸到工作区外）；
       // 文件不存在 realpath 返回 null → 404。file → 工作区；thumb → 缩略图缓存根（userData）
-      const resolved = path.resolve(filePath)
       const boundary = url.hostname === 'file' ? ws : (getThumbsRoot?.() ?? '')
       if (!boundary) return new Response('no thumb cache root', { status: 503 })
-      const [boundaryReal, targetReal] = await Promise.all([
-        fsp.realpath(boundary).catch(() => null),
-        fsp.realpath(resolved).catch(() => null),
-      ])
-      if (!targetReal) return new Response('file not found', { status: 404 })
+      const boundaryReal = await fsp.realpath(boundary).catch(() => null)
       if (!boundaryReal || (targetReal !== boundaryReal && !targetReal.startsWith(boundaryReal + path.sep))) {
         void log('error', `[protocol] outside workspace: ${resolved}`)
         return new Response('file outside workspace', { status: 403 })
