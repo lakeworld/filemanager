@@ -77,8 +77,8 @@ test.describe('发票/入库卡片化 + 批量 + 孤儿（B3）', () => {
       await expect(page.getByTitle('金额 ¥200.00', { exact: true })).toBeVisible()
       await expect(page.getByText('B3-INV-1', { exact: true })).toBeVisible()
 
-      // —— 多选 + 批量工具条 ——
-      await page.getByRole('checkbox', { name: '选择发票 B3-INV-1' }).check()
+      // —— 多选 + 批量工具条（v2.5.5 打磨 2：移除常显复选框，单击卡片选中）——
+      await page.getByTitle('金额 ¥100.50', { exact: true }).click()
       await expect(page.getByText('已选择 1 张发票')).toBeVisible()
       await page.getByRole('button', { name: '全选可见' }).click()
       await expect(page.getByText('已选择 2 张发票')).toBeVisible()

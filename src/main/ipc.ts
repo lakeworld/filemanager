@@ -16,7 +16,7 @@ import { BoxService } from './core'
 import { AccountService } from './account'
 import { copyFilesToClipboard } from './clipboard'
 import { showFilesInExplorer } from './explorer'
-import { workspaceFileUrl, thumbnailFileUrl } from './protocol'
+import { workspaceFileUrl, thumbnailFileUrl, externalFileUrl } from './protocol'
 import { checkUpdate, downloadUpdate, applyUpdate, getCachedUpdate, setCachedUpdate, UpdateInfo } from './updater'
 import { setAutoLaunch, isAutoLaunch } from './autoLaunchMain'
 import { isPathInsideWorkspaceReal, isProtectedConfigPath, classifyFileType } from './core/paths'
@@ -451,6 +451,18 @@ export function registerIpc(
       if (classifyFileType(filePath) !== 'image') return ''
       const preview = await box.ensurePreviewFor(filePath)
       return preview ? thumbnailFileUrl(preview) : ''
+    }),
+  )
+  // v2.5.5（打磨 2）：外部文件预览 URL（批量识别任意系统文件夹）——qihebox://ext/<base64url>，
+  // 与工作区无关（协议侧 realpath 存在即放行）；仅服务用户显式选择的路径
+  ipcMain.handle('qihebox:files:externalUrl', (_e, filePath: string) =>
+    handle(async () => {
+      if (!filePath) throw new Error('缺少文件路径')
+      const resolved = await fsp.realpath(filePath).catch(() => null)
+      if (!resolved) throw new Error('文件不存在')
+      const st = await fsp.stat(resolved).catch(() => null)
+      if (!st || !st.isFile()) throw new Error('不是文件')
+      return externalFileUrl(resolved)
     }),
   )
   ipcMain.handle('qihebox:files:copyPaths', (_e, paths: string[]) =>

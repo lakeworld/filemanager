@@ -129,6 +129,8 @@ const api = {
     thumbnailUrl: (filePath: string) => invoke('qihebox:files:thumbnailUrl', filePath),
     // v2.4.6：图片预览降采样副本 URL（≤2048px JPEG，主进程 sharp 生成并缓存）
     previewUrl: (filePath: string) => invoke('qihebox:files:previewUrl', filePath),
+    // v2.5.5（打磨 2）：外部文件预览 URL（批量识别任意系统文件夹；qihebox://ext/，与工作区无关）
+    externalUrl: (filePath: string) => invoke('qihebox:files:externalUrl', filePath),
     copyPaths: (paths: string[]) => invoke('qihebox:files:copyPaths', paths),
     startDrag: (paths: string[]) => invoke('qihebox:files:startDrag', paths),
     workspaceUrl: (filePath: string) => invoke('qihebox:files:workspaceUrl', filePath),

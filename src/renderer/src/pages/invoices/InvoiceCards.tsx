@@ -2,7 +2,13 @@ import { Show, For, createSignal } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import VirtualGrid from "~/components/VirtualGrid";
 import EmptyState from "~/components/EmptyState";
-import { STATUSES, statusChipClass, fmtMoney, isDueSoon } from "./utils";
+import ContextMenu from "~/components/ContextMenu";
+import type { ContextMenuItem } from "~/components/ContextMenu";
+import { useContextMenu } from "~/hooks/useContextMenu";
+import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
+import { api } from "~/wails/api";
+import { currentWorkspace } from "~/stores/workspace";
+import { STATUSES, statusChipClass, fmtMoney, isDueSoon, baseNameOf } from "./utils";
 import type { InvoiceRecord, InvoiceStatus } from "./types";
 
 /**
@@ -27,6 +33,45 @@ export default function InvoiceCards(props: {
   const navigate = useNavigate();
   /** 状态弹层（点徽章弹出，合并两段式）：记录目标发票号与锚点坐标（fixed 定位，避开虚拟行 transform 层叠） */
   const [statusMenu, setStatusMenu] = createSignal<{ number: string; x: number; y: number } | null>(null);
+  // v2.5.5 打磨 2：卡片右键菜单（预览/编辑/系统打开/在文件夹中显示/删除）
+  const ctxMenu = useContextMenu<InvoiceRecord>();
+
+  /** 归档文件相对路径 → FileEntry（供右键文件操作；与 Invoices.tsx fileEntryOf 同构） */
+  const entryOf = (rel: string) => {
+    const ws = currentWorkspace()?.path;
+    if (!ws) return null;
+    return {
+      name: baseNameOf(rel),
+      path: `${ws.replace(/\\/g, "/")}/${rel}`,
+      size: 0,
+      modified: "",
+      file_type: rel.toLowerCase().endsWith(".pdf") ? "pdf" : "image",
+      thumbnail_path: null,
+    };
+  };
+
+  const menuItems = () => {
+    const rec = ctxMenu.payload();
+    if (!rec) return [];
+    const items: ContextMenuItem[] = [];
+    items.push({ label: "编辑", icon: "✏️", action: () => props.onEdit(rec) });
+    if (rec.file_path) {
+      const entry = entryOf(rec.file_path);
+      if (entry) {
+        items.push(
+          ...buildFileContextMenuItems({
+            file: entry,
+            onPreview: () => props.onPreview(rec),
+            onOpenDefault: (f) => void api.files.openWithDefaultApp(f.path),
+            onShowInExplorer: (paths) => void api.files.showFilesInExplorer(paths),
+            onCopy: (paths) => void api.files.copyFilesToClipboard(paths),
+          }),
+        );
+      }
+    }
+    items.push({ label: "删除", icon: "🗑️", danger: true, action: () => props.onDelete(rec) });
+    return items;
+  };
 
   const openStatusMenu = (e: MouseEvent, number: string) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -49,17 +94,26 @@ export default function InvoiceCards(props: {
               const selected = props.selectedIds.includes(rec.number);
               return (
                 <div
-                  class={`card p-3 flex flex-col h-full relative select-none group transition-colors hover:shadow-card-hover ${selected ? "border-primary-500 bg-primary-50" : ""} ${props.missing[rec.file_path] ? "opacity-70" : ""}`}
+                  class={`card p-3 flex flex-col h-full relative select-none group transition-colors hover:shadow-card-hover cursor-pointer ${selected ? "border-primary-500 bg-primary-50" : ""} ${props.missing[rec.file_path] ? "opacity-70" : ""}`}
+                  onDblClick={() => props.onPreview(rec)}
+                  onClick={(e) => {
+                    // 单击卡片空白区域 = 切换选中（避开状态徽章/客户chip/悬停按钮/复选框等交互元素）
+                    const t = e.target as HTMLElement;
+                    if (t.closest("button, input, a")) return;
+                    props.onToggleSelect(rec.number);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    ctxMenu.open(e, rec);
+                  }}
+                  title="单击选中 · 双击预览归档文件 · 右键更多操作"
                 >
-                  {/* 选择复选框 + 金额主视觉 */}
+                  {/* 金额主视觉（v2.5.5 打磨 2：移除常显复选框——单击卡片即选中，选中反馈=边框+底色+已选工具条） */}
                   <div class="flex items-start justify-between gap-2 shrink-0">
-                    <input
-                      type="checkbox"
-                      class="w-4 h-4 accent-primary-600 mt-1 shrink-0 cursor-pointer"
-                      aria-label={`选择发票 ${rec.number}`}
-                      checked={selected}
-                      onChange={() => props.onToggleSelect(rec.number)}
-                    />
+                    <div class="mt-0.5 text-xs text-surface-300" title={selected ? "已选中，单击取消" : "单击选中"}>
+                      {selected ? "✓" : ""}
+                    </div>
                     <div class="text-right min-w-0">
                       <span class="text-xl font-bold tabular-nums text-surface-900 leading-tight block truncate" title={`金额 ¥${fmtMoney(rec.amount)}`}>
                         ¥{fmtMoney(rec.amount)}
@@ -161,6 +215,11 @@ export default function InvoiceCards(props: {
             )}
           </For>
         </div>
+      </Show>
+
+      {/* v2.5.5 打磨 2：卡片右键菜单（编辑/预览/系统打开/在文件夹中显示/复制/删除） */}
+      <Show when={ctxMenu.show()}>
+        <ContextMenu x={ctxMenu.x()} y={ctxMenu.y()} onClose={ctxMenu.close} items={menuItems()} />
       </Show>
     </>
   );

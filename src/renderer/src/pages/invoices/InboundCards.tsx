@@ -3,13 +3,19 @@ import { useNavigate } from "@solidjs/router";
 import VirtualGrid from "~/components/VirtualGrid";
 import EmptyState from "~/components/EmptyState";
 import Loading from "~/components/Loading";
-import { fmtMoney } from "./utils";
+import ContextMenu from "~/components/ContextMenu";
+import type { ContextMenuItem } from "~/components/ContextMenu";
+import { useContextMenu } from "~/hooks/useContextMenu";
+import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
+import { api } from "~/wails/api";
+import { currentWorkspace } from "~/stores/workspace";
+import { fmtMoney, baseNameOf } from "./utils";
 import type { InboundRecord, SupplierBrief } from "./types";
 
 /**
  * 入库单卡片网格（PLAN-v2.5.5 §一 任务1，B3 任务 A 卡片化——去表格）：
  * 与发票卡片同套样式（金额主视觉/编号+日期/供应商→关联产品集/备注/悬停操作），无状态字段、无识别入口。
- * 多选：卡片左上角复选框 + 选中边框（Images.tsx 同款模式）。
+ * v2.5.5 打磨 2（对齐发票）：移除常显复选框——单击卡片选中（高亮+已选工具条）、双击预览、右键菜单。
  * 旧 InboundTable.tsx（表格）已删除——本组件为其卡片化替代，行为断言（预览/编辑/删除/新建回调）不变。
  */
 export default function InboundCards(props: {
@@ -25,6 +31,45 @@ export default function InboundCards(props: {
   scrollResetKey: string;
 }) {
   const navigate = useNavigate();
+  // v2.5.5 打磨 2：卡片右键菜单（对齐发票）
+  const ctxMenu = useContextMenu<InboundRecord>();
+
+  const entryOf = (rel: string) => {
+    const ws = currentWorkspace()?.path;
+    if (!ws) return null;
+    return {
+      name: baseNameOf(rel),
+      path: `${ws.replace(/\\/g, "/")}/${rel}`,
+      size: 0,
+      modified: "",
+      file_type: rel.toLowerCase().endsWith(".pdf") ? "pdf" : "image",
+      thumbnail_path: null,
+    };
+  };
+
+  const menuItems = () => {
+    const rec = ctxMenu.payload();
+    if (!rec) return [];
+    const items: ContextMenuItem[] = [];
+    items.push({ label: "编辑", icon: "✏️", action: () => props.onEdit(rec) });
+    if (rec.file_path) {
+      const entry = entryOf(rec.file_path);
+      if (entry) {
+        items.push(
+          ...buildFileContextMenuItems({
+            file: entry,
+            onPreview: () => props.onPreview(rec),
+            onOpenDefault: (f) => void api.files.openWithDefaultApp(f.path),
+            onShowInExplorer: (paths) => void api.files.showFilesInExplorer(paths),
+            onCopy: (paths) => void api.files.copyFilesToClipboard(paths),
+          }),
+        );
+      }
+    }
+    items.push({ label: "删除", icon: "🗑️", danger: true, action: () => props.onDelete(rec) });
+    return items;
+  };
+
   return (
     <Show when={props.rows.length === 0} fallback={
       <div class="flex-1 min-h-0">
@@ -39,17 +84,25 @@ export default function InboundCards(props: {
             const supplierDeleted = !!rec.supplier_id && !props.suppliers.some((s) => s.name === rec.supplier_id);
             return (
               <div
-                class={`card p-3 flex flex-col h-full relative select-none group transition-colors hover:shadow-card-hover ${selected ? "border-primary-500 bg-primary-50" : ""}`}
+                class={`card p-3 flex flex-col h-full relative select-none group transition-colors hover:shadow-card-hover cursor-pointer ${selected ? "border-primary-500 bg-primary-50" : ""}`}
+                onClick={(e) => {
+                  const t = e.target as HTMLElement;
+                  if (t.closest("button, input, a")) return;
+                  props.onToggleSelect(rec.id);
+                }}
+                onDblClick={() => props.onPreview(rec)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  ctxMenu.open(e, rec);
+                }}
+                title="单击选中 · 双击预览归档文件 · 右键更多操作"
               >
-                {/* 选择复选框 + 金额主视觉 */}
+                {/* 金额主视觉（v2.5.5 打磨 2：移除常显复选框——单击卡片即选中） */}
                 <div class="flex items-start justify-between gap-2 shrink-0">
-                  <input
-                    type="checkbox"
-                    class="w-4 h-4 accent-primary-600 mt-1 shrink-0 cursor-pointer"
-                    aria-label={`选择入库单 ${rec.id}`}
-                    checked={selected}
-                    onChange={() => props.onToggleSelect(rec.id)}
-                  />
+                  <div class="mt-0.5 text-xs text-surface-300" title={selected ? "已选中，单击取消" : "单击选中"}>
+                    {selected ? "✓" : ""}
+                  </div>
                   <div class="text-right min-w-0">
                     <span class="text-xl font-bold tabular-nums text-surface-900 leading-tight block truncate" title={rec.amount !== undefined ? `金额 ¥${fmtMoney(rec.amount)}` : "未填金额"}>
                       {rec.amount !== undefined ? `¥${fmtMoney(rec.amount)}` : "—"}

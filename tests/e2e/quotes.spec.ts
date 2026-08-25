@@ -221,6 +221,59 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
 
+  test('批量（打磨 2）：行单击选中 → 已选工具条 → 批量改状态（→已确认）→ 批量删除（账物分离）', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-quotes-batch-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    // IPC 建 3 张草稿报价
+    for (const no of ['QB-B1', 'QB-B2', 'QB-B3']) {
+      await page.evaluate(async (r) =>
+        (window as any).qihebox.quotes.create(r),
+        { quotation_no: no, date: '2026-08-12', customer: '批量客户', lines: [{ product: '批量品', qty: 1, unit_price: 5, amount: 5 }] },
+      )
+    }
+
+    await gotoRoute('/quotes')
+    await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
+
+    // 单击行（点行内日期 span，非交互元素 → 触发行 onClick 选中）QB-B1 / QB-B2
+    const dateCell = page.getByText('2026-08-12')
+    await dateCell.nth(0).click()
+    await expect(page.getByText('已选择 1 条报价')).toBeVisible()
+    await dateCell.nth(1).click()
+    await expect(page.getByText('已选择 2 条报价')).toBeVisible()
+
+    // 批量改状态 → 已确认（QB-B1/B2 已确认，QB-B3 仍草稿）
+    await page.getByRole('button', { name: /批量改状态/ }).click()
+    await expect
+      .poll(async () => {
+        const list = await page.evaluate(async () => (window as any).qihebox.quotes.list())
+        if (!list.success) return -1
+        const by = (no: string) => list.data.find((r: any) => r.quotation_no === no)?.status
+        return by('QB-B1') === '已确认' && by('QB-B2') === '已确认' && by('QB-B3') === '草稿' ? 1 : 0
+      }, { timeout: 10000 })
+      .toBe(1)
+
+    // 全选可见 → 3 条（改状态已清空选中，重新点选 3 行）→ 批量删除（确认弹窗）→ 台账清空、归档目录无新文件
+    await dateCell.nth(0).click()
+    await dateCell.nth(1).click()
+    await dateCell.nth(2).click()
+    await expect(page.getByText('已选择 3 条报价')).toBeVisible()
+    await page.getByRole('button', { name: '全选可见' }).click()
+    await expect(page.getByText('已选择 3 条报价')).toBeVisible()
+    await page.getByRole('button', { name: /批量删除/ }).click()
+    const confirm = page.getByRole('dialog', { name: '批量删除报价记录' })
+    await expect(confirm).toBeVisible()
+    await confirm.getByRole('button', { name: '删除', exact: true }).click()
+    await expect
+      .poll(async () => {
+        const list = await page.evaluate(async () => (window as any).qihebox.quotes.list())
+        return list.success && list.data.length === 0 ? 1 : 0
+      }, { timeout: 10000 })
+      .toBe(1)
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
   test('删除账物分离：删除记录 → 台账无该单、归档文件仍在（fsp.stat）', async () => {
     const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-quotes-e2e5-'))
     await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
