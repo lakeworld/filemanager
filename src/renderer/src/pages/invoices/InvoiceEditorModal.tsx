@@ -7,6 +7,7 @@ import ArchiveField from "./ArchiveField";
 import { STATUSES } from "./utils";
 import type { InvoiceFormState, InvoiceStatus, InvoiceRecord, CustomerBrief } from "./types";
 import type { TagInfo } from "~/types";
+import type { PluginFileCommand } from "~/plugins/registry";
 /**
  * 发票新建/编辑弹窗（v2.5.1 T3 波1 拆分 + overlay→Modal 迁移）：
  * 信号与保存逻辑保留在主文件（Invoices.tsx），本组件只做展示与字段编辑（props 显式化，D11）。
@@ -29,8 +30,13 @@ export default function InvoiceEditorModal(props: {
   missing: Record<string, boolean>;
   customers: CustomerBrief[];
   tagOptions: TagInfo[];
-  /** v2.5.5（用户拍板）：移除新建发票表单内的识别按钮（批量识别走发票页「批量 AI 识别」面板，表单识别入口冗余） */
+  /** v2.5.5（修正轮）：global 命令槽——新建发票 create 模式渲染「从文件识别」按钮（单文件；批量命令已过滤） */
+  identifyCommands: PluginFileCommand[];
+  identifying?: boolean;
+  identifyWarnings?: string[];
+  /** v2.5.5（B1 P0 归档后移）：识别到的源文件名（待归档展示；空表示未识别）——不再传已归档 rel */
   stagedIdentifyName?: string;
+  onIdentify: (cmd: PluginFileCommand) => void;
 }) {
   // 客户下拉：options 重建后补应用选中值（v2.5.4 预填）
   let customerSelectRef: HTMLSelectElement | undefined;
@@ -52,12 +58,37 @@ export default function InvoiceEditorModal(props: {
       >
         <div class="p-6">
           <h2 class="text-xl font-bold mb-4">{props.editor?.mode === "edit" ? "编辑发票" : "新建发票"}</h2>
-          {/* v2.5.5（用户拍板）：移除新建发票表单内识别按钮（批量识别走发票页「批量 AI 识别」面板）；识别暂存源仅剩展示 */}
-          <Show when={props.stagedIdentifyName}>
+          {/* v2.5.5（修正轮）：global 命令槽——仅 create 模式渲染「从文件识别」按钮（单文件，识别成功暂存待归档）；批量识别走发票页「批量 AI 识别」面板 */}
+          <Show when={props.editor?.mode === "create" && props.identifyCommands.length > 0}>
             <div class="mb-4">
-              <span class="text-xs text-emerald-700">
-                已识别待归档：{props.stagedIdentifyName}（确认登记时归档）
-              </span>
+              <div class="flex items-center gap-2 flex-wrap">
+                <For each={props.identifyCommands}>
+                  {(cmd) => (
+                    <button
+                      type="button"
+                      class="btn-secondary text-sm"
+                      disabled={props.identifying}
+                      onClick={() => void props.onIdentify(cmd)}
+                    >
+                      {props.identifying ? "识别中…" : cmd.label}
+                    </button>
+                  )}
+                </For>
+                <Show when={props.stagedIdentifyName}>
+                  <span class="text-xs text-emerald-700">
+                    已识别待归档：{props.stagedIdentifyName}（确认登记时归档）
+                  </span>
+                </Show>
+              </div>
+              <Show when={props.identifyWarnings && props.identifyWarnings.length > 0}>
+                <div class="mt-2">
+                  <For each={props.identifyWarnings ?? []}>
+                    {(w) => (
+                      <p class="text-sm text-amber-600">⚠ {w}</p>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </div>
           </Show>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
