@@ -1,59 +1,80 @@
-import { Show, For, createSignal, createEffect, onCleanup } from "solid-js";
+import { Show, For, createSignal, createEffect } from "solid-js";
 import { api } from "~/wails/api";
-import { productSets, workspaceConfig } from "~/stores/workspace";
 import { showToast } from "~/stores/notifyBanner";
 import Modal from "~/components/ui/Modal";
+import ContextMenu from "~/components/ContextMenu";
+import { useContextMenu } from "~/hooks/useContextMenu";
+import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
+import { openPreview } from "~/stores/preview";
 import { baseNameOf } from "./utils";
 import { BATCH_LIMIT } from "./batchIdentify";
-import type { FileEntry } from "~/types";
+import type { DirBrowseEntry, DirBrowseResult, ApiResult } from "~/types";
 
 /**
- * 发票批量 AI 识别 · 工作区文件多选面板（v2.5.5 B4，T0 定案：不用宿主 dialog——host.dialog.openFile
- * 不支持多选；发票页内建面板浏览工作区文件，复选框多选 ≤10，确认后经命令 payload { paths } 传入插件）。
- *
- * 浏览范围：产品集 ×（图包/文档/证书）× 子文件夹（复用 api.files.list 与 workspaceConfig 子文件夹集，
- * 与 Images/FileBrowser 同口径）。FileEntry.path 为工作区绝对路径（/ 分隔），插件 identifyInvoice 可直接读。
+ * 发票批量 AI 识别 · 任意文件夹多选面板（v2.5.5 打磨 2，用户拍板）：
+ * 「选择文件夹…」→ 系统文件夹对话框（qihebox:dialog:openDirectory）→ 列当前目录
+ * 子文件夹 + 发票候选文件（qihebox:dir:list）→ 子文件夹点击进入 / 面包屑回上级 →
+ * 文件复选框多选 ≤10 → 批量识别（onConfirm 传绝对路径数组，识别/归档链路不变）。
+ * 双击文件 = 打开预览（FilePreviewModal）；右键 = 文件菜单（预览/系统打开/在文件夹中显示/复制）。
  */
 export default function BatchIdentifyModal(props: {
   open: boolean;
   onClose: () => void;
   onConfirm: (paths: string[]) => void;
 }) {
-  const [psSel, setPsSel] = createSignal("");
-  const [typeSel, setTypeSel] = createSignal<"image" | "cert" | "doc">("image");
-  const [subSel, setSubSel] = createSignal("");
-  const [files, setFiles] = createSignal<FileEntry[]>([]);
+  const [dir, setDir] = createSignal("");
+  const [dirs, setDirs] = createSignal<string[]>([]);
+  const [files, setFiles] = createSignal<DirBrowseEntry[]>([]);
   const [selected, setSelected] = createSignal<string[]>([]);
+  const [loadErr, setLoadErr] = createSignal("");
+  const ctxMenu = useContextMenu<DirBrowseEntry>();
 
-  const subfolderOptions = () => {
-    const cfg = workspaceConfig();
-    if (typeSel() === "image") return cfg?.image_subfolders?.length ? cfg.image_subfolders : ["主图", "详情页", "白底图", "素材"];
-    if (typeSel() === "cert") return cfg?.cert_subfolders?.length ? cfg.cert_subfolders : ["证书"];
-    return cfg?.doc_subfolders?.length ? cfg.doc_subfolders : [""];
-  };
-
-  // 类型切换 → 子文件夹选第一项（防列表错位）
+  // 打开面板时回到空态（用户自选文件夹；不自动加载上次路径，避免目录漂移）
   createEffect(() => {
-    const opts = subfolderOptions();
-    if (!opts.includes(subSel())) setSubSel(opts[0] ?? "");
+    if (props.open) {
+      setDir("");
+      setDirs([]);
+      setFiles([]);
+      setSelected([]);
+      setLoadErr("");
+    }
   });
 
   let loadSeq = 0;
-  const loadFiles = async () => {
+  const loadDir = async (d: string) => {
     const seq = ++loadSeq;
-    const ps = psSel();
-    if (!ps) {
-      setFiles([]);
-      return;
-    }
-    const r = await api.files.list({ product_set: ps, file_type: typeSel(), sub_folder: subSel() });
+    setLoadErr("");
+    const r = (await api.dirs.list(d)) as ApiResult<DirBrowseResult>;
     if (seq !== loadSeq) return;
-    setFiles(r.success && Array.isArray(r.data) ? r.data : []);
+    if (r.success && r.data) {
+      setDir(r.data.dir);
+      setDirs(r.data.dirs);
+      setFiles(r.data.files);
+      setSelected([]);
+    } else {
+      setDir(d);
+      setDirs([]);
+      setFiles([]);
+      setLoadErr(r.error || "无法读取该文件夹");
+    }
   };
-  createEffect(() => {
-    props.open && psSel() != null;
-    if (props.open) void loadFiles();
-  });
+
+  const pickFolder = async () => {
+    const d = await api.dialog.openDirectory("选择发票所在文件夹");
+    if (d) void loadDir(d);
+  };
+
+  const parentDir = () => {
+    const d = dir();
+    const idx = Math.max(d.lastIndexOf("/"), d.lastIndexOf("\\"));
+    if (idx <= 0) return "";
+    return d.slice(0, idx);
+  };
+
+  const enter = (name: string) => {
+    const sep = dir().endsWith("/") || dir().endsWith("\\") ? "" : "/";
+    void loadDir(dir() + sep + name);
+  };
 
   const toggle = (p: string) => {
     const cur = selected();
@@ -78,6 +99,20 @@ export default function BatchIdentifyModal(props: {
     }
   };
 
+  const preview = (f: DirBrowseEntry) => void openPreview(f);
+
+  const menuItems = () => {
+    const f = ctxMenu.payload();
+    if (!f) return [];
+    return buildFileContextMenuItems<DirBrowseEntry>({
+      file: f,
+      onPreview: (file) => void openPreview(file),
+      onOpenDefault: (file) => void api.files.openWithDefaultApp(file.path),
+      onShowInExplorer: (paths) => void api.files.showFilesInExplorer(paths),
+      onCopy: (paths) => void api.files.copyFilesToClipboard(paths),
+    });
+  };
+
   const confirm = () => {
     if (selected().length === 0) return;
     props.onConfirm(selected());
@@ -91,80 +126,83 @@ export default function BatchIdentifyModal(props: {
   return (
     <Modal open={props.open} title="批量 AI 识别发票" size="2xl" onClose={close}>
       <div class="p-6">
-        <p class="text-sm text-surface-500 mb-4">
-          从工作区选择发票文件（PDF / 图片），一次最多 {BATCH_LIMIT} 张：识别成功将批量登记为发票（登记时才归档）。
-        </p>
-        <div class="flex gap-3 mb-4 flex-wrap">
-          <select
-            class="select w-44"
-            aria-label="产品集"
-            value={psSel()}
-            onChange={(e) => { setPsSel(e.currentTarget.value); setSelected([]); }}
-          >
-            <option value="">选择产品集…</option>
-            <For each={productSets()}>
-              {(ps) => <option value={ps.name}>{ps.name}</option>}
-            </For>
-          </select>
-          <select
-            class="select w-32"
-            aria-label="文件类型"
-            value={typeSel()}
-            onChange={(e) => { setTypeSel(e.currentTarget.value as "image" | "cert" | "doc"); setSelected([]); }}
-          >
-            <option value="image">图包</option>
-            <option value="doc">文档</option>
-            <option value="cert">证书</option>
-          </select>
-          <select
-            class="select w-44"
-            aria-label="子文件夹"
-            value={subSel()}
-            onChange={(e) => { setSubSel(e.currentTarget.value); setSelected([]); }}
-          >
-            <For each={subfolderOptions()}>
-              {(s) => <option value={s}>{s || "（根目录）"}</option>}
-            </For>
-          </select>
+        <div class="flex items-center gap-3 mb-3 flex-wrap">
+          <button class="btn-secondary text-sm" onClick={pickFolder}>
+            📁 选择文件夹…
+          </button>
+          <Show when={dir()}>
+            <span class="text-sm text-surface-500 truncate max-w-[24rem]" title={dir()}>
+              当前：{dir()}
+            </span>
+            <Show when={parentDir()}>
+              <button class="text-sm text-primary-600 hover:text-primary-700" onClick={() => void loadDir(parentDir())}>
+                ↑ 上级
+              </button>
+            </Show>
+          </Show>
         </div>
+        <p class="text-sm text-surface-500 mb-3">
+          选一个文件夹，批量识别里面的发票（PDF / 图片，一次最多 {BATCH_LIMIT} 张）；双击文件可预览，识别成功将批量登记为发票（登记时才归档）。
+        </p>
 
         <Show
-          when={psSel()}
-          fallback={<p class="text-sm text-surface-400 py-10 text-center">请先选择产品集</p>}
+          when={dir()}
+          fallback={<p class="text-sm text-surface-400 py-10 text-center">请先选择一个文件夹</p>}
         >
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-sm text-surface-500">
-              {files().length} 个文件 · 已选 <span class="font-medium text-primary-700">{selected().length}/{BATCH_LIMIT}</span>
-            </span>
-            <button class="text-sm text-primary-600 hover:text-primary-700" onClick={selectAllVisible}>
-              全选可见
-            </button>
-          </div>
-          <div class="border border-surface-200 rounded-lg max-h-64 overflow-auto">
-            <Show
-              when={files().length > 0}
-              fallback={<p class="text-sm text-surface-400 py-8 text-center">该目录暂无文件</p>}
-            >
-              <For each={files()}>
-                {(f) => (
-                  <label
-                    class={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-surface-50 ${selected().includes(f.path) ? "bg-primary-50" : ""}`}
-                  >
-                    <input
-                      type="checkbox"
-                      class="accent-primary-500"
-                      checked={selected().includes(f.path)}
-                      onChange={() => toggle(f.path)}
-                    />
-                    <span class="text-sm text-surface-700 truncate">
-                      {baseNameOf(f.path)}
-                      <span class="text-xs text-surface-400 ml-2">{f.file_type}</span>
-                    </span>
-                  </label>
-                )}
-              </For>
-            </Show>
-          </div>
+          <Show when={!loadErr()}>
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm text-surface-500">
+                {files().length} 个发票文件 · {dirs().length} 个子文件夹 · 已选{" "}
+                <span class="font-medium text-primary-700">{selected().length}/{BATCH_LIMIT}</span>
+              </span>
+              <button class="text-sm text-primary-600 hover:text-primary-700" onClick={selectAllVisible}>
+                全选可见
+              </button>
+            </div>
+            <div class="border border-surface-200 rounded-lg max-h-64 overflow-auto">
+              <Show when={dirs().length > 0 || files().length > 0} fallback={<p class="text-sm text-surface-400 py-8 text-center">该文件夹暂无发票文件</p>}>
+                <For each={dirs()}>
+                  {(name) => (
+                    <div
+                      class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-surface-50 text-sm text-surface-700"
+                      onClick={() => enter(name)}
+                    >
+                      <span aria-hidden>📁</span>
+                      <span class="truncate">{name}</span>
+                      <span class="text-xs text-surface-400 ml-auto shrink-0">打开</span>
+                    </div>
+                  )}
+                </For>
+                <For each={files()}>
+                  {(f) => (
+                    <label
+                      class={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-surface-50 ${selected().includes(f.path) ? "bg-primary-50" : ""}`}
+                      onDblClick={() => preview(f)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        ctxMenu.open(e, f);
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        class="accent-primary-500 shrink-0"
+                        checked={selected().includes(f.path)}
+                        onChange={() => toggle(f.path)}
+                      />
+                      <span class="text-sm text-surface-700 truncate flex-1 min-w-0">
+                        {f.name}
+                      </span>
+                      <span class="text-xs text-surface-400 shrink-0">{f.file_type === "pdf" ? "PDF" : "图片"}</span>
+                    </label>
+                  )}
+                </For>
+              </Show>
+            </div>
+          </Show>
+          <Show when={loadErr()}>
+            <p class="text-sm text-danger-600 py-8 text-center">{loadErr()}</p>
+          </Show>
         </Show>
 
         <div class="flex gap-3 justify-end mt-6">
@@ -174,6 +212,10 @@ export default function BatchIdentifyModal(props: {
           </button>
         </div>
       </div>
+
+      <Show when={ctxMenu.show()}>
+        <ContextMenu x={ctxMenu.x()} y={ctxMenu.y()} onClose={ctxMenu.close} items={menuItems()} />
+      </Show>
     </Modal>
   );
 }
