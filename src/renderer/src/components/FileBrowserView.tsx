@@ -30,7 +30,7 @@ export type FileBrowserScope = "productSet" | "customer" | "supplier";
 /** 客户子文件夹默认集（config.customer_subfolders 缺省时兜底，与 PLAN §3.6 对齐） */
 const CUSTOMER_DEFAULT_SUBFOLDERS = ["报价", "合同", "沟通", "其他"];
 
-/** 供应商子文件夹固定集（core SUPPLIER_SUBFOLDERS 镜像；决策 1：固定集不做 config 键，create/restore 建齐） */
+/** 供应商子文件夹默认集（core SUPPLIER_SUBFOLDERS 镜像；v2.5.5 起可配置，config.supplier_subfolders 缺省时兜底） */
 const SUPPLIER_DEFAULT_SUBFOLDERS = ["合同", "对账单", "往来文件"];
 /** v2.5.1（F2）：文档子文件夹默认集（core defaultWorkspaceConfig.doc_subfolders 镜像；缺省已由 loadConfig 合并写回，此处仅为防御） */
 const DOC_DEFAULT_SUBFOLDERS = ["说明书", "参数表", "质检报告"];
@@ -65,7 +65,7 @@ function formatBytes(bytes: number): string {
  * （以及客户详情页文件区）与供应商文件路由页 /files/supplier/:name/:subFolder（以及供应商详情页文件区，v2.4.9 S2）共用。
  * scope=customer/supplier 时：
  * - fileList / createSubfolder / deleteSubfolder 走 scope='customer'/'supplier'（PLAN §4.6 / §3.1，
- *   路径 = 客户|供应商/<名>/<子文件夹>；supplier 子文件夹为固定集，不做新建/删除）
+ *   路径 = 客户|供应商/<名>/<子文件夹>；v2.5.5 起供应商子文件夹可配置（新建/删除对齐客户））
  * - 预览不展示元数据面板（证书字段语义不适用），标签走批量打标/右键
  */
 export default function FileBrowserView(props: FileBrowserViewProps) {
@@ -126,7 +126,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     isCustomer()
       ? workspaceConfig()?.customer_subfolders || CUSTOMER_DEFAULT_SUBFOLDERS
       : isSupplier()
-        ? SUPPLIER_DEFAULT_SUBFOLDERS
+        ? workspaceConfig()?.supplier_subfolders || SUPPLIER_DEFAULT_SUBFOLDERS
         : fileType() === "image"
           ? workspaceConfig()?.image_subfolders || ["主图", "详情页", "白底图", "素材"]
           : fileType() === "cert"
@@ -649,12 +649,12 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
 
       {/* New Folder Modal（v2.5.1 T3 波2：overlay→Modal 底座） */}
       <Show when={showNewFolder()}>
-        <Modal open title={`新建${isCustomer() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : fileType() === "cert" ? "证书类型" : "文档类型"}`} size="md" onClose={() => setShowNewFolder(false)}>
+        <Modal open title={`新建${isCustomer() || isSupplier() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : fileType() === "cert" ? "证书类型" : "文档类型"}`} size="md" onClose={() => setShowNewFolder(false)}>
           <div class="p-6">
             <input
               type="text"
               class="input w-full mb-4"
-              placeholder={isCustomer() ? "如：报价" : fileType() === "image" ? "如：场景图" : fileType() === "cert" ? "如：FDA认证" : "如：使用说明"}
+              placeholder={isCustomer() || isSupplier() ? "如：报价" : fileType() === "image" ? "如：场景图" : fileType() === "cert" ? "如：FDA认证" : "如：使用说明"}
               value={newFolderName()}
               disabled={creatingFolder()}
               onInput={(e) => setNewFolderName(e.currentTarget.value)}

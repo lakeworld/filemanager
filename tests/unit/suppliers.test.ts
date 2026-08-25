@@ -98,6 +98,36 @@ describe('供应商服务（v2.4.9 S2）', () => {
     await expect(box.suppliers.create({ name: '乙' })).rejects.toThrow('供应商已存在')
   })
 
+  it('create 建齐 config.supplier_subfolders（v2.5.5 对齐客户：可配置，不再固定集）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    // 默认集 = SUPPLIER_SUBFOLDERS 兜底（合同/对账单/往来文件）
+    await box.suppliers.create({ name: '甲' })
+    const root = path.join(ws, '供应商', '甲')
+    for (const sub of ['合同', '对账单', '往来文件']) {
+      expect((await fsp.stat(path.join(root, sub))).isDirectory()).toBe(true)
+    }
+    let cfg = await box.workspace.loadConfig()
+    expect(cfg.supplier_subfolders).toEqual(['合同', '对账单', '往来文件'])
+
+    // 自定义 config.supplier_subfolders → 新建供应商按自定义集建齐（旧「决策 1 固定集」废止）
+    const cfg2 = await box.workspace.updateConfig({
+      ...cfg,
+      supplier_subfolders: ['采购合同', '质检报告'],
+    })
+    expect(cfg2.supplier_subfolders).toEqual(['采购合同', '质检报告'])
+    await box.suppliers.create({ name: '乙' })
+    const root2 = path.join(ws, '供应商', '乙')
+    for (const sub of ['采购合同', '质检报告']) {
+      expect((await fsp.stat(path.join(root2, sub))).isDirectory()).toBe(true)
+    }
+    // 乙不再建旧固定集
+    await expect(fsp.stat(path.join(root2, '合同'))).rejects.toBeTruthy()
+  })
+
   it('update：字段更新持久化 + updated_at 刷新；list() 返回一致', async () => {
     const home = await tmp()
     const ws = await tmp()

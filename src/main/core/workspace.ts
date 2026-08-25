@@ -19,6 +19,7 @@ import {
   CERTS_DIR,
   DOCS_DIR,
   CUSTOMERS_DIR,
+  SUPPLIERS_DIR,
   filterSlice,
   overwriteJson,
   writeJsonAtomic,
@@ -135,6 +136,11 @@ export class WorkspaceService {
       cfg.doc_subfolders = defaultWorkspaceConfig().doc_subfolders
       await this.saveConfig(ws, cfg)
     }
+    // v2.5.5（对齐客户）：旧 config 缺 supplier_subfolders → 合并默认值并写回（原固定集决策废止后向后兼容）
+    if (cfg.supplier_subfolders === undefined || cfg.supplier_subfolders === null) {
+      cfg.supplier_subfolders = defaultWorkspaceConfig().supplier_subfolders
+      await this.saveConfig(ws, cfg)
+    }
     return cfg
   }
 
@@ -231,12 +237,13 @@ export class WorkspaceService {
    * 子文件夹重命名（v2.2.1）：同步迁移所有已有产品集下的同名目录，并更新工作区配置。
    * v2.4.7：type 扩展 'customer'——迁移所有 客户/<名>/<old> → <new>，config 操作对象为 customer_subfolders。
    * v2.5.1（F1）：type 扩展 'doc'——迁移所有 产品集/<名>/文档/<old> → <new>，config 操作对象为 doc_subfolders。
-   * - 目录迁移：{产品集}/{images|certs|doc}/{oldName} → {newName} 或 {客户}/{oldName} → {newName}（目标存在跳过、源不存在跳过，幂等）
+   * v2.5.5：type 扩展 'supplier'——迁移所有 供应商/<名>/<old> → <new>，config 操作对象为 supplier_subfolders。
+   * - 目录迁移：{产品集}/{images|certs|doc}/{oldName} → {newName} 或 {客户}/{oldName} → {newName} 或 {供应商}/{oldName} → {newName}（目标存在跳过、源不存在跳过，幂等）
    * - metadata 按相对工作区路径存储，无需迁移
    * - 返回更新后的完整配置（Settings 页直接用于刷新）
    */
   async renameSubfolder(
-    type: 'image' | 'cert' | 'customer' | 'doc',
+    type: 'image' | 'cert' | 'customer' | 'supplier' | 'doc',
     oldName: string,
     newName: string,
   ): Promise<WorkspaceConfig> {
@@ -249,17 +256,36 @@ export class WorkspaceService {
     const cfg = await this.loadConfig()
     // v2.4.7：type='customer' 时配置操作对象为 cfg.customer_subfolders（旧 config 缺省已由 loadConfig 合并默认值）
     // v2.5.1（F1）：type='doc' 时操作对象为 cfg.doc_subfolders
+    // v2.5.5：type='supplier' 时操作对象为 cfg.supplier_subfolders
     const list =
-      type === 'image' ? cfg.image_subfolders : type === 'cert' ? cfg.cert_subfolders : type === 'doc' ? (cfg.doc_subfolders ?? []) : cfg.customer_subfolders
+      type === 'image'
+        ? cfg.image_subfolders
+        : type === 'cert'
+          ? cfg.cert_subfolders
+          : type === 'doc'
+            ? (cfg.doc_subfolders ?? [])
+            : type === 'supplier'
+              ? (cfg.supplier_subfolders ?? [])
+              : cfg.customer_subfolders
     if (!list || !list.includes(oldName)) throw new Error(`子文件夹「${oldName}」不存在`)
     if (list.includes(newName)) throw new Error(`子文件夹「${newName}」已存在`)
 
     // 同步迁移所有 产品集 或 客户 目录下的同名子文件夹（源不存在跳过、目标存在跳过，幂等）
     const parentDir =
-      type === 'customer' ? path.join(this.currentWS, CUSTOMERS_DIR) : path.join(this.currentWS, PRODUCT_SETS_DIR)
-    // v2.5.1（F1）：doc 类型 → 文档 目录
+      type === 'customer'
+        ? path.join(this.currentWS, CUSTOMERS_DIR)
+        : type === 'supplier'
+          ? path.join(this.currentWS, SUPPLIERS_DIR)
+          : path.join(this.currentWS, PRODUCT_SETS_DIR)
+    // v2.5.1（F1）：doc 类型 → 文档 目录；v2.5.5：supplier 同 customer（供应商/<名>/ 根下直接是子文件夹）
     const typeDir =
-      type === 'customer' ? '' : type === 'image' ? IMAGES_DIR : type === 'cert' ? CERTS_DIR : DOCS_DIR
+      type === 'customer' || type === 'supplier'
+        ? ''
+        : type === 'image'
+          ? IMAGES_DIR
+          : type === 'cert'
+            ? CERTS_DIR
+            : DOCS_DIR
     const entries = await fsp.readdir(parentDir, { withFileTypes: true }).catch(() => [] as fs.Dirent[])
     for (const e of entries) {
       if (!e.isDirectory()) continue

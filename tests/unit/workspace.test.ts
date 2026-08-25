@@ -188,6 +188,32 @@ describe('工作区全链路（对照原 app_test.go）', () => {
     expect(cfg2.cert_subfolders).toContain('CCC')
   })
 
+  it('子文件夹重命名 type=supplier：供应商/<名>/ 目录迁移 + config.supplier_subfolders（v2.5.5 对齐客户）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.suppliers.create({ name: '甲' })
+    await box.suppliers.create({ name: '乙' })
+
+    const cfg = await box.workspace.renameSubfolder('supplier', '合同', '采购合同')
+    expect(cfg.supplier_subfolders).toContain('采购合同')
+    expect(cfg.supplier_subfolders).not.toContain('合同')
+
+    // 两个供应商的 合同 → 采购合同 都已迁移
+    for (const name of ['甲', '乙']) {
+      const root = path.join(ws, '供应商', name)
+      await expect(fsp.stat(path.join(root, '合同'))).rejects.toThrow()
+      expect((await fsp.stat(path.join(root, '采购合同'))).isDirectory()).toBe(true)
+    }
+    // 客户目录不受影响
+    const custDir = path.join(ws, '客户')
+    expect((await fsp.stat(custDir)).isDirectory()).toBe(true)
+
+    // 重名拒绝
+    await expect(box.workspace.renameSubfolder('supplier', '对账单', '采购合同')).rejects.toThrow('已存在')
+  })
+
   it('v2.4.7：工作区根目录保留名拦截（产品集新建/重命名，不区分大小写）', async () => {
     const home = await tmp()
     const ws = await tmp()

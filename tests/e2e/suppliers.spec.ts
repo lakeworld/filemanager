@@ -338,4 +338,47 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     await fsp.rm(src, { force: true }).catch(() => {})
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
+
+  test('文件区子文件夹：新建/删除开放 + config.supplier_subfolders 写入/移除（v2.5.5 对齐客户）', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-suppliers-sub-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '子夹供应商' }))
+
+    await gotoRoute(`/suppliers/${encodeURIComponent('子夹供应商')}`)
+    await expect(page.getByRole('heading', { name: '子夹供应商' })).toBeVisible({ timeout: 15000 })
+
+    // v2.5.5（对齐客户）：供应商文件区开放新建/删除子文件夹按钮（原固定集隐藏）
+    await expect(page.getByRole('button', { name: /新建子文件夹/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /删除当前子文件夹/ })).toBeVisible()
+
+    // 新建子文件夹 → 弹窗标题「新建子文件夹」+ 占位符 → Enter → 导航到新子文件夹
+    await page.getByRole('button', { name: /新建子文件夹/ }).click()
+    const dialog = page.getByRole('dialog', { name: '新建子文件夹' })
+    await expect(dialog).toBeVisible()
+    await dialog.locator('input[placeholder="如：报价"]').fill('样品')
+    await dialog.locator('input[placeholder="如：报价"]').press('Enter')
+    await page.waitForFunction(() => decodeURIComponent(location.pathname).includes('/files/supplier/子夹供应商/样品'))
+
+    // config.supplier_subfolders 已写入 样品（默认集 合同/对账单/往来文件 保留）
+    const cfgRes = await page.evaluate(async () => (window as any).qihebox.config.get())
+    expect(cfgRes.success).toBe(true)
+    expect(cfgRes.data.supplier_subfolders).toContain('样品')
+    expect(cfgRes.data.supplier_subfolders).toEqual(expect.arrayContaining(['合同', '对账单', '往来文件']))
+
+    // 删除当前子文件夹 → ConfirmDialog 确认 → 跳回剩余首个子文件夹 + config 移除
+    await page.getByRole('button', { name: /删除当前子文件夹/ }).click()
+    const del = page.getByRole('dialog', { name: '删除子文件夹' })
+    await expect(del).toBeVisible()
+    await expect(del.getByText(/移入回收站/)).toBeVisible()
+    await del.getByRole('button', { name: '删除', exact: true }).click()
+
+    await page.waitForFunction(() => !decodeURIComponent(location.pathname).includes('/files/supplier/子夹供应商/样品'))
+    const cfgRes2 = await page.evaluate(async () => (window as any).qihebox.config.get())
+    expect(cfgRes2.success).toBe(true)
+    expect(cfgRes2.data.supplier_subfolders).not.toContain('样品')
+    // 目录已移入回收站（不真删）
+    await expect(fsp.stat(path.join(wsDir, '供应商', '子夹供应商', '样品'))).rejects.toBeTruthy()
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
 })

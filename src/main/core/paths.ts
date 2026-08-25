@@ -42,7 +42,7 @@ export const RECENT_FILE = '.qihefilemanager_recent.json'
 export const TAGS_FILE = 'tags.json'
 export const THUMBNAIL_DIR = '.thumbnails'
 
-// —— v2.4.9 S2：供应商固定子文件夹集（决策 1：r3 拍板不做 config 键，create/restore 建齐）——
+// —— v2.4.9 S2：供应商子文件夹默认集（原「决策 1 固定集不做 config 键」已废止——v2.5.5 对齐客户改为可配置，本常量 = 默认集兜底）——
 export const SUPPLIER_SUBFOLDERS = ['合同', '对账单', '往来文件']
 
 // —— v2.4.7：工作区根目录保留名（metadata key 泛化后首段承担区域判别，§3.7；产品集新建/重命名禁止使用）——
@@ -77,6 +77,8 @@ export function defaultWorkspaceConfig(): WorkspaceConfig {
     customer_subfolders: ['报价', '合同', '沟通', '其他'],
     // v2.5.1（F1，D30）：文档子文件夹默认集（旧 config 缺省由 loadConfig 合并）
     doc_subfolders: ['说明书', '参数表', '质检报告'],
+    // v2.5.5（对齐客户）：供应商子文件夹默认集（旧 config 缺省由 loadConfig 合并）
+    supplier_subfolders: SUPPLIER_SUBFOLDERS,
   }
 }
 
