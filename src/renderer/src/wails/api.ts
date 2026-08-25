@@ -73,8 +73,8 @@ export const api = {
     create: (path: string) => qb.workspace.create(path) as Promise<ApiResult<WorkspaceInfo>>,
     open: (path: string) => qb.workspace.open(path) as Promise<ApiResult<WorkspaceInfo>>,
     switch: (path: string) => qb.workspace.switch(path) as Promise<ApiResult<WorkspaceInfo>>,
-    // v2.5.3（P2-19）：type 收口为与 main core 一致的联合（image/cert/customer/doc）
-    renameSubfolder: (type: "image" | "cert" | "customer" | "doc", oldName: string, newName: string) =>
+    // v2.5.3（P2-19）：type 收口为与 main core 一致的联合；v2.5.5 补 supplier
+    renameSubfolder: (type: "image" | "cert" | "customer" | "supplier" | "doc", oldName: string, newName: string) =>
       qb.workspace.renameSubfolder(type, oldName, newName) as Promise<ApiResult<WorkspaceConfig>>,
   },
   config: {

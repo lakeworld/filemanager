@@ -381,4 +381,44 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
+
+  test('设置页供应商子文件夹管理：添加/重命名/删除 → config.supplier_subfolders（v2.5.5 同步）', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-suppliers-settings-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+
+    // 侧边栏 → 设置页
+    await page.goto(baseUrl)
+    await page.waitForLoadState('domcontentloaded')
+    await page.getByRole('button', { name: /设置/ }).click()
+    await page.getByRole('heading', { name: '设置' }).waitFor({ timeout: 10000 })
+
+    // 供应商子文件夹 card：添加「样品夹」→ 保存设置 → config 落盘
+    const card = page.locator('.card', { has: page.getByRole('heading', { name: '供应商子文件夹' }) })
+    await card.locator('input[placeholder="新增供应商子文件夹名称"]').fill('样品夹')
+    await card.getByRole('button', { name: '添加' }).click()
+    await page.getByRole('button', { name: '保存设置' }).click()
+    await expect(page.getByText('已保存 ✓')).toBeVisible({ timeout: 10000 })
+
+    const cfgRes = await page.evaluate(async () => (window as any).qihebox.config.get())
+    expect(cfgRes.success).toBe(true)
+    expect(cfgRes.data.supplier_subfolders).toContain('样品夹')
+    expect(cfgRes.data.supplier_subfolders).toEqual(expect.arrayContaining(['合同', '对账单', '往来文件']))
+
+    // 重命名（chip ✎ → 改名 → ✓）：立即生效并迁移所有供应商目录
+    await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '设置供应商' }))
+    const chip = card.locator('span', { hasText: '样品夹' }).first()
+    await chip.getByTitle('重命名（同步所有产品集）').click()
+    const input = card.locator('input.w-32')
+    await input.fill('样品柜')
+    await input.press('Enter')
+    const cfgRes2 = await page.evaluate(async () => (window as any).qihebox.config.get())
+    expect(cfgRes2.success).toBe(true)
+    expect(cfgRes2.data.supplier_subfolders).toContain('样品柜')
+    expect(cfgRes2.data.supplier_subfolders).not.toContain('样品夹')
+    // 目录迁移：供应商/设置供应商/样品夹 → 样品柜
+    await expect(fsp.stat(path.join(wsDir, '供应商', '设置供应商', '样品柜'))).resolves.toBeTruthy()
+    await expect(fsp.stat(path.join(wsDir, '供应商', '设置供应商', '样品夹'))).rejects.toBeTruthy()
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
 })
