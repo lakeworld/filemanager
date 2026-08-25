@@ -506,7 +506,7 @@ export class FilesService {
     const cfg = await this.loadConfig(ws)
     // v2.4.7（§4.6）：scope='customer' 时路径 = 客户/<名>/<子文件夹>（product_set 槽位承载客户名），
     // config 写入 customer_subfolders；缺省 'productSet' 沿用现有 产品集/图包|证书 语义
-    // v2.4.9 S2：scope='supplier' 时路径 = 供应商/<名>/<子文件夹>；固定子文件夹集（决策 1）不写 config
+    // v2.4.9 S2：scope='supplier' 时路径 = 供应商/<名>/<子文件夹>；v2.5.5 起 config 写入 supplier_subfolders（对齐客户）
     const dir =
       req.scope === 'customer'
         ? path.join(ws, CUSTOMERS_DIR, assertSafePathSegment(req.product_set, '客户名称'), name)
@@ -527,7 +527,9 @@ export class FilesService {
       if (!cfg.customer_subfolders) cfg.customer_subfolders = []
       cfg.customer_subfolders.push(name)
     } else if (req.scope === 'supplier') {
-      // v2.4.9 S2：供应商子文件夹为固定集（决策 1），不写 config
+      // v2.5.5（对齐客户）：供应商子文件夹从固定集改可配置，config 写入 supplier_subfolders
+      if (!cfg.supplier_subfolders) cfg.supplier_subfolders = []
+      cfg.supplier_subfolders.push(name)
     } else if (req.file_type === 'doc') {
       if (!cfg.doc_subfolders) cfg.doc_subfolders = []
       cfg.doc_subfolders.push(name)
@@ -548,7 +550,7 @@ export class FilesService {
     )
     req.name = assertSafePathSegment(req.name, '子文件夹名称')
     // v2.4.7（§4.6）：scope='customer' 时路径 = 客户/<名>/<子文件夹>，config 从 customer_subfolders 移除
-    // v2.4.9 S2：scope='supplier' 时路径 = 供应商/<名>/<子文件夹>（固定集，无 config 键可移除）
+    // v2.4.9 S2：scope='supplier' 时路径 = 供应商/<名>/<子文件夹>（v2.5.5 起从 supplier_subfolders 移除）
     const dir =
       req.scope === 'customer'
         ? path.join(ws, CUSTOMERS_DIR, req.product_set, req.name)
@@ -566,16 +568,18 @@ export class FilesService {
     // v2.4.x：删除子文件夹 → 失效父目录与被删子目录的索引快照
     globalWorkspaceIndex.invalidate(path.dirname(dir))
     globalWorkspaceIndex.invalidate(dir)
-    // 从 config 移除（supplier 固定集无 config 键，跳过）
+    // 从 config 移除（supplier 同 customer：v2.5.5 起可配置）
     const cfg = await this.loadConfig(ws)
     if (req.scope === 'customer') {
       cfg.customer_subfolders = filterSlice(cfg.customer_subfolders ?? [], req.name)
-    } else if (req.scope !== 'supplier' && req.file_type === 'doc') {
+    } else if (req.scope === 'supplier') {
+      cfg.supplier_subfolders = filterSlice(cfg.supplier_subfolders ?? [], req.name)
+    } else if (req.file_type === 'doc') {
       // v2.5.1（F1）：文档子文件夹从 config.doc_subfolders 移除
       cfg.doc_subfolders = filterSlice(cfg.doc_subfolders ?? [], req.name)
-    } else if (req.scope !== 'supplier' && req.file_type === 'image') {
+    } else if (req.file_type === 'image') {
       cfg.image_subfolders = filterSlice(cfg.image_subfolders, req.name)
-    } else if (req.scope !== 'supplier') {
+    } else {
       cfg.cert_subfolders = filterSlice(cfg.cert_subfolders, req.name)
     }
     await this.workspace.saveConfig(ws, cfg)

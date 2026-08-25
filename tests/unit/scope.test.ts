@@ -282,8 +282,53 @@ describe('v2.4.7 files scope（§4.6）', () => {
     expect(items.some((i) => i.kind === 'subfolder' && i.originalPath.includes('客户'))).toBe(true)
   })
 
-  it('旧调用方零改动：缺省 scope 走产品集路径（fileList / moveFiles / createSubfolder）', async () => {
+  it('createSubfolder scope=supplier：建 供应商/<名>/<子文件夹> + config.supplier_subfolders 写入（v2.5.5 对齐客户）', async () => {
     const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    // 新建供应商（默认集 = config.supplier_subfolders 兜底）
+    await box.suppliers.create({ name: '甲' })
+    await box.files.createSubfolder({ product_set: '甲', file_type: 'image', name: '样品', scope: 'supplier' })
+    await expect(fsp.stat(path.join(ws, '供应商', '甲', '样品'))).resolves.toBeTruthy()
+    let cfg = await box.workspace.loadConfig()
+    expect(cfg.supplier_subfolders).toContain('样品')
+    // 默认集仍在（合同/对账单/往来文件）
+    expect(cfg.supplier_subfolders).toEqual(expect.arrayContaining(['合同', '对账单', '往来文件', '样品']))
+
+    // 重复创建 → 拒绝
+    await expect(
+      box.files.createSubfolder({ product_set: '甲', file_type: 'image', name: '样品', scope: 'supplier' }),
+    ).rejects.toThrow('子文件夹已存在')
+
+    // 产品集语义不变（缺省 scope='productSet'），供应商 config 不受污染
+    await box.workspace.productSetCreate({ name: '系列A' })
+    await box.files.createSubfolder({ product_set: '系列A', file_type: 'image', name: '新图包' })
+    cfg = await box.workspace.loadConfig()
+    expect(cfg.image_subfolders).toContain('新图包')
+    expect(cfg.supplier_subfolders).not.toContain('新图包')
+  })
+
+  it('deleteSubfolder scope=supplier：目录移入回收站 + config.supplier_subfolders 移除（v2.5.5 对齐客户）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    await box.suppliers.create({ name: '甲' })
+    await box.files.createSubfolder({ product_set: '甲', file_type: 'image', name: '样品', scope: 'supplier' })
+    await box.files.deleteSubfolder({ product_set: '甲', file_type: 'image', name: '样品', scope: 'supplier' })
+
+    await expect(fsp.stat(path.join(ws, '供应商', '甲', '样品'))).rejects.toBeTruthy()
+    const cfg = await box.workspace.loadConfig()
+    expect(cfg.supplier_subfolders).not.toContain('样品')
+    // 回收站条目（kind=subfolder）
+    const items = await box.trash.list()
+    expect(items.some((i) => i.kind === 'subfolder' && i.originalPath.includes('供应商'))).toBe(true)
+  })
+
+  it('旧调用方零改动：缺省 scope 走产品集路径（fileList / moveFiles / createSubfolder）', async () => {    const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
     await box.workspace.create(ws)

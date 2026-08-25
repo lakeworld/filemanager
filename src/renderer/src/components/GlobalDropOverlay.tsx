@@ -50,8 +50,8 @@ export default function GlobalDropOverlay() {
   const certFolders = () => workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"];
   // v2.4.7：客户子文件夹默认集（config.customer_subfolders，旧 config 缺省合并默认值）
   const customerFolders = () => workspaceConfig()?.customer_subfolders || ["报价", "合同", "沟通", "其他"];
-  // v2.4.9 S2：供应商子文件夹固定集（core SUPPLIER_SUBFOLDERS 镜像，决策 1 不做 config 键）
-  const supplierFolders = () => ["合同", "对账单", "往来文件"];
+  // v2.4.9 S2：供应商子文件夹默认集（v2.5.5 起可配置，config.supplier_subfolders 缺省兜底默认集）
+  const supplierFolders = () => workspaceConfig()?.supplier_subfolders || ["合同", "对账单", "往来文件"];
 
   const decodedProductSet = () => {
     try { return decodeURIComponent(params.productSet || ""); } catch { return params.productSet || ""; }

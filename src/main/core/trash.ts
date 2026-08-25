@@ -190,10 +190,11 @@ export class TrashService {
         }
       }
     }
-    // v2.4.9 S2：供应商恢复——回填固定子文件夹结构（合同/对账单/往来文件 必须存在）；
+    // v2.4.9 S2：供应商恢复——按 config.supplier_subfolders 回填子文件夹结构（v2.5.5 起可配置，旧固定集默认 合同/对账单/往来文件）；
     // 档案条目在删除时保留（恢复即复原），若缺失（如目录为外部手工创建）则补回最小条目（参照客户对 customers.json 的处理）
     if (meta.kind === 'supplier') {
-      for (const sub of SUPPLIER_SUBFOLDERS) {
+      const cfg = await this.workspace.loadConfig(ws).catch(() => null)
+      for (const sub of (cfg?.supplier_subfolders?.length ? cfg.supplier_subfolders : SUPPLIER_SUBFOLDERS)) {
         await fsp.mkdir(path.join(target, sub), { recursive: true })
       }
       if (this.suppliers) {

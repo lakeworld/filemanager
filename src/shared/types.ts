@@ -40,6 +40,8 @@ export interface WorkspaceConfig {
   customer_subfolders?: string[]
   /** v2.5.1（F1）：文档子文件夹默认集（同 customer_subfolders 缺省合并机制） */
   doc_subfolders?: string[]
+  /** v2.5.5（对齐客户）：供应商子文件夹（旧 config 缺省时由 loadConfig 合并默认值；原决策 1 固定集已废止） */
+  supplier_subfolders?: string[]
 }
 
 export interface ProductSetInfo {

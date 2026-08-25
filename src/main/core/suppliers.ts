@@ -2,7 +2,8 @@
  * 供应商维度（v2.4.9 S2）：供应商/ 目录 + suppliers.json 档案
  * - 完整参照客户（v2.4.7 §5.1）范式：目录扫描为实，JSON 为档案（与 product_sets.json 同哲学）；
  *   供应商名 = 目录名 = JSON key；目录不存在 = 供应商不存在；删除走回收站时 JSON 条目保留（恢复即复原）
- * - 子文件夹固定集 SUPPLIER_SUBFOLDERS（决策 1：r3 拍板不做 config 键，最小改动；create/restore 建齐）
+ * - 子文件夹可配置（v2.5.5 对齐客户，原「决策 1 固定集不做 config 键」废止）：config.supplier_subfolders，
+ *   旧 config 缺省由 loadConfig 合并默认集 SUPPLIER_SUBFOLDERS；create/restore 按 config 建齐
  * - related_product_sets 关联产品集（v2.4.9 打磨 M8，镜像客户）：linkRelation/unlinkRelation 唯一写点，
  *   create/update 校验产品集存在 + 去重，拒绝孤儿关联；产品集侧只读反查本版不做（留 v2.7）
  * - erp_ext 为 v2.7 启禾 OS同步预留命名空间：本体只读不校验、API 面不含入参
@@ -154,7 +155,7 @@ export class SuppliersService {
     return suppliers
   }
 
-  /** 新建供应商：名称校验 → 同名查重（既有目录或既有档案均拒绝）→ 建目录 + 固定子文件夹集 → suppliers.json 条目 */
+  /** 新建供应商：名称校验 → 同名查重（既有目录或既有档案均拒绝）→ 建目录 + config 子文件夹集 → suppliers.json 条目 */
   async create(req: SupplierCreateRequest): Promise<SupplierInfo> {
     const ws = this.requireWS()
     const name = assertSafeFolderName(req.name, '供应商名称')
@@ -171,7 +172,9 @@ export class SuppliersService {
       for (const ps of req.related_product_sets) await this.assertProductSetExists(ps)
     }
     await fsp.mkdir(dir, { recursive: true })
-    for (const sub of SUPPLIER_SUBFOLDERS) {
+    // v2.5.5（对齐客户）：建齐 config.supplier_subfolders（旧 config 缺省由 loadConfig 合并默认集）
+    const cfg = await this.workspace.loadConfig(ws)
+    for (const sub of cfg.supplier_subfolders ?? SUPPLIER_SUBFOLDERS) {
       await fsp.mkdir(path.join(dir, sub), { recursive: true })
     }
     // v2.4.x：写目录操作失效索引快照（新建目录查询时按需重建，遵循失效约定）
