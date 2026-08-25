@@ -278,6 +278,11 @@ export const api = {
       const result = (await qb.dialog.openFile(title, filters as any)) as ApiResult<string>;
       return result.success ? result.data : undefined;
     },
+    // v2.5.5（打磨 2）：多选文件对话框（报价文档区按钮导入）
+    openFiles: async (title: string, filters: any[]) => {
+      const result = (await qb.dialog.openFiles(title, filters as any)) as ApiResult<string[]>;
+      return result.success ? result.data : undefined;
+    },
     saveFile: async (title: string, defaultFilename: string) => {
       const result = (await qb.dialog.saveFile(title, defaultFilename)) as ApiResult<string>;
       return result.success ? result.data : undefined;

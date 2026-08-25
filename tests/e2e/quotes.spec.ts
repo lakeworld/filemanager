@@ -137,33 +137,40 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
 
-  test('归档：新建带归档文件 → 报价/<YYYY>/ 下文件存在（fsp.stat）', async () => {
+  test('新建弹窗不再提供归档入口（打磨 2：多文档走详情页文档区拖拽）；core 归档仍可用（IPC 带 file_path）', async () => {
     const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-quotes-e2e3-'))
     await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
 
-    // 归档源文件（打桩系统打开对话框返回此路径；suppliers.spec 同款 app.evaluate 约定）
+    // 归档源文件（core 归档 IPC 用；新建弹窗 UI 已不再有归档按钮）
     const src = path.join(os.tmpdir(), `qihebox-quote-src-${Date.now()}.pdf`)
     await fsp.writeFile(src, '%PDF-1.4')
-    await app.evaluate(async (electron, p) => {
-      ;(electron.dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [p] })
-    }, src)
 
     await gotoRoute('/quotes')
     await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
     await page.getByRole('button', { name: '➕ 新建报价' }).click()
     const modal = page.getByRole('dialog', { name: '新建报价单' })
     await expect(modal).toBeVisible()
+    // 打磨 2：移除「选择本地文件并归档」按钮——多文档统一走详情页文档区拖拽
+    await expect(modal.getByRole('button', { name: /选择本地文件并归档/ })).toHaveCount(0)
     await fillLine(modal, 0, { product: '归档品', sku: '', qty: '1', unit_price: '2' })
-    await modal.getByRole('button', { name: /选择本地文件并归档/ }).click()
-    // B1 P0 归档后移：选文件只暂存、不落盘（报价区无副本）；保存时才归档
-    expect(await countFiles(path.join(wsDir, '报价'))).toBe(0)
     await modal.getByRole('button', { name: '确认创建' }).click()
     await expect(modal).not.toBeVisible()
 
-    // 台账 file_path + 文件真实落 报价/<YYYY>/
-    const list = await page.evaluate(async () => (window as any).qihebox.quotes.list())
-    expect(list.success).toBe(true)
-    const rec = list.data[0]
+    // core 归档链路仍可用（IPC archiveFile → create 带 file_path）→ 台账 file_path + 文件真实落 报价/<YYYY>/
+    const arc = await page.evaluate(async (p) => (window as any).qihebox.quotes.archiveFile(p, '2026-08-12'), src)
+    expect(arc.success).toBe(true)
+    const cRes = await page.evaluate(
+      async ({ rel, date }) =>
+        (window as any).qihebox.quotes.create({
+          quotation_no: 'QT-ARC-001',
+          date,
+          lines: [{ product: '归档品', qty: 1, unit_price: 2, amount: 2 }],
+          file_path: rel,
+        }),
+      { rel: arc.data, date: '2026-08-12' },
+    )
+    expect(cRes.success).toBe(true)
+    const rec = (await page.evaluate(async () => (window as any).qihebox.quotes.get('QT-ARC-001'))).data
     expect(rec.file_path).toMatch(/^报价\/\d{4}\/.+\.pdf$/)
     await expect(fsp.stat(path.join(wsDir, ...rec.file_path.split('/')))).resolves.toBeTruthy()
 
@@ -274,7 +281,7 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
 
-  test('文档文件夹（打磨 2）：详情页文档区显示 + docCopy 落盘 + 行 📎 + 孤儿不误报', async () => {
+  test('文档文件夹（打磨 2）：按钮选择导入落盘 + 详情页文档区显示 + 行 📎 + 孤儿不误报', async () => {
     const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-quotes-docs-'))
     await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
     await page.evaluate(async () =>
@@ -285,23 +292,23 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
         lines: [{ product: '文档品', qty: 1, unit_price: 5, amount: 5 }],
       }),
     )
-    // 工作区外源文件 → 模拟拖拽落地（docCopy 复制进 报价/<YYYY>/<单号>/）
+    // 工作区外源文件 → 按钮导入（打桩多选对话框返回两源路径 → 「选择文件并添加」→ docCopy）
     const srcDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-quotes-src-'))
     const srcA = path.join(srcDir, '报价单.pdf')
     await fsp.writeFile(srcA, 'pdf-a')
     const srcB = path.join(srcDir, '产品图.jpg')
     await fsp.writeFile(srcB, 'img-b')
-    await page.evaluate(
-      async ({ no, date, paths }) => (window as any).qihebox.quotes.docCopy(no, date, paths),
-      { no: 'QT-DOC-002', date: '2026-08-12', paths: [srcA, srcB] },
-    )
-    // 落盘断言
+    await gotoRoute('/quotes/QT-DOC-002')
+    await expect(page.getByRole('heading', { name: 'QT-DOC-002' })).toBeVisible({ timeout: 15000 })
+    await app.evaluate(async ({ dialog }, paths) => {
+      ;(dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: paths })
+    }, [srcA, srcB])
+    await page.getByRole('button', { name: /选择文件并添加/ }).click()
+    // 落盘断言（按钮导入 → 复制进 报价/<YYYY>/<单号>/）
     const docDir = path.join(wsDir, '报价', '2026', 'QT-DOC-002')
     await expect(fsp.stat(path.join(docDir, '报价单.pdf'))).resolves.toBeTruthy()
     await expect(fsp.stat(path.join(docDir, '产品图.jpg'))).resolves.toBeTruthy()
     // 详情页文档区显示 2 张卡片（标题 文档（2））
-    await gotoRoute('/quotes/QT-DOC-002')
-    await expect(page.getByRole('heading', { name: 'QT-DOC-002' })).toBeVisible({ timeout: 15000 })
     await expect(page.getByText('文档（2）')).toBeVisible()
     await expect(page.getByText('报价单.pdf', { exact: true })).toBeVisible()
     await expect(page.getByText('产品图.jpg', { exact: true })).toBeVisible()
@@ -507,20 +514,17 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     }, filePath)
   }
 
-  // —— B1 P0 归档后移（PLAN §二 修复1）：报价选文件只暂存、保存才落盘 ——
-  test('P0：新建报价选文件 → 遮罩关闭（脏守卫确认）→ 报价区零落盘 + 台账无记录', async () => {
+  // —— B1 脏守卫（PLAN §二 修复1）：表单改动 → 遮罩/Esc 走二次确认；归档入口已随打磨 2 移除 ——
+  test('P0：新建报价填明细 → 遮罩关闭（脏守卫确认）→ 报价区零落盘 + 台账无记录', async () => {
     const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-p0-quote-e2e-'))
-    const src = path.join(wsDir, '..', `e2e-p0-报价-${Date.now()}.pdf`)
     await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
     try {
-      await fsp.writeFile(src, '%PDF-1.4')
-      await stubOpenDialog(src)
       await gotoRoute('/quotes')
       await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
       await page.getByRole('button', { name: '➕ 新建报价' }).click()
       const modal = page.getByRole('dialog', { name: '新建报价单' })
       await expect(modal).toBeVisible()
-      await modal.getByRole('button', { name: /选择本地文件并归档/ }).click()
+      await fillLine(modal, 0, { product: '脏守卫品', sku: '', qty: '1', unit_price: '1' })
       // 遮罩 → 脏守卫确认 → 放弃修改 → 关闭
       await page.mouse.click(10, 10)
       const confirm = page.getByRole('dialog', { name: '放弃未保存内容？' })
@@ -530,32 +534,6 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
       expect(await countFiles(path.join(wsDir, '报价'))).toBe(0)
       const list = await page.evaluate(async () => (window as any).qihebox.quotes.list())
       expect(list.data).toHaveLength(0)
-    } finally {
-      await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
-    }
-  })
-
-  test('P0：新建报价选文件 → 保存 → 归档副本存在 + 台账记录 file_path 正确', async () => {
-    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-p0-quote-save-e2e-'))
-    const src = path.join(wsDir, '..', `e2e-p0-save-报价-${Date.now()}.pdf`)
-    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
-    try {
-      await fsp.writeFile(src, '%PDF-1.4')
-      await stubOpenDialog(src)
-      await gotoRoute('/quotes')
-      await page.getByRole('button', { name: '➕ 新建报价' }).click()
-      const modal = page.getByRole('dialog', { name: '新建报价单' })
-      await expect(modal).toBeVisible()
-      await modal.getByRole('button', { name: /选择本地文件并归档/ }).click()
-      await fillLine(modal, 0, { product: '报价存档品', sku: '', qty: '1', unit_price: '1' })
-      await modal.getByRole('button', { name: '确认创建' }).click()
-      await expect(modal).not.toBeVisible()
-      const list = await page.evaluate(async () => (window as any).qihebox.quotes.list())
-      expect(list.success).toBe(true)
-      const rec = list.data[0]
-      expect(rec.file_path).toMatch(/^报价\/\d{4}\//)
-      await expect(fsp.stat(path.join(wsDir, ...rec.file_path.split('/')))).resolves.toBeTruthy()
-      expect(await countFiles(path.join(wsDir, '报价'))).toBe(1)
     } finally {
       await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
     }
