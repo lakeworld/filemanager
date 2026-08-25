@@ -331,7 +331,7 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     // importFiles scope=supplier：默认命名模板 供应商名_子文件夹_原名_序号 → 落盘 供应商/导入供应商/对账单/
     const imported = path.join(wsDir, '供应商', '导入供应商', '对账单', `导入供应商_对账单_${path.basename(src, '.pdf')}_1.pdf`)
     // 全量并行负载下导入落盘可能慢于默认 5s（实测 flake）→ 放宽 20s
-    await expect(fsp.stat(imported), { timeout: 20000 }).resolves.toBeTruthy()
+    await expect.poll(() => fsp.stat(imported), { timeout: 20000 }).toBeTruthy()
     // 文件区自动刷新（import:complete 全局事件）→ 卡片可见
     await expect(page.getByText(path.basename(imported), { exact: true })).toBeVisible({ timeout: 15000 })
 

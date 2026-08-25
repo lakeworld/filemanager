@@ -63,9 +63,12 @@ function sleep(ms: number): Promise<void> {
 // 抓帧失败/超时（unknown）仅告警不升级——unknown 不升级原则（2026-08-19 事故教训：截图故障
 // 不能伪装成画面故障，更不能阻塞唤醒）。自检仅武装 parked 恢复 show（托盘/activate/二次实例/wake）；
 // recovering 收口 show 不武装（新渲染进程 load 期间必绘帧，且收口后不自检 → blank 链单发天然收口）。
+// 命中加载中（高负载下 300ms 自检点常在加载）：有界等待至多 5s 加载 settle 后真正跑自检，
+// 超时仍加载中按 unknown 不升级（2026-08-25 flake 修复：旧行为静默跳过无痕迹）。
 const POST_SHOW_CHECK_DELAY_MS = 300 // show 后首次抓帧延迟（等业务层重挂一帧）
 const POST_SHOW_RECHECK_DELAY_MS = 200 // invalidate 重绘后复检延迟
 const POST_SHOW_CAPTURE_TIMEOUT_MS = 1000 // 可见态抓帧有界等待（正常 <100ms，1s 兜底）
+const POST_SHOW_WAIT_LOAD_MS = 5000 // 自检命中加载中的有界等待（100ms 轮询至加载 settle；正常 <100ms，5s 兜底）
 
 // —— v2.4.7（评审 P2）：窗口状态记忆（userData/window-state.json）——
 // 记录 bounds/maximized，启动时恢复；多显示器布局变化（拔屏等）导致越界时钳制回可视区
@@ -681,11 +684,33 @@ function postShowCheckArmed(win: BrowserWindow, generation: number): boolean {
   )
 }
 
+/** 有界等待加载完成（100ms 轮询至 isLoading 为 false；窗口销毁或超时 → false）——
+ *  自检命中加载中不静默跳过：等加载 settle 后真正跑自检，加载态分支留日志可查（2026-08-25 flake 修复）。 */
+async function waitLoadSettled(win: BrowserWindow, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (win.isDestroyed()) return false
+    if (!win.webContents.isLoading()) return true
+    await sleep(100)
+  }
+  return !win.isDestroyed() && !win.webContents.isLoading()
+}
+
 /** 显示后白屏自检：抓帧 → blank 则 invalidate 复检 → 仍 blank 喂状态机 blank-confirmed。
  *  抓帧失败/超时（unknown）仅告警不升级（unknown 不升级原则：截图故障 ≠ 画面故障）。 */
 async function runPostShowCheck(win: BrowserWindow, generation: number): Promise<void> {
   if (!postShowCheckArmed(win, generation)) return
-  if (win.webContents.isLoading()) return // 加载中露 backgroundColor 底色必误判 blank，跳过
+  if (win.webContents.isLoading()) {
+    // 加载中露 backgroundColor 底色必误判 blank——但不静默跳过（高负载下 300ms 自检点常命中加载中，
+    // 静默跳过无痕迹 → 2026-08-25 e2e flake）：等加载 settle 后真正跑自检；超时仍加载中按 unknown 不升级
+    void log('info', `[window] 显示后自检命中加载中（gen=${generation}），等待加载完成`)
+    const settled = await waitLoadSettled(win, POST_SHOW_WAIT_LOAD_MS)
+    if (!postShowCheckArmed(win, generation)) return // 等待期间可能已隐藏/销毁
+    if (!settled) {
+      void log('warn', `[window] 显示后自检等待加载完成超时（gen=${generation}），跳过（unknown 不升级）`)
+      return
+    }
+  }
   const img = await capturePageBounded(win, POST_SHOW_CAPTURE_TIMEOUT_MS)
   if (!postShowCheckArmed(win, generation)) return
   if (!img) {
@@ -704,7 +729,15 @@ async function runPostShowCheck(win: BrowserWindow, generation: number): Promise
   }
   await sleep(POST_SHOW_RECHECK_DELAY_MS)
   if (!postShowCheckArmed(win, generation)) return
-  if (win.webContents.isLoading()) return
+  if (win.webContents.isLoading()) {
+    // 复检同款：不静默跳过（2026-08-25 flake 修复），等加载 settle 后复检；超时按 unknown 不升级
+    const settled2 = await waitLoadSettled(win, POST_SHOW_WAIT_LOAD_MS)
+    if (!postShowCheckArmed(win, generation)) return
+    if (!settled2) {
+      void log('warn', `[window] 显示后自检复检等待加载完成超时（gen=${generation}），跳过（unknown 不升级）`)
+      return
+    }
+  }
   const img2 = await capturePageBounded(win, POST_SHOW_CAPTURE_TIMEOUT_MS)
   if (!postShowCheckArmed(win, generation)) return
   if (!img2) {
