@@ -74,9 +74,8 @@ export default function QuoteDetail() {
   const [editRecord, setEditRecord] = createSignal<QuoteRecord | null>(null);
   const [confirmDelete, setConfirmDelete] = createSignal(false);
 
-  // v2.5.5（打磨 2）：报价文档文件夹（报价/<YYYY>/<单号>/）——拖拽复制多文档
+  // v2.5.5（打磨 2）：报价文档文件夹（报价/<YYYY>/<单号>/）——按钮选择导入（用户拍板：台账一律按钮，拖拽导入仅产品集全局）
   const [docs, setDocs] = createSignal<DirBrowseEntry[]>([]);
-  const [dragOver, setDragOver] = createSignal(false);
   const docCtx = useContextMenu<DirBrowseEntry>();
 
   const loadDocs = async () => {
@@ -89,24 +88,18 @@ export default function QuoteDetail() {
     if (record()) void loadDocs();
   });
 
-  /** 拖拽落地：系统文件路径 → 复制进报价文档文件夹 */
-  const handleDocDrop = async (e: DragEvent) => {
-    setDragOver(false);
-    const files = e.dataTransfer?.files;
-    if (!files || files.length === 0) return;
+  /** 按钮选择多文件 → 复制进报价文档文件夹 */
+  const handleAddDocs = async () => {
     const cur = record();
     if (!cur) return;
-    const paths = window.qihebox.files.getDroppedPaths(Array.from(files));
-    if (paths.length === 0) {
-      showToast("error", "未能读取拖入文件的路径");
-      return;
-    }
+    const paths = await api.dialog.openFiles("选择文件（可多选）", [{ displayName: "所有文件", pattern: "*" }]);
+    if (!paths || paths.length === 0) return;
     const r = await api.quotes.docCopy(cur.quotation_no, cur.date, paths);
     if (r.success) {
-      showToast("success", `已复制 ${r.data?.length ?? 0} 个文件到文档文件夹`);
+      showToast("success", `已添加 ${r.data?.length ?? 0} 个文件到文档文件夹`);
       void loadDocs();
     } else {
-      showToast("error", "复制失败", r.error || "未知错误");
+      showToast("error", "添加失败", r.error || "未知错误");
     }
   };
 
@@ -285,18 +278,18 @@ export default function QuoteDetail() {
               </div>
             </div>
 
-            {/* 文档文件夹（v2.5.5 打磨 2）：报价/<YYYY>/<单号>/——拖拽复制多文档（对齐产品集） */}
+            {/* 文档文件夹（v2.5.5 打磨 2）：报价/<YYYY>/<单号>/——按钮选择导入（台账统一按钮，拖拽导入仅产品集全局） */}
             <div class="card p-6 shrink-0 mt-6">
               <div class="flex items-center justify-between mb-3">
                 <h3 class="text-lg font-semibold text-surface-900">文档（{docs().length}）</h3>
-                <span class="text-xs text-surface-400">拖拽文件到下方，复制到 报价/{rec().date.slice(0, 4)}/{rec().quotation_no}/</span>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-surface-400">报价/{rec().date.slice(0, 4)}/{rec().quotation_no}/</span>
+                  <button class="btn-secondary text-sm" onClick={() => void handleAddDocs()}>
+                    📂 选择文件并添加
+                  </button>
+                </div>
               </div>
-              <div
-                class={`rounded-xl border-2 border-dashed p-4 min-h-[120px] transition-colors ${dragOver() ? "border-primary-400 bg-primary-50" : "border-surface-200"}`}
-                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={(e) => { e.preventDefault(); void handleDocDrop(e); }}
-              >
+              <div class="rounded-xl border border-surface-200 p-4 min-h-[120px]">
                 <Show when={docs().length === 0} fallback={
                   <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                     <For each={docs()}>
@@ -323,7 +316,7 @@ export default function QuoteDetail() {
                 }>
                   <div class="flex flex-col items-center justify-center gap-1 py-6 text-surface-400">
                     <span class="text-2xl">📎</span>
-                    <span class="text-sm">还没有文档——把报价单、合同、产品图等直接拖进来</span>
+                    <span class="text-sm">还没有文档——点右上「选择文件并添加」把报价单、合同、产品图放进来</span>
                   </div>
                 </Show>
               </div>

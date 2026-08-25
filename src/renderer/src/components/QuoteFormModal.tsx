@@ -153,19 +153,6 @@ export default function QuoteFormModal(props: {
     return round2(sum);
   };
 
-  /** 选本地文件 → 只暂存待归档源（B1 P0 归档后移：保存时才 archiveFile，取消/逃逸零落盘） */
-  const pickFile = async () => {
-    const d = date();
-    if (!d) {
-      showToast("info", "请先选择报价日期，再归档文件（归档目录按报价日期年份）");
-      return;
-    }
-    const src = await api.dialog.openFile("选择报价文件", [{ displayName: "所有文件", pattern: "*" }]);
-    if (!src) return;
-    setStagedArchive({ sourcePath: src, date: d });
-    showToast("info", "已暂存待归档", `${baseNameOf(src)}（确认创建时归档）`);
-  };
-
   /** 关闭弹窗：只清暂存 + 关闭，零落盘（脏守卫在 dirty 时接管二次确认，此处不再 toast） */
   const close = () => {
     setStagedArchive(null);
@@ -457,17 +444,11 @@ export default function QuoteFormModal(props: {
           />
         </div>
 
-        {/* 归档（不做移除附件功能：已归档仅展示文件名 + 预览/换绑，无移除按钮——Task 7 疑虑 1 定稿） */}
-        <div class="mt-4">
-          <label class={labelCls}>报价文件（归档至 报价/&lt;年份&gt;/，可不归档）</label>
-          <Show
-            when={filePath()}
-            fallback={
-              <button type="button" class="btn-secondary text-sm" onClick={() => void pickFile()}>
-                📂 选择本地文件并归档
-              </button>
-            }
-          >
+        {/* 归档文件（v2.5.5 打磨 2：移除「选择本地文件并归档」按钮——多文档统一走详情页文档区拖拽；
+            已归档仅只读展示 + 预览，无换绑/移除） */}
+        <Show when={filePath()}>
+          <div class="mt-4">
+            <label class={labelCls}>报价文件</label>
             <div class="flex items-center gap-2 text-sm">
               <span class="truncate text-surface-600" title={filePath()}>
                 📎 {filePath()}
@@ -482,12 +463,9 @@ export default function QuoteFormModal(props: {
               >
                 预览
               </button>
-              <button type="button" class="text-surface-500 hover:text-primary-600 text-xs shrink-0" onClick={() => void pickFile()}>
-                换绑
-              </button>
             </div>
-          </Show>
-        </div>
+          </div>
+        </Show>
 
         <div class="flex gap-3 justify-end mt-6">
           {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestClose（二次确认） */}

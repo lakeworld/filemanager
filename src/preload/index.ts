@@ -136,8 +136,6 @@ const api = {
     previewUrl: (filePath: string) => invoke('qihebox:files:previewUrl', filePath),
     // v2.5.5（打磨 2）：外部文件预览 URL（批量识别任意系统文件夹；qihebox://ext/，与工作区无关）
     externalUrl: (filePath: string) => invoke('qihebox:files:externalUrl', filePath),
-    // v2.5.5（打磨 2）：拖拽落地取系统文件路径（Electron webUtils；拖入文件复制到报价文档文件夹）
-    getDroppedPaths: (files: File[]) => files.map((f) => webUtils.getPathForFile(f)).filter(Boolean),
     copyPaths: (paths: string[]) => invoke('qihebox:files:copyPaths', paths),
     startDrag: (paths: string[]) => invoke('qihebox:files:startDrag', paths),
     workspaceUrl: (filePath: string) => invoke('qihebox:files:workspaceUrl', filePath),
@@ -204,6 +202,7 @@ const api = {
   dialog: {
     openDirectory: (title: string) => invoke('qihebox:dialog:openDirectory', title),
     openFile: (title: string, filters: unknown[]) => invoke('qihebox:dialog:openFile', title, filters),
+    openFiles: (title: string, filters: unknown[]) => invoke('qihebox:dialog:openFiles', title, filters),
     saveFile: (title: string, defaultFilename: string) =>
       invoke('qihebox:dialog:saveFile', title, defaultFilename),
   },

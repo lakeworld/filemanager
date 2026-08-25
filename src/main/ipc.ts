@@ -686,6 +686,20 @@ export function registerIpc(
       return r.filePaths[0]
     }),
   )
+  // v2.5.5（打磨 2）：多选文件对话框（报价文档区按钮导入；内部 IPC，协议面零变更）
+  ipcMain.handle('qihebox:dialog:openFiles', (_e, title: string, filters: unknown[]) =>
+    handle(async () => {
+      const win = getMainWindow()
+      const opts: Electron.OpenDialogOptions = {
+        title: title || '选择文件',
+        filters: filters as Electron.FileFilter[],
+        properties: ['openFile', 'multiSelections'],
+      }
+      const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+      if (r.canceled || r.filePaths.length === 0) return []
+      return r.filePaths
+    }),
+  )
   ipcMain.handle('qihebox:dialog:saveFile', (_e, title: string, defaultFilename: string) =>
     handle(async () => {
       const win = getMainWindow()

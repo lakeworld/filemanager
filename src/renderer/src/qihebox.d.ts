@@ -118,8 +118,6 @@ interface QiheboxApi {
     previewUrl: (filePath: string) => Promise<unknown>
     // v2.5.5（打磨 2）：外部文件预览 URL（批量识别任意系统文件夹）
     externalUrl: (filePath: string) => Promise<unknown>
-    // v2.5.5（打磨 2）：拖拽落地取系统文件路径（Electron webUtils）
-    getDroppedPaths: (files: File[]) => string[]
     copyPaths: (paths: string[]) => Promise<unknown>
     startDrag: (paths: string[]) => Promise<unknown>
     workspaceUrl: (filePath: string) => Promise<unknown>
@@ -177,6 +175,8 @@ interface QiheboxApi {
   dialog: {
     openDirectory: (title: string) => Promise<unknown>
     openFile: (title: string, filters: unknown[]) => Promise<unknown>
+    // v2.5.5（打磨 2）：多选文件对话框
+    openFiles: (title: string, filters: unknown[]) => Promise<unknown>
     saveFile: (title: string, defaultFilename: string) => Promise<unknown>
   }
   window: {
