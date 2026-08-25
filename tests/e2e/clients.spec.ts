@@ -319,4 +319,43 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
+
+  test('文件区按钮导入：选择文件并添加 → 落盘 客户/<名>/<子文件夹>（v2.5.5 对齐）', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-clients-import-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    await page.evaluate(async () => (window as any).qihebox.clients.create({ name: '导入客户' }))
+
+    // 工作区外源文件 → 打桩多选对话框（同 quotes.spec.ts 报价文档按钮导入打桩模式：stub 主进程 showOpenDialog）
+    const srcDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-clients-src-'))
+    const srcA = path.join(srcDir, '合同.pdf')
+    await fsp.writeFile(srcA, 'pdf-a')
+    const srcB = path.join(srcDir, '发票.pdf')
+    await fsp.writeFile(srcB, 'pdf-b')
+    await app.evaluate(async ({ dialog }, paths) => {
+      ;(dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: paths })
+    }, [srcA, srcB])
+
+    // 客户详情路由 UI：回初始入口重跑应用启动流（同步 currentWorkspace）；不能 page.reload()——history URL 可能被既有测试 pushState 污染
+    await page.goto(baseUrl)
+    await page.waitForLoadState('domcontentloaded')
+    await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
+    await page.evaluate(async (name) => {
+      window.history.pushState({}, '', `/clients/${encodeURIComponent(name)}`)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }, '导入客户')
+    await expect(page.getByRole('heading', { name: '导入客户' })).toBeVisible({ timeout: 15000 })
+
+    // 文件区工具栏「选择文件并添加」→ 按钮导入（默认子文件夹 报价；客户区专属入口）
+    await page.getByRole('button', { name: /选择文件并添加/ }).click()
+    // 落盘：默认命名模板 客户名_子文件夹_原名_序号
+    const dir = path.join(wsDir, '客户', '导入客户', '报价')
+    // 全量并行负载下导入落盘可能慢于默认 5s（供应商同款断言实测 flake）→ 放宽 20s
+    await expect(fsp.stat(path.join(dir, '导入客户_报价_合同_1.pdf')), { timeout: 20000 }).resolves.toBeTruthy()
+    await expect(fsp.stat(path.join(dir, '导入客户_报价_发票_2.pdf')), { timeout: 20000 }).resolves.toBeTruthy()
+    // 文件区自动刷新（import:complete 全局事件）→ 卡片可见
+    await expect(page.getByText('导入客户_报价_合同_1.pdf', { exact: true })).toBeVisible({ timeout: 15000 })
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+    await fsp.rm(srcDir, { recursive: true, force: true }).catch(() => {})
+  })
 })

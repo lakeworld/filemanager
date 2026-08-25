@@ -26,6 +26,11 @@
 - 内部 `qihebox:orphans:scan` 业务 IPC（插件协议面零变更，`api:update` 无 diff）
 - **打磨**：批量 AI 识别按钮仅在安装并启用 com.qihe.cloud（含 `invoice.identifyFiles` 命令）时浮现；日期选择器增强——年步进跳转、快捷芯片（今天/月初/月末/年初）、点击相邻月格子同步视图；**报价页筛选对齐发票**——搜索（单号/客户）+ 金额范围 + 有无归档文件 + 台账|未建档视图（孤儿补建/删除/预览）+ 金额合计
 
+### 客户/供应商文件区按钮导入（2026-08-25，台账与业务层导入方式对齐）
+
+- **客户/供应商详情「文件区」新增「📂 选择文件并添加」按钮**（FileBrowserView 工具栏，仅 customer/supplier scope 显示；产品集文件区拖拽为红线，零改动）：多选系统文件 → 复用既有 `qihebox:files:import` 业务 IPC 复制进当前子文件夹（`客户/<名>/<子文件夹>/` / `供应商/<名>/<子文件夹>/`，自动改名 `<实体名>_<子文件夹>_<原名>_<序号>.<ext>` 防冲突）；文件区空态文案对齐（客户/供应商不再出现「拖放文件到此处」）
+- 进度 toast 与列表自动刷新复用 GlobalDropOverlay 的 `import:progress`/`import:complete` 全局链路，组件不另接线；协议面零变更（api:update 无 diff）；单测 845→846、e2e 154→156
+
 > 宿主协议零变更（`src/plugins/types.ts` / `docs/PLUGIN.md` / preload plugins·settings / `plugins:`/`settings:` IPC 均未动）；与插件契约接触点以 `关系:` 行为准。
 > 打包与发布：详见 `docs/INTERNAL/RELEASE-RUNBOOK.md`；性能实测与内存门禁见 `docs/PERF.md`。
 

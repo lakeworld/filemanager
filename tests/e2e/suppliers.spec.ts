@@ -112,8 +112,10 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     await expect(page.getByRole('button', { name: '合同', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: '对账单', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: '往来文件', exact: true })).toBeVisible()
-    // 文件列表经 scope='supplier' 正常返回（空区 → 拖放提示）
-    await expect(page.getByText('拖放文件到此处')).toBeVisible({ timeout: 15000 })
+    // 文件列表经 scope='supplier' 正常返回（空区 → 按钮导入提示；v2.5.5 对齐：供应商区无拖放，空态不再谎称拖放）
+    await expect(page.getByText('还没有文件')).toBeVisible({ timeout: 15000 })
+    // v2.5.5（对齐）：文件区工具栏出现按钮导入入口
+    await expect(page.getByRole('button', { name: /选择文件并添加/ })).toBeVisible()
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
@@ -305,6 +307,35 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     expect(s).toBeTruthy()
     expect(s.related_product_sets).toEqual([])
 
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('文件区按钮导入：选择文件并添加 → 落盘 供应商/<名>/<子文件夹>（v2.5.5 对齐）', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-suppliers-import-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '导入供应商' }))
+
+    // 归档源文件（打桩系统打开对话框返回此路径；同入库单用例 app.evaluate 约定）
+    const src = path.join(os.tmpdir(), `qihebox-suppliers-import-src-${Date.now()}.pdf`)
+    await fsp.writeFile(src, '%PDF-1.4')
+    await app.evaluate(async (electron, p) => {
+      ;(electron.dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [p] })
+    }, src)
+
+    await gotoRoute(`/suppliers/${encodeURIComponent('导入供应商')}`)
+    await expect(page.getByRole('heading', { name: '导入供应商' })).toBeVisible({ timeout: 15000 })
+    // 切到「对账单」子文件夹 → 工具栏「选择文件并添加」按钮导入（供应商区专属入口）
+    await page.getByRole('button', { name: '对账单', exact: true }).click()
+    await page.getByRole('button', { name: /选择文件并添加/ }).click()
+
+    // importFiles scope=supplier：默认命名模板 供应商名_子文件夹_原名_序号 → 落盘 供应商/导入供应商/对账单/
+    const imported = path.join(wsDir, '供应商', '导入供应商', '对账单', `导入供应商_对账单_${path.basename(src, '.pdf')}_1.pdf`)
+    // 全量并行负载下导入落盘可能慢于默认 5s（实测 flake）→ 放宽 20s
+    await expect(fsp.stat(imported), { timeout: 20000 }).resolves.toBeTruthy()
+    // 文件区自动刷新（import:complete 全局事件）→ 卡片可见
+    await expect(page.getByText(path.basename(imported), { exact: true })).toBeVisible({ timeout: 15000 })
+
+    await fsp.rm(src, { force: true }).catch(() => {})
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
 })
