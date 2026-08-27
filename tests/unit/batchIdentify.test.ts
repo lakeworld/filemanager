@@ -11,7 +11,7 @@ import {
 
 /**
  * 发票批量识别纯函数（PLAN 轨 B B4）：paths 构造/结果分类/字段体检，node 直测。
- * 对应插件 com.qihe.cloud v0.4.0 invoice.identifyFiles 契约形状。
+ * 对应插件 com.qihe.cloud v0.4.1 invoice.identifyFiles 契约形状。
  */
 
 describe('planBatchPaths（入参校验 + ≤10 截断）', () => {
