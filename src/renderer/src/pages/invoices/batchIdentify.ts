@@ -4,7 +4,7 @@
  * 只写纯逻辑（paths 入参校验/≤10 截断、结果分类、草稿字段体检），不依赖 Solid/DOM，
  * tests/unit 可 node 直测；实际 IPC 调用与逐条建票（archiveFile + create + 失败回滚）在 Invoices.tsx。
  *
- * 契约对齐：插件 com.qihe.cloud v0.4.0 `invoice.identifyFiles`（≤10 硬截断 + 并发 2 + 逐条信封聚合，
+ * 契约对齐：插件 com.qihe.cloud v0.4.1 `invoice.identifyFiles`（≤10 硬截断 + 并发 2 + 逐条信封聚合，
  * 返回 ApiResult<BatchIdentifyResult>）；本模块的 planBatchPaths 与插件同口径（非数组/含空白串 → 错误信封）。
  */
 import type { InvoicePrefill } from "../../stores/createPrefillNormalize";
