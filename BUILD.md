@@ -34,8 +34,8 @@ npm run dev
 ## 四、测试
 
 ```bash
-npm test            # 单元测试（vitest，core 业务层 96 用例）
-npm run test:e2e    # 端到端测试（Playwright _electron，19 用例，e2e 模式 QIHEBOX_E2E=1；无桌面环境需 xvfb-run）
+npm test            # 单元测试（vitest，855 用例）
+npm run test:e2e    # 端到端测试（Playwright _electron，161 用例，e2e 模式 QIHEBOX_E2E=1；无桌面环境需 xvfb-run）
 npm run bench       # 性能基准（数据记录在本地内部文档，不进公开仓库）
 ```
 
@@ -53,9 +53,9 @@ npm run build:win    # Windows：release/启禾文件管理 Setup-*.exe（NSIS�
 
 | 平台 | 产物 | 体积（实测） |
 |---|---|---|
-| Linux | `release/启禾文件管理-2.0.0.AppImage` | 104MB |
-| Linux | `release/qihe-box_2.0.0_amd64.deb` | 104MB |
-| Windows | `release/启禾文件管理 Setup 2.0.0.exe` | ~90MB（待 Windows 构建确认） |
+| Linux | `release/启禾文件管理-2.5.6.AppImage` | 104MB |
+| Linux | `release/qihe-box_2.5.6_amd64.deb` | 104MB |
+| Windows | `release/启禾文件管理 Setup 2.5.6.exe` | ~90MB（待 Windows 构建确认） |
 
 > 体积优化已启用：asar + maximum 压缩 + 依赖归位（运行时仅 sharp/exceljs）+ Chromium 语言包精简（zh-CN/en-US）。
 > Electron 自带 Chromium 与 sharp 原生库是体积大头（对比 Wails 版 11MB exe），这是跨平台一致性的固有代价。

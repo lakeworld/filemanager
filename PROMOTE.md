@@ -21,7 +21,7 @@
 - **工作区更干净**：缩略图缓存迁移到系统用户数据目录，不再写进工作区文件夹；放坚果云/OneDrive 同步时不被缓存文件刷屏
 - **稳定加固**：修复真实证书（含嵌入字体/复杂对象）导致的闪退问题
 
-> 下载体验最新版（v2.4.8）：👉 [https://www.qihebook.cloud/file-manager](https://www.qihebook.cloud/file-manager)
+> 下载体验最新版（v2.5.6）：👉 [https://www.qihebook.cloud/file-manager](https://www.qihebook.cloud/file-manager)
 
 ## 二、与启禾 ERP 的关系：同源衍生
 
