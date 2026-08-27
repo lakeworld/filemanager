@@ -88,7 +88,7 @@
 npm install          # 安装依赖（.npmrc 已配置国内镜像加速）
 npm run dev          # 开发模式（热更新）
 npm test             # 单元测试（vitest，736 用例）
-npm run test:e2e     # 端到端测试（Playwright，135 用例）
+npm run test:e2e     # 端到端测试（Playwright，161 用例）
 npm run build        # 构建三段产物到 out/
 npm run build:linux  # 打包 Linux（AppImage + deb）
 npm run build:win    # 打包 Windows（NSIS）
