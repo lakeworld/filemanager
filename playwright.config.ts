@@ -17,5 +17,6 @@ export default defineConfig({
   },
   // 一致性与内存 soak 均独立运行，不混入默认全量 e2e：
   // 防 workers:1 串行多跑 + 与 plugins.spec 重复侧载 hello（PLAN-v2.5-测试 Task 4）。
-  testIgnore: ['**/conformance/**', '**/memory-soak.spec.ts'],
+  // preview-lifecycle-crash-diag 为 v2.5.7 线程B 阶段1 取证管道，独立配置跑（见 PLAN，验收后清理）
+  testIgnore: ['**/conformance/**', '**/memory-soak.spec.ts', '**/preview-lifecycle-crash-diag.spec.ts'],
 })

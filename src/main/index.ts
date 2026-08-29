@@ -145,9 +145,15 @@ function setupCrashRecovery(win: BrowserWindow): void {
   // （2026-08-19 热修：FrameWitness 隐藏预检废止——长时隐藏抓不到帧反而堵死唤醒，改直接 show
   //  + 显示后白屏自检兜底）；崩溃计数（10 分钟时间窗内 ≥3 次退出）保留防循环（v2.4.2）。
   win.webContents.on('render-process-gone', (_e, details) => {
+    // 取证管道（v2.5.7 线程B 阶段1）：QIHEBOX_E2E=1 下把 reason/exitCode 打到主进程日志 + console
+    // （FileLogger 双通道；e2e 用 --enable-logging 捕获）。含 clean-exit——取证期要区分「自愈销毁」
+    // 与「真实崩溃」，全部采样；验收后随诊断 spec 一并清理（PLAN-v2.5.7-preview-lifecycle §三）。
+    if (process.env.QIHEBOX_E2E === '1') {
+      void log('error', `[e2e-crash-diag] render-process-gone reason=${details.reason} exitCode=${details.exitCode}`)
+    }
     // 正常销毁（L4 自愈重建/退出路径）产生的 clean-exit 不是崩溃，不计数
     if (details.reason === 'clean-exit') return
-    void log('error', `renderer gone: ${details.reason}`)
+    void log('error', `renderer gone: ${details.reason} exitCode=${details.exitCode}`)
     const now = Date.now()
     while (crashTimes.length > 0 && now - crashTimes[0] > CRASH_WINDOW_MS) crashTimes.shift()
     crashTimes.push(now)
