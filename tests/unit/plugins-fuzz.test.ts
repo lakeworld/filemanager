@@ -180,6 +180,9 @@ describe('host.files 模糊（工作区受限读写）', () => {
       },
       suppliersAccess: false,
       quotes: { list: async () => [], get: async () => null },
+      invoices: { list: async () => [], get: async () => null },
+      inbounds: { list: async () => [], get: async () => null },
+      cloudFetchImpl: { baseUrl: '' },
       share: {
         listProductSets: async () => [],
         listCustomers: async () => [],
@@ -192,6 +195,7 @@ describe('host.files 模糊（工作区受限读写）', () => {
         ensureCustomer: async () => 'exists' as const,
         ensureSubfolder: async () => {},
         mergePulledMetadata: async () => ({ conflicts: [] }),
+        getThumb: async () => '',
       },
       shareAccess: false,
     })

@@ -160,6 +160,9 @@ async function makeContractHost(
       },
       suppliersAccess: false,
       quotes: { list: async () => [], get: async () => null },
+      invoices: { list: async () => [], get: async () => null },
+      inbounds: { list: async () => [], get: async () => null },
+      cloudFetchImpl: { baseUrl: '' },
       share: {
         listProductSets: async () => [],
         listCustomers: async () => [],
@@ -172,6 +175,7 @@ async function makeContractHost(
         ensureCustomer: async () => 'exists' as const,
         ensureSubfolder: async () => {},
         mergePulledMetadata: async () => ({ conflicts: [] }),
+        getThumb: async () => '',
       },
       shareAccess: false,
     },
@@ -260,6 +264,9 @@ async function makeLoaderFixture(mainJs: string): Promise<{
         },
         suppliersAccess: false,
         quotes: { list: async () => [], get: async () => null },
+        invoices: { list: async () => [], get: async () => null },
+        inbounds: { list: async () => [], get: async () => null },
+        cloudFetchImpl: { baseUrl: '' },
         share: {
           listProductSets: async () => [],
           listCustomers: async () => [],
@@ -272,6 +279,7 @@ async function makeLoaderFixture(mainJs: string): Promise<{
           ensureCustomer: async () => 'exists' as const,
           ensureSubfolder: async () => {},
           mergePulledMetadata: async () => ({ conflicts: [] }),
+          getThumb: async () => '',
         },
         shareAccess: false,
       }),
@@ -590,6 +598,45 @@ const CONTRACT: Record<string, ContractEntry> = {
       }
     },
   },
+  'contract:v1:host.invoice': {
+    stage: 'v1',
+    check: async () => {
+      // v2.5.7（协议增量 E1）：invoice 只读域实现存在性 + 门控并入 customers（同 quote 拍板）
+      const hostSrc = readSource('src/main/plugins/host.ts')
+      expect(hostSrc).toContain('invoice = deps.customersAccess')
+      const typesSrc = readSource('src/plugins/types.ts')
+      expect(typesSrc).toContain('invoice: {')
+      expect(typesSrc).toContain('list(since?: string): Promise<InvoiceProfile[]>')
+      // 无写方法（只读投影）
+      const ctx = await makeContractHost()
+      try {
+        const h = ctx.deps.host as unknown as { invoice: { list(): Promise<unknown>; get(n: string): Promise<unknown> } }
+        expect(await codeOf(h.invoice.list())).toBe('PERMISSION_DENIED')
+        expect(await codeOf(h.invoice.get('NO1'))).toBe('PERMISSION_DENIED')
+      } finally {
+        ctx.dispose()
+      }
+    },
+  },
+  'contract:v1:host.inbound': {
+    stage: 'v1',
+    check: async () => {
+      // v2.5.7（协议增量 E2）：inbound 只读域实现存在性 + 门控并入 customers（同 quote 拍板）
+      const hostSrc = readSource('src/main/plugins/host.ts')
+      expect(hostSrc).toContain('inbound = deps.customersAccess')
+      const typesSrc = readSource('src/plugins/types.ts')
+      expect(typesSrc).toContain('inbound: {')
+      expect(typesSrc).toContain('list(since?: string): Promise<InboundProfile[]>')
+      const ctx = await makeContractHost()
+      try {
+        const h = ctx.deps.host as unknown as { inbound: { list(): Promise<unknown>; get(id: string): Promise<unknown> } }
+        expect(await codeOf(h.inbound.list())).toBe('PERMISSION_DENIED')
+        expect(await codeOf(h.inbound.get('RK1'))).toBe('PERMISSION_DENIED')
+      } finally {
+        ctx.dispose()
+      }
+    },
+  },
   'contract:v1:event.customer-file-archived': {
     stage: 'v1',
     check: () => {
@@ -749,8 +796,17 @@ const CONTRACT: Record<string, ContractEntry> = {
       // 只增不删：由 Task 1 的 API 面基线（超集强制）守护，此处断言基线存在且声明"只增不删"
       const baseline = fs.readFileSync(BASELINE_PATH, 'utf-8')
       expect(baseline).toContain('只增不删')
-      // @deprecated 存活：当前 v1 尚无 @deprecated 符号（存活条款空满足）；若未来标记须仍导出（存活）
-      expect(readSource('src/plugins/types.ts')).not.toContain('@deprecated')
+      // @deprecated 存活条款（§四.1：废弃字段标记 @deprecated，至少存活一个宿主大版本）：
+      // 标记废弃的符号仍须导出（API 面可见）——v2.5.7（F4a）getToken 被 cloudFetch 取代但仍保留导出
+      const typesSrc = readSource('src/plugins/types.ts')
+      if (typesSrc.includes('@deprecated')) {
+        // 任一 @deprecated 成员须仍出现在序列化 API 面中（存活）
+        const surface = extractApiSurface()
+        const all = [...surface.types, ...surface.preload, ...surface.ipc].join('\n')
+        // getToken 是当前唯一 @deprecated 符号（F4a 决策）；断言其仍导出
+        expect(all).toContain('PluginHost.account.getToken')
+        expect(typesSrc).toContain('@deprecated') // 标记仍在（契约承诺废弃而存活）
+      }
     },
   },
 

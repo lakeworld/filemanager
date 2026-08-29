@@ -459,3 +459,31 @@ describe('发票台账（v2.5.3 T2：锁内读改写事务 / 并发 / 显式 ws�
     expect((await fsp.stat(p)).mtimeMs).not.toBe(mtime1)
   })
 })
+describe('发票台账（v2.5.7 协议增量 E1：只读域投影 listSince / get）', () => {
+  it('listSince：无 since → 全量；with since → updated_at 严大于过滤', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await addInvoice(box, ws, { number: 'SINCE-1' })
+    const early = await box.invoices.listSince('2016-01-01T00:00:00.000Z')
+    expect(early).toHaveLength(1) // 远古 since → 全量
+    expect(box.invoices.listSince()).resolves.toHaveLength(1)
+    const all = await box.invoices.list()
+    const latestAfter = await box.invoices.listSince(all[0].updated_at) // 严大于
+    expect(latestAfter).toHaveLength(0)
+    // 非法 since → 全量（Date.parse 归一化缺省语义）
+    expect(await box.invoices.listSince('garbage')).toHaveLength(1)
+  })
+
+  it('get：按号码查重主键；命中返回记录、未命中 null（与 checkNumber 同源）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const rec = await addInvoice(box, ws, { number: 'GET-777' })
+    expect((await box.invoices.get('GET-777'))?.number).toBe('GET-777')
+    expect((await box.invoices.get('GET-777'))?.file_path).toBe(rec.file_path)
+    expect(await box.invoices.get('NOPE-999')).toBeNull()
+  })
+})

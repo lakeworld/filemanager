@@ -60,6 +60,8 @@ const HOST_WHITELIST = [
   'entitlement',
   'events',
   'files',
+  'inbound', // v2.5.7（协议增量 E2）：inbound 只读域
+  'invoice', // v2.5.7（协议增量 E1）：invoice 只读域
   'log',
   'notify',
   'quote', // v2.5.4（弹一 C-4）：quote 只读域（云桥 M3）
@@ -258,6 +260,9 @@ async function makeLoader(mainJs: string): Promise<{ loader: PluginLoader }> {
         },
         suppliersAccess: false,
         quotes: { list: async () => [], get: async () => null },
+        invoices: { list: async () => [], get: async () => null },
+        inbounds: { list: async () => [], get: async () => null },
+        cloudFetchImpl: { baseUrl: '' },
         share: {
           listProductSets: async () => [],
           listCustomers: async () => [],
@@ -270,6 +275,7 @@ async function makeLoader(mainJs: string): Promise<{ loader: PluginLoader }> {
           ensureCustomer: async () => 'exists' as const,
           ensureSubfolder: async () => {},
           mergePulledMetadata: async () => ({ conflicts: [] }),
+          getThumb: async () => '',
         },
         shareAccess: false,
       }),

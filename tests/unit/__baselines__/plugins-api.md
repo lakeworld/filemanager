@@ -2,7 +2,7 @@
   qihe-box API 兼容性守护基线（API_VERSION=1 · 只增不删）
   生成器：tests/unit/helpers/apiSurface.ts · 更新：npm run api:update
   TypeScript: 5.9.3
-  break-reason: share 域新增 ensureSubfolder(kind,holder,name)（LAN v0.2.3 拉取子文件夹白名单自动注册；插件侧对旧宿主做能力探测兜底，运行期无破坏）
+  break-reason: v2.5.7 协议增量（纯新增不破坏）：account.cloudFetch 宿主代签（F4a）+ getToken 标弃用但仍导出；invoice/inbound 只读域（E1/E2）；share.getThumb（E4）——旧符号零删除，接口行因成员新增而变宽
 -->
 
 # qihe-box 插件协议 API 面（types / preload / ipc）
@@ -27,10 +27,35 @@
 - EntityProfile.erp_ext?: Record<string, unknown>
 - EntityProfile.name: string
 - EntityProfile.updated_at: string
+- InboundProfile.amount?: number
+- InboundProfile.created_at: string
+- InboundProfile.date: string
+- InboundProfile.file_path: string
+- InboundProfile.id: string
+- InboundProfile.notes?: string
+- InboundProfile.product_set?: string
+- InboundProfile.supplier: string
+- InboundProfile.supplier_id?: string
+- InboundProfile.updated_at: string
+- InvoiceProfile.amount: number
+- InvoiceProfile.buyer: string
+- InvoiceProfile.code?: string
+- InvoiceProfile.created_at: string
+- InvoiceProfile.customer?: string
+- InvoiceProfile.date: string
+- InvoiceProfile.due_date?: string
+- InvoiceProfile.file_path: string
+- InvoiceProfile.notes?: string
+- InvoiceProfile.number: string
+- InvoiceProfile.seller: string
+- InvoiceProfile.status: '待报销' | '已报销' | '已入账'
+- InvoiceProfile.tags?: string[]
+- InvoiceProfile.updated_at: string
 - PluginBusinessError.code: string
+- PluginHost.account.cloudFetch(path: string, init?: { method?: string; headers?: Record<string, string>; body?: unknown; signal?: AbortSignal; }): Promise<Response>
 - PluginHost.account.getToken(): string | null
 - PluginHost.account.isLoggedIn(): boolean
-- PluginHost.account: { getToken(): string | null; isLoggedIn(): boolean; }
+- PluginHost.account: { cloudFetch(path: string, init?: { method?: string; headers?: Record<string, string>; body?: unknown; signal?: AbortSignal; }): Promise<Response>; getToken(): string | null; isLoggedIn(): boolean; }
 - PluginHost.apiVersion: number
 - PluginHost.customer.get(name: string): Promise<CustomerProfile | null>
 - PluginHost.customer.list(since?: string): Promise<CustomerProfile[]>
@@ -52,6 +77,12 @@
 - PluginHost.files.readText(relPath: string): Promise<string>
 - PluginHost.files.writeExport(fileName: string, data: string | Uint8Array): Promise<void>
 - PluginHost.files: { readText(relPath: string): Promise<string>; readBuffer(relPath: string): Promise<Uint8Array>; writeExport(fileName: string, data: string | Uint8Array): Promise<void>; }
+- PluginHost.inbound.get(id: string): Promise<InboundProfile | null>
+- PluginHost.inbound.list(since?: string): Promise<InboundProfile[]>
+- PluginHost.inbound: { list(since?: string): Promise<InboundProfile[]>; get(id: string): Promise<InboundProfile | null>; }
+- PluginHost.invoice.get(number: string): Promise<InvoiceProfile | null>
+- PluginHost.invoice.list(since?: string): Promise<InvoiceProfile[]>
+- PluginHost.invoice: { list(since?: string): Promise<InvoiceProfile[]>; get(number: string): Promise<InvoiceProfile | null>; }
 - PluginHost.log(level: 'info' | 'warn' | 'error', msg: string): void
 - PluginHost.notify(title: string, body: string): boolean
 - PluginHost.quote.get(quotationNo: string): Promise<QuoteProfile | null>
@@ -61,6 +92,7 @@
 - PluginHost.share.ensureProductSet(name: string): Promise<'created' | 'exists'>
 - PluginHost.share.ensureSubfolder(kind: 'image' | 'cert' | 'doc' | 'customer', holder: string, name: string): Promise<void>
 - PluginHost.share.getMetadata(relPath: string): Promise<{ tags: string[]; notes: string; }>
+- PluginHost.share.getThumb(relPath: string, size?: 256 | 2048): Promise<string>
 - PluginHost.share.listCustomers(): Promise<unknown[]>
 - PluginHost.share.listProductSets(): Promise<unknown[]>
 - PluginHost.share.listTree(relPath?: string): Promise<unknown[]>
@@ -68,7 +100,7 @@
 - PluginHost.share.readFileChunk(relPath: string, offset: number, length: number): Promise<Uint8Array>
 - PluginHost.share.statFile(relPath: string): Promise<{ size: number; mtime: string; }>
 - PluginHost.share.writePulledFile(targetRelPath: string, chunk: Uint8Array, offset: number): Promise<void>
-- PluginHost.share: { listProductSets(): Promise<unknown[]>; listCustomers(): Promise<unknown[]>; listTree(relPath?: string): Promise<unknown[]>; getMetadata(relPath: string): Promise<{ tags: string[]; notes: string; }>; statFile(relPath: string): Promise<{ size: number; mtime: string; }>; readFileChunk(relPath: string, offset: number, length: number): Promise<Uint8Array>; writePulledFile(targetRelPath: string, chunk: Uint8Array, offset: number): Promise<void>; ensureProductSet(name: string): Promise<'created' | 'exists'>; ensureCustomer(name: string): Promise<'created' | 'exists'>; ensureSubfolder(kind: 'image' | 'cert' | 'doc' | 'customer', holder: string, name: string): Promise<void>; mergePulledMetadata(entries: { path: string; tags: string[]; notes: string; }[]): Promise<{ conflicts: string[]; }>; }
+- PluginHost.share: { listProductSets(): Promise<unknown[]>; listCustomers(): Promise<unknown[]>; listTree(relPath?: string): Promise<unknown[]>; getMetadata(relPath: string): Promise<{ tags: string[]; notes: string; }>; statFile(relPath: string): Promise<{ size: number; mtime: string; }>; readFileChunk(relPath: string, offset: number, length: number): Promise<Uint8Array>; writePulledFile(targetRelPath: string, chunk: Uint8Array, offset: number): Promise<void>; ensureProductSet(name: string): Promise<'created' | 'exists'>; ensureCustomer(name: string): Promise<'created' | 'exists'>; ensureSubfolder(kind: 'image' | 'cert' | 'doc' | 'customer', holder: string, name: string): Promise<void>; mergePulledMetadata(entries: { path: string; tags: string[]; notes: string; }[]): Promise<{ conflicts: string[]; }>; getThumb(relPath: string, size?: 256 | 2048): Promise<string>; }
 - PluginHost.storage.get(key: string): Promise<unknown>
 - PluginHost.storage.set(key: string, value: unknown): Promise<void>
 - PluginHost.storage: { get(key: string): Promise<unknown>; set(key: string, value: unknown): Promise<void>; }
@@ -153,6 +185,8 @@
 - interface CustomerProfile extends EntityProfile
 - interface EntitlementStatus
 - interface EntityProfile
+- interface InboundProfile
+- interface InvoiceProfile
 - interface PluginBusinessError extends Error
 - interface PluginHost
 - interface PluginManifest

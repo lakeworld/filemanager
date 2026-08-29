@@ -634,7 +634,8 @@ app.whenReady().then(() => {
     // 不加载任何插件代码（惰性加载归 src/main/plugins/loader.ts）；默认未安装任何插件时零开销
     const settings = createSettings(app.getPath('userData'))
     try {
-      pluginHost = registerPluginHost(svc, account, settings)
+      // v2.5.7（F4a）：cloudFetch 代签需要云 API 地址——resolveApiBase 私有配置注入，公开仓不写死
+      pluginHost = registerPluginHost(svc, account, settings, resolveApiBase())
     } catch (err) {
       void log('error', `插件宿主装配失败（降级继续，插件功能不可用）: ${String(err)}`)
     }

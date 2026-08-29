@@ -164,6 +164,26 @@ export class InboundService {
     return null
   }
 
+  /**
+   * v2.5.7（协议增量 E2）：只读域投影——全量/增量列表（since = updated_at 严大于过滤，
+   * ISO 串 Date.parse 归一化，缺省/非法 → 全量）。照 quote.listSince 语义。
+   */
+  async listSince(since?: string): Promise<InboundRecord[]> {
+    const all = await this.list()
+    if (!since) return all
+    const sinceMs = Date.parse(since)
+    if (!Number.isFinite(sinceMs)) return all
+    return all.filter((r) => {
+      const ms = Date.parse(r.updated_at ?? '')
+      return Number.isFinite(ms) && ms > sinceMs
+    })
+  }
+
+  /** v2.5.7（协议增量 E2）：单张入库单投影（单据编号=查重主键）；不存在 → null */
+  async get(id: string): Promise<InboundRecord | null> {
+    return this.checkId(id)
+  }
+
   /** 查重拒绝文案（含已有记录摘要：供应商/日期/文件，§6.2 口径） */
   private duplicateError(key: string, dup: InboundRecord): Error {
     return new Error(`单据编号「${key}」已存在（供应商：${dup.supplier}，日期：${dup.date}，文件：${dup.file_path}）`)

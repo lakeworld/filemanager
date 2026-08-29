@@ -18,6 +18,8 @@ import { API_VERSION } from '../../plugins/types'
 import type {
   CustomerProfile,
   EntitlementStatus,
+  InboundProfile,
+  InvoiceProfile,
   PluginBusinessError,
   PluginHost,
   QuoteProfile,
@@ -195,6 +197,26 @@ export interface PluginHostDeps {
     list(since?: string): Promise<QuoteProfile[]>
     get(quotationNo: string): Promise<QuoteProfile | null>
   }
+  /** invoice 只读域适配器（v2.5.7 协议增量 E1）：装配层注入 InvoicesService 委托（只读投影）。
+   *  门控并入 customersAccess（与 quote 同——客户关系数据面权限位不碎片化） */
+  invoices: {
+    list(since?: string): Promise<InvoiceProfile[]>
+    get(number: string): Promise<InvoiceProfile | null>
+  }
+  /** inbound 只读域适配器（v2.5.7 协议增量 E2）：装配层注入 InboundService 委托（只读投影）。
+   *  门控并入 customersAccess */
+  inbounds: {
+    list(since?: string): Promise<InboundProfile[]>
+    get(id: string): Promise<InboundProfile | null>
+  }
+  /** cloudFetch 宿主代签（v2.5.7 协议增量 F4a）：装配层注入 AccountService 的 baseUrl + 网络实现。
+   *  公开仓不写死服务器地址——baseUrl 由装配层从私有配置解析注入 */
+  cloudFetchImpl: {
+    /** 登录/云 API 服务地址（不含末尾斜杠）；空 = 未配置服务器 → 插件云能力不可用 */
+    baseUrl: string
+    /** 代签后发起真实请求（默认全局 fetch；装配层可注入替身便于测试） */
+    fetchImpl?: typeof fetch
+  }
   /** share 能力域适配器（v2.5.1 A2，PLAN-v2.6-v2.7 §3.2）：装配层注入 ShareViewService 委托 */
   share: {
     listProductSets(): Promise<unknown[]>
@@ -208,6 +230,8 @@ export interface PluginHostDeps {
     ensureCustomer(name: string): Promise<'created' | 'exists'>
     ensureSubfolder(kind: 'image' | 'cert' | 'doc' | 'customer', holder: string, name: string): Promise<void>
     mergePulledMetadata(entries: { path: string; tags: string[]; notes: string }[]): Promise<{ conflicts: string[] }>
+    /** 缩略图 URL（v2.5.7 协议增量 E4）：装配层注入 ShareViewService.getThumb（内部转 thumbnailFileUrl） */
+    getThumb(relPath: string, size?: 256 | 2048): Promise<string>
   }
   /** manifest.permissions.share === true 时才接通；否则 host.share.* 全部抛 PERMISSION_DENIED */
   shareAccess: boolean
@@ -513,6 +537,30 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
         },
       }
 
+  // —— v2.5.7（协议增量 E1/E2）：invoice / inbound 只读域（门控并入 customersAccess，与 quote 同）
+  // —— 照 quote 门控模式：未声明 permissions.customers → 全部方法抛 PERMISSION_DENIED（显式拒绝）
+  const invoice = deps.customersAccess
+    ? deps.invoices
+    : {
+        list: async (): Promise<InvoiceProfile[]> => {
+          throw permissionDenied('customers')
+        },
+        get: async (): Promise<InvoiceProfile | null> => {
+          throw permissionDenied('customers')
+        },
+      }
+
+  const inbound = deps.customersAccess
+    ? deps.inbounds
+    : {
+        list: async (): Promise<InboundProfile[]> => {
+          throw permissionDenied('customers')
+        },
+        get: async (): Promise<InboundProfile | null> => {
+          throw permissionDenied('customers')
+        },
+      }
+
   const share = deps.shareAccess
     ? deps.share
     : {
@@ -549,14 +597,72 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
         mergePulledMetadata: async (): Promise<{ conflicts: string[] }> => {
           throw permissionDenied('share')
         },
+        getThumb: async (): Promise<string> => {
+          throw permissionDenied('share')
+        },
       }
 
   // —— v2.5 增量（PLAN §3.2）：account 权限门控（permissions.account !== true → 空实现恒 null）——
   const account = deps.accountAccess
-    ? deps.account
+    ? {
+        ...deps.account,
+        // v2.5.7（F4a）：宿主代签中继——插件不拿裸 JWT，路径白名单 + 代签头由宿主完成。
+        // 相对路径强制 + 前缀白名单（/api/box/*、/api/ai/*）；未登录拒绝；body 非字符串时 JSON 序列化。
+        async cloudFetch(path: unknown, init: unknown): Promise<Response> {
+          if (typeof path !== 'string' || !path.startsWith('/')) {
+            throw fileError('INVALID_NAME', 'cloudFetch 路径须为以 / 开头的相对路径')
+          }
+          const allowed = path.startsWith('/api/box/') || path.startsWith('/api/ai/')
+          if (!allowed) {
+            throw fileError('NOT_ALLOWED', 'cloudFetch 仅放行 /api/box/* 与 /api/ai/* 路径')
+          }
+          const token = deps.account.getToken()
+          if (!token || !deps.account.isLoggedIn()) {
+            throw fileError('NOT_LOGGED_IN', '未登录，无法发起云请求')
+          }
+          if (!deps.cloudFetchImpl.baseUrl) {
+            throw fileError('NO_SERVER', '未配置服务器地址，云能力不可用')
+          }
+          const o = (init ?? {}) as {
+            method?: unknown
+            headers?: unknown
+            body?: unknown
+            signal?: unknown
+          }
+          // 用户头先录入，宿主头后写（覆盖同名头——Authorization/X-Qihe-Client 与 Content-Type 以宿主为准）
+          const headers: Record<string, string> = {}
+          if (typeof o.headers === 'object' && o.headers !== null) {
+            for (const [k, v] of Object.entries(o.headers as Record<string, unknown>)) {
+              if (typeof v === 'string') headers[k] = v
+            }
+          }
+          headers['authorization'] = `Bearer ${token}`
+          headers['x-qihe-client'] = 'box'
+          let body: BodyInit | undefined
+          if (o.body !== undefined && o.body !== null) {
+            if (typeof o.body === 'string') {
+              body = o.body
+              if (!('content-type' in headers)) headers['content-type'] = 'application/json'
+            } else {
+              body = JSON.stringify(o.body)
+              if (!('content-type' in headers)) headers['content-type'] = 'application/json'
+            }
+          }
+          const fetchImpl = deps.cloudFetchImpl.fetchImpl ?? fetch
+          return fetchImpl(`${deps.cloudFetchImpl.baseUrl}${path}`, {
+            method: typeof o.method === 'string' ? o.method : 'GET',
+            headers,
+            body,
+            signal: o.signal instanceof AbortSignal ? o.signal : undefined,
+          })
+        },
+      }
     : {
         getToken: (): string | null => null,
         isLoggedIn: (): boolean => false,
+        async cloudFetch(): Promise<Response> {
+          throw fileError('PERMISSION_DENIED', '插件未声明 permissions.account 权限')
+        },
       }
 
   // —— v2.5 增量（PLAN §3.4）：entitlement 占位（协议契约，本体零逻辑——红线 4）——
@@ -577,6 +683,8 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
     customer,
     supplier,
     quote,
+    invoice,
+    inbound,
     share,
     entitlement,
   }

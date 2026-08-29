@@ -23,6 +23,11 @@ interface AdapterSet {
   customersAccess?: boolean
   share?: Record<string, unknown>
   shareAccess?: boolean
+  /** v2.5.7 增量：invoice/inbound 只读域 + cloudFetch 桩（门控并入 customersAccess） */
+  invoices?: Record<string, unknown>
+  inbounds?: Record<string, unknown>
+  cloudFetchImpl?: { baseUrl: string }
+  accountAccess?: boolean
 }
 
 async function makeDeps(overrides: AdapterSet = {}) {
@@ -42,8 +47,18 @@ async function makeDeps(overrides: AdapterSet = {}) {
       notify: () => false,
       emitToRenderer: () => {},
       account: { getToken: () => null, isLoggedIn: () => false },
-      accountAccess: false,
+      accountAccess: overrides.accountAccess ?? false,
+      // v2.5.7 增量：cloudFetch 代签桩（baseUrl + 默认 fetch 由装配层注入；未配置 → 云能力不可用）
+      cloudFetchImpl: overrides.cloudFetchImpl ?? { baseUrl: '' },
       // A1/A2 适配器注入（host.ts 增列；权限门控与适配器分离，测试可分别控制）
+      invoices: overrides.invoices ?? {
+        list: async () => [],
+        get: async () => null,
+      },
+      inbounds: overrides.inbounds ?? {
+        list: async () => [],
+        get: async () => null,
+      },
       customers: overrides.customers ?? {
         list: async () => [],
         get: async () => null,
@@ -64,6 +79,7 @@ async function makeDeps(overrides: AdapterSet = {}) {
         ensureCustomer: async () => 'exists' as const,
         ensureSubfolder: async () => {},
         mergePulledMetadata: async () => ({ conflicts: [] }),
+        getThumb: async () => '',
       },
       shareAccess: overrides.shareAccess ?? true,
     },
