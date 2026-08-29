@@ -14,6 +14,8 @@ release/
 
 # Test / debug
 *.log
+# e2e 运行期临时 HOME 目录（playwright 用例启动应用用的假 home，运行后残留，勿跟踪）
+.e2e-home/
 tests/e2e/fixtures/*.qbox
 # 内部插件宿主 e2e 已迁移至私有插件仓（e2e-host/，2026-08-23）；公开树禁止再出现内部插件测试，兜底防复发
 tests/e2e/zz-*.spec.ts
