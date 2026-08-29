@@ -109,7 +109,7 @@ export default function CreatePsModal(props: {
           </div>
           <div class="mb-4">
             <label class="block text-sm font-medium text-surface-700 mb-1">标签（建议从已定义标签中选择）</label>
-            <TagInput value={newPsTags()} onChange={setNewPsTags} options={tagList()} placeholder="如：客户、重点" />
+            <TagInput value={newPsTags()} onChange={setNewPsTags} options={tagList()} placeholder="如：客户、重点" scope="product_set" />
           </div>
           <div class="mb-4">
             <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>

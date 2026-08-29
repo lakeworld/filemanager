@@ -104,6 +104,7 @@ export default function BatchTagDialog(props: {
               onChange={handleAddChange}
               options={tagList()}
               placeholder="输入或选择标签，回车立即应用"
+              scope="file" // v2.5.7（A3）：文件批量打标 = 文件域
             />
             <Show when={applied().length > 0}>
               <div class="mt-2">

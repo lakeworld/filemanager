@@ -42,7 +42,7 @@ import {
 } from './window'
 
 /** 与前端 types.ts 一致的响应包装（P2：类型收敛到 src/shared/types.ts） */
-import type { ApiResult } from '../shared/types'
+import type { ApiResult, TagScope } from '../shared/types'
 
 export type { ApiResult } from '../shared/types'
 
@@ -433,6 +433,20 @@ export function registerIpc(
       return FilesService.writeFileUtf8(p, content)
     }),
   )
+  // v2.5.7（A2 笔记）：工作区相对路径原子文本写（tmp+rename 原子 + 2MB 上限）。校验面对照 saveTextFile：
+  // 工作区内 + 保护路径拒绝 + 名称防穿越；与既存裸写 writeFileUtf8 及其调用方隔离（防染模板导出回归面）
+  ipcMain.handle('qihebox:files:writeText', (_e, relPath: string, content: string) =>
+    handle(async () => {
+      const ws = box.workspace.currentWorkspacePath()
+      if (!ws) throw new Error('未打开工作区')
+      if (typeof relPath !== 'string' || !relPath) throw new Error('写入路径不能为空')
+      if (relPath.includes('..')) throw new Error('写入路径非法（防穿越）')
+      const p = path.join(ws, ...relPath.split('/').filter(Boolean))
+      if (!p.startsWith(ws + path.sep)) throw new Error('写入路径须在工作区内')
+      if (isProtectedConfigPath(ws, p)) throw new Error('不能直接写入配置文件（.qihefilemanager）')
+      return FilesService.writeTextAtomic(p, content)
+    }),
+  )
   ipcMain.handle('qihebox:files:createSubfolder', (_e, req) => handle(() => box.files.createSubfolder(req)))
   ipcMain.handle('qihebox:files:deleteSubfolder', (_e, req) => handle(() => box.files.deleteSubfolder(req)))
   ipcMain.handle('qihebox:files:ensureThumbnail', (_e, filePath: string) =>
@@ -628,8 +642,14 @@ export function registerIpc(
 
   // —— 标签 ——
   ipcMain.handle('qihebox:tags:list', () => handle(() => box.tags.list()))
-  ipcMain.handle('qihebox:tags:create', (_e, name: string, color: string, parentName: string | null) =>
-    handle(() => box.tags.create(name, color, parentName)),
+  // v2.5.7（A3）：scope 可选参数（缺省 undefined = general 全域）
+  ipcMain.handle(
+    'qihebox:tags:create',
+    (_e, name: string, color: string, parentName: string | null, scope?: string) =>
+      handle(() => box.tags.create(name, color, parentName, (scope as TagScope) || undefined)),
+  )
+  ipcMain.handle('qihebox:tags:setScope', (_e, name: string, scope?: string) =>
+    handle(() => box.tags.setScope(name, (scope as TagScope) || undefined)),
   )
   ipcMain.handle('qihebox:tags:setParent', (_e, name: string, parentName: string | null) =>
     handle(() => box.tags.setParent(name, parentName)),
@@ -652,6 +672,21 @@ export function registerIpc(
   ipcMain.handle('qihebox:trash:restore', (_e, id: string) => handle(() => box.trash.restore(id)))
   ipcMain.handle('qihebox:trash:purge', (_e, id: string) => handle(() => box.trash.purge(id)))
   ipcMain.handle('qihebox:trash:empty', () => handle(() => box.trash.empty()))
+
+  // —— 笔记（v2.5.7 A2：只读聚合，"文档即笔记"）——
+  // entity 可选 { kind, name }（单实体计数/列表——整包勾选检测复用）；limit 默认 100
+  ipcMain.handle(
+    'qihebox:notes:listRecent',
+    (_e, entity: { kind?: unknown; name?: unknown } | null, limit?: number) =>
+      handle(() =>
+        box.notes.listRecent(
+          entity && typeof entity === 'object' && typeof entity.kind === 'string' && typeof entity.name === 'string'
+            ? { kind: entity.kind as 'product_set' | 'customer' | 'supplier', name: entity.name }
+            : undefined,
+          typeof limit === 'number' ? limit : undefined,
+        ),
+      ),
+  )
 
   // —— XLSX ——
   ipcMain.handle('qihebox:xlsx:exportTemplate', (_e, p: string) => handle(() => box.xlsxExportTemplate(p)))

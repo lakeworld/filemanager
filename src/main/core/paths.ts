@@ -21,6 +21,8 @@ export const IMAGES_DIR = '图包'
 export const CERTS_DIR = '证书'
 // v2.5.1（F1）：产品集文档目录（与图包/证书并列；说明书/参数表/质检报告等文档类文件）
 export const DOCS_DIR = '文档'
+// v2.5.7（A2 笔记）：文件区内建「笔记」子文件夹（不可删/不可改/不写 config；产品集文档区、客户、供应商三域通用）
+export const BUILTIN_NOTES_SUBFOLDER = '笔记'
 export const EXPORTS_DIR = '导出'
 // v2.4.7：客户 / 发票 / 入库 / 交换区 根目录与台账/状态数据文件
 export const CUSTOMERS_DIR = '客户'

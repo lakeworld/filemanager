@@ -18,6 +18,7 @@ import { TagService } from './tags'
 import { TrashService } from './trash'
 import { ArchiveService } from './archive'
 import { InvoicesService } from './invoices'
+import { listRecentNotes, type NoteEntry } from './notes'
 import { InboundService } from './inbound'
 import { ExchangeService } from './exchange'
 import { ClientsService } from './clients'
@@ -49,6 +50,15 @@ export class BoxService {
   inbound: InboundService
   /** v2.4.7：交换区投递（PLAN §8）——文件归集内置；发票/入库台账经 ledger sink 接入（见构造器） */
   exchange: ExchangeService
+  /** v2.5.7（A2 笔记）：笔记只读聚合（"文档即笔记"——无独立存储，纯 fs 扫描） */
+  notes: {
+    /** 三域最近笔记（mtime 倒序，limit 截断）；entity 过滤单实体（整包勾选检测复用） */
+    listRecent(
+      entity?: { kind: 'product_set' | 'customer' | 'supplier'; name: string },
+      limit?: number,
+      ws?: string,
+    ): Promise<NoteEntry[]>
+  }
   /** v2.5.1（D20）：交换区归集成功回调（装配层注入插件宿主 fileArchived 桥；core 零依赖，未注入静默） */
   onExchangeArchived?: (archived: string[]) => void
   private thumbs: ThumbnailProvider
@@ -105,6 +115,11 @@ export class BoxService {
       // v2.5.1（D20）：交换区归集成功 → 装配层桥（插件宿主 fileArchived 投递；零依赖，无回调时静默）
       onArchived: (archived) => this.onExchangeArchived?.(archived),
     })
+    // v2.5.7（A2 笔记）：只读聚合接线（"文档即笔记"；ws 可显式注入便于测试/整包检测）
+    this.notes = {
+      listRecent: (entity, limit, ws) =>
+        listRecentNotes(ws ?? this.workspace.currentWorkspacePath(), entity, limit),
+    }
     this.tags = new TagService(this.workspace, this.metadata)
     this.archive = new ArchiveService(this.workspace)
     this.thumbs = thumbs
@@ -127,6 +142,30 @@ export class BoxService {
         // v2.5.3（P1-3）：改走 mutateCustomers 锁内读改写——旧实现「锁外读旧快照 + 整档替换」在
         // 标签传播与客户档案其他写并发时抹掉锁内最新值。mutate 返回是否变更：无变化不写盘（不刷 mtime）。
         await this.clients.mutateCustomers(ws, (store) => {
+          let changed = false
+          for (const { name, tags } of entries) {
+            const ex = store[name]
+            if (!ex) continue
+            if (JSON.stringify(ex.tags ?? []) !== JSON.stringify(tags)) {
+              ex.tags = tags
+              changed = true
+            }
+          }
+          return changed
+        })
+      },
+    })
+    // v2.5.7（A3）：供应商标签引用源注册——镜像客户先例；走 mutateSuppliers 锁内读改写（不重引 P1-3 竞态）
+    this.tags.registerSource('suppliers', {
+      id: 'suppliers',
+      list: async () => {
+        const store = await this.suppliers.loadSuppliersInfo()
+        return Object.entries(store).map(([name, ex]) => ({ name, tags: [...(ex.tags ?? [])] }))
+      },
+      save: async (entries) => {
+        const ws = this.workspace.currentWorkspacePath()
+        if (!ws) return
+        await this.suppliers.mutateSuppliers(ws, (store) => {
           let changed = false
           for (const { name, tags } of entries) {
             const ex = store[name]

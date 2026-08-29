@@ -17,6 +17,10 @@ export default function DatePicker(props: {
   value: string;
   onChange: (next: string) => void;
   placeholder?: string;
+  /** v2.5.7（D2 表单控件统一）：紧凑触发器——工具栏场景瘦身（w-36、收窄内边距、去 📅 图标） */
+  compact?: boolean;
+  /** v2.5.7（D2 表单控件统一）：触发按钮 aria-label（e2e getByLabel 定位；替代原生 date input 的 label 口径） */
+  ariaLabel?: string;
 }) {
   const [isOpen, setIsOpen] = createSignal(false);
   const [view, setView] = createSignal<{ year: number; month: number }>({ year: 0, month: 0 });
@@ -175,17 +179,23 @@ export default function DatePicker(props: {
       <button
         ref={triggerEl}
         type="button"
-        class="w-full px-3 py-2 border border-surface-200 rounded-lg text-sm flex items-center gap-2 bg-white hover:border-surface-300 transition-colors"
+        aria-label={props.ariaLabel}
+        class={`border border-surface-200 rounded-lg text-sm flex items-center gap-2 bg-white hover:border-surface-300 transition-colors ${
+          props.compact ? "w-36 px-2 py-2" : "w-full px-3 py-2"
+        }`}
         onClick={toggle}
       >
-        <span class="text-surface-400 shrink-0">📅</span>
+        <Show when={!props.compact}>
+          <span class="text-surface-400 shrink-0">📅</span>
+        </Show>
         <span class={`flex-1 text-left truncate ${props.value ? "text-surface-900" : "text-surface-400"}`}>
           {props.value || props.placeholder || "选择日期"}
         </span>
         <Show when={props.value}>
-          <span
+          {/* v2.5.7（D2 表单控件统一）：清空由 span[role=button] 改为真实 button（嵌套交互语义修正） */}
+          <button
+            type="button"
             class="text-surface-400 hover:text-danger-600 shrink-0 px-1"
-            role="button"
             aria-label="清空日期"
             onClick={(e) => {
               e.stopPropagation();
@@ -193,7 +203,7 @@ export default function DatePicker(props: {
             }}
           >
             ✕
-          </span>
+          </button>
         </Show>
       </button>
 
@@ -201,6 +211,7 @@ export default function DatePicker(props: {
         <Show when={isOpen()}>
           <div
             ref={panelEl}
+            data-date-panel=""
             class="fixed z-[70] bg-white rounded-xl shadow-lg border border-surface-200 p-3 w-64"
             style={{ left: `${pos().left}px`, top: `${pos().top}px` }}
             onClick={(e) => e.stopPropagation()}
@@ -261,6 +272,8 @@ export default function DatePicker(props: {
                 {(c) => (
                   <button
                     type="button"
+                    data-month={`${c.date.getFullYear()}-${c.date.getMonth() + 1}`}
+                    data-day={c.day}
                     class={`h-8 text-xs rounded-md transition-colors ${
                       c.selected
                         ? "bg-primary-500 text-white font-bold hover:bg-primary-600"

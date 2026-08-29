@@ -23,7 +23,7 @@
  *   交叉信号去重，同一恢复会话 resume 只放行一次；窗口销毁 unhook）
  * - 单时钟保险：单个可重排 .unref() timeout，可见 1s / 隐藏 30s（替代 v2.5.2 固定 30s interval）
  */
-import { BrowserWindow, app, powerMonitor, screen, shell } from 'electron'
+import { BrowserWindow, Menu, app, powerMonitor, screen, shell } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { log } from './log'
@@ -31,6 +31,7 @@ import { isBlankFrameLike, BLANK_TARGETS_WAKE } from './core/frame'
 import { isSuspectedWake, parsePowerBroadcast, WakeSignalGate } from './core/wake'
 import { WindowLifecycle, type HideSource } from './core/windowLifecycle'
 import { writeJsonAtomic } from './core/paths'
+import { buildEditMenu } from './core/editMenu'
 import {
   type WindowFirstFrameAckMessage,
   type WindowHideSource,
@@ -259,6 +260,19 @@ export function createMainWindow(): BrowserWindow {
       }
     }
     mainWindow = null
+  })
+
+  // v2.5.7（A2）：原生右键编辑菜单——输入框/Crepe 编辑区（contenteditable）缺失的右键能力。
+  // 菜单项构建 = 纯函数 core/editMenu.ts（参数矩阵单测）；此处只做 buildFromTemplate + popup。
+  // 非编辑元素有文本选区 → 仅「复制」；其余不弹（渲染层既有自定义右键作用于非编辑元素，不双菜单）。
+  mainWindow.webContents.on('context-menu', (_e, params) => {
+    const items = buildEditMenu({
+      isEditable: params.isEditable,
+      hasSelection: (params.selectionText ?? '').length > 0,
+    })
+    if (items.length === 0) return
+    void log('info', `[context-menu] isEditable=${params.isEditable} selection=${items.length > 1 ? 'full' : 'copy'} 项数=${items.length}`)
+    Menu.buildFromTemplate(items as Electron.MenuItemConstructorOptions[]).popup({ window: mainWindow! })
   })
 
   // v2.4.7（评审 P2）：窗口状态记忆——move/resize 防抖落盘；maximize/unmaximize/close 立即落盘

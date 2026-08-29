@@ -26,11 +26,14 @@ export default function Header() {
   });
 
   // P0-1：全局快捷键 Ctrl/Cmd+K 聚焦搜索框（输入框/文本域内不劫持）
+  // v2.5.7（A1 同行修正，审：测-P1-8）：contenteditable（Crepe 编辑器）一并豁免——否则编辑中 Ctrl+K 被抢焦点
   onMount(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "k") return;
-      const tag = (e.target as HTMLElement)?.tagName;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (target?.isContentEditable) return;
       e.preventDefault();
       document.getElementById("global-search-input")?.focus();
     };

@@ -66,7 +66,6 @@ import { normalizePrefill } from "~/stores/createPrefillNormalize";
 import type { InvoicePrefill, InboundPrefill } from "~/stores/createPrefillNormalize";
 import { callPlugin, pluginGlobalCommands } from "~/plugins/registry";
 import { showToast } from "~/stores/notifyBanner";
-import DatePicker from "~/components/DatePicker";
 import TagInput from "~/components/TagInput";
 import VirtualGrid from "~/components/VirtualGrid";
 import EmptyState from "~/components/EmptyState";

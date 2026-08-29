@@ -88,7 +88,7 @@ export default function EditInfoPsModal(props: {
           <h2 class="text-xl font-bold mb-4">编辑产品集信息</h2>
           <div class="mb-4">
             <label class="block text-sm font-medium text-surface-700 mb-1">标签（建议从已定义标签中选择）</label>
-            <TagInput value={editTags()} onChange={setEditTags} options={tagList()} placeholder="如：客户、重点" />
+            <TagInput value={editTags()} onChange={setEditTags} options={tagList()} placeholder="如：客户、重点" scope="product_set" />
           </div>
           <div class="mb-4">
             <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import CreatePsModal from "./productSets/CreatePsModal";
 import EditInfoPsModal from "./productSets/EditInfoPsModal";
+import { withBuiltinNotes } from "~/constants/notes";
 import { tagList } from "~/stores/tags";
 import { prefillVersion, currentPrefill, advancePrefill, clearPrefill, currentEditPrefill, clearEditPrefill } from "~/stores/createPrefill";
 import type { ProductSetPrefill } from "~/stores/createPrefillNormalize";
@@ -94,6 +95,10 @@ export default function ProductSets() {
   // v2.4.7（F9）：打包此图包——整个产品集目录一键压缩（产物落 工作区/导出/，完成弹窗可见）
   const [archiveState, setArchiveState] = createSignal<{ token: string; phase: "compress" } | null>(null);
 
+  // v2.5.7（A2 笔记）：整包压缩「随包附带笔记」勾选——检测到产品集有笔记时，压缩前弹确认带勾选（默认不勾）；无笔记直压
+  const [compressPending, setCompressPending] = createSignal<{ name: string; noteCount: number } | null>(null);
+  const [includeNotes, setIncludeNotes] = createSignal(false);
+
   /** 归档任务取消令牌：crypto.randomUUID 兜底时间戳+随机 */
   const newArchiveToken = () =>
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -111,11 +116,28 @@ export default function ProductSets() {
       showToast("error", "缺少产品集名称");
       return;
     }
+    // v2.5.7（A2 笔记）：整包前检测产品集笔记数（listRecentNotes 单实体计数，无独立检测 IPC）——
+    // 非空则弹确认 UI（「随包附带笔记（N 篇）」勾选，默认不勾）；无笔记直接压缩
+    const count = await api.notes.listRecent({ kind: "product_set", name }, 1);
+    if (count.success && count.data && count.data.length > 0) {
+      setIncludeNotes(false);
+      setCompressPending({ name, noteCount: count.data.length });
+      return;
+    }
+    await doCompress(ws, name, false);
+  };
+
+  const doCompress = async (ws: string, name: string, include: boolean) => {
     const token = newArchiveToken();
     setArchiveState({ token, phase: "compress" });
     // 产品集目录 = 工作区/产品集/<产品集名>/（与 core/paths.ts productSetRootPath 一致）；
     // suggestZipName 按产品集名自动命名 <名>_分享.zip
-    const r = await api.archive.compress({ paths: [`${ws}/产品集/${name}`], cancelToken: token });
+    // v2.5.7（A2 笔记）：include=false → excludeNotes 排除内建「笔记」；勾选才带
+    const r = await api.archive.compress({
+      paths: [`${ws}/产品集/${name}`],
+      cancelToken: token,
+      excludeNotes: !include,
+    });
     if (!r.success) {
       setArchiveState(null);
       showToast("error", "压缩失败", r.error || "未知错误");
@@ -214,7 +236,8 @@ export default function ProductSets() {
   const imageFolders = () => workspaceConfig()?.image_subfolders || ["主图", "详情页", "白底图", "素材"];
   const certFolders = () => workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"];
   // v2.5.1（F2）：文档子文件夹（config 缺省已由 loadConfig 合并，此处镜像兜底）
-  const docFolders = () => workspaceConfig()?.doc_subfolders || ["说明书", "参数表", "质检报告"];
+  // v2.5.7（A2 笔记）：文档区并入内建「笔记」（渲染层并集显示，不写 config）
+  const docFolders = () => withBuiltinNotes(workspaceConfig()?.doc_subfolders, ["说明书", "参数表", "质检报告"]);
 
   const handleCreate = async () => {
     const name = newPsName().trim();
@@ -721,6 +744,45 @@ export default function ProductSets() {
       {/* 打包此图包 进度弹窗（v2.4.7 F9） */}
       <Show when={archiveState()}>
         <ArchiveProgressDialog token={archiveState()!.token} onClose={() => setArchiveState(null)} />
+      </Show>
+
+      {/* v2.5.7（A2 笔记）：整包压缩「随包附带笔记」确认勾选——默认不勾（排除内建「笔记」），勾选才带 */}
+      <Show when={compressPending()}>
+        <div class="fixed inset-0 z-50 flex items-center justify-center">
+          <div class="absolute inset-0 bg-black/40" onClick={() => setCompressPending(null)} />
+          <div class="relative bg-white rounded-xl shadow-xl p-6 w-[420px] max-w-[90vw]">
+            <h3 class="text-lg font-semibold mb-2">打包此图包</h3>
+            <p class="text-sm text-surface-600 mb-4">
+              {compressPending()!.name} 中有 <b>{compressPending()!.noteCount}</b> 篇笔记（内建「笔记」子文件夹）。
+            </p>
+            <label class="flex items-start gap-2 text-sm text-surface-700 mb-6 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                class="mt-0.5"
+                data-testid="compress-include-notes"
+                checked={includeNotes()}
+                onChange={(e) => setIncludeNotes(e.currentTarget.checked)}
+              />
+              <span>随包附带笔记（{compressPending()!.noteCount} 篇）</span>
+            </label>
+            <div class="flex gap-3 justify-end">
+              <button
+                class="btn-secondary"
+                onClick={() => {
+                  const ws = currentWorkspace()?.path;
+                  const target = compressPending()!;
+                  setCompressPending(null);
+                  if (ws) void doCompress(ws, target.name, includeNotes());
+                }}
+              >
+                打包
+              </button>
+              <button class="btn-secondary" onClick={() => setCompressPending(null)}>
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
       </Show>
 
       {/* 删除产品集确认弹窗（v2.4.7 统一改造：原生 confirm → ConfirmDialog，确认后才执行删除） */}

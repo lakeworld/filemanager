@@ -364,3 +364,79 @@ describe('标签体系（v2.5.3 T2：tags.json 事务化写路径 / 损坏拒写
     expect((await fsp.stat(p)).mtimeMs).not.toBe(mtime1)
   })
 })
+// —— v2.5.7（A3）：标签域 scope ——
+
+describe('标签域 scope（v2.5.7 A3）', () => {
+  it('create 带 scope → list 返回该 scope；缺省 → general（全域）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.tags.create('文件标', '#111111', null, 'file')
+    await box.tags.create('客户标', '#222222', null, 'client')
+    await box.tags.create('全域标', '#333333')
+    await box.metadata.update({ file_path: metaPath(ws), tags: ['文件标'] }) // 避免孤儿
+    const list = await box.tags.list()
+    expect(list.find((t) => t.name === '文件标')?.scope).toBe('file')
+    expect(list.find((t) => t.name === '客户标')?.scope).toBe('client')
+    expect(list.find((t) => t.name === '全域标')?.scope).toBe('general')
+  })
+
+  it('setScope：设置/清除域（general 清除 → tags.json 无 scope 字段，旧档兼容）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.tags.create('标A', '#111111', null, 'file')
+    await box.tags.create('标B', '#222222')
+    await box.metadata.update({ file_path: metaPath(ws), tags: ['标A', '标B'] })
+    await box.tags.setScope('标B', 'ledger')
+    let list = await box.tags.list()
+    expect(list.find((t) => t.name === '标B')?.scope).toBe('ledger')
+    // 清除回 general
+    await box.tags.setScope('标B', undefined)
+    list = await box.tags.list()
+    expect(list.find((t) => t.name === '标B')?.scope).toBe('general')
+    // 旧档（无 scope 字段）读兼容：list 归一化为 general
+    const store = JSON.parse(
+      await fsp.readFile(path.join(ws, '.qihefilemanager', 'tags.json'), 'utf-8'),
+    )
+    expect(store['标B'].scope).toBeUndefined()
+  })
+
+  it('setScope 无变化不写盘（与既有 T2 语义一致）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.tags.create('标C', '#111111', null, 'file')
+    await box.metadata.update({ file_path: metaPath(ws), tags: ['标C'] })
+    const p = path.join(ws, '.qihefilemanager', 'tags.json')
+    const m1 = (await fsp.stat(p)).mtimeMs
+    await new Promise((r) => setTimeout(r, 30))
+    await box.tags.setScope('标C', 'file')
+    expect((await fsp.stat(p)).mtimeMs).toBe(m1)
+  })
+
+  it('供应商标签引用源注册：rename/delete 自动覆盖（锁内读改写通道）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    // 建供应商（含标签）——真实 SuppliersService.create（buildTestBox 已注册供应商引用源）
+    const created = await box.suppliers.create({ name: '供应商甲', tags: ['供应商标'] })
+    expect(created.tags).toContain('供应商标')
+    // 定义标签（supplier 域）——rename/delete 传播目标
+    await box.tags.create('供应商标', '#123456', null, 'supplier')
+    // rename：引用传播（含 suppliers.json 内引用）
+    await box.tags.rename('供应商标', '供应商新标')
+    const sp = path.join(ws, '.qihefilemanager', 'suppliers.json')
+    const after = JSON.parse(await fsp.readFile(sp, 'utf-8'))
+    expect(after['供应商甲'].tags).toContain('供应商新标')
+    expect(after['供应商甲'].tags).not.toContain('供应商标')
+    // delete：引用清理
+    await box.tags.delete('供应商新标')
+    const del = JSON.parse(await fsp.readFile(sp, 'utf-8'))
+    expect(del['供应商甲'].tags ?? []).not.toContain('供应商新标')
+  })
+})

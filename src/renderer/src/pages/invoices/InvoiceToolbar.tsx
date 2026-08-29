@@ -1,4 +1,5 @@
 import { For } from "solid-js";
+import DatePicker from "~/components/DatePicker";
 import { STATUSES } from "./utils";
 import type { CustomerBrief } from "./types";
 
@@ -32,7 +33,7 @@ export default function InvoiceToolbar(props: {
   onViewMode: (v: "records" | "orphans") => void;
   customers: CustomerBrief[];
 }) {
-  const dateInputCls = "px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white";
+  // v2.5.7（D2 表单控件统一）：date input 全部换 DatePicker（compact+ariaLabel），清空原生日期控件（type=date 清零）
   return (
     <div class="flex flex-col gap-2 mb-4 shrink-0">
       <div class="flex flex-col md:flex-row gap-3">
@@ -78,9 +79,9 @@ export default function InvoiceToolbar(props: {
       {/* v2.5.5（B3 任务 C）：筛选增强四类——日期范围 / 金额范围 / 有无归档文件 / 视图（未建档） */}
       <div class="flex flex-wrap items-center gap-2">
         <label class="text-xs text-surface-400 shrink-0">日期</label>
-        <input type="date" class={dateInputCls} aria-label="起始日期" value={props.dateFrom} onInput={(e) => props.onDateFrom(e.currentTarget.value)} />
+        <DatePicker compact ariaLabel="起始日期" value={props.dateFrom} onChange={props.onDateFrom} />
         <span class="text-surface-400 text-sm">至</span>
-        <input type="date" class={dateInputCls} aria-label="结束日期" value={props.dateTo} onInput={(e) => props.onDateTo(e.currentTarget.value)} />
+        <DatePicker compact ariaLabel="结束日期" value={props.dateTo} onChange={props.onDateTo} />
         <span class="w-px h-6 bg-surface-200 shrink-0" />
         <label class="text-xs text-surface-400 shrink-0">金额</label>
         <input

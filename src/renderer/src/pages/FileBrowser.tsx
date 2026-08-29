@@ -29,6 +29,8 @@ export default function FileBrowser() {
   const isEntityScope = () => isCustomer() || isSupplier();
   const entity = () => decodeParam(isEntityScope() ? params.name : params.productSet);
   const subFolder = () => decodeParam(params.subFolder);
+  // v2.5.7（A2 笔记）：深链 ?note=<文件名>——/files/.../笔记?note=xx → 命中即开 NoteEditorModal
+  const noteFile = () => decodeParam(new URLSearchParams(location.search).get("note") || undefined);
 
   return (
     <FileBrowserView
@@ -36,6 +38,7 @@ export default function FileBrowser() {
       entity={entity()}
       subFolder={subFolder()}
       fileType={params.type === "cert" ? "cert" : params.type === "doc" ? "doc" : "image"}
+      deepLinkNote={noteFile() || undefined}
     />
   );
 }

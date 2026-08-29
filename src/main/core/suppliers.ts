@@ -138,6 +138,17 @@ export class SuppliersService {
 
   // —— 供应商 API（镜像 ClientsService，对照 workspace.ts 产品集段）——
 
+  // v2.5.7（A3）：公开锁内读改写通道（给标签引用源注册用——镜像 clients.mutateCustomers 先例，
+  // 避免「锁外读旧快照 + 整档替换」的 v2.5.3 P1-3 同族竞态）。mutate 返回是否实际变更（无变化不写盘）。
+  async mutateSuppliers(
+    ws: string,
+    mutate: (store: Record<string, SupplierExtraInfo>) => Promise<boolean> | boolean,
+  ): Promise<void> {
+    await this.mutateStore(ws, async (store, markChanged) => {
+      if (await mutate(store)) markChanged()
+    })
+  }
+
   /** 供应商列表：目录扫描 供应商/<名> × suppliers.json 合并（文件数递归计数；按名称排序） */
   async list(): Promise<SupplierInfo[]> {
     const ws = this.requireWS()

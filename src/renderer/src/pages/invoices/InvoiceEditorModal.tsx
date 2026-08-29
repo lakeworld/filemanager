@@ -193,6 +193,7 @@ export default function InvoiceEditorModal(props: {
               onChange={(t) => props.setField("tags", t)}
               options={props.tagOptions}
               placeholder="输入标签按回车"
+              scope="ledger" // v2.5.7（A3）：台账域标签（发票/入库）
             />
           </div>
           <div class="mt-4">

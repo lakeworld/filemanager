@@ -361,3 +361,78 @@ describe('导出区列表 listExports（v2.4.8）', () => {
     expect(await box.archive.listExports()).toEqual([])
   })
 })
+
+// —— v2.5.7（A2 笔记）：整包压缩 excludeNotes ——
+
+describe('excludeNotes 排除（v2.5.7 A2）', () => {
+  it('excludeNotes=true 跳过 <产品集>/文档/笔记/；其他位置同名目录不受影响', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    const psRoot = path.join(ws, '产品集', '系列A')
+    // 笔记（文档区）+ 图包的同名「笔记」目录（不受影响）
+    await fsp.mkdir(path.join(psRoot, '文档', '笔记'), { recursive: true })
+    await fsp.mkdir(path.join(psRoot, '图包', '笔记'), { recursive: true })
+    await fsp.writeFile(path.join(psRoot, '文档', '笔记', '内部.md'), 'note')
+    await fsp.writeFile(path.join(psRoot, '图包', '笔记', '镜像.md'), 'img-note')
+    await fsp.writeFile(path.join(psRoot, '文档', '普通.md'), 'doc')
+
+    const zipPath = path.join(ws, '导出', 'ex.zip')
+    await compressToZip([psRoot], zipPath, { excludeNotes: true })
+    const outDir = path.join(ws, '导出', 'ex-out')
+    await extractZip(zipPath, outDir)
+
+    // 文档/笔记 被排除（精确相对路径 <产品集>/文档/笔记/）
+    expect(
+      await fsp.stat(path.join(outDir, '系列A', '文档', '笔记')).then(() => true).catch(() => false),
+    ).toBe(false)
+    // 图包/笔记 不受影响（其他位置同名目录）
+    expect(
+      await fsp.stat(path.join(outDir, '系列A', '图包', '笔记')).then(() => true).catch(() => false),
+    ).toBe(true)
+    expect(await fsp.readFile(path.join(outDir, '系列A', '图包', '笔记', '镜像.md'), 'utf-8')).toBe('img-note')
+    // 普通文档保留
+    expect(await fsp.readFile(path.join(outDir, '系列A', '文档', '普通.md'), 'utf-8')).toBe('doc')
+  })
+
+  it('缺省不排除（向后兼容：excludeNotes 未传 → 笔记保留）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    const noteDir = path.join(ws, '产品集', '系列A', '文档', '笔记')
+    await fsp.mkdir(noteDir, { recursive: true })
+    await fsp.writeFile(path.join(noteDir, '保留.md'), 'keep')
+
+    const zipPath = path.join(ws, '导出', 'keep.zip')
+    await compressToZip([path.join(ws, '产品集', '系列A')], zipPath)
+    const outDir = path.join(ws, '导出', 'keep-out')
+    await extractZip(zipPath, outDir)
+    expect(await fsp.readFile(path.join(outDir, '系列A', '文档', '笔记', '保留.md'), 'utf-8')).toBe('keep')
+  })
+
+  it('ArchiveService.compress 透传 req.excludeNotes（整包入口）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    const noteDir = path.join(ws, '产品集', '系列A', '文档', '笔记')
+    await fsp.mkdir(noteDir, { recursive: true })
+    await fsp.writeFile(path.join(noteDir, '内部.md'), 'note')
+
+    const r = await box.archive.compress({
+      paths: [path.join(ws, '产品集', '系列A')],
+      name: 'exclude',
+      excludeNotes: true,
+    })
+    const outDir = path.join(ws, '导出', 'exclude-out')
+    await extractZip(r.path, outDir)
+    expect(
+      await fsp.stat(path.join(outDir, '系列A', '文档', '笔记')).then(() => true).catch(() => false),
+    ).toBe(false)
+  })
+})

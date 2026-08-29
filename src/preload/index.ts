@@ -128,6 +128,9 @@ const api = {
     showFilesInExplorer: (paths: string[]) => invoke('qihebox:files:showFilesInExplorer', paths),
     saveTextFile: (filePath: string, content: string) =>
       invoke('qihebox:files:saveTextFile', filePath, content),
+    // v2.5.7（A2 笔记）：工作区相对路径原子文本写（2MB 上限，tmp+rename）
+    writeText: (relPath: string, content: string) =>
+      invoke('qihebox:files:writeText', relPath, content),
     createSubfolder: (req: unknown) => invoke('qihebox:files:createSubfolder', req),
     deleteSubfolder: (req: unknown) => invoke('qihebox:files:deleteSubfolder', req),
     ensureThumbnail: (filePath: string) => invoke('qihebox:files:ensureThumbnail', filePath),
@@ -180,8 +183,10 @@ const api = {
   csvTemplate: () => invoke('qihebox:csvTemplate'),
   tags: {
     list: () => invoke('qihebox:tags:list'),
-    create: (name: string, color: string, parentName?: string | null) =>
-      invoke('qihebox:tags:create', name, color, parentName ?? null),
+    // v2.5.7（A3）：scope 可选（缺省 undefined = general 全域）
+    create: (name: string, color: string, parentName?: string | null, scope?: string) =>
+      invoke('qihebox:tags:create', name, color, parentName ?? null, scope || undefined),
+    setScope: (name: string, scope?: string) => invoke('qihebox:tags:setScope', name, scope || undefined),
     setParent: (name: string, parentName: string | null) =>
       invoke('qihebox:tags:setParent', name, parentName),
     setColor: (name: string, color: string) => invoke('qihebox:tags:setColor', name, color),
@@ -194,6 +199,11 @@ const api = {
     restore: (id: string) => invoke('qihebox:trash:restore', id),
     purge: (id: string) => invoke('qihebox:trash:purge', id),
     empty: () => invoke('qihebox:trash:empty'),
+  },
+  // v2.5.7（A2 笔记）：只读聚合（三域最近笔记；entity 可选 = 单实体计数/列表）
+  notes: {
+    listRecent: (entity?: { kind: string; name: string } | null, limit?: number) =>
+      invoke('qihebox:notes:listRecent', entity ?? null, limit ?? undefined),
   },
   xlsx: {
     exportTemplate: (path: string) => invoke('qihebox:xlsx:exportTemplate', path),

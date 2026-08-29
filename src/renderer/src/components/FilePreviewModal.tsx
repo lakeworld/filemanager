@@ -1,10 +1,13 @@
-import { Show, Switch, Match, createSignal, createEffect, onMount, onCleanup } from "solid-js";
+import { Show, Switch, Match, createSignal, createEffect, onMount, onCleanup, lazy } from "solid-js";
 import { api } from "~/wails/api";
 import { tagList } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
 import PdfPreview from "~/components/PdfPreview";
-import MarkdownPreview from "~/components/MarkdownPreview";
 import { isMarkdownName } from "../../../shared/fileKind";
+import { currentWorkspace } from "~/stores/workspace";
+// v2.5.7（A2 笔记）：NoteEditorModal 懒加载（lazy 边界）——Crepe 全部 import 只在动态边界内侧，
+// 首屏 chunk 不含 milkdown（构建验收断言）；文件右侧没有渲染时不加载
+const NoteEditorModal = lazy(() => import("~/components/NoteEditorModal"));
 import ContextMenu from "~/components/ContextMenu";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import TagInput from "~/components/TagInput";
@@ -40,6 +43,18 @@ export default function FilePreviewModal() {
   const isVideo = () => previewFile()?.file_type === "video";
   // v2.5.1（F4）：md 文件（file_type=other + 扩展名判定，D21）
   const isMd = () => isMarkdownName(previewFile()?.name ?? "");
+  // v2.5.7（A2 笔记）：md 工作区相对路径（writeText 契约）——仅工作区内文件可写；外部文件返回空（只读）
+  const mdSaveRelPath = () => {
+    const file = previewFile();
+    if (!file) return "";
+    const ws = currentWorkspace()?.path ?? "";
+    if (!ws) return "";
+    const norm = (s: string) => s.replace(/\\/g, "/").replace(/\/+$/, "");
+    const wp = norm(file.path);
+    const wsr = norm(ws);
+    if (!wp.startsWith(wsr + "/") || wp === wsr) return "";
+    return wp.slice(wsr.length + 1);
+  };
   const showMetadata = () => !!previewContext().productSet && previewContext().editMetadata;
   // v2.4.2（P1-P1）：pdfjs 对非 http 协议整文件加载——超大 PDF 内嵌预览会整载进内存（Linux 1GB 堆上限下
   // 有 OOM 白屏风险），超过阈值改引导「用系统程序打开」
@@ -171,13 +186,25 @@ export default function FilePreviewModal() {
 
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div class={showMetadata() ? "lg:col-span-2" : "lg:col-span-3"}>
-              {/* v2.5.1（F4）：MD 预览——previewUrl 为空不进下方 Show 分支，独立渲染（内部滚动） */}
+              {/* v2.5.1（F4）：MD 预览——previewUrl 为空不进下方 Show 分支，独立渲染（内部滚动）。
+                  v2.5.7（A2 笔记）：改道为 NoteEditorModal（所见即所得编辑；MarkdownPreview 移除成死代码）。
+                  保存契约：工作区内 md → writeText 相对路径（原子写 + 2MB 上限），编辑即保存；
+                  工作区外（批量识别外部文件夹）→ 不落盘，仅供查看（saveRelPath 空 = 无写契约）。 */}
               <Show when={isMd()}>
                 <div
-                  class="h-[60vh] bg-surface-100 rounded-xl overflow-hidden relative"
+                  class="h-[60vh] bg-surface-100 rounded-xl overflow-hidden relative note-editor-wrap"
                   onContextMenu={onContextMenu}
                 >
-                  <MarkdownPreview filePath={previewFile()?.path ?? ""} />
+                  <NoteEditorModal
+                    filePath={previewFile()?.path ?? ""}
+                    saveRelPath={mdSaveRelPath()}
+                    onClose={closePreview}
+                    onSaved={() => {
+                      showToast("success", "笔记已保存");
+                      previewContext().onDelete?.(); // 复用回调刷新列表
+                    }}
+                    onOpenWithSystem={() => void openCurrentWithSystem()}
+                  />
                 </div>
               </Show>
               <Show when={!isMd()}>
@@ -327,6 +354,7 @@ export default function FilePreviewModal() {
                     onChange={(t) => setMetadata((prev) => ({ ...prev, tags: t }))}
                     options={tagList()}
                     placeholder="输入标签按回车"
+                    scope="file" // v2.5.7（A3）：文件/笔记域标签
                   />
                 </div>
 
