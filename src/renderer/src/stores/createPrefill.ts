@@ -21,6 +21,9 @@ const EVENT_NAME = 'qihebox:ui:open-create-prefill'
 /** v2.5.4（弹一 C-6）：编辑预填内部传输事件名（preload/index.ts 同名） */
 const EDIT_EVENT_NAME = 'qihebox:ui:open-edit-prefill'
 
+/** v2.5.7（协议增量 E3）：openEntity 导航桥内部传输事件名（preload/index.ts 同名） */
+const OPEN_ENTITY_EVENT_NAME = 'qihebox:ui:open-entity'
+
 /** 实体 → 新建入口路由（PLAN §二 落点表） */
 const ENTITY_ROUTE: Record<PrefillEntity, string> = {
   customer: '/clients',
@@ -33,6 +36,16 @@ const ENTITY_ROUTE: Record<PrefillEntity, string> = {
 
 /** 实体 → 编辑入口路由（v2.5.4 弹一 C-6；key = 自然键；detail 页承载编辑弹窗，invoice/inbound 回列表页） */
 const ENTITY_EDIT_ROUTE: Record<PrefillEntity, (key: string) => string> = {
+  customer: (k) => `/clients/${encodeURIComponent(k)}`,
+  productSet: (k) => `/product-sets/${encodeURIComponent(k)}`,
+  supplier: (k) => `/suppliers/${encodeURIComponent(k)}`,
+  quote: (k) => `/quotes/${encodeURIComponent(k)}`,
+  invoice: () => '/invoices',
+  inbound: () => '/invoices',
+}
+
+/** v2.5.7（协议增量 E3）：openEntity 导航桥路由——有详情页的实体去详情（key 定位），invoice/inbound 回列表页 */
+const ENTITY_OPEN_ROUTE: Record<PrefillEntity, (key: string) => string> = {
   customer: (k) => `/clients/${encodeURIComponent(k)}`,
   productSet: (k) => `/product-sets/${encodeURIComponent(k)}`,
   supplier: (k) => `/suppliers/${encodeURIComponent(k)}`,
@@ -117,6 +130,16 @@ export function initCreatePrefill(navigate: (path: string) => void): void {
     const [get, set] = editStateOf(entity)
     const key = detail.key.trim()
     setTimeout(() => set({ key, payload, version: get().version + 1 }), 0)
+  })
+  // v2.5.7（协议增量 E3）：openEntity 导航桥——跳本体对应页。纯 UI 动作（无数据写入，
+  // 无 permissions 依赖）；未知实体/空 key 静默忽略（编程错误不落地）。
+  window.addEventListener(OPEN_ENTITY_EVENT_NAME, (e) => {
+    const detail = (e as CustomEvent).detail as { entity?: unknown; key?: unknown } | null
+    if (!detail || typeof detail.entity !== 'string' || typeof detail.key !== 'string') return
+    const entity = detail.entity as PrefillEntity
+    if (!(entity in ENTITY_OPEN_ROUTE)) return
+    if (!detail.key.trim()) return
+    navigate(ENTITY_OPEN_ROUTE[entity](detail.key.trim()))
   })
 }
 

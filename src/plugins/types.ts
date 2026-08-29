@@ -161,6 +161,62 @@ export interface QuoteProfile {
   updated_at: string
 }
 
+/**
+ * 发票台账投影（invoice.list/get 返回形状，v2.5.7 协议增量 E1：对齐 shared/types.ts InvoiceRecord，
+ * 运行时不变；**只读投影**——与 quote 同哲学，发票建档永远走预填桥手动确认）。
+ * ocr_ext / 内部命名空间对插件不可见（本体只读，预留给 OCR 插件写回）。
+ */
+export interface InvoiceProfile {
+  /** 发票号码（查重主键） */
+  number: string
+  /** 发票代码（数电票可空） */
+  code?: string
+  /** 开票日期（YYYY-MM-DD） */
+  date: string
+  /** 金额（价税合计，元） */
+  amount: number
+  /** 开票方名称 */
+  seller: string
+  /** 购买方抬头 */
+  buyer: string
+  /** 状态枚举 */
+  status: '待报销' | '已报销' | '已入账'
+  /** 关联客户名 */
+  customer?: string
+  /** 待办日期 */
+  due_date?: string
+  /** 归档相对路径（发票/<YYYY>/ 下原件） */
+  file_path: string
+  tags?: string[]
+  notes?: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * 入库单投影（inbound.list/get 返回形状，v2.5.7 协议增量 E2：对齐 shared/types.ts InboundRecord，
+ * 运行时不变；**只读投影**——进货建档永远走预填桥手动确认）。
+ */
+export interface InboundProfile {
+  /** 单据编号（查重主键） */
+  id: string
+  /** 入库日期（YYYY-MM-DD） */
+  date: string
+  /** 供应商（自由文本） */
+  supplier: string
+  /** 关联供应商名（名字引用） */
+  supplier_id?: string
+  /** 关联产品集名 */
+  product_set?: string
+  /** 归档相对路径（入库/<YYYY>/ 下文件） */
+  file_path: string
+  /** 金额合计（仅展示） */
+  amount?: number
+  notes?: string
+  created_at: string
+  updated_at: string
+}
+
 /** 宿主 → 插件：activate(host) 注入的能力（PLUGIN.md §2.4.1）。v1 为进程内握手 */
 export interface PluginHost {
   /** 宿主 API 版本（当前恒为 1） */
@@ -199,6 +255,22 @@ export interface PluginHost {
    *  未登录 → null（非空串）；manifest.permissions.account !== true 时恒 null（装配层注入空实现）。
    *  safeStorage 异常 → null + 日志警告，不抛 */
   account: {
+    /**
+     * 宿主代签中继（v2.5.7 协议增量 F4a）：插件往 erp 云 API 发请求的唯一推荐通道。
+     * path = 相对路径（须以 / 开头），仅放行 `/api/box/*` 与 `/api/ai/*` 前缀；
+     * 宿主注入 `Authorization: Bearer <token>` + `X-Qihe-Client: box`（同名用户头被覆盖）；
+     * 未登录 → 抛带 code 的 `NOT_LOGGED_IN` 业务错误；路径越权 → `NOT_ALLOWED`。
+     * 返回原生 Response（插件自行读状态码/体）；超时由调用方经 init.signal 控制。
+     * 权限门控与 getToken 相同（permissions.account !== true → 未登录语义）。
+     * 诚实口径（PLUGIN.md §六）：inproc 同级权限下收敛「文档化取票面」，不防内存抓取。
+     */
+    cloudFetch(path: string, init?: {
+      method?: string
+      headers?: Record<string, string>
+      body?: unknown
+      signal?: AbortSignal
+    }): Promise<Response>
+    /** @deprecated v2.5.7（F4a）：裸 JWT 勿外传，请改用 cloudFetch(path, init) 宿主代签。保留不删（只增不删红线） */
     getToken(): string | null
     isLoggedIn(): boolean
   }
@@ -273,6 +345,29 @@ export interface PluginHost {
     get(quotationNo: string): Promise<QuoteProfile | null>
   }
 
+  /** invoice 只读域（v2.5.7 协议增量 E1｜业务脉络 §四 增量1）：发票台账只读投影（增量读）。
+   *  权限门控：**并入 `permissions.customers` 同一位**（与 quote 同——客户/供应商/报价/发票/入库
+   *  是同一客户关系数据面，权限位不碎片化）；未声明 → 全部方法抛 PERMISSION_DENIED。
+   *  **无任何写方法**——发票建档永远走预填桥手动确认。
+   *  错误码：PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / IO_ERROR */
+  invoice: {
+    /** 发票台账全量/增量列表；since = updated_at 严大于过滤（ISO 串，Date.parse 归一化），缺省全量 */
+    list(since?: string): Promise<InvoiceProfile[]>
+    /** 单张发票；不存在（无此号码）→ null */
+    get(number: string): Promise<InvoiceProfile | null>
+  }
+
+  /** inbound 只读域（v2.5.7 协议增量 E2｜业务脉络 §四 增量2）：入库单只读投影（增量读）。
+   *  权限门控：**并入 `permissions.customers` 同一位**；未声明 → 全部方法抛 PERMISSION_DENIED。
+   *  **无任何写方法**——入库建档永远走预填桥手动确认。
+   *  错误码：PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / IO_ERROR */
+  inbound: {
+    /** 入库单全量/增量列表；since = updated_at 严大于过滤（ISO 串，Date.parse 归一化），缺省全量 */
+    list(since?: string): Promise<InboundProfile[]>
+    /** 单张入库单；不存在（无此单据编号）→ null */
+    get(id: string): Promise<InboundProfile | null>
+  }
+
   /** share 能力域（v2.5.1 A2，PLAN-v2.6-v2.7 §3.2）：工作区只读实体视图 + 拉取写（局域网共享契约通道）。
    *  权限门控：manifest.permissions.share !== true → 全部方法抛 PERMISSION_DENIED。
    *  错误码：PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / INVALID_NAME / HIDDEN / OUT_OF_WORKSPACE / IO_ERROR */
@@ -300,6 +395,11 @@ export interface PluginHost {
     /** 元数据合并导入：两级粒度；tags 并集；notes 本地为空采纳远端、本地非空且不同 → 保留本地（计入冲突清单）；
      *  单批 ≤ 500 条；返回冲突清单供插件提示 */
     mergePulledMetadata(entries: { path: string; tags: string[]; notes: string }[]): Promise<{ conflicts: string[] }>
+    /** 缩略图 URL（v2.5.7 协议增量 E4｜业务脉络 §四 增量4，契约 D11 实装）：
+     *  relPath = 工作区相对路径；仅图片按需生成、视频仅缓存命中、非图片/无缩略图 → 空串。
+     *  size: 256（默认，缩略档）| 2048（预览降采样副本）。返回可直接给 <img> 的 qihebox:// URL。
+     *  权限门控同上；工作区外/隐藏路径 → OUT_OF_WORKSPACE/HIDDEN。错误码同本域。 */
+    getThumb(relPath: string, size?: 256 | 2048): Promise<string>
   }
 
   /** 权益占位（v2.5 增量，PLAN §3.4）：恒 free、零逻辑（红线 4：本体不做任何订阅实现），

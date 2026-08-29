@@ -212,8 +212,22 @@ export interface PluginHost {
   dialog: { openFile(opts: unknown): Promise<string>; openDirectory(opts: unknown): Promise<string> }
   notify(title: string, body: string): boolean
 
-  /** 账号登录态（v2.5 增量接通）：同步签名；未登录 → null；permissions.account !== true 时恒 null */
-  account: { getToken(): string | null; isLoggedIn(): boolean }
+  /** 账号登录态（v2.5 增量接通）：同步签名；未登录 → null；permissions.account !== true 时恒 null。
+   *  v2.5.7（F4a）：cloudFetch 宿主代签中继——相对路径（/ 开头）强制 + 前缀白名单
+   *  （/api/box/*、/api/ai/*）；未登录 → NOT_LOGGED_IN；未配置服务器 → NO_SERVER；
+   *  代签头由宿主注入（Authorization: Bearer <token>、X-Qihe-Client: box），
+   *  同名用户头被宿主覆盖；body 非字符串时 JSON 序列化。返回原生 Response。 */
+  account: {
+    /** @deprecated v2.5.7（F4a）：请用 cloudFetch 中继；getToken 存活一个宿主大版本后移除（§四.1） */
+    getToken(): string | null
+    isLoggedIn(): boolean
+    cloudFetch(path: string, init?: {
+      method?: string
+      headers?: Record<string, string>
+      body?: string | Record<string, unknown> | unknown[]
+      signal?: AbortSignal
+    }): Promise<Response>
+  }
 
   /** 工作区文件能力域（v2.5 增量）：受限读写；错误为带 code 的业务错误（不触发熔断计数）。
    *  错误码：NOT_FOUND / OUT_OF_WORKSPACE / NO_WORKSPACE / TOO_LARGE / INVALID_NAME / IO_ERROR */
@@ -239,6 +253,8 @@ export interface PluginHost {
 <!-- contract:v1:host.account -->
 <!-- contract:v1:host.files -->
 <!-- contract:v1:host.entitlement -->
+
+> **host.account.cloudFetch 错误码（v2.5.7 F4a）**：`PERMISSION_DENIED`（未声明 `permissions.account`）/ `NOT_LOGGED_IN`（未登录）/ `NO_SERVER`（未配置服务器地址）/ `INVALID_NAME`（路径非 `/` 开头相对路径）/ `NOT_ALLOWED`（非 `/api/box/*` 或 `/api/ai/*` 前缀）。以上均带 `code` 属性、不计入熔断计数。响应体处理与超时策略由插件侧负责（宿主只负责代签与转发，不解析业务载荷）。
 
 > **host.events 投递语义（v2.5.1 起明示）**：宿主事件只投递给**已激活**插件的订阅——事件到达时未激活的插件收不到该次事件。需在某宿主事件到达时必在场的插件：`manifest.activation` 声明 `onEvent:<ipcPrefix>:<channel>`（规则⑦），并在 `activate` 内自检一次当前状态（激活与投递存在时序竞态，触发激活的那次事件可能先于订阅注册到达，不可依赖收到它）。
 > **宿主事件清单**：`workspaceChanged`（工作区切换，payload 为新路径）/ `importComplete`（导入完成）/ `certExpiring`（证书到期）/ `updateAvailable`（发现新版本）/ `accountChanged`（**v2.5.1**：登录/登出成功，payload `{ loggedIn: boolean }`）/ `customerCreated` / `customerUpdated` / `fileArchived`（customers/share 域事件，见 §5.5）。依赖登录态的插件应声明 `onEvent:<ipcPrefix>:accountChanged`，并在 activate 自检 `host.account.isLoggedIn()`（activate 期已登录可直接启用相关服务，不必等事件）。
@@ -511,6 +527,39 @@ quote: {
 
 返回类型 `QuoteProfile` = box 台账字段全量（`quotation_no` / `date` / `customer` / `lines[{product,sku,qty,unit_price,amount}]` / `total_amount` / `status('草稿'|'已确认'|'修订中')` / `confirmed_at?` / `notes?` / `file_path` / `quote_ext?` / `created_at` / `updated_at`），对齐 `shared/types.ts QuoteRecord`（运行时零改动）。
 
+### 5.5.3 invoice / inbound 只读域（v2.5.7 协议增量 E1 / E2）
+
+**发票 / 入库台账只读投影**（增量读，供云桥/OCR 插件在推送前读取 box 台账数据；照 §5.5.2 quote 薄壳模式）：
+
+| 能力 | 方向 | 说明 |
+|---|---|---|
+| `invoice.list` / `invoice.get` | 桥读 | 发票台账全量/增量（`since` 严大于）；单条（号码=查重主键）不存在 → null |
+| `inbound.list` / `inbound.get` | 桥读 | 入库台账全量/增量（`since` 严大于）；单条（单据编号=主键）不存在 → null |
+
+**权限门控**：**并入 `permissions.customers` 同一位**（与 quote 同——客户关系数据面权限位不碎片化，C-2 拍板延续）；未声明 → 全部方法抛 `PERMISSION_DENIED`。
+
+**无任何写方法**（只读投影）：发票/入库的建档永远走预填桥（§5.7 `openCreatePrefill('invoice')` / `openEditPrefill`）手动确认；与 quote 相同——box 台账保持纯净，插件不直写台账。
+
+<!-- contract:v1:host.invoice -->
+<!-- contract:v1:host.inbound -->
+
+```ts
+invoice: {
+  /** 发票台账全量/增量列表；since = updated_at 严大于过滤（ISO 串，Date.parse 归一化），缺省全量 */
+  list(since?: string): Promise<InvoiceProfile[]>
+  /** 单张发票（号码=查重主键）；不存在 → null */
+  get(number: string): Promise<InvoiceProfile | null>
+}
+inbound: {
+  /** 入库台账全量/增量列表；since = updated_at 严大于过滤（ISO 串，Date.parse 归一化），缺省全量 */
+  list(since?: string): Promise<InboundProfile[]>
+  /** 单张入库单（单据编号=主键）；不存在 → null */
+  get(id: string): Promise<InboundProfile | null>
+}
+```
+
+返回类型对齐 `shared/types.ts`（`InvoiceRecord` / `InboundRecord`）：`InvoiceProfile` = `number / code? / date / amount / seller / buyer / status('待报销'|'已报销'|'已入账') / customer? / due_date? / file_path / tags? / notes? / created_at / updated_at`（**不含 `ocr_ext` 命名空间**）；`InboundProfile` = `id / date / supplier / supplier_id? / product_set? / file_path / amount? / notes? / created_at / updated_at`。
+
 ### 5.6 share 能力域（局域网共享与拉取，v2.5.1 实装）
 
 **定位**：为「把工作区发布到局域网 + 拉取进工作区」提供**契约内**通道。通用域（非 LAN 专属，协议地位平等）。本域与 v2.7 `com.qihe.share`（P2P 直传插件）**无关**。
@@ -552,6 +601,11 @@ share: {
    *  tags 并集；notes 本地为空采纳远端、本地非空且不同 → 保留本地（计入冲突清单）；
    *  单批 ≤ 500 条；返回冲突清单供插件提示 */
   mergePulledMetadata(entries: { path: string; tags: string[]; notes: string }[]): Promise<{ conflicts: string[] }>
+  /** 缩略图通道（v2.5.7 协议增量 E4）：relPath 工作区相对路径 → 缩略图 URL（qihebox:// 协议，可直接 <img src>）。
+   *  size：256（默认，缩略档）| 2048（预览降采样副本）。图片按需生成；视频仅缓存命中
+   *  （未缓存空串，不生成——帧缩略图由渲染层抓帧后写缓存）；非图片 → ''。
+   *  隐藏/逃逸路径 → HIDDEN / OUT_OF_WORKSPACE（同 share 域错误码）。返回空串 = 无缩略图可用 */
+  getThumb(relPath: string, size?: 256 | 2048): Promise<string>
 }
 ```
 
@@ -561,7 +615,7 @@ share: {
 
 - `listProductSets`：name / image_count / cert_count / doc_count / created_at / tags / notes（**不含** erp_ext / ocr_ext 命名空间）
 - `listCustomers`：name / file_count / alias / country / contact / source / type / phone / email / address / tags / notes / related_product_sets / created_at / updated_at（**不含** erp_ext）
-- `getThumb` 不在本域（v2.5.1 未实装缩略图通道；视频/预览档尺寸 `size?: 256 | 2048` 列为 v2.7 增强，LAN 插件 v0.1 经 `files.readBuffer` 自行降采样或直发缓存文件）
+- `getThumb`（v2.5.7 E4 实装）：返回 `qihebox://thumb/<...>` URL（图片 256/2048 两档按需生成；视频仅缓存命中；非图片空串）——见上方 §share 方法签名
 
 **明确不做**（共享面边界）：
 
@@ -623,6 +677,21 @@ window.qihebox.ui.openEditPrefill(
 | `inbound.create` / `inbound.edit` | 同上 | `/invoices` 入库 tab（新建 / 编辑弹窗） |
 
 <!-- contract:v2.5.4:ui.open-edit-prefill -->
+
+#### 5.7.2 openEntity 导航桥（v2.5.7 协议增量 E3）
+
+**`window.qihebox.ui.openEntity(entity, key)`** —— 渲染层 UI 钩子（同 prefill 语义）：跳本体**实体对应页**——有详情页的实体（customer/productSet/supplier/quote）带 `key`（自然键）去详情/编辑定位；invoice/inbound 回列表页（本体无对应详情深链，列表内可再定位）。纯 UI 动作：无数据写入、不过 IPC、不需要 permissions 声明；未知 entity / 空 key 静默忽略（编程错误不落地）。
+
+```ts
+window.qihebox.ui.openEntity(
+  entity: 'customer' | 'productSet' | 'supplier' | 'quote' | 'invoice' | 'inbound',
+  key: string,   // customer/supplier/productSet=name、quote=quotation_no；invoice/inbound 忽略 key（回列表）
+): void
+```
+
+**典型调用方**：OCR/识别插件识别出某张发票/入库单后 → `openEntity('invoice')` 让用户直接看到台账结果；ERP 侧提示「该客户档案在这里」→ `openEntity('customer', name)`。
+
+<!-- contract:v2.5.7:ui.open-entity -->
 
 ---
 

@@ -285,6 +285,13 @@ const api = {
         new CustomEvent('qihebox:ui:open-edit-prefill', { detail: { entity, key, payload } }),
       )
     },
+    // v2.5.7（协议增量 E3）：导航桥——跳本体对应页（实体详情页优先；invoice/inbound 回列表页）。
+    // 纯 UI 动作（与 openCreatePrefill 同哲学）：无 IPC、无数据写入、无需 permissions 声明。
+    openEntity: (entity: string, key: string): void => {
+      window.dispatchEvent(
+        new CustomEvent('qihebox:ui:open-entity', { detail: { entity, key } }),
+      )
+    },
   },
   events: {
     /** 订阅主进程事件，返回取消订阅函数 */

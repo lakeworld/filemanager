@@ -233,6 +233,9 @@ interface QiheboxApi {
     // quote=quotation_no、invoice=number、inbound=id）；payload = 建议改动（与 create 同 schema）；
     // 弹窗先加载原值再覆盖建议；单条制、开弹窗后清空
     openEditPrefill: (entity: PrefillEntity, key: string, payload: CreatePrefillPayload) => void
+    // v2.5.7（协议增量 E3）：openEntity 导航桥——跳实体本体对应页（customer/supplier/productSet/quote
+    // 去详情页，key=自然键；invoice/inbound 固定回列表页）。纯 UI 动作，无数据写入无权限依赖。
+    openEntity: (entity: PrefillEntity, key: string) => void
   }
   updater: {
     check: () => Promise<unknown>

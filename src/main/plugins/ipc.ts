@@ -17,10 +17,12 @@ import { log } from '../log'
 import { getMainWindow, windowShow } from '../window'
 import type { ApiResult } from '../../shared/types'
 import { ok, fail, handle, sendTo } from '../ipc'
+import { thumbnailFileUrl } from '../protocol'
 import { PluginRegistry, PLUGINS_DIR, STATE_DIR } from './registry'
 import { PluginLoader } from './loader'
 import { PluginInstaller } from './installer'
 import { createPluginHost, HostEventBus, HOST_EVENT_WHITELIST, fileError, mapCoreError } from './host'
+import type { InboundProfile, InvoiceProfile } from '../../plugins/types'
 import { ShareViewService } from '../core/shareView'
 
 // ApiResult 包装（ok/fail/handle/sendTo）自 src/main/ipc.ts 复用（薄壳纪律单点）
@@ -63,6 +65,68 @@ function sendSystemNotification(title: string, body: string): boolean {
   }
 }
 
+/** v2.5.7（协议增量 E1）：InvoiceRecord → InvoiceProfile 投影（剥离 ocr_ext 命名空间——本体只读，插件不可见） */
+function toInvoiceProfile(r: {
+  number: string
+  code?: string
+  date: string
+  amount: number
+  seller: string
+  buyer: string
+  status: '待报销' | '已报销' | '已入账'
+  customer?: string
+  due_date?: string
+  file_path: string
+  tags?: string[]
+  notes?: string
+  created_at: string
+  updated_at: string
+}): InvoiceProfile {
+  return {
+    number: r.number,
+    code: r.code,
+    date: r.date,
+    amount: r.amount,
+    seller: r.seller,
+    buyer: r.buyer,
+    status: r.status,
+    customer: r.customer,
+    due_date: r.due_date,
+    file_path: r.file_path,
+    tags: r.tags,
+    notes: r.notes,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  }
+}
+
+/** v2.5.7（协议增量 E2）：InboundRecord → InboundProfile 投影（直投，无命名空间可剥离） */
+function toInboundProfile(r: {
+  id: string
+  date: string
+  supplier: string
+  supplier_id?: string
+  product_set?: string
+  file_path: string
+  amount?: number
+  notes?: string
+  created_at: string
+  updated_at: string
+}): InboundProfile {
+  return {
+    id: r.id,
+    date: r.date,
+    supplier: r.supplier,
+    supplier_id: r.supplier_id,
+    product_set: r.product_set,
+    file_path: r.file_path,
+    amount: r.amount,
+    notes: r.notes,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  }
+}
+
 export interface PluginHostHandle {
   /** 宿主事件入口（装配层桥接 workspaceChanged 等；channel 白名单强校验，白名单外忽略） */
   emitHostEvent(channel: string, data: unknown): void
@@ -80,6 +144,8 @@ export function registerPluginHost(
   box: BoxService,
   account: Pick<AccountService, 'getToken' | 'isLoggedIn'>,
   settings: Pick<SettingsService, 'getDevMode'>,
+  /** v2.5.7（F4a）：云 API 服务地址（resolveApiBase()，公开仓不写死地址）；空 = 云能力不可用 */
+  cloudBaseUrl = '',
 ): PluginHostHandle {
   const root = path.join(app.getPath('userData'), PLUGINS_DIR)
   const registry = new PluginRegistry({ root, hostVersion: app.getVersion(), log })
@@ -121,6 +187,8 @@ export function registerPluginHost(
           getToken: () => account.getToken(),
           isLoggedIn: () => account.isLoggedIn(),
         },
+        // v2.5.7（F4a）：cloudFetch 宿主代签——baseUrl 由装配层注入（公开仓不写死服务器地址）
+        cloudFetchImpl: { baseUrl: cloudBaseUrl },
         accountAccess: manifest.permissions?.account === true,
         // v2.5.1（A1/A2，PLAN-v2.6-v2.7 §3.1/§3.2）：customers/share 能力域适配器 + 门控
         // core 裸错误经 mapCoreError 映射为契约错误码（不计熔断）
@@ -165,6 +233,21 @@ export function registerPluginHost(
           list: (since) => mapReject(box.quotes.listSince(since)),
           get: async (quotationNo) => mapReject(box.quotes.get(quotationNo)).then((q) => q ?? null),
         },
+        // v2.5.7（协议增量 E1/E2）：invoice / inbound 只读域适配器（只读投影 + 增量；门控并入 customers 同一位
+        // ——与 quote 同：同一客户关系数据面权限位不碎片化）。投影版（去 ocr_ext）在 core 层已剥离命名空间由
+        // 装配层做字段收窄（对齐 QuoteProfile 逐字段拷贝——见 host 的 InvoiceProfile/InboundProfile 形状）
+        invoices: {
+          list: (since) =>
+            mapReject(box.invoices.listSince(since)).then((l) => l.map(toInvoiceProfile)),
+          get: async (number) =>
+            mapReject(box.invoices.get(number)).then((r) => (r ? toInvoiceProfile(r) : null)),
+        },
+        inbounds: {
+          list: (since) =>
+            mapReject(box.inbound.listSince(since)).then((l) => l.map(toInboundProfile)),
+          get: async (id) =>
+            mapReject(box.inbound.get(id)).then((r) => (r ? toInboundProfile(r) : null)),
+        },
         share: {
           listProductSets: () => mapReject(shareView.listProductSets()),
           listCustomers: () => mapReject(shareView.listCustomers()),
@@ -177,6 +260,9 @@ export function registerPluginHost(
           ensureCustomer: (n) => mapReject(shareView.ensureCustomer(n)),
           ensureSubfolder: (k, h, n) => mapReject(shareView.ensureSubfolder(k, h, n)),
           mergePulledMetadata: (e) => mapReject(shareView.mergePulledMetadata(e)),
+          // v2.5.7（协议增量 E4）：缩略图路径 → 协议 URL（thumbnailFileUrl 装配层包装，core 无协议概念）
+          getThumb: (p, s) =>
+            mapReject(shareView.getThumb(p, s)).then((path) => (path ? thumbnailFileUrl(path) : '')),
         },
         shareAccess: manifest.permissions?.share === true,
       }),

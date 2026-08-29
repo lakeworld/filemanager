@@ -158,6 +158,26 @@ export class InvoicesService {
   }
 
   /**
+   * v2.5.7（协议增量 E1）：只读域投影——全量/增量列表（since = updated_at 严大于过滤，
+   * ISO 串 Date.parse 归一化，缺省/非法 → 全量）。照 quote.listSince 语义。
+   */
+  async listSince(since?: string): Promise<InvoiceRecord[]> {
+    const all = await this.list()
+    if (!since) return all
+    const sinceMs = Date.parse(since)
+    if (!Number.isFinite(sinceMs)) return all
+    return all.filter((r) => {
+      const ms = Date.parse(r.updated_at ?? '')
+      return Number.isFinite(ms) && ms > sinceMs
+    })
+  }
+
+  /** v2.5.7（协议增量 E1）：单张发票投影（号码=查重主键）；不存在 → null */
+  async get(number: string): Promise<InvoiceRecord | null> {
+    return this.checkNumber(number, undefined)
+  }
+
+  /**
    * 查重（创建 / 编辑 / 交换区三入口共用口径；创建/编辑事务内部以锁内 store 直接查重，本函数供
    * UI 预检与交换区等场景显式按工作区查询）：命中返回已有记录（供摘要提示），未命中返回 null。
    * excludeNumber：编辑换号时排除自身号码。ws 可选注入——传入时按捕获工作区查，不回读 current workspace。

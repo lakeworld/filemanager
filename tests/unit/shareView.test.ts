@@ -8,7 +8,9 @@
  * - ensureProductSet/ensureCustomer 同名合并；拉取写拒绝清单（D18）
  */
 import { describe, it, expect } from 'vitest'
-import { buildTestBox } from './helpers'
+import { WorkspaceService, buildTestBox } from './helpers'
+import { BoxService } from '../../src/main/core'
+import type { ThumbnailProvider } from '../../src/main/core/files'
 import { ShareViewService, mergeTagsNotes, isHiddenRelPath } from '../../src/main/core/shareView'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -324,5 +326,90 @@ describe('ensureSubfolder（LAN v0.2.3 自动注册拉取子文件夹白名单�
       { kind: 'cert', holder: '夏季新款', name: '质检' },
       { kind: 'doc', holder: '夏季新款', name: '说明书' },
     ])
+  })
+})
+
+
+// —— v2.5.7 协议增量 E4：share.getThumb 实装（core 层，BoxService.thumbs 为真/录像替身）——
+
+describe('ShareViewService.getThumb（v2.5.7 E4，工作区相对路径 → 缩略图路径）', () => {
+  class RecordingThumbs implements ThumbnailProvider {
+    calls: string[] = []
+    async ensureThumbnail(filePath: string): Promise<string> {
+      this.calls.push(`thumb:${filePath}`)
+      return `${filePath}.thumb.jpg`
+    }
+    async thumbnailUrl(): Promise<string> {
+      return ''
+    }
+    async removeThumbnail(): Promise<void> {}
+    async removeThumbnails(): Promise<void> {}
+    async removeThumbnailsInDir(): Promise<void> {}
+    async videoThumbnail(filePath: string): Promise<string> {
+      this.calls.push(`video:${filePath}`)
+      return filePath.includes('cached') ? `${filePath}.thumb.jpg` : ''
+    }
+    async ensurePreview(filePath: string): Promise<string> {
+      this.calls.push(`preview:${filePath}`)
+      return `${filePath}.preview.jpg`
+    }
+  }
+
+  async function makeBoxWithThumbs(): Promise<{
+    ws: string
+    box: BoxService
+    thumbs: RecordingThumbs
+  }> {
+    const home = await tmp()
+    const ws = await tmp()
+    const thumbs = new RecordingThumbs()
+    const workspace = new WorkspaceService(home)
+    const box = new BoxService(thumbs, workspace)
+    await box.workspace.create(ws)
+    return { ws, box, thumbs }
+  }
+
+  it('图片 + 默认 size(256) → ensureThumbnail；图片 + 2048 → ensurePreview（大小归一化）', async () => {
+    const { ws, box, thumbs } = await makeBoxWithThumbs()
+    const svc = new ShareViewService(box)
+    const img = path.join(ws, '产品集', 'A', '图包', 'main.png')
+    await fsp.mkdir(path.dirname(img), { recursive: true })
+    await fsp.writeFile(img, 'png')
+
+    expect(await svc.getThumb('产品集/A/图包/main.png')).toBe(`${img}.thumb.jpg`)
+    expect(await svc.getThumb('产品集/A/图包/main.png', 2048)).toBe(`${img}.preview.jpg`)
+    // 非法 size 归一化到 256
+    expect(await svc.getThumb('产品集/A/图包/main.png', 999 as never)).toBe(`${img}.thumb.jpg`)
+    expect(thumbs.calls).toEqual([`thumb:${img}`, `preview:${img}`, `thumb:${img}`])
+  })
+
+  it('视频 → 仅缓存命中（未缓存空串，不生成）', async () => {
+    const { ws, box, thumbs } = await makeBoxWithThumbs()
+    const svc = new ShareViewService(box)
+    const v1 = path.join(ws, '产品集', 'A', '图包', 'shot.mp4')
+    const v2 = path.join(ws, '产品集', 'A', '图包', 'cached.mp4')
+    await fsp.mkdir(path.dirname(v1), { recursive: true })
+    await fsp.writeFile(v1, 'v')
+    await fsp.writeFile(v2, 'v')
+    expect(await svc.getThumb('产品集/A/图包/shot.mp4')).toBe('')
+    expect(await svc.getThumb('产品集/A/图包/cached.mp4')).toBe(`${v2}.thumb.jpg`)
+    expect(thumbs.calls).toEqual([`video:${v1}`, `video:${v2}`])
+  })
+
+  it('非图片（md/txt/pdf）→ 空串（v2.1.0 决策不生成缩略图）', async () => {
+    const { ws, box, thumbs } = await makeBoxWithThumbs()
+    const svc = new ShareViewService(box)
+    const f = path.join(ws, '产品集', 'A', '文档', '说明书', 'readme.md')
+    await fsp.mkdir(path.dirname(f), { recursive: true })
+    await fsp.writeFile(f, '# md')
+    expect(await svc.getThumb('产品集/A/文档/说明书/readme.md')).toBe('')
+    expect(thumbs.calls).toEqual([])
+  })
+
+  it('隐藏目录/逃逸路径拒绝（resolveInWs 同款错误）', async () => {
+    const { box } = await makeBoxWithThumbs()
+    const svc = new ShareViewService(box)
+    await expect(svc.getThumb('.qihefilemanager/config.json')).rejects.toThrow('隐藏目录')
+    await expect(svc.getThumb('../outside.png')).rejects.toThrow(/工作区|非法|偏离/)
   })
 })

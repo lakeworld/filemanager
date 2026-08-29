@@ -22,6 +22,7 @@ import {
   assertSafeFolderName,
   assertSafePathSegment,
 } from './paths'
+import { classifyFileType } from './paths'
 import type { BoxService } from './index'
 
 /** 单 chunk 上限（对端 4MB 对齐，PLAN §3.2 readFileChunk/writePulledFile） */
@@ -344,5 +345,29 @@ export class ShareViewService {
     }
     if (psStoreDirty) await this.box.workspace.saveProductSetsInfo(ws, psStore)
     return { conflicts }
+  }
+
+  /**
+   * 缩略图路径（v2.5.7 协议增量 E4｜业务脉络 §四 增量4，契约 D11 实装）：
+   * relPath = 工作区相对路径；仅图片按需生成、视频仅缓存命中、非图片/无缩略图 → 空串。
+   * size: 256（默认，缩略档）| 2048（预览降采样副本）。返回缓存文件绝对路径，
+   * 装配层（ipc.ts）转 thumbnailFileUrl 给插件。隐藏/逃逸路径由 resolveInWs 拒绝。
+   */
+  async getThumb(relPath: string, size: 256 | 2048 = 256): Promise<string> {
+    const abs = this.resolveInWs(relPath) // 工作区边界 + 隐藏目录拒绝（同 share 域错误码）
+    if (size !== 2048) size = 256 // 非法 size 归一化到 256（契约只有两档）
+    if (size === 2048) {
+      // 预览降采样副本（≤2048px JPEG）：仅图片生成
+      return this.box.ensurePreviewFor(abs)
+    }
+    const type = classifyFileType(abs)
+    if (type === 'video') {
+      // 视频仅缓存命中（不生成——帧缩略图由渲染层抓帧后 saveVideoFrame 写入）
+      return this.box.videoThumbnail(abs)
+    }
+    if (type === 'image') {
+      return this.box.ensureThumbnailFor(abs, 'browse')
+    }
+    return '' // PDF/其他：v2.1.0 决策不生成缩略图（证书以 pdfjs 预览为准）
   }
 }
