@@ -29,6 +29,13 @@
 
 - 测试基线：单测 855→**909**（filterUtils 倒挂矩阵 + tags scope + notes + editMenu + 归档排除）；box e2e 161→**170**（md-preview 6 例改写为编辑器断言、sidebar 13→14、新增 notes-workbench 4 例 + clipboard-guard 5 例）
 
+### F2a 插件构建 minify（T1 逆向 IP 门槛）
+
+- `scripts/build-hello-plugin.mjs` main/renderer 两路 esbuild 均加 `minify: true`——包内不再有明文可读的提示词/编排/契约（配合 v2.5.7 F1b：发票识别 SYSTEM_INSTRUCTION/版位锚定/归一化已上移 erp 服务端，客户端只留存预处理与中继）
+- `tests/unit/hello-plugin-build.test.ts` renderer 产物断言跟进 minify（bundle 近单行 + `HelloPage` 源码标识被 mangle；自包含/无裸 import/default 导出函数断言保留）
+- 验证：box 单测 909 全绿；三插件重建 + conformance 全绿（com.qihe.cloud@0.5.0）；qbox 解码零提示词残留、无 server Solid 标记
+- `关系:` 构建产物形态变化（插件包体积/可读性），宿主协议零变更
+
 ## v2.5.6 — 2026-08-26（已发布）：批量 AI 识别改「待确认区」交互
 
 - **识别结果先落「未建档」视图待确认区，用户确认后才归档**（用户拍板 2026-08-26）：批量识别完成不再弹「批量登记 N 张？」盲确认框，改为自动切到发票页「未建档」视图顶部常驻的 **AI 识别待确认区**——每行展示文件名 + 识别字段摘要（号码/金额/开票方→购买方/日期），字段不全标黄注明缺项；台账视图顶部有常驻提醒横幅「AI 识别待确认 N 条 → 去确认」。识别阶段零落盘，源文件原地不动
