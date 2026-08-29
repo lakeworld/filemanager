@@ -159,7 +159,9 @@ describe('buildHelloPlugin（fixture 全流程 → .qbox）', () => {
     // 自包含：不得残留对 solid-js 的裸 import（宿主不提供共享运行时，PLUGIN.md §2.1）
     expect(rendererJs).not.toMatch(/from\s+['"]solid-js/)
     // 组件为模块 default 导出（渲染层 import(url) 后取 default，PLAN §4.3）
-    expect(rendererJs).toContain('HelloPage')
+    // v2.5.7（F2a 构建 minify）：bundle 已 minify（近单行），源码标识符 HelloPage 被 mangle
+    expect(rendererJs.split('\n').filter((l) => l.trim() !== '').length).toBeLessThan(5)
+    expect(rendererJs).not.toContain('HelloPage')
 
     const mod = (await import(pathToFileURL(path.join(extracted, 'renderer', 'Main.js')).href)) as {
       default?: () => unknown
