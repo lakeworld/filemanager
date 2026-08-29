@@ -26,6 +26,10 @@ export default function TagInput(props: {
   onChange: (next: string[]) => void;
   options: TagInfo[];
   placeholder?: string;
+  /** v2.5.7（A3）：业务域过滤——缺省未传 = 不过滤（零回归）；
+   *  传了才按 `!def.scope || def.scope === 'general' || def.scope === prop` 过滤候选；
+   *  新建标签时把当前 scope 写入定义（无 prop → general 全域可见） */
+  scope?: string;
 }) {
   const [input, setInput] = createSignal("");
   const [open, setOpen] = createSignal(false);
@@ -34,15 +38,25 @@ export default function TagInput(props: {
   let rootEl: HTMLDivElement | undefined;
   let panelEl: HTMLDivElement | undefined;
 
+  // v2.5.7（A3）：scope 过滤谓词——缺省不过滤；传了才过滤（general 全域可见）
+  const scopeMatch = (t: TagInfo) => {
+    const s = props.scope;
+    if (!s) return true;
+    return !t.scope || t.scope === "general" || t.scope === s;
+  };
+
   // 已定义标签名（含子标签）：孤儿标签（未定义）chip 高亮提醒
   const definedNames = () => new Set(props.options.flatMap((t) => [t.name, ...(t.children ?? [])]));
 
   // 精确命中映射：文本（普通名 + 父/子 形态）→ 规范标签名
+  // v2.5.7（A3）：scope 过滤（跨域标签不进精确命中——避免在错误域加跨域标签）
   const exactNames = () => {
     const m = new Map<string, string>();
     for (const t of props.options) {
+      if (!scopeMatch(t)) continue;
       m.set(t.name, t.name);
       for (const c of t.children ?? []) {
+        if (!scopeMatch({ ...t, name: c } as TagInfo)) continue;
         m.set(c, c);
         m.set(`${t.name}/${c}`, c);
       }
@@ -52,12 +66,14 @@ export default function TagInput(props: {
 
   // 下拉候选：名称包含匹配 + 排除已选；输入为空时展示全部未选。
   // 展开子标签（props.options 为顶层列表）：子标签显示 父/子 并缩进
+  // v2.5.7（A3）：scope 过滤（scopeMatch 谓词：缺省不过滤）
   const candidates = () => {
     const term = input().trim().toLowerCase();
     const selected = new Set(props.value);
     const match = (name: string) => !term || name.toLowerCase().includes(term);
     const result: TagInfo[] = [];
     for (const t of props.options) {
+      if (!scopeMatch(t)) continue;
       if (!selected.has(t.name) && match(t.name)) result.push(t);
       for (const c of t.children ?? []) {
         if (selected.has(c)) continue;
@@ -70,6 +86,7 @@ export default function TagInput(props: {
           builtin: !!t.builtin,
           defined: true,
           count: 0,
+          scope: t.scope,
         });
       }
     }
@@ -119,7 +136,7 @@ export default function TagInput(props: {
       showToast("error", "父标签不存在", `未找到父标签「${parentName}」，请先在设置中创建`);
       return;
     }
-    const r = await api.tags.create(name, DEFAULT_TAG_COLOR, parentName);
+    const r = await api.tags.create(name, DEFAULT_TAG_COLOR, parentName, props.scope);
     if (!r.success) {
       showToast("error", "新建标签失败", r.error || "未知错误");
       return;

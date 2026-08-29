@@ -2,6 +2,7 @@ import type { ContextMenuItem } from "~/components/ContextMenu";
 import { api } from "~/wails/api";
 import type { FileEntry } from "~/types";
 import { callPlugin, pluginFileCommands } from "~/plugins/registry";
+import { isMarkdownName } from "../../../shared/fileKind";
 
 /**
  * 统一文件右键菜单 builder（v2.3.x UI 统一批）。
@@ -53,11 +54,13 @@ export function buildFileContextMenuItems<T extends FileEntry>(
 
   const items: ContextMenuItem[] = [];
 
-  // 1. 预览
+  // 1. 预览（v2.5.7 A2 笔记：单选 .md → label 改为「编辑笔记」；动作仍走 onPreview——预览弹窗内
+  //    对 md 直开 NoteEditorModal，见 FilePreviewModal 路由改道）
   if (onPreview) {
+    const isMdSingle = single && isMarkdownName(file.name);
     items.push({
-      label: "预览",
-      icon: "👁️",
+      label: isMdSingle ? "编辑笔记" : "预览",
+      icon: isMdSingle ? "📝" : "👁️",
       show: single,
       action: () => {
         if (file) onPreview(file);

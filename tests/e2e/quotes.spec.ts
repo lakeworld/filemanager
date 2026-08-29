@@ -66,6 +66,42 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     await modal.locator('input[placeholder="0.00"]').nth(i).fill(l.unit_price)
   }
 
+  /**
+   * v2.5.7（D2 表单控件统一）：DatePicker 点选日期——点触发按钮 → 面板打开，
+   * 若当前视图年月不是目标则用 上一年/下一年/上个月/下个月 导航（有界循环防死循环）→ 点目标日格。
+   * target 形如 '2026-08-05'（data-month='2026-8'、data-day=5 定位）。
+   */
+  const pickDate = async (label: string, target: string) => {
+    const [y, m, d] = target.split('-').map(Number)
+    await page.getByLabel(label).click()
+    const panel = page.locator('[data-date-panel]')
+    await expect(panel).toBeVisible({ timeout: 5000 })
+    // 有界导航（最多 48 步 = 跨 4 年余量，防面板异常时死循环）
+    for (let i = 0; i < 48; i++) {
+      const header = await panel.locator('.text-sm.font-medium').textContent()
+      const mm = /(\d{4})年(\d{1,2})月/.exec(header ?? '')
+      if (mm && Number(mm[1]) === y && Number(mm[2]) === m) break
+      if (!mm) {
+        await panel.getByLabel('下一年').click()
+        continue
+      }
+      const cy = Number(mm[1])
+      const cm = Number(mm[2])
+      if (cy !== y) await panel.getByLabel(cy > y ? '上一年' : '下一年').click()
+      else await panel.getByLabel(cm > m ? '上个月' : '下个月').click()
+    }
+    await panel.locator(`[data-month="${y}-${m}"][data-day="${d}"]`).click()
+    await expect(panel).toHaveCount(0, { timeout: 5000 })
+  }
+
+  /** DatePicker 清空：打开面板点「清空日期」（值不空时触发按钮内也有 ✕，但面板按钮更确定） */
+  const clearDate = async (label: string) => {
+    await page.getByLabel(label).click()
+    const panel = page.locator('[data-date-panel]')
+    await expect(panel).toBeVisible({ timeout: 5000 })
+    await panel.getByRole('button', { name: '清空日期' }).click()
+  }
+
   test('列表 + 新建：填 2+ 明细行 → 保存 → 列表可见；汇总正确（round2 口径）', async () => {
     const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-quotes-e2e1-'))
     await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
@@ -456,20 +492,20 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     await expect(page.getByText('QT-FLT-001', { exact: true })).toHaveCount(0)
     await customerSelect.selectOption({ label: '全部客户' })
 
-    // —— 日期范围（"YYYY-MM-DD" 字符串区间比较、含两端）——
-    const from = page.getByLabel('起始日期')
-    const to = page.getByLabel('结束日期')
-    await from.fill('2026-08-05')
+    // —— 日期范围（v2.5.7 D2：原生 date input 换 DatePicker——点触发按钮 → 点面板格选值）——
+    // 起始=2026-08-05 → 只有 002（08-10）落在区间
+    await pickDate('起始日期', '2026-08-05')
     await expect(page.getByText('QT-FLT-001', { exact: true })).toHaveCount(0)
     await expect(page.getByText('QT-FLT-002', { exact: true })).toBeVisible()
-    await from.fill('')
-    await to.fill('2026-08-05')
+    // 清空起始，结束=2026-08-05 → 只有 001（08-01）
+    await clearDate('起始日期')
+    await pickDate('结束日期', '2026-08-05')
     await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
     await expect(page.getByText('QT-FLT-002', { exact: true })).toHaveCount(0)
-    // 含两端：起=001 日期 止=002 日期 → 两张都显示
-    await to.fill('')
-    await from.fill('2026-08-01')
-    await to.fill('2026-08-10')
+    // 含两端：起始=08-01 结束=08-10 → 两张都显示
+    await clearDate('结束日期')
+    await pickDate('起始日期', '2026-08-01')
+    await pickDate('结束日期', '2026-08-10')
     await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
     await expect(page.getByText('QT-FLT-002', { exact: true })).toBeVisible()
 

@@ -1,5 +1,34 @@
 # 更新日志
 
+## v2.5.7 — 2026-08-30（开发中）：剪贴板守卫修复 + 内建笔记 + 标签域 + 表单控件统一
+
+### A1 剪贴板修复（Ctrl+C 守卫）
+
+- **文件选中时 Ctrl+C 被正文选区「白拷」成文件路径**（根因：窗口级 keydown 条件判断误用折叠判定，导致无文本选区时反而拦截、有选区时误触发）——重构守卫：输入类元素（INPUT/TEXTAREA）/ contenteditable（Crepe 编辑器）/ **非折叠文本选区**一律放行（浏览器正常复制正文），仅折叠（无选区）且选中文件时才走「复制文件路径」
+- **Crepe 编辑中 Ctrl+K 豁免**：Header 全局搜索快捷键对 contenteditable 放行，不再抢焦点
+- 新增 `editMenu` 纯函数菜单生成（`{isEditable, hasSelection}` 四组合）+ 主进程 context-menu 接线（右键输入框弹系统编辑菜单，日志打点 `[context-menu]`）
+
+### A2 内建「笔记」（Crepe 编辑器 + 三域笔记夹 + 工作台）
+
+- 产品集文档区 / 客户 / 供应商三域新增内建「笔记」子文件夹（不写 config、不可删/改/建同名、LAN 同步幂等不重复注册）
+- **Crepe 编辑器集成**（v7.22.1 `@milkdown/crepe/builder` 自定义装配，主包懒加载）：双击 .md 打开、dirty 判定、500ms 防抖 + Ctrl+S 串行保存、>2MB tooLarge 引导系统程序打开、原子写（tmp+rename）
+- **体积门禁**：Crepe 722KB 独立懒加载 chunk，首屏 chunk grep 零 milkdown 引用；zero-write 底线（打开未编辑不落盘）+ `<img onerror>` 注入不执行
+- **笔记工作台** `/notes`：侧边栏入口（13→14 项）+ 三域最近笔记聚合 + 点击深链跳文件区直开编辑 + 选归属新建笔记
+- **整包压缩勾选**：产品集有笔记时「打包此图包」弹「随包附带笔记（N 篇）」勾选（默认不勾 → zip 排除 `文档/笔记/`）
+
+### A3 标签域（TagScope）
+
+- 标签增加 scope：`general`（通用）/ `file`（文件）/ `product_set` / `client` / `supplier` / `ledger`（台账），TagInput 缺省不过滤、指定域时只列同域
+- 新建标签落当前域；设置页按域分组 + 行内改域；供应商标签引用源注册（锁内读改写，rename/delete 传播）
+
+### D 表单控件统一（评审盘点收口）
+
+- DatePicker 新增 `compact`/`ariaLabel`（工具栏筛选场景），清空按钮 span[role=button] → 真 button
+- 发票/入库/报价 6 处筛选日期 `input[type=date]` 全部换 DatePicker（原生日期控件清零）
+- `inDateRange`/`inAmountRange` 区间倒挂自动归一化（from>to / min>max 视为同一区间）+ 参数矩阵单测；MoneyInput min/max 注释修正（type=text 下浏览器完全忽略）
+
+- 测试基线：单测 855→**909**（filterUtils 倒挂矩阵 + tags scope + notes + editMenu + 归档排除）；box e2e 161→**170**（md-preview 6 例改写为编辑器断言、sidebar 13→14、新增 notes-workbench 4 例 + clipboard-guard 5 例）
+
 ## v2.5.6 — 2026-08-26（已发布）：批量 AI 识别改「待确认区」交互
 
 - **识别结果先落「未建档」视图待确认区，用户确认后才归档**（用户拍板 2026-08-26）：批量识别完成不再弹「批量登记 N 张？」盲确认框，改为自动切到发票页「未建档」视图顶部常驻的 **AI 识别待确认区**——每行展示文件名 + 识别字段摘要（号码/金额/开票方→购买方/日期），字段不全标黄注明缺项；台账视图顶部有常驻提醒横幅「AI 识别待确认 N 条 → 去确认」。识别阶段零落盘，源文件原地不动

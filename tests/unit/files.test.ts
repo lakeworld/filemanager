@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { buildTestBox, FakeThumbs, WorkspaceService } from './helpers'
-import { ImportCancelledError, ThumbnailProvider } from '../../src/main/core/files'
+import { ImportCancelledError, ThumbnailProvider, FilesService } from '../../src/main/core/files'
 import { BoxService } from '../../src/main/core'
 import type { FileEntry } from '../../src/main/core/files'
 import fsp from 'node:fs/promises'
@@ -851,5 +851,112 @@ describe('v2.5.3（P1-4）：listDirFilesRecursive resolveThumb', () => {
     expect(withThumb).toHaveLength(2)
     expect(withThumb.every((f) => f.thumbnail_path !== '')).toBe(true)
     expect(counting.calls - before).toBe(2)
+  })
+})
+
+// —— v2.5.7（A2 笔记）：内建「笔记」子文件夹全守卫面 + writeText 原子写 ——
+
+describe('内建「笔记」子文件夹守卫（v2.5.7 A2）', () => {
+  it('createSubfolder 内建名：幂等创建且不写 config（并集显示前提）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    // 创建内建「笔记」
+    await box.files.createSubfolder({ name: '笔记', product_set: '系列A', file_type: 'doc' })
+    const dir = path.join(ws, '产品集', '系列A', '文档', '笔记')
+    expect(await fsp.stat(dir).then((s) => s.isDirectory())).toBe(true)
+    // 幂等：重复创建不炸
+    await box.files.createSubfolder({ name: '笔记', product_set: '系列A', file_type: 'doc' })
+    // config 不写内建名（doc_subfolders 不含「笔记」）
+    const cfg = JSON.parse(
+      await fsp.readFile(path.join(ws, '.qihefilemanager', 'config.json'), 'utf-8'),
+    )
+    expect(cfg.doc_subfolders ?? []).not.toContain('笔记')
+  })
+
+  it('deleteSubfolder 内建名拒绝（不可删）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    await box.files.createSubfolder({ name: '笔记', product_set: '系列A', file_type: 'doc' })
+    await expect(
+      box.files.deleteSubfolder({ name: '笔记', product_set: '系列A', file_type: 'doc' }),
+    ).rejects.toThrow('不可删除')
+    // 目录仍在
+    expect(
+      await fsp.stat(path.join(ws, '产品集', '系列A', '文档', '笔记')).then((s) => s.isDirectory()),
+    ).toBe(true)
+  })
+
+  it('renameSubfolder 内建名拒绝（不可改）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    await box.files.createSubfolder({ name: '笔记', product_set: '系列A', file_type: 'doc' })
+    await expect(
+      box.workspace.renameSubfolder('doc', '笔记', '改名笔记'),
+    ).rejects.toThrow('不可重命名')
+  })
+
+  it('createSubfolder 普通名照常行为 + config 写入不受影响', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '系列A' })
+    await box.files.createSubfolder({ name: '测试文档', product_set: '系列A', file_type: 'doc' })
+    expect(
+      await fsp.stat(path.join(ws, '产品集', '系列A', '文档', '测试文档')).then((s) => s.isDirectory()),
+    ).toBe(true)
+    // 普通名删除照常
+    await box.files.deleteSubfolder({ name: '测试文档', product_set: '系列A', file_type: 'doc' })
+    expect(
+      await fsp.stat(path.join(ws, '产品集', '系列A', '文档', '测试文档')).then(() => true).catch(() => false),
+    ).toBe(false)
+  })
+})
+
+describe('writeText 原子写（v2.5.7 A2：tmp+rename + 2MB 上限）', () => {
+  it('原子写入：内容落盘、无 .tmp 残留；目录自动 lazy mkdir', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const target = path.join(ws, '产品集', '系列A', '文档', '笔记', '测试.md')
+    await box.workspace.productSetCreate({ name: '系列A' })
+    await FilesService.writeTextAtomic(target, '# 你好')
+    expect(await fsp.readFile(target, 'utf-8')).toBe('# 你好')
+    // 同目录无 .tmp 残留
+    const leftovers = (await fsp.readdir(path.dirname(target))).filter((f) => f.endsWith('.tmp'))
+    expect(leftovers).toEqual([])
+  })
+
+  it('2MB 上限拒绝（与读同值）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const target = path.join(ws, 'big.md')
+    const big = 'x'.repeat(2 * 1024 * 1024 + 1)
+    await expect(FilesService.writeTextAtomic(target, big)).rejects.toThrow('超过大小上限')
+    // 不产生文件
+    expect(await fsp.stat(target).then(() => true).catch(() => false)).toBe(false)
+  })
+
+  it('原子替换：覆盖既有文件，目标 mtime/内容更新', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const target = path.join(ws, 'a.md')
+    await FilesService.writeTextAtomic(target, 'v1')
+    await FilesService.writeTextAtomic(target, 'v2')
+    expect(await fsp.readFile(target, 'utf-8')).toBe('v2')
   })
 })

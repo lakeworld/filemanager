@@ -219,6 +219,10 @@ export interface SearchResult {
 }
 
 // —— 标签 / 回收站 ——
+/** v2.5.7（A3）：标签业务域。undefined = general（全域可见——tags.json 零迁移）；
+ *  笔记 = 文件 → file 域（枚举不含 note）。 */
+export type TagScope = 'general' | 'file' | 'product_set' | 'client' | 'supplier' | 'ledger'
+
 export interface TagInfo {
   name: string
   color: string
@@ -231,6 +235,8 @@ export interface TagInfo {
   builtin: boolean
   /** v2.3.0：是否已定义；false = 被引用但 tags.json 无定义的「孤儿标签」 */
   defined?: boolean
+  /** v2.5.7（A3）：业务域；undefined/缺省 = general（全域） */
+  scope?: TagScope
 }
 
 export type TrashKind = 'file' | 'subfolder' | 'productSet' | 'customer' | 'supplier'
@@ -253,6 +259,9 @@ export interface ArchiveCompressRequest {
   name?: string
   /** 取消令牌（与导入取消同机制） */
   cancelToken?: string
+  /** v2.5.7（A2 笔记）：整包压缩时跳过内建「笔记」子文件夹（精确相对路径 <产品集>/文档/笔记/；
+   *  仅整包入口为 true 时传递；文件级压缩不传——保持默认不排除，向后兼容） */
+  excludeNotes?: boolean
 }
 export interface ArchiveExtractRequest {
   /** .zip 文件绝对路径（须在工作区内） */
@@ -275,6 +284,22 @@ export interface ArchiveResult {
   /** 处理的条目数 */
   count: number
   /** 总字节数 */
+  size: number
+}
+
+/** v2.5.7（A2 笔记）：最近笔记条目（"文档即笔记"——文件区内建「笔记」子文件夹的 .md） */
+export interface NoteEntryInfo {
+  /** 工作区相对路径（/ 分隔） */
+  relPath: string
+  /** 归属实体名（产品集/客户/供应商名） */
+  entity: string
+  /** 实体类型 */
+  kind: 'product_set' | 'customer' | 'supplier'
+  /** 标题 = .md 文件名去扩展名 */
+  title: string
+  /** 文件修改时间（ISO） */
+  mtime: string
+  /** 文件大小（字节） */
   size: number
 }
 // —— v2.4.8：导出区条目（工作区/导出/ 下的压缩分享产物）——

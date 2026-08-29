@@ -30,6 +30,7 @@
     "build:win": "electron-vite build && electron-builder --win --publish never"
   },
   "dependencies": {
+    "@milkdown/crepe": "^7.22.1",
     "@tanstack/solid-virtual": "^3.13.36",
     "exceljs": "^4.4.0",
     "marked": "18.0.9",

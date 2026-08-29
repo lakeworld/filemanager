@@ -14,14 +14,16 @@ import { WorkspaceService } from './workspace'
 import { MetadataService } from './metadata'
 import { TAGS_FILE, cmDir, ensureWorkspaceDirs, readJsonFile } from './paths'
 import { mutateJsonFile } from './jsonStore'
-import type { TagInfo } from '../../shared/types'
+import type { TagInfo, TagScope } from '../../shared/types'
 
-export type { TagInfo } from '../../shared/types'
+export type { TagInfo, TagScope } from '../../shared/types'
 
 export interface TagDef {
   color: string
   parent?: string
   builtin?: boolean
+  /** v2.5.7（A3）：业务域；缺省 = general（全域，tags.json 零迁移） */
+  scope?: TagScope
 }
 
 /**
@@ -272,6 +274,7 @@ export class TagService {
         children: childrenOf.get(name) ?? [],
         builtin: !!def?.builtin,
         defined: !!def,
+        scope: def?.scope ?? 'general',
       }
     }
 
@@ -334,8 +337,9 @@ export class TagService {
     })
   }
 
-  /** 新建标签（可选父级与颜色）；查重/父级校验均锁内完成 */
-  async create(name: string, color: string, parentName?: string | null): Promise<void> {
+  /** 新建标签（可选父级、颜色、业务域 scope）；查重/父级校验均锁内完成。
+   *  v2.5.7（A3）：scope 缺省 = general（全域可见）。 */
+  async create(name: string, color: string, parentName?: string | null, scope?: TagScope): Promise<void> {
     const ws = this.requireWS()
     await this.migrateAndInit(ws)
     name = name.trim()
@@ -353,8 +357,27 @@ export class TagService {
       }
       const def: TagDef = { color }
       if (parentName) def.parent = parentName
+      if (scope && scope !== 'general') def.scope = scope
       defs[name] = def
       markChanged()
+    })
+  }
+
+  /** v2.5.7（A3）：设置标签业务域（scope=general/undefined 清除域 → 全域）。无实际变化不写盘 */
+  async setScope(name: string, scope?: TagScope): Promise<void> {
+    const ws = this.requireWS()
+    await this.migrateAndInit(ws)
+    name = name.trim()
+    if (!name) throw new Error('参数不完整')
+    if (isInternalKey(name)) throw new Error('标签不存在')
+    await this.mutateDefs(ws, (defs, markChanged) => {
+      if (!defs[name]) throw new Error('标签不存在')
+      const next = scope && scope !== 'general' ? scope : undefined
+      if (defs[name].scope !== next) {
+        if (next) defs[name].scope = next
+        else delete defs[name].scope
+        markChanged()
+      }
     })
   }
 

@@ -182,7 +182,7 @@ export default function EditInfoModal(props: {
           </div>
           <div class="mb-4">
             <label class="block text-sm font-medium text-surface-700 mb-1">标签（建议从已定义标签中选择）</label>
-            <TagInput value={editTags()} onChange={setEditTags} options={tagList()} placeholder="如：重点、外贸" />
+            <TagInput value={editTags()} onChange={setEditTags} options={tagList()} placeholder="如：重点、外贸" scope="client" />
           </div>
           <div class="mb-4">
             <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>

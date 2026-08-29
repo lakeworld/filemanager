@@ -52,6 +52,7 @@ import type {
   InboundUpdateRequest,
   OrphanReport,
   DirBrowseResult,
+  NoteEntryInfo,
 } from "~/types";
 
 /**
@@ -199,6 +200,9 @@ export const api = {
       qb.files.showFilesInExplorer(paths) as Promise<ApiResult<boolean>>,
     saveTextFile: (path: string, content: string) =>
       qb.files.saveTextFile(path, content) as Promise<ApiResult<boolean>>,
+    // v2.5.7（A2 笔记）：工作区相对路径原子文本写
+    writeText: (relPath: string, content: string) =>
+      qb.files.writeText(relPath, content) as Promise<ApiResult<boolean>>,
     createSubfolder: (req: SubfolderCreateRequest) =>
       qb.files.createSubfolder(req as any) as Promise<ApiResult<boolean>>,
     deleteSubfolder: (req: DeleteSubfolderRequest) =>
@@ -248,8 +252,11 @@ export const api = {
   csvTemplate: () => qb.csvTemplate() as Promise<ApiResult<string>>,
   tags: {
     list: () => qb.tags.list() as Promise<ApiResult<TagInfo[]>>,
-    create: (name: string, color: string, parentName?: string | null) =>
-      qb.tags.create(name, color, parentName ?? null) as Promise<ApiResult<boolean>>,
+    // v2.5.7（A3）：scope 可选（缺省 undefined = general 全域）
+    create: (name: string, color: string, parentName?: string | null, scope?: string) =>
+      qb.tags.create(name, color, parentName ?? null, scope || undefined) as Promise<ApiResult<boolean>>,
+    setScope: (name: string, scope?: string) =>
+      qb.tags.setScope(name, scope || undefined) as Promise<ApiResult<boolean>>,
     setParent: (name: string, parentName: string | null) =>
       qb.tags.setParent(name, parentName) as Promise<ApiResult<boolean>>,
     setColor: (name: string, color: string) =>
@@ -264,6 +271,11 @@ export const api = {
     restore: (id: string) => qb.trash.restore(id) as Promise<ApiResult<void>>,
     purge: (id: string) => qb.trash.purge(id) as Promise<ApiResult<void>>,
     empty: () => qb.trash.empty() as Promise<ApiResult<void>>,
+  },
+  // v2.5.7（A2 笔记）：只读聚合（三域最近笔记）
+  notes: {
+    listRecent: (entity?: { kind: "product_set" | "customer" | "supplier"; name: string } | null, limit?: number) =>
+      qb.notes.listRecent(entity ?? null, limit) as Promise<ApiResult<NoteEntryInfo[]>>,
   },
   xlsx: {
     exportTemplate: (path: string) => qb.xlsx.exportTemplate(path) as Promise<ApiResult<boolean>>,

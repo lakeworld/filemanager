@@ -17,6 +17,7 @@ import {
   IMAGES_DIR,
   CERTS_DIR,
   DOCS_DIR,
+  BUILTIN_NOTES_SUBFOLDER,
   productSetRootPath,
   customerRootPath,
   assertSafeFolderName,
@@ -282,9 +283,16 @@ export class ShareViewService {
           : kind === 'doc'
             ? (cfg.doc_subfolders ??= [])
             : (cfg.customer_subfolders ??= [])
+    const { globalWorkspaceIndex } = await import('./indexCache')
+    // v2.5.7（A2 笔记，LAN 旁路）：内建「笔记」子文件夹幂等、不重复注册进 config——
+    // 客户/文档两域（挂载面）同步语义下内建名直接可见（渲染层并集显示）；其余 kind 非同语义照常注册
+    if (safe === BUILTIN_NOTES_SUBFOLDER) {
+      if (!existed) globalWorkspaceIndex.invalidate(dir)
+      globalWorkspaceIndex.invalidate(path.dirname(dir))
+      return
+    }
     if (!list.includes(safe)) list.push(safe)
     await this.box.workspace.saveConfig(ws, cfg)
-    const { globalWorkspaceIndex } = await import('./indexCache')
     if (existed) globalWorkspaceIndex.invalidate(dir)
     globalWorkspaceIndex.invalidate(path.dirname(dir))
     // v2.5.5：注册成功后通知装配层 → 渲染侧面板即时刷新（可见性反馈）

@@ -210,7 +210,7 @@ export default function CreateClientModal(props: {
           </div>
           <div class="mb-4">
             <label class="block text-sm font-medium text-surface-700 mb-1">标签</label>
-            <TagInput value={newTags()} onChange={setNewTags} options={tagList()} placeholder="输入标签按回车" />
+            <TagInput value={newTags()} onChange={setNewTags} options={tagList()} placeholder="输入标签按回车" scope="client" />
           </div>
           <div class="mb-4">
             <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>

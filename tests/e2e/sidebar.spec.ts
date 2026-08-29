@@ -11,7 +11,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
  * 侧边栏分组折叠（v2.4.9 M7，PLAN §3.7）：分组重组（概览/资料-产品/资料-业务/工具/系统）
  * + 组标题折叠（title 可定位、折叠后整组隐藏、标题保留、会话内不持久化）。
  * 覆盖：
- * 1. 分组结构断言（5 组标题 + 13 项导航）
+ * 1. 分组结构断言（5 组标题 + 14 项导航）
  * 2. 折叠交互（点组标题收起 → 组内条目隐藏、标题保留 → 再点展开）
  * 3. 折叠后 reload → 分组恢复展开（会话内不持久化验证）
  * 4. 既有导航回归（label/path 未动；点击 产品集/客户/供应商/报价/发票/搜索/导出/我的/设置/回收站 可达）
@@ -25,7 +25,8 @@ test.describe('侧边栏分组折叠（v2.4.9 M7）', () => {
   let wsDir: string
 
   const GROUP_TITLES = ['概览', '资料-产品', '资料-业务', '工具', '系统']
-  const NAV_LABELS = ['仪表盘', '产品集', '图包库', '证书库', '客户', '供应商', '报价', '发票', '搜索', '导出', '我的', '设置', '回收站']
+  // v2.5.7（A2 笔记）：资料-产品 增加「笔记」入口——13 → 14 项
+  const NAV_LABELS = ['仪表盘', '产品集', '图包库', '证书库', '笔记', '客户', '供应商', '报价', '发票', '搜索', '导出', '我的', '设置', '回收站']
   /** 侧边栏（aside）：导航入口/组标题都在其内，避免与页面内容按钮混淆 */
   const sidebar = () => page.locator('aside')
 
@@ -59,12 +60,12 @@ test.describe('侧边栏分组折叠（v2.4.9 M7）', () => {
     if (wsDir) await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
 
-  test('分组结构：5 组标题 + 13 项导航可见', async () => {
+  test('分组结构：5 组标题 + 14 项导航可见', async () => {
     // 5 组标题（button + title 可定位）
     for (const g of GROUP_TITLES) {
       await expect(sidebar().getByTitle(`展开/收起${g}`)).toBeVisible()
     }
-    // 13 项导航全部可见（label 不变，子串匹配含图标前缀）
+    // 14 项导航全部可见（label 不变，子串匹配含图标前缀）
     for (const label of NAV_LABELS) {
       await expect(sidebar().getByRole('button', { name: label })).toBeVisible()
     }

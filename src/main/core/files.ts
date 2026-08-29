@@ -21,6 +21,7 @@ import {
   IMAGES_DIR,
   CERTS_DIR,
   DOCS_DIR,
+  BUILTIN_NOTES_SUBFOLDER,
   PRODUCT_SETS_DIR,
   CUSTOMERS_DIR,
   SUPPLIERS_DIR,
@@ -500,10 +501,34 @@ export class FilesService {
   }
 
   // —— CreateSubfolder / DeleteSubfolder ——
+
+  /** v2.5.7（A2 笔记）：内建「笔记」子文件夹物理路径（同行 path 计算，三域共用）。
+   *  scope='customer' → 客户/<名>/笔记；scope='supplier' → 供应商/<名>/笔记；
+   *  file_type='doc' → 产品集/<名>/文档/笔记；其余（image/cert 等）→ 产品集/<名>/<图包|证书>/笔记
+   *  （挂载面 = 产品集文档区、客户、供应商，台账不挂；此处中立于域，落点由调用侧保证） */
+  private builtinNotesDir(req: { scope?: string; file_type?: string; product_set: string }): string {
+    const ws = this.requireWS()
+    if (req.scope === 'customer') return path.join(ws, CUSTOMERS_DIR, req.product_set, BUILTIN_NOTES_SUBFOLDER)
+    if (req.scope === 'supplier') return path.join(ws, SUPPLIERS_DIR, req.product_set, BUILTIN_NOTES_SUBFOLDER)
+    // doc 放 文档/笔记；其余产品集域放 图包|证书/笔记（物理在各自文件区下）
+    const area = req.file_type === 'doc' ? DOCS_DIR : req.file_type === 'cert' ? CERTS_DIR : IMAGES_DIR
+    return path.join(ws, PRODUCT_SETS_DIR, req.product_set, area, BUILTIN_NOTES_SUBFOLDER)
+  }
+
   async createSubfolder(req: SubfolderCreateRequest): Promise<void> {
     const ws = this.requireWS()
     const name = assertSafeFolderName(req.name, '子文件夹名称')
     const cfg = await this.loadConfig(ws)
+    // v2.5.7（A2 笔记）：内建「笔记」子文件夹——同名创建幂等且不写 config（渲染层并集显示，不落用户配置）
+    if (name === BUILTIN_NOTES_SUBFOLDER) {
+      // 幂等：目录已存在则静默成功（存量立场：老用户已自建同名目录直接视为内建）
+      await fsp.mkdir(
+        this.builtinNotesDir(req),
+        { recursive: true },
+      )
+      globalWorkspaceIndex.invalidate(path.join(ws, PRODUCT_SETS_DIR))
+      return
+    }
     // v2.4.7（§4.6）：scope='customer' 时路径 = 客户/<名>/<子文件夹>（product_set 槽位承载客户名），
     // config 写入 customer_subfolders；缺省 'productSet' 沿用现有 产品集/图包|证书 语义
     // v2.4.9 S2：scope='supplier' 时路径 = 供应商/<名>/<子文件夹>；v2.5.5 起 config 写入 supplier_subfolders（对齐客户）
@@ -544,6 +569,8 @@ export class FilesService {
   async deleteSubfolder(req: DeleteSubfolderRequest): Promise<void> {
     const ws = this.requireWS()
     if (!this.trash) throw new Error('回收站服务未初始化')
+    // v2.5.7（A2 笔记）：内建「笔记」子文件夹不可删（全守卫面第一道）
+    if (req.name === BUILTIN_NOTES_SUBFOLDER) throw new Error(`内建「${BUILTIN_NOTES_SUBFOLDER}」子文件夹不可删除`)
     req.product_set = assertSafePathSegment(
       req.product_set,
       req.scope === 'customer' ? '客户名称' : req.scope === 'supplier' ? '供应商名称' : '产品集',
@@ -817,5 +844,19 @@ export class FilesService {
 
   static async writeFileUtf8(filePath: string, content: string): Promise<void> {
     await fsp.writeFile(filePath, content, { encoding: 'utf-8', mode: 0o644 })
+  }
+
+  /** v2.5.7（A2 笔记，写契约）：原子文本写——tmp 同目录写入 + rename 替换；2MB 写上限（与读同值）。
+   *  崩溃/中断不留半文件；替换保持原 inode 关联（索引快照/缩略图引用不因替换而失效）。
+   *  调用方（渲染层笔记保存/未来插件薄透传）负责路径白名单校验；本函数只保证原子性 + 上限。 */
+  static async writeTextAtomic(filePath: string, content: string): Promise<void> {
+    if (Buffer.byteLength(content, 'utf-8') > MAX_TEXT_READ_BYTES) {
+      throw new Error(`文本超过大小上限（${MAX_TEXT_READ_BYTES} 字节）`)
+    }
+    const dir = path.dirname(filePath)
+    await fsp.mkdir(dir, { recursive: true })
+    const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.tmp`)
+    await fsp.writeFile(tmp, content, { encoding: 'utf-8', mode: 0o644 })
+    await fsp.rename(tmp, filePath)
   }
 }

@@ -398,6 +398,7 @@ export default function SupplierDetail() {
                 onChange={setEditTags}
                 options={tagList()}
                 placeholder="如：重点供应商、外贸"
+                scope="supplier" // v2.5.7（A3）：供应商域标签
               />
             </div>
             <div class="mb-4">

@@ -191,16 +191,18 @@ test.describe('预览生命周期治理（v2.5.3 T7）', () => {
       await navigateTo('/files/doc/生命周期集X/说明书')
       await expect(page.getByText('甲.md')).toBeVisible({ timeout: 15000 })
       await page.getByText('甲.md').dblclick()
-      const prose = page.locator('.md-prose')
-      await expect(prose).toBeVisible({ timeout: 15000 })
-      await expect(prose).toContainText('甲文内容')
+      // v2.5.7（A2 笔记）：md 打开为 NoteEditorModal（.md-prose 只读预览已移除）
+      const editor = page.locator('[data-note-editor] [contenteditable="true"]').first()
+      await expect(editor).toBeVisible({ timeout: 20000 })
+      await expect(editor).toContainText('甲文内容', { timeout: 20000 })
 
       await page.keyboard.press('Escape')
-      await expect(page.locator('.md-prose')).toHaveCount(0)
+      await expect(page.locator('[data-note-editor]')).toHaveCount(0)
 
       await page.getByText('乙.md').dblclick()
-      await expect(prose).toContainText('乙文内容', { timeout: 15000 })
-      await expect(prose).not.toContainText('甲文内容')
+      const editor2 = page.locator('[data-note-editor] [contenteditable="true"]').first()
+      await expect(editor2).toContainText('乙文内容', { timeout: 20000 })
+      await expect(editor2).not.toContainText('甲文内容')
       // 弹窗标题为当前文件，无上一会话残留
       await expect(page.locator('h3.text-lg.font-semibold')).toHaveText('乙.md')
     } finally {
@@ -214,13 +216,13 @@ test.describe('预览生命周期治理（v2.5.3 T7）', () => {
       await navigateTo('/files/doc/生命周期集Y/说明书')
       await expect(page.getByText('甲.md')).toBeVisible({ timeout: 15000 })
       await page.getByText('甲.md').dblclick()
-      await expect(page.locator('.md-prose')).toBeVisible({ timeout: 15000 })
+      await expect(page.locator('[data-note-editor]')).toBeVisible({ timeout: 20000 })
 
       await spaNavigate('/certs')
       await expect(page.getByRole('heading', { name: '证书库' })).toBeVisible({ timeout: 15000 })
       // 预览弹窗必须随路由离开关闭（不残留旧页面闭包）
       await expect(page.getByText('用系统程序打开')).toHaveCount(0)
-      await expect(page.locator('.md-prose')).toHaveCount(0)
+      await expect(page.locator('[data-note-editor]')).toHaveCount(0)
     } finally {
       await fsp.rm(wsDir, { recursive: true, force: true })
     }
@@ -267,7 +269,7 @@ test.describe('预览生命周期治理（v2.5.3 T7）', () => {
       // 落盘后再留余量（IPC 回程 + 渲染续体调度 + Solid effect）
       await page.waitForTimeout(2000)
       await expect(page.getByText('用系统程序打开')).toHaveCount(0)
-      await expect(page.locator('.md-prose')).toHaveCount(0)
+      await expect(page.locator('[data-note-editor]')).toHaveCount(0)
     } finally {
       await fsp.rm(wsDir, { recursive: true, force: true })
     }
@@ -303,10 +305,11 @@ test.describe('预览生命周期治理（v2.5.3 T7）', () => {
       await navigateTo('/files/doc/生命周期集Z/说明书')
       await expect(page.getByText('甲.md')).toBeVisible({ timeout: 15000 })
       await page.getByText('甲.md').dblclick()
-      await expect(page.locator('.md-prose')).toBeVisible({ timeout: 15000 })
+      const editor = page.locator('[data-note-editor]').first()
+      await expect(editor).toBeVisible({ timeout: 20000 })
 
       // 预览区内右键打开菜单（ContextMenu 常驻 modal 的本地 signal，关闭后须复位）
-      await page.locator('.md-prose').click({ button: 'right' })
+      await editor.click({ button: 'right' })
       await expect(page.getByText('复制文件到剪贴板')).toBeVisible({ timeout: 5000 })
 
       // 菜单打开状态下路由离开 → App 路由 effect 关闭预览
@@ -318,7 +321,7 @@ test.describe('预览生命周期治理（v2.5.3 T7）', () => {
       await spaNavigate('/files/doc/生命周期集Z/说明书')
       await expect(page.getByText('甲.md')).toBeVisible({ timeout: 15000 })
       await page.getByText('甲.md').dblclick()
-      await expect(page.locator('.md-prose')).toBeVisible({ timeout: 15000 })
+      await expect(page.locator('[data-note-editor]')).toBeVisible({ timeout: 20000 })
       await expect(page.getByText('复制文件到剪贴板')).toHaveCount(0)
     } finally {
       await fsp.rm(wsDir, { recursive: true, force: true })
@@ -331,7 +334,7 @@ test.describe('预览生命周期治理（v2.5.3 T7）', () => {
       await navigateTo('/files/doc/生命周期集W/说明书')
       await expect(page.getByText('甲.md')).toBeVisible({ timeout: 15000 })
       await page.getByText('甲.md').dblclick()
-      await expect(page.locator('.md-prose')).toBeVisible({ timeout: 15000 })
+      await expect(page.locator('[data-note-editor]')).toBeVisible({ timeout: 20000 })
 
       // 打开删除确认弹窗，处于待确认状态
       await page.getByRole('button', { name: '🗑️ 删除', exact: true }).click()
@@ -347,7 +350,7 @@ test.describe('预览生命周期治理（v2.5.3 T7）', () => {
       await spaNavigate('/files/doc/生命周期集W/说明书')
       await expect(page.getByText('甲.md')).toBeVisible({ timeout: 15000 })
       await page.getByText('甲.md').dblclick()
-      await expect(page.locator('.md-prose')).toBeVisible({ timeout: 15000 })
+      await expect(page.locator('[data-note-editor]')).toBeVisible({ timeout: 20000 })
       await expect(page.getByRole('dialog', { name: '删除文件' })).toHaveCount(0)
       await page.getByRole('button', { name: '🗑️ 删除', exact: true }).click()
       await expect(page.getByRole('dialog', { name: '删除文件' })).toBeVisible({ timeout: 5000 })

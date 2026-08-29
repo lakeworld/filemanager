@@ -20,6 +20,7 @@ import VirtualGrid from "~/components/VirtualGrid";
 import EmptyState from "~/components/EmptyState";
 import Loading from "~/components/Loading";
 import ConfirmDialog from "~/components/ConfirmDialog";
+import DatePicker from "~/components/DatePicker";
 import QuoteStatusActions from "~/components/QuoteStatusActions";
 import QuoteFormModal from "~/components/QuoteFormModal";
 import ContextMenu from "~/components/ContextMenu";
@@ -391,9 +392,10 @@ export default function Quotes() {
         {/* v2.5.5 打磨：第二行对齐发票——日期/金额/有无归档/视图 */}
         <div class="flex flex-wrap items-center gap-2">
           <label class="text-xs text-surface-400 shrink-0">日期</label>
-          <input type="date" class="px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white" aria-label="起始日期" value={dateFrom()} onInput={(e) => setDateFrom(e.currentTarget.value)} />
+          {/* v2.5.7（D2 表单控件统一）：date input 换 DatePicker（compact+ariaLabel） */}
+          <DatePicker compact ariaLabel="起始日期" value={dateFrom()} onChange={setDateFrom} />
           <span class="text-surface-400 text-sm">至</span>
-          <input type="date" class="px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white" aria-label="结束日期" value={dateTo()} onInput={(e) => setDateTo(e.currentTarget.value)} />
+          <DatePicker compact ariaLabel="结束日期" value={dateTo()} onChange={setDateTo} />
           <span class="w-px h-6 bg-surface-200 shrink-0" />
           <label class="text-xs text-surface-400 shrink-0">金额</label>
           <input

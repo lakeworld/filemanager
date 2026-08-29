@@ -11,6 +11,7 @@ import { loadTagDefs, refreshTags } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import type { ApiResult, NamingField, TagInfo, WorkspaceConfig } from "~/types";
+import { BUILTIN_NOTES_FOLDER } from "~/constants/notes";
 
 /** 预设色板（标签颜色选择） */
 const PALETTE = [
@@ -120,6 +121,11 @@ export default function Settings() {
   const addCustomerFolder = () => {
     const name = newCustomerFolder().trim();
     if (!name) return;
+    // v2.5.7（A2 笔记）：内建名不可入 config（core createSubfolder 幂等语义 + 这里防误录）
+    if (name === BUILTIN_NOTES_FOLDER) {
+      showToast("error", "添加失败", `「${BUILTIN_NOTES_FOLDER}」为内建子文件夹，无需添加`);
+      return;
+    }
     if ((config().customer_subfolders ?? []).includes(name)) {
       showToast("error", "添加失败", `子文件夹「${name}」已存在`);
       return;
@@ -142,6 +148,11 @@ export default function Settings() {
   const addDocFolder = () => {
     const name = newDocFolder().trim();
     if (!name) return;
+    // v2.5.7（A2 笔记）：内建名不可入 config
+    if (name === BUILTIN_NOTES_FOLDER) {
+      showToast("error", "添加失败", `「${BUILTIN_NOTES_FOLDER}」为内建子文件夹，无需添加`);
+      return;
+    }
     if ((config().doc_subfolders ?? []).includes(name)) {
       showToast("error", "添加失败", `子文件夹「${name}」已存在`);
       return;
@@ -164,6 +175,11 @@ export default function Settings() {
   const addSupplierFolder = () => {
     const name = newSupplierFolder().trim();
     if (!name) return;
+    // v2.5.7（A2 笔记）：内建名不可入 config
+    if (name === BUILTIN_NOTES_FOLDER) {
+      showToast("error", "添加失败", `「${BUILTIN_NOTES_FOLDER}」为内建子文件夹，无需添加`);
+      return;
+    }
     if ((config().supplier_subfolders ?? []).includes(name)) {
       showToast("error", "添加失败", `子文件夹「${name}」已存在`);
       return;
@@ -217,12 +233,14 @@ export default function Settings() {
     }
   };
 
-  /** 子文件夹 chip（图包/证书/客户/供应商/文档通用）：名称 + ✎重命名 + ✕删除；重命名中变输入框 */
+  /** 子文件夹 chip（图包/证书/客户/供应商/文档通用）：名称 + ✎重命名 + ✕删除；重命名中变输入框。
+   *  v2.5.7（A2 笔记）：内建「笔记」不可改/不可删——builtin=true 时隐藏操作按钮并显示徽标。 */
   const SubfolderChip = (props: {
     name: string;
     type: "image" | "cert" | "customer" | "supplier" | "doc";
     onRemove: (index: number) => void;
     index: number;
+    builtin?: boolean;
   }) => {
     const isRenaming = () => renamingFolder()?.type === props.type && renamingFolder()?.oldName === props.name;
     return (
@@ -247,12 +265,20 @@ export default function Settings() {
       >
         <span class="inline-flex items-center gap-1 px-3 py-1.5 bg-surface-100 rounded-lg text-sm">
           <span>{props.name}</span>
-          <button class="text-surface-400 hover:text-primary-600 ml-0.5" title="重命名（同步所有产品集）" onClick={() => startRename(props.type, props.name)}>
-            ✎
-          </button>
-          <button class="text-surface-400 hover:text-danger-500 ml-0.5" onClick={() => props.onRemove(props.index)}>
-            ✕
-          </button>
+          {props.builtin ? (
+            <span class="text-[10px] px-1 py-0.5 rounded bg-primary-50 text-primary-600 font-medium" title="内建「笔记」子文件夹：不可重命名/删除">
+              内建
+            </span>
+          ) : (
+            <>
+              <button class="text-surface-400 hover:text-primary-600 ml-0.5" title="重命名（同步所有产品集）" onClick={() => startRename(props.type, props.name)}>
+                ✎
+              </button>
+              <button class="text-surface-400 hover:text-danger-500 ml-0.5" onClick={() => props.onRemove(props.index)}>
+                ✕
+              </button>
+            </>
+          )}
         </span>
       </Show>
     );
@@ -288,6 +314,8 @@ export default function Settings() {
   const [newTagName, setNewTagName] = createSignal("");
   const [newTagColor, setNewTagColor] = createSignal(PALETTE[0]);
   const [newTagParent, setNewTagParent] = createSignal<string | null>(null);
+  // v2.5.7（A3）：新建标签业务域（缺省 general = 全域）
+  const [newTagScope, setNewTagScope] = createSignal<string>("general");
   const [editingColor, setEditingColor] = createSignal<string | null>(null); // 正在改色的标签
   const [renaming, setRenaming] = createSignal<string | null>(null); // 正在重命名的标签
   const [renameValue, setRenameValue] = createSignal("");
@@ -295,6 +323,37 @@ export default function Settings() {
   const [confirmDelete, setConfirmDelete] = createSignal<{ name: string; orphan: boolean } | null>(null); // 删除/清引用确认弹窗
   // v2.4.7（F8）：标签树折叠——有子标签的顶层标签默认收起，点箭头展开；新建/移入子标签后自动展开
   const [expandedTopTags, setExpandedTopTags] = createSignal<string[]>([]);
+  // v2.5.7（A3）：正在改域的标签（内联 select）
+  const [scopeEditing, setScopeEditing] = createSignal<string | null>(null);
+
+  // v2.5.7（A3）：域中文显示 + 分组顺序（域列/分组用；general = 全域）
+  const SCOPE_LABEL: Record<string, string> = {
+    general: "全域",
+    file: "文件",
+    product_set: "产品集",
+    client: "客户",
+    supplier: "供应商",
+    ledger: "台账",
+  };
+
+  const handleSetScope = async (name: string, scope: string) => {
+    const r = await api.tags.setScope(name, scope === "general" ? undefined : scope);
+    setScopeEditing(null);
+    if (!r.success) showToast("error", "修改域失败", r.error || "未知错误");
+    await loadTags();
+    refreshTags();
+  };
+
+  /** v2.5.7（A3）：按域分组渲染序列——general 在前，其余按固定顺序 */
+  const tagGroups = () => {
+    const order = ["general", "file", "product_set", "client", "supplier", "ledger"];
+    const groups: { scope: string; label: string; tags: TagInfo[] }[] = [];
+    for (const scope of order) {
+      const list = tags().filter((t) => !t.parent && (t.scope ?? "general") === scope);
+      if (list.length > 0) groups.push({ scope, label: SCOPE_LABEL[scope] ?? scope, tags: list });
+    }
+    return groups;
+  };
 
   const toggleTopTag = (name: string) =>
     setExpandedTopTags((prev) =>
@@ -319,7 +378,7 @@ export default function Settings() {
   const handleAddTag = async () => {
     const name = newTagName().trim();
     if (!name) return;
-    const r = await api.tags.create(name, newTagColor(), newTagParent());
+    const r = await api.tags.create(name, newTagColor(), newTagParent(), newTagScope() === "general" ? undefined : newTagScope());
     if (!r.success) {
       showToast("error", "创建标签失败", r.error || "未知错误");
       return;
@@ -536,6 +595,20 @@ export default function Settings() {
                   {(t) => <option value={t.name}>作为 {t.name} 的子标签</option>}
                 </For>
               </select>
+              {/* v2.5.7（A3）：新建标签业务域选择（general = 全域） */}
+              <select
+                class="px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                aria-label="标签域"
+                value={newTagScope()}
+                onChange={(e) => setNewTagScope(e.currentTarget.value)}
+              >
+                <option value="general">全域</option>
+                <option value="file">文件</option>
+                <option value="product_set">产品集</option>
+                <option value="client">客户</option>
+                <option value="supplier">供应商</option>
+                <option value="ledger">台账</option>
+              </select>
               <div class="flex items-center gap-1">
                 <For each={PALETTE}>
                   {(c) => (
@@ -552,35 +625,47 @@ export default function Settings() {
               </button>
             </div>
 
-            {/* 标签树（顶层 + 子标签） */}
+            {/* 标签树（顶层 + 子标签；v2.5.7 A3：按域分组，general 在前） */}
             <Show
               when={topLevelTags().length > 0}
               fallback={<div class="text-sm text-surface-400 py-4 text-center">暂无标签，先给文件或产品集打上标签吧</div>}
             >
-              <div class="space-y-1">
-                <For each={topLevelTags()}>
-                  {(tag) => (
-                    <>
-                      <div class="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-surface-100 transition-colors">
-                        {/* v2.4.7（F8）：折叠箭头——有子标签才显示，点击展开/收起 */}
-                        <Show
-                          when={tag.children.length > 0}
-                          fallback={<span class="w-4 shrink-0" />}
-                        >
-                          <button
-                            class="w-4 shrink-0 text-surface-400 hover:text-surface-700 cursor-pointer text-[10px] leading-none"
-                            title={expandedTopTags().includes(tag.name) ? "收起子标签" : "展开子标签"}
-                            onClick={() => toggleTopTag(tag.name)}
-                          >
-                            {expandedTopTags().includes(tag.name) ? "▼" : "▶"}
-                          </button>
-                        </Show>
-                        <button
-                          class="w-5 h-5 rounded-full shrink-0 cursor-pointer"
-                          style={{ "background-color": tag.color }}
-                          title="点击改颜色"
-                          onClick={() => setEditingColor(editingColor() === tag.name ? null : tag.name)}
-                        />
+              <div class="space-y-4">
+                <For each={tagGroups()}>
+                  {(group) => (
+                    <div>
+                      <Show when={group.scope !== "general"}>
+                        <div class="flex items-center gap-2 mb-1">
+                          <span class="text-xs font-medium text-primary-600 px-2 py-0.5 bg-primary-50 rounded-full">
+                            {group.label}域
+                          </span>
+                          <span class="text-[11px] text-surface-400">仅在该业务域选择器中出现</span>
+                        </div>
+                      </Show>
+                      <div class="space-y-1">
+                        <For each={group.tags}>
+                          {(tag) => (
+                            <>
+                              <div class="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-surface-100 transition-colors">
+                                {/* v2.4.7（F8）：折叠箭头——有子标签才显示，点击展开/收起 */}
+                                <Show
+                                  when={tag.children.length > 0}
+                                  fallback={<span class="w-4 shrink-0" />}
+                                >
+                                  <button
+                                    class="w-4 shrink-0 text-surface-400 hover:text-surface-700 cursor-pointer text-[10px] leading-none"
+                                    title={expandedTopTags().includes(tag.name) ? "收起子标签" : "展开子标签"}
+                                    onClick={() => toggleTopTag(tag.name)}
+                                  >
+                                    {expandedTopTags().includes(tag.name) ? "▼" : "▶"}
+                                  </button>
+                                </Show>
+                                <button
+                                  class="w-5 h-5 rounded-full shrink-0 cursor-pointer"
+                                  style={{ "background-color": tag.color }}
+                                  title="点击改颜色"
+                                  onClick={() => setEditingColor(editingColor() === tag.name ? null : tag.name)}
+                                />
                         <Show when={editingColor() === tag.name}>
                           <div class="flex items-center gap-1">
                             <For each={PALETTE}>
@@ -611,6 +696,29 @@ export default function Settings() {
                               if (e.key === "Escape") setRenaming(null);
                             }}
                           />
+                        </Show>
+                        {/* v2.5.7（A3）：域列——徽标 + 点击改域（内联 select） */}
+                        <span class="shrink-0 text-[11px] px-1.5 py-0.5 rounded-full bg-surface-100 text-surface-500 cursor-pointer hover:bg-primary-50 hover:text-primary-600"
+                          title="点击修改标签域"
+                          onClick={() => setScopeEditing(scopeEditing() === tag.name ? null : tag.name)}
+                        >
+                          {SCOPE_LABEL[tag.scope ?? "general"] ?? "全域"}
+                        </span>
+                        <Show when={scopeEditing() === tag.name}>
+                          <select
+                            class="shrink-0 px-1 py-0.5 border border-surface-200 rounded text-xs bg-white"
+                            value={tag.scope ?? "general"}
+                            onChange={(e) => void handleSetScope(tag.name, e.currentTarget.value)}
+                            onBlur={() => setScopeEditing(null)}
+                            autofocus
+                          >
+                            <option value="general">全域</option>
+                            <option value="file">文件</option>
+                            <option value="product_set">产品集</option>
+                            <option value="client">客户</option>
+                            <option value="supplier">供应商</option>
+                            <option value="ledger">台账</option>
+                          </select>
                         </Show>
                         <span class="text-xs text-surface-400 shrink-0">{tag.count} 处</span>
                         <button
@@ -734,7 +842,11 @@ export default function Settings() {
                     </>
                   )}
                 </For>
+                </div>
               </div>
+              )}
+            </For>
+            </div>
             </Show>
 
             {/* v2.3.0：未定义标签（孤儿）治理区块 */}
@@ -939,6 +1051,8 @@ export default function Settings() {
               </button>
             </div>
             <div class="flex flex-wrap gap-2">
+              {/* v2.5.7（A2 笔记）：内建「笔记」徽标（不写 config，永不进入列表；仅作可视说明） */}
+              <SubfolderChip name={BUILTIN_NOTES_FOLDER} type="customer" index={-1} onRemove={() => {}} builtin />
               <For each={config().customer_subfolders ?? []}>
                 {(folder, index) => (
                   <SubfolderChip name={folder} type="customer" index={index()} onRemove={removeCustomerFolder} />
@@ -967,6 +1081,8 @@ export default function Settings() {
               </button>
             </div>
             <div class="flex flex-wrap gap-2">
+              {/* v2.5.7（A2 笔记）：内建「笔记」徽标（不写 config，永不进入列表；仅作可视说明） */}
+              <SubfolderChip name={BUILTIN_NOTES_FOLDER} type="doc" index={-1} onRemove={() => {}} builtin />
               <For each={config().doc_subfolders ?? []}>
                 {(folder, index) => (
                   <SubfolderChip name={folder} type="doc" index={index()} onRemove={removeDocFolder} />
@@ -995,6 +1111,8 @@ export default function Settings() {
               </button>
             </div>
             <div class="flex flex-wrap gap-2">
+              {/* v2.5.7（A2 笔记）：内建「笔记」徽标（不写 config，永不进入列表；仅作可视说明） */}
+              <SubfolderChip name={BUILTIN_NOTES_FOLDER} type="supplier" index={-1} onRemove={() => {}} builtin />
               <For each={config().supplier_subfolders ?? []}>
                 {(folder, index) => (
                   <SubfolderChip name={folder} type="supplier" index={index()} onRemove={removeSupplierFolder} />

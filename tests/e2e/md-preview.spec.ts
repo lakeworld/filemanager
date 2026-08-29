@@ -9,13 +9,17 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const INDEX_URL = 'file://' + ROOT.replace(/\\/g, '/') + '/out/renderer/index.html'
 
 /**
- * Markdown 预览 e2e（v2.5.1 F4）：
- * - 双击 .md → 渲染标题/列表/代码块（marked 懒加载 + .md-prose）
- * - `<script>` 注入不执行（configureMarked 转义为可见文本）
- * - 2MB 上限 → 引导「用系统程序打开」
- * - 相对路径图片 → img src 为 qihebox://（D22）
+ * 笔记编辑器 e2e（v2.5.7 A2，原 md-preview.spec 改写）：
+ * - 双击 .md → 打开 NoteEditorModal（Crepe 所见即所得编辑器）并渲染正文
+ * - 零写入底线：打开未编辑 → 文件字节/mtime 不变（核心断言）
+ * - 编辑 → 防抖串行保存 → 文件内容更新
+ * - `<img onerror>` 注入不执行（CSP 无；ProseMirror 不执行 raw HTML）
+ * - >2MB → tooLarge 三态（引导用系统程序打开）
+ * - 右键 .md 首项 label = 编辑笔记
+ *
+ * 注：Crepe 编辑器首次加载为懒加载 chunk（>=1 秒），断言超时放宽。
  */
-test.describe('Markdown 预览（v2.5.1 F4）', () => {
+test.describe('笔记编辑器（v2.5.7 A2）', () => {
   let app: ElectronApplication
   let page: Page
 
@@ -49,169 +53,134 @@ test.describe('Markdown 预览（v2.5.1 F4）', () => {
     }, url)
   }
 
-  const setup = async (mdContent: string): Promise<string> => {
-    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-md-e2e-'))
+  /** 建工作区 + 产品集 + 文档/说明书/<file>.md，返回 { wsDir, mdFile } */
+  const setup = async (mdContent: string, fileName = '说明.md'): Promise<{ wsDir: string; mdFile: string }> => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-note-e2e-'))
     await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
     await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: 'MD系列' }))
     const dir = path.join(wsDir, '产品集', 'MD系列', '文档', '说明书')
     await fsp.mkdir(dir, { recursive: true })
-    await fsp.writeFile(path.join(dir, '说明.md'), Buffer.from(mdContent))
-    return wsDir
+    const mdFile = path.join(dir, fileName)
+    await fsp.writeFile(mdFile, Buffer.from(mdContent))
+    return { wsDir, mdFile }
   }
 
-  test('双击 .md → 渲染标题/列表/代码块', async () => {
-    const md = [
-      '# 产品说明',
-      '',
-      '## 使用步骤',
-      '',
-      '- 第一步：安装',
-      '- 第二步：配置',
-      '',
-      '```ts',
-      'const x = 1',
-      '```',
-      '',
-      '> 引用一段话',
-    ].join('\n')
-    const wsDir = await setup(md)
+  /** 等待编辑器就绪（Crepe 懒加载 chunk + create()） */
+  const openEditor = async () => {
+    await page.getByText('说明.md').dblclick()
+    await expect(page.locator('[data-note-editor]')).toBeVisible({ timeout: 20000 })
+    // Crepe 编辑器内容区（ProseMirror contenteditable）——就绪后渲染正文
+    const editable = page.locator('[data-note-editor] [contenteditable="true"]').first()
+    await expect(editable).toBeVisible({ timeout: 20000 })
+    return editable
+  }
+
+  test('双击 .md → Crepe 编辑器渲染正文（懒加载可交互）', async () => {
+    const md = '# 产品说明\n\n## 使用步骤\n\n- 第一步：安装\n- 第二步：配置\n\n> 引用一段话'
+    const { wsDir } = await setup(md)
     try {
       await navigateTo('/files/doc/MD系列/说明书')
       await expect(page.getByText('说明.md')).toBeVisible({ timeout: 15000 })
-      await page.getByText('说明.md').dblclick()
-
-      // 渲染结果（.md-prose 内）
-      const prose = page.locator('.md-prose')
-      await expect(prose).toBeVisible({ timeout: 15000 })
-      await expect(prose.locator('h1')).toHaveText('产品说明')
-      await expect(prose.locator('h2')).toHaveText('使用步骤')
-      await expect(prose.locator('li')).toHaveCount(2)
-      await expect(prose.locator('pre code')).toContainText('const x = 1')
-      await expect(prose.locator('blockquote')).toContainText('引用一段话')
+      const editable = await openEditor()
+      await expect(editable).toContainText('产品说明', { timeout: 20000 })
+      await expect(editable).toContainText('使用步骤')
+      await expect(editable).toContainText('第一步')
     } finally {
       await fsp.rm(wsDir, { recursive: true, force: true })
     }
   })
 
-  test('<script> 注入不执行：转义为可见文本', async () => {
-    const md = '# 标题\n\n<script>window.__pwned = true</script>\n\n正文内容'
-    const wsDir = await setup(md)
+  test('零写入底线：打开未编辑 → 文件字节/mtime 不变', async () => {
+    const md = '# 零写入基线\n\n正文段落不变'
+    const { wsDir, mdFile } = await setup(md)
     try {
       await navigateTo('/files/doc/MD系列/说明书')
-      await page.getByText('说明.md').dblclick()
-      const prose = page.locator('.md-prose')
-      await expect(prose).toBeVisible({ timeout: 15000 })
-      // 无脚本执行
+      await expect(page.getByText('说明.md')).toBeVisible({ timeout: 15000 })
+      // 记录打开前字节 + mtime
+      const before = await fsp.stat(mdFile)
+      const beforeBytes = before.size
+      const beforeMtime = before.mtimeMs
+      const editable = await openEditor()
+      await expect(editable).toContainText('零写入基线', { timeout: 20000 })
+      // 等待足够长的防抖窗口（未编辑 → 不得触发任何写盘）
+      await page.waitForTimeout(2500)
+      const after = await fsp.stat(mdFile)
+      expect(after.size).toBe(beforeBytes)
+      expect(after.mtimeMs).toBe(beforeMtime)
+      // 关闭弹窗
+      await page.keyboard.press('Escape')
+      await page.waitForTimeout(1500)
+      const afterClose = await fsp.stat(mdFile)
+      expect(afterClose.size).toBe(beforeBytes)
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true })
+    }
+  })
+
+  test('编辑 → 防抖串行保存 → 磁盘内容更新', async () => {
+    const md = '# 初始标题\n\n初始正文'
+    const { wsDir, mdFile } = await setup(md)
+    try {
+      await navigateTo('/files/doc/MD系列/说明书')
+      await expect(page.getByText('说明.md')).toBeVisible({ timeout: 15000 })
+      const editable = await openEditor()
+      await expect(editable).toContainText('初始标题', { timeout: 20000 })
+      // 在正文末尾追加输入
+      await editable.click()
+      await editable.press('End')
+      await page.keyboard.type('——新增段落内容')
+      await page.waitForTimeout(2000) // 防抖 500ms 串行保存窗口
+      const content = await fsp.readFile(mdFile, 'utf-8')
+      expect(content).toContain('新增段落内容')
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true })
+    }
+  })
+
+  test('<img onerror> 注入不执行（ProseMirror 不执行 raw HTML）', async () => {
+    const md = '# 注入测试\n\n<img src="x" onerror="window.__pwned = true">'
+    const { wsDir } = await setup(md)
+    try {
+      await navigateTo('/files/doc/MD系列/说明书')
+      await expect(page.getByText('说明.md')).toBeVisible({ timeout: 15000 })
+      const editable = await openEditor()
+      await expect(editable).toContainText('注入测试', { timeout: 20000 })
+      await page.waitForTimeout(1000)
       const pwned = await page.evaluate(() => (window as any).__pwned === true)
       expect(pwned).toBe(false)
-      // 注入源文本以转义形式可见（&lt;script&gt;）
-      await expect(prose).toContainText('<script>window.__pwned = true</script>')
-      // 页面无真实 script 节点（除应用自身）
-      const scripts = await page.evaluate(() =>
-        Array.from(document.querySelectorAll('script')).filter((s) => s.textContent?.includes('__pwned')).length,
+      // 编辑器 DOM 不得执行注入 handler——即使 Crepe 渲染了 img 元素，onerror 属性也不会被保留执行
+      const injectedImgs = await page.evaluate(() =>
+        Array.from(document.querySelectorAll("img")).filter((i) => i.getAttribute("onerror")).length,
       )
-      expect(scripts).toBe(0)
+      expect(injectedImgs).toBe(0)
     } finally {
       await fsp.rm(wsDir, { recursive: true, force: true })
     }
   })
 
-  test('相对路径图片 → img src 为 qihebox://', async () => {
-    const md = '# 带图说明\n\n![示例](img/demo.png)'
-    const wsDir = await setup(md)
-    try {
-      // 放一张图（真实 1x1 PNG 字节；img 子目录先建）
-      const dir = path.join(wsDir, '产品集', 'MD系列', '文档', '说明书')
-      await fsp.mkdir(path.join(dir, 'img'), { recursive: true })
-      await fsp.writeFile(
-        path.join(dir, 'img', 'demo.png'),
-        Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'),
-      )
-      await navigateTo('/files/doc/MD系列/说明书')
-      await page.getByText('说明.md').dblclick()
-      const img = page.locator('.md-prose img')
-      await expect(img).toBeVisible({ timeout: 15000 })
-      const src = await img.getAttribute('src')
-      expect(src).toMatch(/^qihebox:\/\/file\//)
-    } finally {
-      await fsp.rm(wsDir, { recursive: true, force: true })
-    }
-  })
-
-  test('2MB 上限 → 引导「用系统程序打开」', async () => {
+  test('>2MB → tooLarge 引导「用系统程序打开」（不加载编辑器）', async () => {
     const big = '# 大文件\n' + 'x'.repeat(2 * 1024 * 1024)
-    const wsDir = await setup(big)
-    try {
-      await navigateTo('/files/doc/MD系列/说明书')
-      await page.getByText('说明.md').dblclick()
-      await expect(page.getByText('文档较大（超过 2MB），内嵌预览已跳过')).toBeVisible({ timeout: 15000 })
-      // exact：右上角「🗂 用系统程序打开」按钮不参与匹配
-      await expect(page.getByRole('button', { name: '用系统程序打开', exact: true })).toBeVisible()
-    } finally {
-      await fsp.rm(wsDir, { recursive: true, force: true })
-    }
-  })
-
-  /** 双文件工作区（快速切换用例用）：快.md 即时渲染，慢.md 正文较大拉长读取+解析 */
-  const setupTwo = async (quickContent: string, slowContent: string): Promise<string> => {
-    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-md-switch-'))
-    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
-    await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: 'MD切换' }))
-    const dir = path.join(wsDir, '产品集', 'MD切换', '文档', '说明书')
-    await fsp.mkdir(dir, { recursive: true })
-    await fsp.writeFile(path.join(dir, '快.md'), Buffer.from(quickContent))
-    await fsp.writeFile(path.join(dir, '慢.md'), Buffer.from(slowContent))
-    return wsDir
-  }
-
-  test('两个 md 快速切换：最终显示新文件，旧读取/解析结果不覆盖（v2.5.3 T7）', async () => {
-    // 慢.md 正文 ~600KB（未超 2MB 上限），read+parse 需数百 ms，可被中途关闭打断
-    const slowBody = Array.from({ length: 8000 }, (_, i) => `段落 ${i}：快速切换竞态验证文本内容。`).join('\n\n')
-    const wsDir = await setupTwo('# 快速文档\n\n快的内容', '# 慢速文档\n\n' + slowBody)
-    try {
-      await navigateTo('/files/doc/MD切换/说明书')
-      await expect(page.getByText('慢.md')).toBeVisible({ timeout: 15000 })
-
-      // 打开慢文件，骨架屏出现、加载未完成时立即关闭
-      await page.getByText('慢.md').dblclick()
-      await expect(page.locator('.skeleton').first()).toBeVisible({ timeout: 15000 })
-      await page.keyboard.press('Escape')
-      await expect(page.locator('.md-prose')).toHaveCount(0)
-
-      // 立即打开快文件——慢文件的旧读取/解析结果不得覆盖新文件
-      await page.getByText('快.md').dblclick()
-      const prose = page.locator('.md-prose')
-      await expect(prose).toBeVisible({ timeout: 15000 })
-      await expect(prose).toContainText('快速文档')
-      // 等待远超慢文件加载时长——旧结果若覆盖，此处会翻转为慢速文档
-      await page.waitForTimeout(4000)
-      await expect(page.locator('.md-prose')).toHaveCount(1)
-      await expect(page.locator('.md-prose')).toContainText('快速文档')
-      await expect(page.locator('.md-prose')).not.toContainText('慢速文档')
-    } finally {
-      await fsp.rm(wsDir, { recursive: true, force: true })
-    }
-  })
-
-  test('关闭后再次打开：不残留旧 HTML（v2.5.3 T7）', async () => {
-    const wsDir = await setup('# 唯一内容\n\n正文段落')
+    const { wsDir } = await setup(big)
     try {
       await navigateTo('/files/doc/MD系列/说明书')
       await expect(page.getByText('说明.md')).toBeVisible({ timeout: 15000 })
       await page.getByText('说明.md').dblclick()
-      const prose = page.locator('.md-prose')
-      await expect(prose).toBeVisible({ timeout: 15000 })
-      await expect(prose).toContainText('唯一内容')
+      await expect(page.getByText('文件过大（超过 2MB），无法在线编辑')).toBeVisible({ timeout: 20000 })
+      await expect(page.getByRole('button', { name: /用系统程序打开/ }).first()).toBeVisible()
+      // 未加载编辑器
+      await expect(page.locator('[data-note-editor] [contenteditable="true"]')).toHaveCount(0)
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true })
+    }
+  })
 
-      // 关闭后渲染结果整体卸载（无残留 DOM / 大字符串）
-      await page.keyboard.press('Escape')
-      await expect(page.locator('.md-prose')).toHaveCount(0)
-
-      // 再次打开：仅一份渲染结果，内容正确，无叠加/重复旧 HTML
-      await page.getByText('说明.md').dblclick()
-      await expect(page.locator('.md-prose')).toBeVisible({ timeout: 15000 })
-      await expect(page.locator('.md-prose')).toHaveCount(1)
-      await expect(page.locator('.md-prose')).toContainText('唯一内容')
+  test('右键 .md 首项 label = 编辑笔记', async () => {
+    const { wsDir } = await setup('# 右键\n\n正文')
+    try {
+      await navigateTo('/files/doc/MD系列/说明书')
+      await expect(page.getByText('说明.md')).toBeVisible({ timeout: 15000 })
+      await page.getByText('说明.md').click({ button: 'right' })
+      await expect(page.getByText('编辑笔记')).toBeVisible({ timeout: 10000 })
     } finally {
       await fsp.rm(wsDir, { recursive: true, force: true })
     }

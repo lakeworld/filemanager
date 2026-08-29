@@ -2,7 +2,10 @@
  * 入库单筛选工具栏（v2.5.5 B3 任务 C 筛选增强；入库无状态/客户/待办）：
  * 搜索（单据编号/供应商）+ 日期范围 / 金额范围 / 有无归档文件 / 视图（台账 | 未建档文件）。
  * 逻辑零改动（筛选组合在 filterUtils.ts 纯函数，本组件只透传信号）。
+ * v2.5.7（D2 表单控件统一）：日期两输入换 DatePicker（compact+ariaLabel），清空原生日期控件。
  */
+import DatePicker from "~/components/DatePicker";
+
 export default function InboundToolbar(props: {
   query: string;
   dateFrom: string;
@@ -19,7 +22,6 @@ export default function InboundToolbar(props: {
   onHasFile: (v: "" | "yes" | "no") => void;
   onViewMode: (v: "records" | "orphans") => void;
 }) {
-  const dateInputCls = "px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white";
   return (
     <div class="flex flex-col md:flex-row gap-2 mb-4 shrink-0 flex-wrap">
       <input
@@ -30,9 +32,9 @@ export default function InboundToolbar(props: {
         onInput={(e) => props.onQuery(e.currentTarget.value)}
       />
       <label class="text-xs text-surface-400 self-center shrink-0">日期</label>
-      <input type="date" class={dateInputCls} aria-label="起始日期" value={props.dateFrom} onInput={(e) => props.onDateFrom(e.currentTarget.value)} />
+      <DatePicker compact ariaLabel="起始日期" value={props.dateFrom} onChange={props.onDateFrom} />
       <span class="text-surface-400 self-center text-sm shrink-0">至</span>
-      <input type="date" class={dateInputCls} aria-label="结束日期" value={props.dateTo} onInput={(e) => props.onDateTo(e.currentTarget.value)} />
+      <DatePicker compact ariaLabel="结束日期" value={props.dateTo} onChange={props.onDateTo} />
       <label class="text-xs text-surface-400 self-center shrink-0">金额</label>
       <input
         type="number"

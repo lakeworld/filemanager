@@ -17,7 +17,7 @@ import fsp from 'node:fs/promises'
 import { pipeline, finished } from 'node:stream/promises'
 import { Transform, Writable } from 'node:stream'
 import zlib from 'node:zlib'
-import { isPathInsideWorkspaceReal, productSetFromFilePath, EXPORTS_DIR } from './paths'
+import { isPathInsideWorkspaceReal, productSetFromFilePath, EXPORTS_DIR, DOCS_DIR, BUILTIN_NOTES_SUBFOLDER } from './paths'
 import { resolveConflictName } from './naming'
 import { WorkspaceService } from './workspace'
 import type { ArchiveCompressRequest, ArchiveExtractRequest, ArchiveResult, ExportEntry } from '../../shared/types'
@@ -83,6 +83,8 @@ interface ZipSourceEntry {
 export interface CompressOpts {
   onProgress?: ArchiveProgressCb
   isCancelled?: ArchiveCancelCb
+  /** v2.5.7（A2 笔记）：跳过 <产品集>/文档/笔记/（整包「随包附带笔记」不勾选时） */
+  excludeNotes?: boolean
 }
 
 /** 压缩多个源到 zipPath（zipPath 须为可写的目标完整路径）。返回 {count, size} */
@@ -92,7 +94,7 @@ export async function compressToZip(
   opts: CompressOpts = {},
 ): Promise<{ count: number; size: number }> {
   if (!sources || sources.length === 0) throw new Error('没有选择要压缩的文件')
-  const entries = await expandCompressEntries(sources)
+  const entries = await expandCompressEntries(sources, opts)
   if (entries.length === 0) throw new Error('没有可压缩的文件')
 
   const out = fs.createWriteStream(zipPath, { flags: 'w', mode: 0o644 })
@@ -291,7 +293,7 @@ function makeCentralEntry(
 }
 
 /** 展开压缩源为条目列表：单目录 → dir/ 结构；多源 → 各自顶层平铺 */
-async function expandCompressEntries(sources: string[]): Promise<ZipSourceEntry[]> {
+async function expandCompressEntries(sources: string[], opts: CompressOpts = {}): Promise<ZipSourceEntry[]> {
   const out: ZipSourceEntry[] = []
   for (const raw of sources) {
     const p = raw.trim()
@@ -301,7 +303,7 @@ async function expandCompressEntries(sources: string[]): Promise<ZipSourceEntry[
     if (info.isDirectory()) {
       const base = path.basename(p)
       out.push({ absPath: p, entryName: `${base}/`, isDir: true })
-      await walkDir(p, `${base}`, out)
+      await walkDir(p, `${base}`, out, opts.excludeNotes)
     } else {
       out.push({ absPath: p, entryName: path.basename(p), isDir: false })
     }
@@ -309,7 +311,12 @@ async function expandCompressEntries(sources: string[]): Promise<ZipSourceEntry[
   return out
 }
 
-async function walkDir(dir: string, prefix: string, out: ZipSourceEntry[]): Promise<void> {
+async function walkDir(
+  dir: string,
+  prefix: string,
+  out: ZipSourceEntry[],
+  excludeNotes = false,
+): Promise<void> {
   let entries: fs.Dirent[]
   try {
     entries = await fsp.readdir(dir, { withFileTypes: true })
@@ -320,9 +327,13 @@ async function walkDir(dir: string, prefix: string, out: ZipSourceEntry[]): Prom
     if (e.name.startsWith('.')) continue
     const full = path.join(dir, e.name)
     const name = `${prefix}/${e.name}`
+    // v2.5.7（A2 笔记）：整包排除内建「笔记」——精确跳过 /文档/笔记/ 段（其他位置同名目录不受影响）
+    if (excludeNotes && e.isDirectory() && e.name === BUILTIN_NOTES_SUBFOLDER && name.endsWith(`/${DOCS_DIR}/${BUILTIN_NOTES_SUBFOLDER}`)) {
+      continue
+    }
     if (e.isDirectory()) {
       out.push({ absPath: full, entryName: `${name}/`, isDir: true })
-      await walkDir(full, name, out)
+      await walkDir(full, name, out, excludeNotes)
     } else if (e.isFile()) {
       out.push({ absPath: full, entryName: name, isDir: false })
     }
@@ -630,6 +641,7 @@ export class ArchiveService {
         const { count, size } = await compressToZip(req.paths, zipPath, {
           onProgress: opts.onProgress,
           isCancelled: opts.isCancelled,
+          excludeNotes: req.excludeNotes === true,
         })
         return { path: zipPath, count, size }
       } catch (err) {

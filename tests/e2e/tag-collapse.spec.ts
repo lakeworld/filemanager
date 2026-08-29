@@ -78,7 +78,8 @@ test.describe('设置页标签树折叠', () => {
     await openSettings()
     // 在设置页顶部表单选择父级新建子标签（表单入口：「作为 折叠父 的子标签」）
     await page.getByPlaceholder('标签名称').fill('折叠孙')
-    await page.getByRole('combobox').selectOption('折叠父')
+    // v2.5.7（A3）：新建表单新增「标签域」选择（与「标签父级」两个 combobox）——显式按 label 定位父级
+    await page.getByLabel('标签父级').selectOption('折叠父')
     await page.getByRole('button', { name: '+ 添加' }).click()
 
     // 父级应自动展开：子标签行可见，且包含刚新建的「折叠孙」

@@ -43,16 +43,25 @@ export function matchesQuery(query: string, values: string[]): boolean {
   return values.some((v) => v.toLowerCase().includes(q));
 }
 
-/** 日期是否落在区间（YYYY-MM-DD 字典序即时间序，含两端） */
+/**
+ * 日期是否落在区间（YYYY-MM-DD 字典序即时间序，含两端）。
+ * v2.5.7（D2 表单控件统一）：from>to 倒挂时自动交换边界——[a,b] 与 [b,a] 视为同一区间，
+ * 与金额区间口径一致（防用户误填导致永远筛空）。
+ */
 export function inDateRange(date: string, from: string | undefined, to: string | undefined): boolean {
+  if (from && to && from > to) return inDateRange(date, to, from);
   if (from && date < from) return false;
   if (to && date > to) return false;
   return true;
 }
 
-/** 金额是否落在区间（含两端；非有限金额不命中——防 NaN 误入） */
+/**
+ * 金额是否落在区间（含两端；非有限金额不命中——防 NaN 误入）。
+ * v2.5.7（D2 表单控件统一）：min>max 倒挂时自动交换边界——与日期区间口径一致。
+ */
 export function inAmountRange(amount: number, min: number | undefined, max: number | undefined): boolean {
   if (!Number.isFinite(amount)) return false;
+  if (min !== undefined && max !== undefined && min > max) return inAmountRange(amount, max, min);
   if (min !== undefined && amount < min) return false;
   if (max !== undefined && amount > max) return false;
   return true;

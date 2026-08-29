@@ -175,3 +175,74 @@ describe('filterQuotes（v2.5.5 打磨：报价筛选对齐发票）', () => {
     expect(filterQuotes(rows, {}).map((r) => r.quotation_no)).toEqual(['Q-1', 'Q-2'])
   })
 })
+
+describe('区间倒挂归一化（v2.5.7 D2：from>to / min>max 自动交换边界）', () => {
+  it('inDateRange：from>to 倒挂与正序等价（[a,b] 与 [b,a] 同一区间）', () => {
+    // 边界命中：恰好等于交换后 from/to 都算在内
+    expect(inDateRange('2026-08-10', '2026-08-20', '2026-08-10')).toBe(true)
+    expect(inDateRange('2026-08-20', '2026-08-20', '2026-08-10')).toBe(true)
+    // 区间内
+    expect(inDateRange('2026-08-15', '2026-08-20', '2026-08-10')).toBe(true)
+    // 区间外
+    expect(inDateRange('2026-08-09', '2026-08-20', '2026-08-10')).toBe(false)
+    expect(inDateRange('2026-08-21', '2026-08-20', '2026-08-10')).toBe(false)
+    // 与正序完全一致
+    expect(inDateRange('2026-08-15', '2026-08-10', '2026-08-20')).toBe(inDateRange('2026-08-15', '2026-08-20', '2026-08-10'))
+  })
+
+  it('inAmountRange：min>max 倒挂与正序等价', () => {
+    // 边界命中
+    expect(inAmountRange(10, 20, 10)).toBe(true)
+    expect(inAmountRange(20, 20, 10)).toBe(true)
+    // 区间内
+    expect(inAmountRange(15, 20, 10)).toBe(true)
+    // 区间外
+    expect(inAmountRange(9, 20, 10)).toBe(false)
+    expect(inAmountRange(21, 20, 10)).toBe(false)
+    // 与正序完全一致；NaN 仍不命中
+    expect(inAmountRange(15, 10, 20)).toBe(inAmountRange(15, 20, 10))
+    expect(inAmountRange(NaN, 20, 10)).toBe(false)
+  })
+
+  it('单边 / 相等边界不受倒挂逻辑影响', () => {
+    // 单边：只有 from 或只有 to（无倒挂触发；边界判定原样）
+    expect(inDateRange('2026-08-15', '2026-08-20', undefined)).toBe(false)
+    expect(inDateRange('2026-08-25', undefined, '2026-08-20')).toBe(false)
+    expect(inDateRange('2026-08-25', '2026-08-20', undefined)).toBe(true)
+    expect(inDateRange('2026-08-10', undefined, '2026-08-20')).toBe(true)
+    expect(inAmountRange(30, 20, undefined)).toBe(true)
+    expect(inAmountRange(10, 20, undefined)).toBe(false)
+    // 相等边界（min===max）：倒挂判定不触发
+    expect(inDateRange('2026-08-15', '2026-08-15', '2026-08-15')).toBe(true)
+    expect(inAmountRange(15, 15, 15)).toBe(true)
+    expect(inAmountRange(14, 15, 15)).toBe(false)
+  })
+
+  it('组合筛选透传：倒挂日期/金额在 filterInvoices/filterQuotes 中生效', () => {
+    const q2 = (over: Partial<QuoteRecord> = {}): QuoteRecord => ({
+      quotation_no: 'Q-1',
+      date: '2026-08-15',
+      total_amount: 15,
+      status: '草稿',
+      file_path: '报价/2026/Q-1.pdf',
+      lines: [],
+      created_at: '2026-08-15T00:00:00.000Z',
+      updated_at: '2026-08-15T00:00:00.000Z',
+      ...over,
+    })
+    const rows = [
+      inv({ number: 'D-A', date: '2026-08-10', amount: 10 }),
+      inv({ number: 'D-B', date: '2026-08-15', amount: 15 }),
+      inv({ number: 'D-C', date: '2026-08-20', amount: 20 }),
+    ]
+    // 日期倒挂：from=08-20, to=08-10 → 区间 [08-10, 08-20]
+    expect(filterInvoices(rows, { dateFrom: '2026-08-20', dateTo: '2026-08-10' }).map((r) => r.number)).toEqual(['D-A', 'D-B', 'D-C'])
+    // 金额倒挂：min=20, max=10
+    expect(filterInvoices(rows, { amountMin: 20, amountMax: 10 }).map((r) => r.number)).toEqual(['D-A', 'D-B', 'D-C'])
+    expect(filterInvoices(rows, { amountMin: 14, amountMax: 16 }).map((r) => r.number)).toEqual(['D-B'])
+    expect(filterInvoices(rows, { amountMin: 16, amountMax: 14 }).map((r) => r.number)).toEqual(['D-B'])
+    // 报价页同样透传
+    const qrows = [q2()]
+    expect(filterQuotes(qrows, { dateFrom: '2026-09-01', dateTo: '2026-08-01' }).map((r) => r.quotation_no)).toEqual(['Q-1'])
+  })
+})

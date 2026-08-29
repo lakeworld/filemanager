@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import CreateClientModal from "./clients/CreateClientModal";
 import EditInfoModal from "./clients/EditInfoModal";
+import { withBuiltinNotes } from "~/constants/notes";
 import { tagList, loadTagDefs } from "~/stores/tags";
 import { currentWorkspace, workspaceConfig, loadWorkspaceConfig, productSets, loadProductSets } from "~/stores/workspace";
 import { customers, loadCustomers } from "~/stores/clients";
@@ -148,7 +149,8 @@ export default function Clients() {
 
   const detailCustomer = () => customers().find((c) => c.name === customerName());
 
-  const subFolders = () => workspaceConfig()?.customer_subfolders || ["报价", "合同", "沟通", "其他"];
+  // v2.5.7（A2 笔记）：客户文件区并入内建「笔记」（渲染层并集显示，不写 config）
+  const subFolders = () => withBuiltinNotes(workspaceConfig()?.customer_subfolders, ["报价", "合同", "沟通", "其他"]);
 
   // v2.3.0：已定义标签名集合（孤儿标签警告）
   const definedTagNames = () => new Set(tagList().flatMap((t) => [t.name, ...(t.children ?? [])]));

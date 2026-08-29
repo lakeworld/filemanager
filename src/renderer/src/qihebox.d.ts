@@ -111,6 +111,8 @@ interface QiheboxApi {
     copyFilesToClipboard: (paths: string[]) => Promise<unknown>
     showFilesInExplorer: (paths: string[]) => Promise<unknown>
     saveTextFile: (filePath: string, content: string) => Promise<unknown>
+    // v2.5.7（A2 笔记）：工作区相对路径原子文本写（2MB 上限）
+    writeText: (relPath: string, content: string) => Promise<unknown>
     createSubfolder: (req: unknown) => Promise<unknown>
     deleteSubfolder: (req: unknown) => Promise<unknown>
     ensureThumbnail: (filePath: string) => Promise<unknown>
@@ -155,7 +157,9 @@ interface QiheboxApi {
   csvTemplate: () => Promise<unknown>
   tags: {
     list: () => Promise<unknown>
-    create: (name: string, color: string, parentName?: string | null) => Promise<unknown>
+    // v2.5.7（A3）：scope 可选（缺省 undefined = general 全域）
+    create: (name: string, color: string, parentName?: string | null, scope?: string) => Promise<unknown>
+    setScope: (name: string, scope?: string) => Promise<unknown>
     setParent: (name: string, parentName: string | null) => Promise<unknown>
     setColor: (name: string, color: string) => Promise<unknown>
     rename: (oldName: string, newName: string) => Promise<unknown>
@@ -167,6 +171,10 @@ interface QiheboxApi {
     restore: (id: string) => Promise<unknown>
     purge: (id: string) => Promise<unknown>
     empty: () => Promise<unknown>
+  }
+  // v2.5.7（A2 笔记）：只读聚合
+  notes: {
+    listRecent: (entity?: { kind: string; name: string } | null, limit?: number) => Promise<unknown>
   }
   xlsx: {
     exportTemplate: (path: string) => Promise<unknown>

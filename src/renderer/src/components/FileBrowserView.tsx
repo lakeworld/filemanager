@@ -23,6 +23,7 @@ import { handleDragOut } from "~/utils/dragout";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import { useContextMenu } from "~/hooks/useContextMenu";
 import type { FileEntry } from "~/types";
+import { withBuiltinNotes, BUILTIN_NOTES_FOLDER } from "~/constants/notes";
 
 /** v2.4.7（PLAN §4.6）：文件区作用域——productSet = 产品集文件区；customer = 客户文件区；v2.4.9 S2：supplier = 供应商文件区 */
 export type FileBrowserScope = "productSet" | "customer" | "supplier";
@@ -49,6 +50,8 @@ export interface FileBrowserViewProps {
   subFolder: string;
   /** 产品集区的文件类型（图包/证书/文档）；scope=customer 时忽略 */
   fileType?: ProductSetFileType;
+  /** v2.5.7（A2 笔记）：深链文件名（?note=<文件名>）——文件列表就绪后直开 NoteEditorModal */
+  deepLinkNote?: string;
 }
 
 function formatBytes(bytes: number): string {
@@ -70,6 +73,15 @@ function formatBytes(bytes: number): string {
  */
 export default function FileBrowserView(props: FileBrowserViewProps) {
   const navigate = useNavigate();
+  // A1 守卫（v2.5.7）：文本选区非折叠才算「有正文被选择」——折叠（仅光标）不算，
+  // Ctrl+C 劫持只该作用于文件选中语义；选区在输入元素上的情况由 tag/isContentEditable 豁免先行拦截
+  const isCollapsedSelection = () => {
+    const sel = window.getSelection();
+    if (!sel) return true;
+    if (sel.rangeCount === 0) return true;
+    const r = sel.getRangeAt(0);
+    return r.collapsed;
+  };
   const [files, setFiles] = createSignal<FileEntry[]>([]);
   // v2.4.7（评审修复）：列表加载态与失败反馈——加载中显示 Loading 而非空态，失败展示错误横幅
   const [loading, setLoading] = createSignal(false);
@@ -78,6 +90,10 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   const [newFolderName, setNewFolderName] = createSignal("");
   // v2.4.7（评审修复）：新建子文件夹在途守卫——Enter/按钮连击防重复创建
   const [creatingFolder, setCreatingFolder] = createSignal(false);
+  // v2.5.7（A2 笔记）：新建笔记弹窗（文件区「笔记」视图工具栏入口 → 标题 → <标题>.md → 直开编辑）
+  const [showNewNote, setShowNewNote] = createSignal(false);
+  const [newNoteTitle, setNewNoteTitle] = createSignal("");
+  const [creatingNote, setCreatingNote] = createSignal(false);
   const [selectedFilePaths, setSelectedFilePaths] = createSignal<string[]>([]);
   // v2.4.4（T3）：标签筛选——渲染侧过滤，计数/全选作用于过滤结果，loadFiles 与选中/预览/右键行为零改动
   const [tagFilter, setTagFilter] = createSignal("");
@@ -124,15 +140,16 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     isCustomer() ? "客户文件" : isSupplier() ? "供应商文件" : fileType() === "image" ? "图包" : fileType() === "cert" ? "证书" : "文档";
   const subFolders = () =>
     isCustomer()
-      ? workspaceConfig()?.customer_subfolders || CUSTOMER_DEFAULT_SUBFOLDERS
+      ? withBuiltinNotes(workspaceConfig()?.customer_subfolders, CUSTOMER_DEFAULT_SUBFOLDERS)
       : isSupplier()
-        ? workspaceConfig()?.supplier_subfolders || SUPPLIER_DEFAULT_SUBFOLDERS
+        ? withBuiltinNotes(workspaceConfig()?.supplier_subfolders, SUPPLIER_DEFAULT_SUBFOLDERS)
         : fileType() === "image"
           ? workspaceConfig()?.image_subfolders || ["主图", "详情页", "白底图", "素材"]
           : fileType() === "cert"
             ? workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"]
             : // v2.5.1（F2）：文档子文件夹（config 缺省已由 loadConfig 合并，此处镜像兜底）
-              workspaceConfig()?.doc_subfolders || DOC_DEFAULT_SUBFOLDERS;
+              // v2.5.7（A2 笔记）：文档区并入内建「笔记」
+              withBuiltinNotes(workspaceConfig()?.doc_subfolders, DOC_DEFAULT_SUBFOLDERS);
 
   // v2.4.7：子文件夹路由路径按 scope 生成（customer → /files/customer/:name/:subFolder；v2.4.9 S2：supplier 同构）
   const folderPath = (sub: string) =>
@@ -178,6 +195,15 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       setSelectedFilePaths([]);
       loadFiles();
     }
+  });
+
+  // v2.5.7（A2 笔记）：深链——工作台点击笔记行 → /files/.../笔记?note=<文件名> → 文件就绪后直开编辑
+  createEffect(() => {
+    const target = props.deepLinkNote;
+    if (!target) return;
+    const list = files();
+    const hit = list.find((f) => f.name === target);
+    if (hit) handleOpenPreview(hit);
   });
 
   const toggleFileSelection = (file: FileEntry) => {
@@ -347,8 +373,15 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   onMount(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
-        const tag = (e.target as HTMLElement)?.tagName;
+        const target = e.target as HTMLElement | null;
+        // A1 守卫增强（v2.5.7）：输入类元素 / contenteditable（Crepe 编辑区等）/ 非折叠文本选区
+        // 一律放行——否则文件选中时窗口级 Ctrl+C 会把正文选区白拷成文件路径（根因 1「偶尔失效」）
+        const tag = target?.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA") return;
+        if (target?.isContentEditable) return;
+        // 有非折叠文本选区（正文被选中）→ 放行，让浏览器复制选区文本（根因 1 修复核心）；
+        // 折叠（仅光标/无选区）才轮到「文件选中 → 复制文件路径」语义
+        if (!isCollapsedSelection()) return;
         const paths = selectedFilePaths();
         if (paths.length > 0) {
           e.preventDefault();
@@ -423,6 +456,48 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       }
     } finally {
       setCreatingFolder(false);
+    }
+  };
+
+  /** v2.5.7（A2 笔记）：文件区「笔记」视图新建笔记——标题 → <标题>.md（重名加 _1/_2 序号）→ 直开编辑 */
+  const handleCreateNote = async () => {
+    if (creatingNote()) return;
+    const title = newNoteTitle().trim();
+    if (!title) return;
+    setCreatingNote(true);
+    try {
+      const ws = currentWorkspace()?.path;
+      if (!ws) {
+        showToast("error", "新建笔记失败", "未打开工作区");
+        return;
+      }
+      // 笔记物理路径（与 core/paths + notes.ts 三域一致）
+      const noteDir = isEntityScope()
+        ? `${isCustomer() ? "客户" : "供应商"}/${props.entity}/${BUILTIN_NOTES_FOLDER}`
+        : `产品集/${props.entity}/${fileType() === "doc" ? "文档" : fileType() === "cert" ? "证书" : "图包"}/${BUILTIN_NOTES_FOLDER}`;
+      // 重名冲突：<标题>.md → <标题>_1.md → …（照命名先例）
+      const titles = files().filter((f) => f.name.endsWith(".md")).map((f) => f.name);
+      let base = title.endsWith(".md") ? title : `${title}.md`;
+      let candidate = base;
+      let i = 1;
+      while (titles.includes(candidate)) {
+        candidate = base.replace(/\.md$/i, `_${i}.md`);
+        i++;
+      }
+      const r = await api.files.writeText(`${noteDir}/${candidate}`, `# ${title.replace(/\.md$/i, "")}\n\n`);
+      if (r.success) {
+        setShowNewNote(false);
+        setNewNoteTitle("");
+        // 新建后刷新列表并直开编辑（复用预览链路：md 文件 → NoteEditorModal 路由）
+        await loadFiles();
+        const created = files().find((f) => f.name === candidate);
+        if (created) handleOpenPreview(created);
+        showActionMessage(`已新建笔记 ${candidate}`);
+      } else {
+        showToast("error", "新建笔记失败", r.error ?? undefined);
+      }
+    } finally {
+      setCreatingNote(false);
     }
   };
 
@@ -507,6 +582,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         onNavigate={(sub) => navigate(folderPath(sub))}
         onDeleteSubfolder={handleDeleteSubfolder}
         onNewSubfolder={() => setShowNewFolder(true)}
+        onNewNote={() => setShowNewNote(true)}
       />
 
 
@@ -663,6 +739,29 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
             <div class="flex gap-3 justify-end">
               <button class="btn-secondary" onClick={() => setShowNewFolder(false)}>取消</button>
               <button class="btn-primary" onClick={handleCreateFolder} disabled={creatingFolder()}>创建</button>
+            </div>
+          </div>
+        </Modal>
+      </Show>
+
+      {/* v2.5.7（A2 笔记）：新建笔记弹窗（文件区「笔记」视图 —— 标题 → .md → 直开编辑） */}
+      <Show when={showNewNote()}>
+        <Modal open title="新建笔记" size="md" onClose={() => setShowNewNote(false)}>
+          <div class="p-6">
+            <input
+              type="text"
+              class="input w-full mb-4"
+              placeholder="笔记标题（保存为 .md）"
+              value={newNoteTitle()}
+              disabled={creatingNote()}
+              onInput={(e) => setNewNoteTitle(e.currentTarget.value)}
+              onKeyDown={(e) => e.key === "Enter" && void handleCreateNote()}
+            />
+            <div class="flex gap-3 justify-end">
+              <button class="btn-secondary" onClick={() => setShowNewNote(false)}>取消</button>
+              <button class="btn-primary" onClick={() => void handleCreateNote()} disabled={creatingNote() || !newNoteTitle().trim()}>
+                创建并编辑
+              </button>
             </div>
           </div>
         </Modal>

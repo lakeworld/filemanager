@@ -18,6 +18,7 @@ import {
   IMAGES_DIR,
   CERTS_DIR,
   DOCS_DIR,
+  BUILTIN_NOTES_SUBFOLDER,
   CUSTOMERS_DIR,
   SUPPLIERS_DIR,
   filterSlice,
@@ -249,6 +250,9 @@ export class WorkspaceService {
   ): Promise<WorkspaceConfig> {
     this.requireWorkspace()
     oldName = oldName.trim()
+    // v2.5.7（A2 笔记）：内建子文件夹不可改（含拒绝命名称其为内建名——防 config 写入内建名）
+    if (oldName === BUILTIN_NOTES_SUBFOLDER) throw new Error(`内建「${BUILTIN_NOTES_SUBFOLDER}」子文件夹不可重命名`)
+    if (newName.trim() === BUILTIN_NOTES_SUBFOLDER) throw new Error(`不能重命名为内建名「${BUILTIN_NOTES_SUBFOLDER}」`)
     // v2.4.2（S1）：新名称完整校验（拒绝分隔符 / .. / Windows 非法字符等）
     newName = assertSafeFolderName(newName, '子文件夹名称')
     if (!oldName || !newName) throw new Error('名称不能为空')

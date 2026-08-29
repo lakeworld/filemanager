@@ -29,6 +29,7 @@ export type {
   ArchiveProgress,
   ArchiveResult,
   ArchiveEventPayload,
+  NoteEntryInfo,
   ExportEntry,
   TagInfo,
   TrashEntry,

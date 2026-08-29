@@ -32,6 +32,8 @@ const SupplierDetail = lazy(() => import("./pages/SupplierDetail"));
 // v2.4.9 S3：报价单（列表 + 详情/编辑，均为独立懒加载页面）
 const Quotes = lazy(() => import("./pages/Quotes"));
 const QuoteDetail = lazy(() => import("./pages/QuoteDetail"));
+// v2.5.7（A2 笔记）：/notes 工作台（三域最近笔记聚合；独立懒加载，不占启动路径）
+const Notes = lazy(() => import("./pages/Notes"));
 
 function RootApp(props: RouteSectionProps) {
   // v2.5.4：注册全业务新建预填监听（PLAN-v2.5.4 §3.3；幂等，重复挂载不重复注册）
@@ -64,6 +66,8 @@ render(
       <Route path="/quotes" component={Quotes} />
       <Route path="/quotes/:no" component={QuoteDetail} />
       <Route path="/invoices" component={Invoices} />
+      {/* v2.5.7（A2 笔记）：/notes 工作台（侧边栏顶层 tab） */}
+      <Route path="/notes" component={Notes} />
       <Route path="/files/customer/:name/:subFolder" component={FileBrowser} />
       <Route path="/files/supplier/:name/:subFolder" component={FileBrowser} />
       <Route path="/files/:type/:productSet/:subFolder" component={FileBrowser} />
