@@ -262,6 +262,8 @@ export async function buildHelloPlugin(opts = {}) {
     target: 'node18',
     nodePaths: NODE_PATHS,
     external: externals.length > 0 ? externals : undefined,
+    // v2.5.7（F2a 构建 minify）：提示词/编排/契约不再以明文可读形态躺在包里（T1 逆向 IP 降低门槛）
+    minify: true,
     logLevel: 'silent',
     write: false,
   })
@@ -288,6 +290,9 @@ export async function buildHelloPlugin(opts = {}) {
       'solid-js/web': path.join(ROOT, 'node_modules/solid-js/web/dist/web.js'),
     },
     mainFields: ['browser', 'module', 'main'],
+    // v2.5.7（F2a 构建 minify）：渲染层同样压缩——叠加 F1b 去除提示词后，包内不再有
+    // 可直接照抄的明文业务逻辑（T1 逆向 IP 门槛抬高）
+    minify: true,
     logLevel: 'silent',
     write: false,
   })
