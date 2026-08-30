@@ -23,6 +23,7 @@ tests/e2e/cloud-ai-injection.spec.ts
 tests/e2e/fixtures/identify-mock/
 test-results/
 memory-soak-results/
+probe-results/
 crash-diag-results/
 playwright-report/
 playwright/.cache/
