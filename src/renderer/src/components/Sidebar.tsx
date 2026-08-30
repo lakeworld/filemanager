@@ -34,6 +34,13 @@ export default function Sidebar() {
 
   const groups: MenuGroup[] = [
     {
+      // v2.5.7（用户拍板）：笔记入口放侧边栏最左边（第一项）
+      title: "笔记",
+      items: [
+        { icon: "📝", label: "笔记", path: "/notes" },
+      ],
+    },
+    {
       title: "概览",
       items: [
         { icon: "📊", label: "仪表盘", path: "/" },
@@ -45,8 +52,6 @@ export default function Sidebar() {
         { icon: "📁", label: "产品集", path: "/product-sets" },
         { icon: "🖼️", label: "图包库", path: "/images" },
         { icon: "📜", label: "证书库", path: "/certs" },
-        // v2.5.7（A2 笔记）：侧边栏顶层「笔记」tab（图像/证书同级；工作台聚合三域笔记）
-        { icon: "📝", label: "笔记", path: "/notes" },
       ],
     },
     {
