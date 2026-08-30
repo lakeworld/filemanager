@@ -220,8 +220,9 @@ export interface SearchResult {
 
 // —— 标签 / 回收站 ——
 /** v2.5.7（A3）：标签业务域。undefined = general（全域可见——tags.json 零迁移）；
- *  笔记 = 文件 → file 域（枚举不含 note）。 */
-export type TagScope = 'general' | 'file' | 'product_set' | 'client' | 'supplier' | 'ledger'
+ *  笔记 = 文件 → file 域（枚举不含 note）。
+ *  2026-08-30 用户拍板：ledger 彻底拆分 → invoice（发票）/ quote（报价）；旧 ledger 值读时映射 general。 */
+export type TagScope = 'general' | 'file' | 'product_set' | 'client' | 'supplier' | 'invoice' | 'quote'
 
 export interface TagInfo {
   name: string

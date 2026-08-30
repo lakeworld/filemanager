@@ -327,14 +327,20 @@ export default function Settings() {
   const [scopeEditing, setScopeEditing] = createSignal<string | null>(null);
 
   // v2.5.7（A3）：域中文显示 + 分组顺序（域列/分组用；general = 全域）
+  // 2026-08-30 用户拍板：ledger 拆分 → invoice（发票）/ quote（报价）
   const SCOPE_LABEL: Record<string, string> = {
     general: "全域",
     file: "文件",
     product_set: "产品集",
     client: "客户",
     supplier: "供应商",
-    ledger: "台账",
+    invoice: "发票",
+    quote: "报价",
   };
+  /** 域下拉选项（新建/编辑共用，与 SCOPE_LABEL 同源，避免三处漂移） */
+  const SCOPE_OPTIONS: { value: string; label: string }[] = ["general", "file", "product_set", "client", "supplier", "invoice", "quote"].map(
+    (v) => ({ value: v, label: SCOPE_LABEL[v] }),
+  );
 
   const handleSetScope = async (name: string, scope: string) => {
     const r = await api.tags.setScope(name, scope === "general" ? undefined : scope);
@@ -346,7 +352,7 @@ export default function Settings() {
 
   /** v2.5.7（A3）：按域分组渲染序列——general 在前，其余按固定顺序 */
   const tagGroups = () => {
-    const order = ["general", "file", "product_set", "client", "supplier", "ledger"];
+    const order = ["general", "file", "product_set", "client", "supplier", "invoice", "quote"];
     const groups: { scope: string; label: string; tags: TagInfo[] }[] = [];
     for (const scope of order) {
       const list = tags().filter((t) => !t.parent && (t.scope ?? "general") === scope);
@@ -602,12 +608,9 @@ export default function Settings() {
                 value={newTagScope()}
                 onChange={(e) => setNewTagScope(e.currentTarget.value)}
               >
-                <option value="general">全域</option>
-                <option value="file">文件</option>
-                <option value="product_set">产品集</option>
-                <option value="client">客户</option>
-                <option value="supplier">供应商</option>
-                <option value="ledger">台账</option>
+                <For each={SCOPE_OPTIONS}>
+                  {(o) => <option value={o.value}>{o.label}</option>}
+                </For>
               </select>
               <div class="flex items-center gap-1">
                 <For each={PALETTE}>
@@ -712,12 +715,9 @@ export default function Settings() {
                             onBlur={() => setScopeEditing(null)}
                             autofocus
                           >
-                            <option value="general">全域</option>
-                            <option value="file">文件</option>
-                            <option value="product_set">产品集</option>
-                            <option value="client">客户</option>
-                            <option value="supplier">供应商</option>
-                            <option value="ledger">台账</option>
+                            <For each={SCOPE_OPTIONS}>
+                              {(o) => <option value={o.value}>{o.label}</option>}
+                            </For>
                           </select>
                         </Show>
                         <span class="text-xs text-surface-400 shrink-0">{tag.count} 处</span>

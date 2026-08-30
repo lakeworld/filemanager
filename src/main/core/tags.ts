@@ -58,6 +58,12 @@ function isInternalKey(name: string): boolean {
   return name === MIGRATED_BUILTIN_KEY
 }
 
+/** v2.5.7（用户拍板 2026-08-30）：标签域归一——ledger 已拆分，读/写都归到合法域（旧值→全域） */
+function normalizeScope(scope: TagScope | undefined): TagScope {
+  if (scope === 'ledger') return 'general'
+  return scope ?? 'general'
+}
+
 export class TagService {
   private refSources = new Map<string, TagReferenceSource>()
 
@@ -274,7 +280,8 @@ export class TagService {
         children: childrenOf.get(name) ?? [],
         builtin: !!def?.builtin,
         defined: !!def,
-        scope: def?.scope ?? 'general',
+        // v2.5.7（用户拍板 2026-08-30）：旧 ledger 域已拆分——读时映射全域（零迁移，旧标签可视可重归）
+        scope: normalizeScope(def?.scope),
       }
     }
 
@@ -357,7 +364,8 @@ export class TagService {
       }
       const def: TagDef = { color }
       if (parentName) def.parent = parentName
-      if (scope && scope !== 'general') def.scope = scope
+      const normalized = normalizeScope(scope)
+      if (normalized && normalized !== 'general') def.scope = normalized
       defs[name] = def
       markChanged()
     })
@@ -372,7 +380,10 @@ export class TagService {
     if (isInternalKey(name)) throw new Error('标签不存在')
     await this.mutateDefs(ws, (defs, markChanged) => {
       if (!defs[name]) throw new Error('标签不存在')
-      const next = scope && scope !== 'general' ? scope : undefined
+      // 写入语义：undefined/general/ledger(已拆) → 清字段（全域）；合法新域（invoice/quote…）才写。
+      // normalizeScope 的 general 兜底仅用于读取展示，写入时 general 必须清字段（否则 tags.json 漂移出 'general' 值）。
+      const raw = normalizeScope(scope)
+      const next = raw && raw !== 'general' ? raw : undefined
       if (defs[name].scope !== next) {
         if (next) defs[name].scope = next
         else delete defs[name].scope
