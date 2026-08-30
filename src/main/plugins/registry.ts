@@ -196,9 +196,14 @@ export class PluginRegistry {
       return
     }
     // 缺主进程入口（PLAN §1.4 broken 三要素之一；激活必然经 main/index.js）
-    if (!fs.existsSync(path.join(this.root, dir, PKG_DIR, MAIN_ENTRY))) {
-      this.addBroken(dir, false, `缺主进程入口：pkg/main/index.js 不存在`)
-      return
+    // v2.5.7（F5b）：加密官方插件（manifest.encryption）允许 main/index.js.enc（loader 内存解密加载）
+    const mainFile = path.join(this.root, dir, PKG_DIR, MAIN_ENTRY)
+    if (!fs.existsSync(mainFile)) {
+      const encAllowed = !!manifest.encryption && fs.existsSync(mainFile + '.enc')
+      if (!encAllowed) {
+        this.addBroken(dir, false, `缺主进程入口：pkg/main/index.js 不存在`)
+        return
+      }
     }
     // minHostVersion：宿主产品版本须 ≥ 声明值（validateManifest 只校验格式，比对在登记期）
     if (manifest.minHostVersion && !versionAtLeast(this.hostVersion, manifest.minHostVersion)) {

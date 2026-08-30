@@ -14,6 +14,7 @@ import { packQbox, buildHelloPlugin } from '../../scripts/build-hello-plugin.mjs
 import { extractZip } from '../../src/main/core/archive'
 import { validateManifest } from '../../src/plugins/types'
 import fsp from 'node:fs/promises'
+import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { pathToFileURL } from 'node:url'
@@ -191,3 +192,57 @@ describe('buildHelloPlugin（fixture 全流程 → .qbox）', () => {
     await expect(buildHelloPlugin({ srcDir: await makeFixtureSrc({ manifest: 'not-json' }), outDir: await tmpOut(), log: () => {} })).rejects.toThrow('不是合法 JSON')
   })
 })
+
+describe('buildHelloPlugin --encrypt（F5b 加密构建）', () => {
+  it('密文 .enc 代替明文，manifest 注入 encryption 块，密钥落盘 600 + 密文 sha256 返回', async () => {
+    const srcDir = await makeFixtureSrc()
+    const outDir = await tmpOut()
+    const logs: unknown[] = []
+    const { outPath, files, keyHex, cipherHashes } = await buildHelloPlugin({
+      srcDir,
+      outDir,
+      encrypt: true,
+      entitlement: 'login',
+      log: (...a) => logs.push(a),
+    })
+
+    // 包内：明文 JS 缺失、加密版存在、manifest 含 encryption
+    expect(files.sort()).toEqual(['main/index.js.enc', 'manifest.json', 'renderer/Main.js.enc'])
+    const extracted = path.join(await tmpOut(), 'pkg')
+    await extractZip(outPath, extracted)
+    expect(fsExists(path.join(extracted, 'main', 'index.js'))).toBe(false)
+    expect(fsExists(path.join(extracted, 'main', 'index.js.enc'))).toBe(true)
+    expect(fsExists(path.join(extracted, 'renderer', 'Main.js.enc'))).toBe(true)
+
+    const manifest = JSON.parse(await fsp.readFile(path.join(extracted, 'manifest.json'), 'utf8'))
+    expect(manifest.encryption).toEqual({ algo: 'aes-256-gcm', keyId: expect.any(String), entitlement: 'login' })
+    // 宿主登记期校验（新增 encryption 字段）通过
+    const r = validateManifest(manifest)
+    expect(r.ok).toBe(true)
+
+    // 密钥：返回 hex + 密文 sha256 对齐（长度 64 hex）
+    expect(keyHex).toMatch(/^[0-9a-f]{64}$/)
+    expect(cipherHashes.length).toBe(2) // main + renderer
+    for (const h of cipherHashes) expect(h.sha256).toMatch(/^[0-9a-f]{64}$/)
+
+    // 密文可用宿主解密模块往返（关键：构建格式与运行时 decryptEnc 双端一致）
+    const { decryptEnc } = await import('../../src/main/plugins/encryption')
+    const mainEnc = await fsp.readFile(path.join(extracted, 'main', 'index.js.enc'))
+    const dec = decryptEnc(mainEnc, keyHex!)
+    expect(dec).not.toBeNull()
+    // 明文是 CJS bundle（module.exports）
+    expect(dec!.toString('utf8')).toContain('module.exports')
+    // 密文本身不含明文特征
+    expect(mainEnc.toString('utf8')).not.toContain('module.exports')
+  })
+
+  it('非法 entitlement 报错（fail-fast，防误构付费插件为 login）', async () => {
+    await expect(
+      buildHelloPlugin({ srcDir: await makeFixtureSrc(), outDir: await tmpOut(), encrypt: true, entitlement: 'free', log: () => {} }),
+    ).rejects.toThrow('--entitlement 仅支持 login/subscription')
+  })
+})
+
+function fsExists(p: string): boolean {
+  return fs.existsSync(p)
+}

@@ -10,9 +10,13 @@
  */
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import fsp from 'node:fs/promises'
+import crypto from 'node:crypto'
+import Module from 'node:module'
 import type { PluginHost, PluginManifest, PluginRegistration } from '../../plugins/types'
 import type { PluginHostInstance } from './host'
 import { PKG_DIR, MAIN_ENTRY, CIRCUIT_BROKEN_PREFIX, type PluginRegistry } from './registry'
+import { getPluginKey, decryptEnc } from './encryption'
 
 /** 熔断阈值：握手/调用连续失败 3 次 → 自动 broken（PLUGIN.md §2.3.2） */
 export const BREAK_THRESHOLD = 3
@@ -53,6 +57,16 @@ function validTimeoutMs(value: unknown): number | undefined {
   return Number.isInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : undefined
 }
 
+/** 文件 sha256（hex）。读取失败 → 空串（取钥端点只在有值时校验，未登记 sha 的旧登记放行）。 */
+async function sha256Hex(file: string): Promise<string> {
+  try {
+    const b = await fsp.readFile(file)
+    return crypto.createHash('sha256').update(b).digest('hex')
+  } catch {
+    return ''
+  }
+}
+
 export interface LoaderOptions {
   registry: PluginRegistry
   /** userData/plugins 根（加载 userData/plugins/<id>/pkg/main/index.js） */
@@ -64,6 +78,12 @@ export interface LoaderOptions {
   importer?: (url: string) => Promise<unknown>
   /** activate(host) 握手上限；测试可注入短值，缺省读环境变量或 15 秒默认值。 */
   activateTimeoutMs?: number
+  /** 官方加密插件取钥依赖（v2.5.7 线程 F5b）：装配层注入 baseUrl/getToken/cacheDir/log */
+  keyDeps?: {
+    baseUrl: string
+    getToken: () => string | null
+    cacheDir: string
+  }
 }
 
 interface Runtime {
@@ -84,6 +104,7 @@ export class PluginLoader {
   private log: (level: 'info' | 'warn' | 'error', msg: string) => void
   private importer: (url: string) => Promise<unknown>
   private activateTimeoutMs: number
+  private keyDeps: LoaderOptions['keyDeps']
   private runtimes = new Map<string, Runtime>()
   /** 状态变化（熔断自动 broken 等）→ ipc 层广播 plugins:changed */
   onChanged?: () => void
@@ -98,6 +119,22 @@ export class PluginLoader {
       validTimeoutMs(opts.activateTimeoutMs) ??
       validTimeoutMs(process.env.QIHEBOX_PLUGIN_ACTIVATE_TIMEOUT_MS) ??
       DEFAULT_ACTIVATE_TIMEOUT_MS
+    this.keyDeps = opts.keyDeps
+  }
+
+  /**
+   * CJS bundle 内存编译（线程 F5b）：与 node 动态 import(CJS) 语义一致（m.exports 即 module.exports）。
+   * external（electron/canvas/utf-8-validate/bufferutil）解析：electron 由 Electron 运行时内建拦截；
+   * 其余走 m.paths（Module._nodeModulePaths 指向包/宿主 node_modules）。明文不落盘。
+   */
+  private compileInMemory(id: string, code: string): { exports: Record<string, unknown> } {
+    const mainFile = path.join(this.root, id, PKG_DIR, MAIN_ENTRY)
+    const m = new Module(mainFile, undefined)
+    m.filename = mainFile
+    m.id = mainFile
+    m.paths = Module._nodeModulePaths(path.dirname(mainFile))
+    m._compile(code, mainFile)
+    return m
   }
 
   // —— 惰性激活入口（IPC 首达 / onView / onCommand 统一经此；activation 事件经 onHostEvent / onStartupFinished）——
@@ -160,7 +197,34 @@ export class PluginLoader {
     let created: PluginHostInstance | null = null
     try {
       const url = pathToFileURL(path.join(this.root, id, PKG_DIR, MAIN_ENTRY)).href
-      const mod = (await this.importer(url)) as Record<string, unknown> | undefined
+      // v2.5.7（线程 F5b）：加密插件（manifest.encryption 存在）→ 取钥 + 内存解密 + Module._compile，
+      // 明文不落盘。非加密插件走既有 importer（明文包不受影响）。
+      const mainFile = path.join(this.root, id, PKG_DIR, MAIN_ENTRY)
+      const encFile = mainFile + '.enc'
+      let mod: Record<string, unknown> | undefined
+      if (entry.manifest.encryption && this.keyDeps) {
+        const keyHex = await getPluginKey(
+          { ...this.keyDeps, log: this.log },
+          entry.manifest,
+          await sha256Hex(encFile).catch(() => ''),
+        )
+        if (keyHex) {
+          const enc = await fsp.readFile(encFile).catch(() => null)
+          const code = enc ? decryptEnc(enc, keyHex) : null
+          if (code) {
+            const lm = this.compileInMemory(id, code.toString('utf8'))
+            mod = lm.exports
+            if (typeof mod?.activate !== 'function') mod = undefined
+          }
+        }
+        if (!mod) {
+          // 取钥失败/解密失败 → 拒绝加载（fail-closed；锁云端插件入口）
+          this.log('error', `加密插件加载失败（${id}@${entry.manifest.version}）：密钥不可用或解密失败`)
+          throw new Error('加密插件密钥不可用或解密失败')
+        }
+      } else {
+        mod = (await this.importer(url)) as Record<string, unknown> | undefined
+      }
       // CJS 包（hello 构建产物）经 import() 的 default 即 module.exports；ESM 为命名导出 activate——两者都取
       const activate = mod?.activate ?? (mod?.default as Record<string, unknown> | undefined)?.activate
       if (typeof activate !== 'function') {

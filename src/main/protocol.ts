@@ -19,9 +19,13 @@ import fsp from 'node:fs/promises'
 import fs from 'node:fs'
 import { Readable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
+import crypto from 'node:crypto'
 import { BoxService } from './core'
 import { mimeTypeForPath } from './core/paths'
 import { log } from './log'
+import { getPluginKey, decryptEnc } from './plugins/encryption'
+import type { SecretStore } from './plugins/encryption'
+import type { PluginManifest } from '../plugins/types'
 
 export function workspaceFileUrl(filePath: string): string {
   const encoded = Buffer.from(filePath, 'utf-8').toString('base64url')
@@ -187,10 +191,28 @@ async function serveFile(resolved: string, request: Request, extraHeaders?: Reco
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers })
 }
 
+/** 取钥防调包：本地密文文件 sha256（hex）。读取失败 → 空串。 */
+async function sha256Hex(file: string): Promise<string> {
+  try {
+    const b = await fsp.readFile(file)
+    return crypto.createHash('sha256').update(b).digest('hex')
+  } catch {
+    return ''
+  }
+}
+
 export function registerQiheboxProtocol(
   box: BoxService,
   getThumbsRoot?: () => string,
   getPluginsRoot?: () => string,
+  // v2.5.7（F5b）：官方加密插件渲染层解密。装配层注入取钥依赖 + 插件 manifest 读取。
+  encryptionDeps?: {
+    baseUrl: string
+    getToken: () => string | null
+    cacheDir: string
+    readManifest: (pluginId: string) => PluginManifest | null
+    secretStore?: SecretStore
+  },
 ): void {
   protocol.handle('qihebox', async (request) => {
     try {
@@ -213,6 +235,37 @@ export function registerQiheboxProtocol(
           return new Response('invalid plugin url', { status: 400 })
         }
         const pkgRoot = path.join(getPluginsRoot?.() ?? pluginsRootFallback(), parsed.id, 'pkg')
+        // v2.5.7（F5b）：加密官方插件渲染层——manifest.encryption 存在时对 JS 模块走内存解密
+        // （明文不落盘）；CSS/JSON/HTML 等 assets 保持明文（第三方运行时 assets 不在加密范围，PLAN F5 §72）。
+        if (encryptionDeps && /\.js$/i.test(parsed.relPath)) {
+          const manifest = encryptionDeps.readManifest(parsed.id)
+          if (manifest?.encryption) {
+            const encAsset = await resolvePluginAsset(pkgRoot, parsed.relPath + '.enc')
+            if (encAsset) {
+              const keyHex = await getPluginKey(
+                { ...encryptionDeps, log: (lv, m) => void log(lv, m) },
+                manifest,
+                await sha256Hex(encAsset),
+              )
+              if (keyHex) {
+                const encBuf = await fsp.readFile(encAsset).catch(() => null)
+                const dec = encBuf ? decryptEnc(encBuf, keyHex) : null
+                if (dec) {
+                  const headers: Record<string, string> = {
+                    'Access-Control-Allow-Origin': '*',
+                    'Cache-Control': 'no-store',
+                    'Content-Security-Policy': PLUGIN_CSP,
+                    'Content-Type': 'text/javascript; charset=utf-8',
+                    'Content-Length': String(dec.length),
+                  }
+                  return new Response(dec, { status: 200, headers })
+                }
+              }
+            }
+            // 取钥失败/解密失败：不静默回退明文（明文不存在会 404）——fail-closed
+            void log('error', `[protocol] 加密插件渲染层解密失败或密钥不可用（${parsed.id}）`)
+          }
+        }
         const resolved = await resolvePluginAsset(pkgRoot, parsed.relPath)
         if (!resolved) {
           void log('error', `[protocol] plugin asset not found or outside package: ${request.url}`)
