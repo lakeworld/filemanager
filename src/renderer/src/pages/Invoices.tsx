@@ -30,6 +30,7 @@ import { Show, For, createSignal, createEffect, onCleanup } from "solid-js";
 import { useSearchParams, useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { currentWorkspace, productSets, loadProductSets } from "~/stores/workspace";
+import { accountStatus } from "~/stores/account";
 // v2.4.7：关联客户下拉消费 clients store（单一数据源，与 Clients 页同源；PLAN §6.5）
 import { customers, loadCustomers } from "~/stores/clients";
 // v2.4.9 S2：供应商下拉（入库单供应商选择，选项来自 suppliers store）
@@ -528,11 +529,16 @@ export default function Invoices() {
     else showToast("error", "导出失败", r.error || "未知错误");
   };
   // v2.5.5 打磨：批量 AI 识别按钮随插件命令浮现（com.qihe.cloud enabled + invoice.identifyFiles 注册才显示）
+  // v2.5.7（F1b 收口/用户拍板）：识别必须登录启禾云账号才能用——未登录 → 按钮置灰 + 点击引导登录
   const batchIdentifyAvailable = () =>
-    pluginGlobalCommands().some((c) => c.commandId === "invoice.identifyFiles");
+    pluginGlobalCommands().some((c) => c.commandId === "invoice.identifyFiles") && accountStatus().loggedIn === true;
 
   /** 批量 AI 识别（≤10）：B4 接线——打开工作区文件多选面板（T0 定案：不用宿主 dialog，面板返回 paths） */
   const handleBatchIdentify = () => {
+    if (accountStatus().loggedIn !== true) {
+      showToast("error", "批量识别不可用", "请先登录启禾云账号（AI 识别随账号权益计费）");
+      return;
+    }
     const cmd = pluginGlobalCommands().find((c) => c.commandId === "invoice.identifyFiles");
     if (!cmd) {
       showToast("error", "批量识别不可用", "未安装/未启用 com.qihe.cloud 插件（发票批量识别命令）");
