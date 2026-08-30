@@ -536,7 +536,7 @@ export default function Invoices() {
   /** 批量 AI 识别（≤10）：B4 接线——打开工作区文件多选面板（T0 定案：不用宿主 dialog，面板返回 paths） */
   const handleBatchIdentify = () => {
     if (accountStatus().loggedIn !== true) {
-      showToast("error", "批量识别不可用", "请先登录启禾云账号（AI 识别随账号权益计费）");
+      showToast("error", "批量识别不可用", "请先登录启禾云账号后再试");
       return;
     }
     const cmd = pluginGlobalCommands().find((c) => c.commandId === "invoice.identifyFiles");
