@@ -374,11 +374,16 @@ describe('标签域 scope（v2.5.7 A3）', () => {
     await box.workspace.create(ws)
     await box.tags.create('文件标', '#111111', null, 'file')
     await box.tags.create('客户标', '#222222', null, 'client')
+    await box.tags.create('发票标', '#444444', null, 'invoice')
+    await box.tags.create('报价标', '#555555', null, 'quote')
     await box.tags.create('全域标', '#333333')
     await box.metadata.update({ file_path: metaPath(ws), tags: ['文件标'] }) // 避免孤儿
     const list = await box.tags.list()
     expect(list.find((t) => t.name === '文件标')?.scope).toBe('file')
     expect(list.find((t) => t.name === '客户标')?.scope).toBe('client')
+    // v2.5.7（用户拍板 2026-08-30）：ledger 拆分 → 发票/报价独立域
+    expect(list.find((t) => t.name === '发票标')?.scope).toBe('invoice')
+    expect(list.find((t) => t.name === '报价标')?.scope).toBe('quote')
     expect(list.find((t) => t.name === '全域标')?.scope).toBe('general')
   })
 
@@ -390,9 +395,17 @@ describe('标签域 scope（v2.5.7 A3）', () => {
     await box.tags.create('标A', '#111111', null, 'file')
     await box.tags.create('标B', '#222222')
     await box.metadata.update({ file_path: metaPath(ws), tags: ['标A', '标B'] })
+    // v2.5.7（用户拍板 2026-08-30）：ledger 已拆分——旧值写入归一为全域（general）
     await box.tags.setScope('标B', 'ledger')
     let list = await box.tags.list()
-    expect(list.find((t) => t.name === '标B')?.scope).toBe('ledger')
+    expect(list.find((t) => t.name === '标B')?.scope).toBe('general')
+    // 新域 invoice/quote 正常写入
+    await box.tags.setScope('标B', 'invoice')
+    list = await box.tags.list()
+    expect(list.find((t) => t.name === '标B')?.scope).toBe('invoice')
+    await box.tags.setScope('标B', 'quote')
+    list = await box.tags.list()
+    expect(list.find((t) => t.name === '标B')?.scope).toBe('quote')
     // 清除回 general
     await box.tags.setScope('标B', undefined)
     list = await box.tags.list()
