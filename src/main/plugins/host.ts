@@ -649,7 +649,14 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
             }
           }
           const fetchImpl = deps.cloudFetchImpl.fetchImpl ?? fetch
-          return fetchImpl(`${deps.cloudFetchImpl.baseUrl}${path}`, {
+          // v2.5.7（F4a 修复）：baseUrl 与 path 都以 /api 开头时会产生 /api/api 双段——
+          // resolveApiBase() 返回 `…/api`（供 account.login 拼 /collections/...）、而 cloudFetch path
+          // 以 /api/box/ 或 /api/ai/ 开头（协议要求）。拼接时剥掉 baseUrl 尾部 /api 一次，避免 401。
+          let fullUrl = `${deps.cloudFetchImpl.baseUrl}${path}`
+          if (path.startsWith('/api/') && deps.cloudFetchImpl.baseUrl.endsWith('/api')) {
+            fullUrl = `${deps.cloudFetchImpl.baseUrl.slice(0, -4)}${path}`
+          }
+          return fetchImpl(fullUrl, {
             method: typeof o.method === 'string' ? o.method : 'GET',
             headers,
             body,
