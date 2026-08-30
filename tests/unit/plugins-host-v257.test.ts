@@ -242,8 +242,29 @@ describe('host.account.cloudFetch（v2.5.7 F4a）', () => {
     expect(seen[0].init?.method).toBe('POST')
   })
 
-  it('未配置服务器地址（baseUrl=""）→ NO_SERVER', async () => {
+  it('baseUrl 以 /api 结尾 + path 以 /api/ 开头 → 双段剥除（防 /api/api 401）', async () => {
+    // 真实根因（2026-08-30 设备面板 401）：resolveApiBase() 返回 `…/api`（供 account.login 拼
+    // /collections/...），而 cloudFetch path 以 /api/box/ 开头 → 原先拼成 …/api/api/box/me 双段。
+    const seen: { url: string }[] = []
+    const fakeFetch: typeof fetch = (async (input: RequestInfo | URL) => {
+      seen.push({ url: String(input) })
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as typeof fetch
     const { deps } = await makeDeps({
+      accountAccess: true,
+      account: { getToken: () => 'jwt-x', isLoggedIn: () => true },
+      cloudFetchImpl: { baseUrl: 'https://api.example.com/api', fetchImpl: fakeFetch },
+    })
+    const inst = await createPluginHost(deps as never)
+    const h = inst.host as unknown as CloudHost
+    await h.account.cloudFetch('/api/box/me', {})
+    expect(seen).toHaveLength(1)
+    expect(seen[0].url).toBe('https://api.example.com/api/box/me')
+    // 不变式：URL 中 `/api/` 路径段只出现一次（baseUrl 尾 /api 已剥除，无 /api/api 双段）
+    expect(seen[0].url.match(/\/api\//g)).toHaveLength(1)
+  })
+
+  it('未配置服务器地址（baseUrl=""）→ NO_SERVER', async () => {    const { deps } = await makeDeps({
       accountAccess: true,
       account: { getToken: () => 'jwt', isLoggedIn: () => true },
       cloudFetchImpl: { baseUrl: '' },
