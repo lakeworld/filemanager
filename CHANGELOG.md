@@ -36,6 +36,18 @@
 - 验证：box 单测 909 全绿；三插件重建 + conformance 全绿（com.qihe.cloud@0.5.0）；qbox 解码零提示词残留、无 server Solid 标记
 - `关系:` 构建产物形态变化（插件包体积/可读性），宿主协议零变更
 
+### F5a/F5b 官方插件加密 + 服务器密钥分发（防逆向加固主体）
+
+- **spike 判定可行**（`docs/INTERNAL/spike-2026-08-30-插件加密内存解密.md`）：两路 PoC（CJS `Module._compile` 内存编译 / 协议 handler 解密 renderer）+ 宿主内 e2e 608ms；生产 1.8MB bundle 解密+编译 2.95ms/次
+- **PluginManifest `encryption` 块**（algo/keyId/entitlement login|subscription）+ `validateManifest` 校验；PLUGIN.md §二§三 契约同步
+- **encryption.ts（NEW）**：密钥生命周期（7 天宽限缓存 / 在线取钥 erp `POST /api/box/plugin-key` / fail-closed）+ AES-256-GCM 解密 + 密文 sha256；纯 TS（secretStore 注入，装配层喂 safeStorage 封装）
+- **loader**：`manifest.encryption` 存在 → 取钥 → 读 `main/index.js.enc` → 解密 → `Module._compile` 内存编译激活（明文不落盘）
+- **protocol**：`qihebox://plugin` 渲染层 JS 内存解密 → text/javascript + CSP + no-store Response；assets 明文不在加密范围
+- **installer/registry**：加密包放行 `main/index.js.enc`（仅 encryption 声明时，防伪造 enc 走解密路径）
+- **构建**：`scripts/build-hello-plugin.mjs --encrypt [--entitlement] [--key-out]`——main/renderer JS 转 `.enc` 密文 + manifest 注入 encryption + 内容密钥 600 落盘 + 密文 sha256 打印（登记 erp 用）
+- 验证：box 单测 924（+15：encryption 11 / loader 加密 2 / 构建加密 2）；e2e-host f5-plugin-encryption 2/2 绿（真实取钥 mock + fail-closed 403）；三插件明文重建回归 + conformance 3/3
+- `关系:` 跨项目接触点 **PluginManifest.encryption 契约**（新）+ erp `POST /api/box/plugin-key`（新端点，box_plugin_keys 表）；解密逻辑公开（Kerckhoffs），安全依赖密钥服务端化 + 取钥审计
+
 ## v2.5.6 — 2026-08-26（已发布）：批量 AI 识别改「待确认区」交互
 
 - **识别结果先落「未建档」视图待确认区，用户确认后才归档**（用户拍板 2026-08-26）：批量识别完成不再弹「批量登记 N 张？」盲确认框，改为自动切到发票页「未建档」视图顶部常驻的 **AI 识别待确认区**——每行展示文件名 + 识别字段摘要（号码/金额/开票方→购买方/日期），字段不全标黄注明缺项；台账视图顶部有常驻提醒横幅「AI 识别待确认 N 条 → 去确认」。识别阶段零落盘，源文件原地不动
