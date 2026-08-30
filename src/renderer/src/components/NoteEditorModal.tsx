@@ -94,6 +94,26 @@ export default function NoteEditorModal(props: {
   let dirty = false;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let saveQueue: Promise<void> = Promise.resolve();
+  // v2.5.7（笔记前端优化）：保存状态徽标（saving/saved/error）
+  const [saveState, setSaveState] = createSignal<"saving" | "saved" | "error" | null>(null);
+  let savedAtTimer: ReturnType<typeof setTimeout> | null = null;
+  const fileName = () => {
+    const p = props.filePath;
+    const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+    return i >= 0 ? p.slice(i + 1) : p;
+  };
+  const saveLabel = () => {
+    const s = saveState();
+    if (s === "saving") return "编辑中…";
+    if (s === "error") return "保存失败";
+    if (s === "saved") return "已保存";
+    return "";
+  };
+  const markSaved = () => {
+    setSaveState("saved");
+    if (savedAtTimer) clearTimeout(savedAtTimer);
+    savedAtTimer = setTimeout(() => setSaveState(null), 3000);
+  };
   // 加载代际守卫（文件切换/卸载 → 旧续体作废）
   const seq = ++editorSeq;
 
@@ -121,6 +141,7 @@ export default function NoteEditorModal(props: {
       return;
     }
     dirty = false;
+    setSaveState("saving");
     saveQueue = saveQueue.then(async () => {
       const content = await serialize();
       const r = await api.files.writeText(relPath(), content);
@@ -128,9 +149,11 @@ export default function NoteEditorModal(props: {
         props.onSaved?.(props.filePath);
         // 保存成功后基线更新（防抖内二次编辑不重复判定）
         baselineMd = content;
+        markSaved();
       } else {
         // 写失败 → 恢复脏（下次触发重试）；不静默
         dirty = true;
+        setSaveState("error");
       }
     });
   };
@@ -209,6 +232,7 @@ export default function NoteEditorModal(props: {
       }
     }
     if (debounceTimer) clearTimeout(debounceTimer);
+    if (savedAtTimer) clearTimeout(savedAtTimer);
     editor?.destroy();
     editor = null;
     if (pendingContent !== null && props.saveRelPath) {
@@ -217,36 +241,78 @@ export default function NoteEditorModal(props: {
   });
 
   return (
-    <div class="relative h-[60vh] overflow-hidden" data-note-editor="">
-      <Show when={state() === "loading" || state() === "ready"}>
-        <div class="h-full w-full" ref={rootRef} />
-      </Show>
-      <Show when={state() === "loading"}>
-        <div
-          class="absolute inset-0 flex items-center justify-center bg-surface-100/60 text-sm text-surface-500"
-          data-testid="note-editor-loading"
-        >
-          加载编辑器…
+    <div class="relative flex h-full min-h-[42vh] flex-col overflow-hidden rounded-xl border border-surface-200 bg-surface-0" data-note-editor="">
+      {/* v2.5.7（用户拍板「笔记编辑前端优化」）：独立编辑顶栏——文件名 + 保存状态徽标 + 系统打开 */}
+      <div class="flex items-center justify-between gap-3 border-b border-surface-200 bg-surface-50 px-4 py-2">
+        <div class="min-w-0 flex items-center gap-2">
+          <span class="text-base">📝</span>
+          <span class="truncate text-sm font-medium text-surface-800">{fileName()}</span>
+          <Show when={saveState() !== null}>
+            <span
+              class={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+                saveState() === "saving"
+                  ? "bg-amber-100 text-amber-700"
+                  : saveState() === "error"
+                    ? "bg-danger-100 text-danger-600"
+                    : "bg-emerald-100 text-emerald-700"
+              }`}
+            >
+              <Show when={saveState() === "saving"}>
+                <span class="inline-block size-2 animate-pulse rounded-full bg-amber-500" />
+              </Show>
+              <Show when={saveState() === "error"}>
+                <span class="inline-block size-2 rounded-full bg-danger-500" />
+              </Show>
+              <Show when={saveState() === "saved"}>
+                <span class="inline-block size-2 rounded-full bg-emerald-500" />
+              </Show>
+              {saveLabel()}
+            </span>
+          </Show>
         </div>
-      </Show>
-      <Show when={state() === "tooLarge"}>
-        <div class="h-full flex flex-col items-center justify-center gap-3 bg-surface-100 rounded-xl text-surface-500">
-          <span class="text-4xl">📄</span>
-          <p class="text-sm">文件过大（超过 2MB），无法在线编辑</p>
-          <button class="btn-secondary text-sm" onClick={() => props.onOpenWithSystem?.(props.filePath)}>
-            🖥 用系统程序打开
+        <div class="flex shrink-0 items-center gap-2">
+          <span class="text-xs text-surface-400">编辑即保存 · Ctrl+S 立即保存</span>
+          <button
+            class="btn-secondary text-xs"
+            onClick={() => props.onOpenWithSystem?.(props.filePath)}
+            title="用系统程序打开"
+          >
+            🖥 用系统打开
           </button>
         </div>
-      </Show>
-      <Show when={state() === "error"}>
-        <div class="h-full flex flex-col items-center justify-center gap-3 bg-surface-100 rounded-xl text-surface-500">
-          <span class="text-4xl">⚠️</span>
-          <p class="text-sm">{errorMsg()}</p>
-          <button class="btn-secondary text-sm" onClick={() => props.onOpenWithSystem?.(props.filePath)}>
-            🖥 用系统程序打开
-          </button>
-        </div>
-      </Show>
+      </div>
+
+      <div class="min-h-0 flex-1">
+        <Show when={state() === "loading" || state() === "ready"}>
+          <div class="h-full w-full" ref={rootRef} />
+        </Show>
+        <Show when={state() === "loading"}>
+          <div
+            class="absolute inset-0 flex items-center justify-center bg-surface-100/60 text-sm text-surface-500"
+            data-testid="note-editor-loading"
+          >
+            加载编辑器…
+          </div>
+        </Show>
+        <Show when={state() === "tooLarge"}>
+          <div class="h-full flex flex-col items-center justify-center gap-3 bg-surface-100 rounded-xl text-surface-500">
+            <span class="text-4xl">📄</span>
+            <p class="text-sm">文件过大（超过 2MB），无法在线编辑</p>
+            <button class="btn-secondary text-sm" onClick={() => props.onOpenWithSystem?.(props.filePath)}>
+              🖥 用系统程序打开
+            </button>
+          </div>
+        </Show>
+        <Show when={state() === "error"}>
+          <div class="h-full flex flex-col items-center justify-center gap-3 bg-surface-100 rounded-xl text-surface-500">
+            <span class="text-4xl">⚠️</span>
+            <p class="text-sm">{errorMsg()}</p>
+            <button class="btn-secondary text-sm" onClick={() => props.onOpenWithSystem?.(props.filePath)}>
+              🖥 用系统程序打开
+            </button>
+          </div>
+        </Show>
+      </div>
     </div>
   );
 }
