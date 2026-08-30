@@ -109,8 +109,14 @@ export class PluginInstaller {
         this.log('info', `插件已覆盖安装：${manifest.id}@${manifest.version}（sha256=${sha256.slice(0, 12)}…，state/ 保留）`)
         return { id: manifest.id, sha256, size, replaced: true }
       }
-      if (!fs.existsSync(path.join(tmpDir, MAIN_ENTRY))) {
-        throw new Error('安装包缺少主进程入口 main/index.js')
+      const mainEntry = path.join(tmpDir, MAIN_ENTRY)
+      // v2.5.7（F5b）：加密官方插件（manifest.encryption 存在）入口为 main/index.js.enc，主进程经
+      // loader 内存解密加载；无加密块 = 明文插件，必须提供 main/index.js（防通过伪造 enc 走解密路径）。
+      if (!fs.existsSync(mainEntry)) {
+        const encEntryAllowed = !!manifest.encryption && fs.existsSync(mainEntry + '.enc')
+        if (!encEntryAllowed) {
+          throw new Error('安装包缺少主进程入口 main/index.js')
+        }
       }
 
       // 首次安装：移入 pkg/（同盘 rename，原子；state/ 由插件首次写入时创建）

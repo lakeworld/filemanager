@@ -124,6 +124,10 @@
 - PluginManifest.commands[].when?: { exts?: string[]; }
 - PluginManifest.description?: PluginText
 - PluginManifest.enabled: boolean
+- PluginManifest.encryption.algo: 'aes-256-gcm'
+- PluginManifest.encryption.entitlement: 'login' | 'subscription'
+- PluginManifest.encryption.keyId: string
+- PluginManifest.encryption?: { algo: 'aes-256-gcm'; keyId: string; entitlement: 'login' | 'subscription'; }
 - PluginManifest.homepage?: string
 - PluginManifest.icon?: string
 - PluginManifest.id: string

@@ -16,6 +16,7 @@ import { globalWorkspaceIndex, WorkspaceIndexCoordinator } from './core/indexCac
 import { SharpThumbnailService } from './thumbnail'
 import { registerIpc, handle, sendTo } from './ipc'
 import { registerQiheboxProtocol } from './protocol'
+import type { PluginManifest } from './plugins/types'
 import { registerPluginHost, type PluginHostHandle } from './plugins/ipc'
 import { createSettings } from './settings'
 import { AccountService } from './account'
@@ -625,7 +626,47 @@ app.whenReady().then(() => {
       void log('error', `IPC 注册失败（降级继续，窗口仍创建）: ${String(err)}`)
     }
     try {
-      registerQiheboxProtocol(svc, () => thumbs.currentThumbsRoot(), () => path.join(app.getPath('userData'), 'plugins'))
+      const pluginsRoot = () => path.join(app.getPath('userData'), 'plugins')
+      // v2.5.7（F5b）：加密插件渲染层解密——读 manifest 判定 encryption + 取钥依赖注入
+      const readPluginsManifest = (pluginId: string): PluginManifest | null => {
+        try {
+          const raw = fs.readFileSync(path.join(pluginsRoot(), pluginId, 'pkg', 'manifest.json'), 'utf8')
+          const parsed = JSON.parse(raw) as PluginManifest
+          return parsed && typeof parsed.id === 'string' ? parsed : null
+        } catch {
+          return null
+        }
+      }
+      registerQiheboxProtocol(
+        svc,
+        () => thumbs.currentThumbsRoot(),
+        pluginsRoot,
+        {
+          baseUrl: resolveApiBase(),
+          getToken: () => account.getToken(),
+          cacheDir: path.join(pluginsRoot(), 'keys'),
+          readManifest: readPluginsManifest,
+          secretStore: {
+            encrypt(buf: Buffer): string {
+              try {
+                if (safeStorage.isEncryptionAvailable()) return 'enc:' + safeStorage.encryptString(buf.toString('utf8')).toString('base64')
+              } catch {
+                /* 退化 */
+              }
+              return 'raw:' + buf.toString('base64')
+            },
+            decrypt(s: string): Buffer | null {
+              try {
+                if (s.startsWith('enc:')) return Buffer.from(safeStorage.decryptString(Buffer.from(s.slice(4), 'base64')), 'utf8')
+                if (s.startsWith('raw:')) return Buffer.from(s.slice(4), 'base64')
+              } catch {
+                return null
+              }
+              return null
+            },
+          },
+        },
+      )
     } catch (err) {
       void log('error', `协议注册失败（降级继续）: ${String(err)}`)
     }

@@ -374,6 +374,104 @@ describe('PluginLoader：惰性加载 / 握手 / 熔断', () => {
     expect(info.activationMs!).toBeGreaterThanOrEqual(0)
   })
 
+  it('加密插件：main/index.js.enc 内存解密 + _compile 激活（F5b），明文不落盘', async () => {
+    // 构造加密包：manifest 声明 encryption；main/index.js 以 .enc 密文存在，明文不存在
+    const keyHex = 'a'.repeat(64)
+    const { encryptForBundle } = await import('../../src/main/plugins/encryption')
+    const mainSrc = Buffer.from(OK_MAIN_JS)
+    const encBuf = encryptForBundle(mainSrc, keyHex)!
+    expect(encBuf).not.toBeNull()
+    const pkg = path.join(root, 'com.qihe.enc', PKG_DIR)
+    fs.mkdirSync(path.join(pkg, 'main'), { recursive: true })
+    fs.writeFileSync(
+      path.join(pkg, 'manifest.json'),
+      JSON.stringify(manifestFor('com.qihe.enc', { encryption: { algo: 'aes-256-gcm', keyId: 'k1', entitlement: 'login' } })),
+    )
+    fs.writeFileSync(path.join(pkg, 'main', 'index.js.enc'), encBuf)
+    // 明文 index.js 必须不存在（证明加载走解密而非明文回退）
+    expect(fs.existsSync(path.join(pkg, 'main', 'index.js'))).toBe(false)
+
+    const registry = makeRegistry()
+    // 取钥依赖：fake online fetch 返回该密钥 + fake secretStore（绕 safeStorage）
+    let fetchCalled = 0
+    const fetchImpl = async (_url: string, init?: RequestInit): Promise<Response> => {
+      fetchCalled++
+      const body = JSON.parse(init!.body as string)
+      expect(body.plugin_id).toBe('com.qihe.enc')
+      expect(body.cipher_sha256).toHaveLength(64) // 本地密文 sha256 上报（防调包比对）
+      return new Response(JSON.stringify({ code: 200, data: { key_hex: keyHex } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    const loader = new PluginLoader({
+      registry,
+      root,
+      createHost: makeCreateHost(new HostEventBus()),
+      log: () => {},
+      keyDeps: {
+        baseUrl: 'https://api.test.dev',
+        getToken: () => 'tok',
+        cacheDir: path.join(root, 'keys'),
+        secretStore: {
+          encrypt: (b) => 'enc:' + b.toString('base64'),
+          decrypt: (s) => (s.startsWith('enc:') ? Buffer.from(s.slice(4), 'base64') : null),
+        },
+      },
+    })
+    // 注入 fake fetch 到全局（encryption.getPluginKey 默认用全局 fetch）
+    const origGlobalFetch = (globalThis as unknown as { fetch: typeof fetch }).fetch
+    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = fetchImpl as unknown as typeof fetch
+    try {
+      const r1 = await loader.call('com.qihe.enc', 'echo', { encrypted: true })
+      expect(r1).toEqual({ pong: { encrypted: true } })
+      expect(g.__pluginAct).toBe(1)
+      expect(fetchCalled).toBe(1)
+      // 密文文件仍在，明文从未产生
+      expect(fs.existsSync(path.join(pkg, 'main', 'index.js.enc'))).toBe(true)
+      expect(fs.existsSync(path.join(pkg, 'main', 'index.js'))).toBe(false)
+      // 二次调用命中密钥缓存（不再取钥）
+      await loader.call('com.qihe.enc', 'echo', { again: true })
+      expect(fetchCalled).toBe(1)
+    } finally {
+      ;(globalThis as unknown as { fetch: typeof fetch }).fetch = origGlobalFetch
+    }
+  })
+
+  it('加密插件取钥失败 → fail-closed 拒绝激活（F5b）', async () => {
+    const keyHex = 'a'.repeat(64)
+    const { encryptForBundle } = await import('../../src/main/plugins/encryption')
+    const pkg = path.join(root, 'com.qihe.enc2', PKG_DIR)
+    fs.mkdirSync(path.join(pkg, 'main'), { recursive: true })
+    fs.writeFileSync(
+      path.join(pkg, 'manifest.json'),
+      JSON.stringify(manifestFor('com.qihe.enc2', { encryption: { algo: 'aes-256-gcm', keyId: 'k1', entitlement: 'login' } })),
+    )
+    fs.writeFileSync(path.join(pkg, 'main', 'index.js.enc'), encryptForBundle(Buffer.from(OK_MAIN_JS), keyHex)!)
+    const registry = makeRegistry()
+    // fake fetch 拒绝（403 TAMPERED 模拟调包拦截）
+    const fetchImpl = async (): Promise<Response> =>
+      new Response(JSON.stringify({ code: 'TAMPERED', message: 'hash mismatch' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    const origGlobalFetch = (globalThis as unknown as { fetch: typeof fetch }).fetch
+    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = fetchImpl as unknown as typeof fetch
+    const loader = new PluginLoader({
+      registry,
+      root,
+      createHost: makeCreateHost(new HostEventBus()),
+      log: () => {},
+      keyDeps: { baseUrl: 'https://api.test.dev', getToken: () => 'tok', cacheDir: path.join(root, 'keys') },
+    })
+    try {
+      await expect(loader.call('com.qihe.enc2', 'echo', {})).rejects.toThrow()
+      expect(g.__pluginAct).toBe(0) // 激活从未发生（beforeEach 重置后保持 0）
+    } finally {
+      ;(globalThis as unknown as { fetch: typeof fetch }).fetch = origGlobalFetch
+    }
+  })
+
   it('激活握手超时：测试注入短超时并导出默认契约', async () => {
     let resolveGate!: (value: unknown) => void
     g.__pluginActivationStarted = false

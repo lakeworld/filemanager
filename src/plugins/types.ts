@@ -85,6 +85,20 @@ export interface PluginManifest {
   /** 插件自身图标（管理页展示；pages[].icon 是菜单图标，两者不同） */
   icon?: string
   homepage?: string
+  /**
+   * 官方插件加密块（v2.5.7 线程 F5，跨项目接触点）：
+   * 存在 → 主进程 main/index.js 与渲染层 renderer/**.js 以密文 .enc 分发，
+   * 宿主按权益在线取钥（erp POST /api/box/plugin-key）+ safeStorage 缓存 + 内存解密加载，明文不落盘。
+   * 第三方明文插件不声明本块，加载路径不变（开放平台口径）。
+   */
+  encryption?: {
+    /** 加密算法（当前唯一 'aes-256-gcm'） */
+    algo: 'aes-256-gcm'
+    /** erp box_plugin_keys 登记的密钥版本号（构建期随机，每版本一钥） */
+    keyId: string
+    /** 取钥权益门槛：'login'（免费官方插件登录即给）| 'subscription'（付费插件需订阅生效） */
+    entitlement: 'login' | 'subscription'
+  }
 }
 
 /**
@@ -701,6 +715,20 @@ export function validateManifest(input: unknown): { ok: boolean; errors: string[
   }
   if (input.keywords !== undefined && (!Array.isArray(input.keywords) || !input.keywords.every((k) => typeof k === 'string'))) {
     errors.push('keywords 须为字符串数组')
+  }
+
+  // —— v2.5.7（F5b）：官方插件加密块（encryption）——
+  if (input.encryption !== undefined) {
+    const enc = input.encryption as Record<string, unknown>
+    if (typeof enc !== 'object' || enc === null) {
+      errors.push('encryption 须为对象')
+    } else {
+      if (enc.algo !== 'aes-256-gcm') errors.push("encryption.algo 仅支持 'aes-256-gcm'")
+      if (typeof enc.keyId !== 'string' || enc.keyId.length === 0) errors.push('encryption.keyId 须为非空字符串')
+      if (enc.entitlement !== 'login' && enc.entitlement !== 'subscription') {
+        errors.push("encryption.entitlement 仅支持 'login' / 'subscription'")
+      }
+    }
   }
 
   return { ok: errors.length === 0, errors }

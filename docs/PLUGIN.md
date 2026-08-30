@@ -62,6 +62,7 @@
 - **卸载**：删除 `pkg/` 与 `state/`；「禁用」两者都保留。
 - **渲染层加载**：插件 renderer 产物经 `qihebox://plugin/<id>/...` 协议 URL 动态 `import()`（访问才加载），响应携带 CSP 头（见 §六 规则 5）；**插件包自包含依赖**（solid-js 等打入自身产物），宿主不提供共享运行时。
 - **样式复用（v2.5.1 起）**：插件页面运行在同一渲染上下文，可引用本体编译进全局 CSS 的组件类（如 `btn-primary`、`.md-prose` Markdown 渲染样式类，以文档列名为准）；Tailwind purge 以产物实含为验收，插件不应假定未列名类的存在。
+- **官方插件加密（v2.5.7 起，F5）**：官方加密插件在 manifest 声明 `encryption` 块（见 §三），包内 `main/index.js` 与 `renderer/**.js` 以密文 `.enc` 存在（**无明文 JS**），布局 = `QHENC1` 魔数 + AES-256-GCM（iv 12B + tag 16B + body），算法 `aes-256-gcm`。宿主激活/页面加载时**在线取钥 + 内存解密**（`Module._compile` / 协议 Response），明文不落盘。密钥与权益（`login` 免费登录即给 / `subscription` 需订阅生效）由启禾云 `/api/box/plugin-key` 分发，取钥携带密文 sha256 在服务端比对（防调包）。第三方插件**不得**声明 `encryption` 块（明文开放平台口径）。
 
 ---
 
@@ -114,6 +115,13 @@ export interface PluginManifest {
   keywords?: string[]
   icon?: string                    // 插件自身图标（管理页展示）
   homepage?: string
+  /** 官方插件加密块（v2.5.7 起，F5）：存在 → main/renderer JS 以 .enc 密文分发，
+   *  宿主在线取钥 + 内存解密加载；第三方插件不得声明（明文开放平台口径） */
+  encryption?: {
+    algo: 'aes-256-gcm'          // 加密算法（当前唯一）
+    keyId: string                // erp box_plugin_keys 登记的密钥版本号（构建期随机，每版本一钥）
+    entitlement: 'login' | 'subscription' // 取钥权益门槛：免费登录即给 / 付费需订阅生效
+  }
 }
 ```
 
