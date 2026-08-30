@@ -7,7 +7,8 @@ export const BUILTIN_NOTES_FOLDER = "笔记";
 
 /** 把 config 子文件夹列表与内建「笔记」取并集（去重）：渲染层子文件夹栏/删除按钮统一的唯一真相源 */
 export function withBuiltinNotes(folders: string[] | undefined, fallback: string[]): string[] {
-  const list = [...(folders && folders.length > 0 ? folders : fallback)];
-  if (!list.includes(BUILTIN_NOTES_FOLDER)) list.push(BUILTIN_NOTES_FOLDER);
+  const list = [...(folders && folders.length > 0 ? folders : fallback)].filter((f) => f !== BUILTIN_NOTES_FOLDER);
+  // 用户拍板（2026-08-30）：笔记文件夹排最左（分类第一位）
+  list.unshift(BUILTIN_NOTES_FOLDER);
   return list;
 }
