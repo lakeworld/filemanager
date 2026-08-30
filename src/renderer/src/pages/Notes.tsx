@@ -127,7 +127,7 @@ export default function Notes() {
     <div class="p-6">
       <div class="flex items-center justify-between mb-6">
         <div>
-          <h1 class="text-2xl font-bold text-surface-900">笔记</h1>
+          <h1 class="text-2xl font-bold text-surface-900">笔记库</h1>
           <p class="text-surface-500 mt-1">三域最近笔记（产品集 / 客户 / 供应商；编辑即保存为 .md）</p>
         </div>
         <button class="btn-primary" onClick={() => setShowNew(true)}>
