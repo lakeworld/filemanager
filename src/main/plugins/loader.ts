@@ -16,7 +16,7 @@ import Module from 'node:module'
 import type { PluginHost, PluginManifest, PluginRegistration } from '../../plugins/types'
 import type { PluginHostInstance } from './host'
 import { PKG_DIR, MAIN_ENTRY, CIRCUIT_BROKEN_PREFIX, type PluginRegistry } from './registry'
-import { getPluginKey, decryptEnc } from './encryption'
+import { getPluginKey, decryptEnc, type KeyDeps } from './encryption'
 
 /** 熔断阈值：握手/调用连续失败 3 次 → 自动 broken（PLUGIN.md §2.3.2） */
 export const BREAK_THRESHOLD = 3
@@ -78,12 +78,8 @@ export interface LoaderOptions {
   importer?: (url: string) => Promise<unknown>
   /** activate(host) 握手上限；测试可注入短值，缺省读环境变量或 15 秒默认值。 */
   activateTimeoutMs?: number
-  /** 官方加密插件取钥依赖（v2.5.7 线程 F5b）：装配层注入 baseUrl/getToken/cacheDir/log */
-  keyDeps?: {
-    baseUrl: string
-    getToken: () => string | null
-    cacheDir: string
-  }
+  /** 官方加密插件取钥依赖（v2.5.7 线程 F5b）：装配层注入 baseUrl/getToken/cacheDir/log/secretStore（log 由本层补） */
+  keyDeps?: Omit<KeyDeps, 'log'>
 }
 
 interface Runtime {
@@ -132,8 +128,13 @@ export class PluginLoader {
     const m = new Module(mainFile, undefined)
     m.filename = mainFile
     m.id = mainFile
-    m.paths = Module._nodeModulePaths(path.dirname(mainFile))
-    m._compile(code, mainFile)
+    // Node 私有 API（内存编译补丁，F5b）：类型未公开声明，此处显式断言
+    const modInternals = Module as unknown as {
+      _nodeModulePaths(dir: string): string[]
+      prototype: { _compile(code: string, filename: string): void }
+    }
+    m.paths = modInternals._nodeModulePaths(path.dirname(mainFile))
+    modInternals.prototype._compile.call(m, code, mainFile)
     return m
   }
 
@@ -203,8 +204,9 @@ export class PluginLoader {
       const encFile = mainFile + '.enc'
       let mod: Record<string, unknown> | undefined
       if (entry.manifest.encryption && this.keyDeps) {
+        const kd = this.keyDeps
         const keyHex = await getPluginKey(
-          { ...this.keyDeps, log: this.log },
+          { baseUrl: kd.baseUrl, getToken: kd.getToken, cacheDir: kd.cacheDir, secretStore: kd.secretStore, log: this.log },
           entry.manifest,
           await sha256Hex(encFile).catch(() => ''),
         )

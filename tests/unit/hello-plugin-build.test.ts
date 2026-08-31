@@ -220,10 +220,10 @@ describe('buildHelloPlugin --encrypt（F5b 加密构建）', () => {
     const r = validateManifest(manifest)
     expect(r.ok).toBe(true)
 
-    // 密钥：返回 hex + 密文 sha256 对齐（长度 64 hex）
+    // 密钥：返回 hex + 密文 sha256 对齐（长度 64 hex；encrypt:true 保证返回）
     expect(keyHex).toMatch(/^[0-9a-f]{64}$/)
-    expect(cipherHashes.length).toBe(2) // main + renderer
-    for (const h of cipherHashes) expect(h.sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(cipherHashes!.length).toBe(2) // main + renderer
+    for (const h of cipherHashes!) expect(h.sha256).toMatch(/^[0-9a-f]{64}$/)
 
     // 密文可用宿主解密模块往返（关键：构建格式与运行时 decryptEnc 双端一致）
     const { decryptEnc } = await import('../../src/main/plugins/encryption')
@@ -238,7 +238,7 @@ describe('buildHelloPlugin --encrypt（F5b 加密构建）', () => {
 
   it('非法 entitlement 报错（fail-fast，防误构付费插件为 login）', async () => {
     await expect(
-      buildHelloPlugin({ srcDir: await makeFixtureSrc(), outDir: await tmpOut(), encrypt: true, entitlement: 'free', log: () => {} }),
+      buildHelloPlugin({ srcDir: await makeFixtureSrc(), outDir: await tmpOut(), encrypt: true, entitlement: 'free' as never, log: () => {} }),
     ).rejects.toThrow('--entitlement 仅支持 login/subscription')
   })
 })

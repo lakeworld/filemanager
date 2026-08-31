@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import CreatePsModal from "./productSets/CreatePsModal";
 import EditInfoPsModal from "./productSets/EditInfoPsModal";
-import { withBuiltinNotes } from "~/constants/notes";
+import { withBuiltinNotes, defaultSubFolder } from "~/constants/notes";
 import { tagList } from "~/stores/tags";
 import { prefillVersion, currentPrefill, advancePrefill, clearPrefill, currentEditPrefill, clearEditPrefill } from "~/stores/createPrefill";
 import type { ProductSetPrefill } from "~/stores/createPrefillNormalize";
@@ -613,7 +613,7 @@ export default function ProductSets() {
               class="card p-8 cursor-pointer hover:shadow-card-hover bg-gradient-to-br from-surface-100 to-white"
               onClick={() => {
                 const folders = docFolders();
-                navigate(`/files/doc/${encodeURIComponent(psName())}/${folders[0]}`);
+                navigate(`/files/doc/${encodeURIComponent(psName())}/${defaultSubFolder(folders)}`);
               }}
             >
               <div class="flex items-center gap-4">

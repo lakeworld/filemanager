@@ -959,4 +959,26 @@ describe('writeText 原子写（v2.5.7 A2：tmp+rename + 2MB 上限）', () => {
     await FilesService.writeTextAtomic(target, 'v2')
     expect(await fsp.readFile(target, 'utf-8')).toBe('v2')
   })
+
+  it('并发写同一文件：两路都成功、最终内容是其中一份完整值、无 .tmp 残留', async () => {
+    // v2.5.7 发布日审查发现：tmp 名仅含 process.pid，同一进程内两路并发写（笔记串行保存链在飞的
+    // 一次写 + 组件卸载兜底写）会撞同一个 tmp → 第二路 rename 拿 ENOENT 报错 / tmp 残留。
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const target = path.join(ws, 'race.md')
+    const bigA = 'A'.repeat(400000)
+    const bigB = 'B'.repeat(40000)
+    const settled = await Promise.allSettled([
+      FilesService.writeTextAtomic(target, bigA),
+      FilesService.writeTextAtomic(target, bigB),
+    ])
+    expect(settled.map((s) => s.status)).toEqual(['fulfilled', 'fulfilled'])
+    const final = await fsp.readFile(target, 'utf-8')
+    // 必须是某一份完整内容（禁止交错半 A 半 B 的脏文件）
+    expect(final === bigA || final === bigB).toBe(true)
+    const leftovers = (await fsp.readdir(ws)).filter((f) => f.endsWith('.tmp'))
+    expect(leftovers).toEqual([])
+  })
 })

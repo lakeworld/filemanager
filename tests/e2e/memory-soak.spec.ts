@@ -70,6 +70,13 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
     await expect(page.getByRole('heading', { name: '图包库', level: 1 })).toBeVisible({ timeout: 30000 })
     // 索引就绪：轮询文件列表直到指定叶子目录出现条目（索引快照构建完成）
     await waitForIndexReady(page)
+    // UI 填充就绪（2026-08-31 发布轮 D-11 补）：索引「可查」≠ 页面「已填充」。
+    // /images 的图片卡片网格与筛选下拉数据比 files.list 晚到齐，而 /images 正是每轮收尾与沉降期的
+    // 停驻路由 → 首次填充出来的那 ~25 张卡片（约 +106 listeners / +479 nodes / +4.4MB）从此常驻。
+    // 实测两次完整 soak：台阶量级逐字节复现、落点却分别在第 8、第 9 正式轮（跳后 12 轮极差 0.11MB），
+    // 而门禁用「前/后半程均值比」→ 一次性台阶会被折算成持续增长，误判为卸载滞留。
+    // 修法是把填充等到预热之前（fail-closed），不放任正式轮中途变化，也不放宽阈值。
+    await waitForUiPopulated(page)
 
     cdp = await app.context().newCDPSession(page)
     const probe = await probeCdpCapabilities(cdp)
@@ -104,7 +111,7 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
       await expect(page.getByRole('heading', { name: '图包库', level: 1 })).toBeVisible({ timeout: 30000 })
       for (let round = 1; round <= WARMUP_ROUNDS + FORMAL_ROUNDS; round += 1) {
         const formal = round > WARMUP_ROUNDS
-        const { metrics, gridImageCount, parked } = await runOneRound(round, formal)
+        const { metrics, gridImageCount, parked, parkedCensus } = await runOneRound(round, formal)
         // 每轮健康检查：页面仍响应（无 renderer crash）
         await page.evaluate(() => 1)
         expect(
@@ -118,6 +125,7 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
           virtualImageCount: gridImageCount,
           // v2.5.3 T5：隐藏沉降 10s 后的无强制 GC 采样（业务增量释放口径）
           parked: { heapUsedBytes: parked.heapUsedBytes, nodes: parked.nodes },
+          parkedCensus,
           pageErrors: [...pageErrors],
         })
       }
@@ -334,11 +342,28 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
     await page.waitForFunction(() => !document.querySelector('main[class*="overflow-y-auto"]'), null, { timeout: 10000 })
     await page.waitForTimeout(10_000) // 沉降 10s：卸载后自然释放（不强制 GC）
     const parked = await collectRendererMetrics(app, page, cdp, { forceGc: false })
+    // D-14 取证：沉降后 DOM 普查（隐藏态下滞留子树点名用；轻量字符串，不进被测内存热路径）
+    const parkedCensus = await page.evaluate(() => {
+      const c: Record<string, number> = {}
+      for (const el of Array.from(document.getElementsByTagName('*'))) {
+        const cls = typeof el.className === 'string' ? el.className.trim().split(/\s+/)[0] : ''
+        const k = el.tagName.toLowerCase() + (cls ? '.' + cls.slice(0, 24) : '')
+        c[k] = (c[k] || 0) + 1
+      }
+      return {
+        nodes: document.getElementsByTagName('*').length,
+        mainCards: document.querySelectorAll('main .card').length,
+        vscrolls: document.querySelectorAll('.vscroll').length,
+        editors: document.querySelectorAll('.ProseMirror').length,
+        toasts: document.querySelectorAll('[class*="toast" i], [class*="Toast"]').length,
+        top: Array.from(document.body.children).map((el) => el.tagName.toLowerCase() + '.' + (el.className?.toString().split(' ')[0] ?? '')).slice(0, 12),
+      }
+    })
     await page.evaluate(() => (window as any).qihebox.window.show())
     // 恢复 = 直接 show（2026-08-19 热修：FrameWitness 隐藏预检废止）+ 显示后白屏自检兜底
     await page.waitForFunction(() => !!document.querySelector('main[class*="overflow-y-auto"]'), null, { timeout: 20000 })
     await page.waitForTimeout(300)
-    return { metrics, gridImageCount, parked }
+    return { metrics, gridImageCount, parked, parkedCensus }
   }
 
   async function waitForIndexReady(p: Page): Promise<void> {
@@ -361,6 +386,45 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
       await p.waitForTimeout(300)
     }
     throw new Error('工作区索引在 60s 内未就绪')
+  }
+
+  /**
+   * 等 /images 页面真的填充完（D-11）：卡片数达到视口量级且连续两次采样不再变化才算就绪。
+   * 万文件夹具下该页首屏数据要到齐得慢（2026-08-31 实测约 8 分钟，且是在跑轮过程中才填上的），
+   * 故预算给到 ~15 分钟，并每 ~40s 主动重进一次页面触发重新拉取；等不到则 fail-closed——
+   * 宁可诊断失败，也不要正式轮中途冒出台阶后回头找借口。
+   */
+  async function waitForUiPopulated(p: Page): Promise<void> {
+    const cards = async (): Promise<number> => p.evaluate(() => document.querySelectorAll('main .card').length)
+    const t0 = Date.now()
+    let prev = -1
+    for (let i = 0; i < 300; i++) {
+      const now = await cards()
+      if (now >= 20 && now === prev) {
+        const thumbs = await p.evaluate(
+          () => document.querySelectorAll('main .card img[src^="qihebox://thumb/"]').length,
+        )
+        console.log(
+          `[memory-soak] UI 填充就绪耗时 ${Math.round((Date.now() - t0) / 1000)}s：卡片 ${now} 张（缩略图已出图 ${thumbs} 张）`,
+        )
+        return
+      }
+      prev = now
+      await p.waitForTimeout(2000)
+      if (i % 20 === 19) {
+        await p.evaluate(() => {
+          window.history.pushState({}, '', '/product-sets')
+          window.dispatchEvent(new PopStateEvent('popstate'))
+        })
+        await p.waitForTimeout(800)
+        await p.evaluate(() => {
+          window.history.pushState({}, '', '/images')
+          window.dispatchEvent(new PopStateEvent('popstate'))
+        })
+        await p.waitForTimeout(1200)
+      }
+    }
+    throw new Error(`/images 卡片在 ~15 分钟内未稳定填充到视口量级（末次采样 ${await cards()} 张）——夹具 UI 未就绪，拒绝开测`)
   }
 })
 

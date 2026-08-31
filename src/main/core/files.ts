@@ -855,8 +855,19 @@ export class FilesService {
     }
     const dir = path.dirname(filePath)
     await fsp.mkdir(dir, { recursive: true })
-    const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.tmp`)
-    await fsp.writeFile(tmp, content, { encoding: 'utf-8', mode: 0o644 })
-    await fsp.rename(tmp, filePath)
+    // tmp 名必须逐次唯一：同文件并发写（笔记「串行保存在飞」+「组件卸载兜底写」即此场景）若撞同名
+    // tmp，后一路 rename 会拿 ENOENT（表现为保存失败并残留 .tmp），写入交错时更会落出半 A 半 B 脏文件。
+    const tmp = path.join(
+      dir,
+      `.${path.basename(filePath)}.${process.pid}.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 10)}.tmp`,
+    )
+    try {
+      await fsp.writeFile(tmp, content, { encoding: 'utf-8', mode: 0o644 })
+      await fsp.rename(tmp, filePath)
+    } catch (err) {
+      // 失败不留垃圾 tmp（rename 已成功时 tmp 本就不存在，rm force 静默）
+      await fsp.rm(tmp, { force: true }).catch(() => {})
+      throw err
+    }
   }
 }

@@ -16,8 +16,9 @@ import { globalWorkspaceIndex, WorkspaceIndexCoordinator } from './core/indexCac
 import { SharpThumbnailService } from './thumbnail'
 import { registerIpc, handle, sendTo } from './ipc'
 import { registerQiheboxProtocol } from './protocol'
-import type { PluginManifest } from './plugins/types'
+import type { PluginManifest } from '../plugins/types'
 import { registerPluginHost, type PluginHostHandle } from './plugins/ipc'
+import { makePluginSecretStore } from './plugins/secretStore'
 import { createSettings } from './settings'
 import { AccountService } from './account'
 import { log, initLogger, getLogger } from './log'
@@ -646,25 +647,8 @@ app.whenReady().then(() => {
           getToken: () => account.getToken(),
           cacheDir: path.join(pluginsRoot(), 'keys'),
           readManifest: readPluginsManifest,
-          secretStore: {
-            encrypt(buf: Buffer): string {
-              try {
-                if (safeStorage.isEncryptionAvailable()) return 'enc:' + safeStorage.encryptString(buf.toString('utf8')).toString('base64')
-              } catch {
-                /* 退化 */
-              }
-              return 'raw:' + buf.toString('base64')
-            },
-            decrypt(s: string): Buffer | null {
-              try {
-                if (s.startsWith('enc:')) return Buffer.from(safeStorage.decryptString(Buffer.from(s.slice(4), 'base64')), 'utf8')
-                if (s.startsWith('raw:')) return Buffer.from(s.slice(4), 'base64')
-              } catch {
-                return null
-              }
-              return null
-            },
-          },
+          // D-09（2026-08-31 发布轮）：与 plugins/ipc.ts 共用同一实现（原此处内联一份，双份漂移风险）
+          secretStore: makePluginSecretStore(),
         },
       )
     } catch (err) {

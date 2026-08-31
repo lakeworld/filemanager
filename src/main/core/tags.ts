@@ -58,10 +58,23 @@ function isInternalKey(name: string): boolean {
   return name === MIGRATED_BUILTIN_KEY
 }
 
-/** v2.5.7（用户拍板 2026-08-30）：标签域归一——ledger 已拆分，读/写都归到合法域（旧值→全域） */
+/** 合法域全集：Record<TagScope, true> 由类型穷尽性保证与 TagScope 联合同步（加域不补这里编译不过） */
+const KNOWN_SCOPES: Record<TagScope, true> = {
+  general: true,
+  file: true,
+  product_set: true,
+  client: true,
+  supplier: true,
+  invoice: true,
+  quote: true,
+}
+
+/** v2.5.7（用户拍板 2026-08-30）：标签域归一——读/写都归到合法域（非法值→全域）。
+ *  tags.json 为运行时数据，可能存已废除的 'ledger'（2026-08-30 拆分为 invoice/quote）或来自更高版本的
+ *  未知域值；类型已不含这些值，故用运行时穷尽性核查。非法值若原样透出，会让该标签在设置页分组与
+ *  各业务页候选里同时隐身（TagInput 按同域过滤），故一律回落全域——可见优于隐身。 */
 function normalizeScope(scope: TagScope | undefined): TagScope {
-  if (scope === 'ledger') return 'general'
-  return scope ?? 'general'
+  return scope && scope in KNOWN_SCOPES ? scope : 'general'
 }
 
 export class TagService {

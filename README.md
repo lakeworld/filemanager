@@ -2,7 +2,7 @@
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)]()
-[![Version](https://img.shields.io/badge/Version-v2.5.6-green.svg)]()
+[![Version](https://img.shields.io/badge/Version-v2.5.7-green.svg)]()
 
 > **官网下载（Windows / Linux）：https://www.qihebook.cloud/file-manager**
 > 开源免费 · 无需注册 · 下载即用
@@ -71,7 +71,7 @@
 ## 更多
 
 - 与 [启禾 OS](https://www.qihebook.cloud/)（AI 原生 ERP）同生态：文件管理是独立的免费桌面工具，不依赖启禾 OS 账号即可使用
-- 详细功能说明见 [HELP.md](HELP.md)；版本更新记录见 [CHANGELOG.md](CHANGELOG.md)；最新版发布说明见 [docs/RELEASE-2.5.6.md](docs/RELEASE-2.5.6.md)
+- 详细功能说明见 [HELP.md](HELP.md)；版本更新记录见 [CHANGELOG.md](CHANGELOG.md)；最新版发布说明见 [docs/RELEASE-2.5.7.md](docs/RELEASE-2.5.7.md)
 
 ---
 
@@ -87,8 +87,8 @@
 ```bash
 npm install          # 安装依赖（.npmrc 已配置国内镜像加速）
 npm run dev          # 开发模式（热更新）
-npm test             # 单元测试（vitest，855 用例）
-npm run test:e2e     # 端到端测试（Playwright，161 用例）
+npm test             # 单元测试（vitest，940 用例）
+npm run test:e2e     # 端到端测试（Playwright，177 用例，含发布轮渲染守卫）
 npm run build        # 构建三段产物到 out/
 npm run build:linux  # 打包 Linux（AppImage + deb）
 npm run build:win    # 打包 Windows（NSIS）

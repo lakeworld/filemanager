@@ -23,7 +23,7 @@ import { handleDragOut } from "~/utils/dragout";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import { useContextMenu } from "~/hooks/useContextMenu";
 import type { FileEntry } from "~/types";
-import { withBuiltinNotes, BUILTIN_NOTES_FOLDER } from "~/constants/notes";
+import { withBuiltinNotes, BUILTIN_NOTES_FOLDER, defaultSubFolder } from "~/constants/notes";
 
 /** v2.4.7（PLAN §4.6）：文件区作用域——productSet = 产品集文件区；customer = 客户文件区；v2.4.9 S2：supplier = 供应商文件区 */
 export type FileBrowserScope = "productSet" | "customer" | "supplier";
@@ -417,7 +417,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     if (result.success) {
       const folders = subFolders().filter((f) => f !== folder);
       const next =
-        folders[0] ||
+        defaultSubFolder(folders) ||
         (isCustomer()
           ? CUSTOMER_DEFAULT_SUBFOLDERS[0]
           : isSupplier()

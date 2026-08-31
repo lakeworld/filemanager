@@ -16,8 +16,22 @@ export function packQbox(entries: QboxEntry[]): Buffer
 export function buildHelloPlugin(opts?: {
   srcDir?: string
   outDir?: string
+  externals?: string[]
+  /** v2.5.7（F5b）：加密构建开关（密文 .enc 代替明文 + manifest 注入 encryption 块） */
+  encrypt?: boolean
+  /** v2.5.7（F5b）：权益门槛（login/subscription；缺省 login） */
+  entitlement?: 'login' | 'subscription'
+  /** v2.5.7（F5b）：密钥输出路径（明文 hex 写盘，供测试/登记用） */
+  keyOut?: string
   log?: (...args: unknown[]) => void
-}): Promise<{ outPath: string; files: string[] }>
+}): Promise<{
+  outPath: string
+  files: string[]
+  /** v2.5.7（F5b）：加密构建时返回密钥 hex（64 位）；非加密构建为实现侧固定返回 null（非 undefined） */
+  keyHex: string | null
+  /** v2.5.7（F5b）：包内各文件密文 sha256（格式 {file, sha256}[]）；非加密构建返回空数组，登记 erp 用 */
+  cipherHashes: { file: string; sha256: string }[]
+}>
 
 /** 默认源目录（项目内 src/plugins/hello） */
 export const DEFAULT_SRC_DIR: string

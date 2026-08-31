@@ -395,8 +395,8 @@ describe('标签域 scope（v2.5.7 A3）', () => {
     await box.tags.create('标A', '#111111', null, 'file')
     await box.tags.create('标B', '#222222')
     await box.metadata.update({ file_path: metaPath(ws), tags: ['标A', '标B'] })
-    // v2.5.7（用户拍板 2026-08-30）：ledger 已拆分——旧值写入归一为全域（general）
-    await box.tags.setScope('标B', 'ledger')
+    // v2.5.7（用户拍板 2026-08-30）：ledger 已拆分——旧值写入归一为全域（general）；类型已不含 ledger，cast 模拟旧档
+    await box.tags.setScope('标B', 'ledger' as never)
     let list = await box.tags.list()
     expect(list.find((t) => t.name === '标B')?.scope).toBe('general')
     // 新域 invoice/quote 正常写入
@@ -429,6 +429,54 @@ describe('标签域 scope（v2.5.7 A3）', () => {
     await new Promise((r) => setTimeout(r, 30))
     await box.tags.setScope('标C', 'file')
     expect((await fsp.stat(p)).mtimeMs).toBe(m1)
+  })
+
+  it('旧档直读域归一：磁盘残留 ledger / 未知域值 → 全域（不丢不隐身）；合法七域原样保持；零回写', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const p = path.join(ws, '.qihefilemanager', 'tags.json')
+    // 构造「2.5.6 升上来的旧档」：含已废除 ledger、更高版本才会写的未知域值、以及合法域值各一
+    // （迁移标记已在位，避免 list() 首读触发的内置标签迁移改写本用例输入）
+    await fsp.writeFile(p, JSON.stringify({
+      _migrated_builtin: { color: '' },
+      旧台账标: { color: '#111111', scope: 'ledger' },
+      未来域标: { color: '#222222', scope: 'future_domain' },
+      合法文件: { color: '#333333', scope: 'file' },
+      合法产品: { color: '#444444', scope: 'product_set' },
+      合法客户: { color: '#555555', scope: 'client' },
+      合法供应: { color: '#666666', scope: 'supplier' },
+      合法发票: { color: '#777777', scope: 'invoice' },
+      合法报价: { color: '#888888', scope: 'quote' },
+      合法全域: { color: '#999999', scope: 'general' },
+    }))
+    const names = ['旧台账标', '未来域标', '合法文件', '合法产品', '合法客户', '合法供应', '合法发票', '合法报价', '合法全域']
+    await box.metadata.update({ file_path: metaPath(ws), tags: names })
+    const list = await box.tags.list()
+    const scopeOf = (n: string): string | undefined => list.find((t) => t.name === n)?.scope
+    // 非法值回落全域：标签必须仍在列表里（原样透出会让它在设置页分组与各业务页候选中同时隐身）
+    expect(list.map((t) => t.name)).toEqual(expect.arrayContaining(names))
+    expect(scopeOf('旧台账标')).toBe('general')
+    expect(scopeOf('未来域标')).toBe('general')
+    // 合法域逐一保持（零改动）
+    expect(scopeOf('合法文件')).toBe('file')
+    expect(scopeOf('合法产品')).toBe('product_set')
+    expect(scopeOf('合法客户')).toBe('client')
+    expect(scopeOf('合法供应')).toBe('supplier')
+    expect(scopeOf('合法发票')).toBe('invoice')
+    expect(scopeOf('合法报价')).toBe('quote')
+    expect(scopeOf('合法全域')).toBe('general')
+    // 读时归一不回写磁盘（零迁移语义：只有用户改域才落盘）
+    const raw = JSON.parse(await fsp.readFile(p, 'utf-8'))
+    expect(raw['旧台账标'].scope).toBe('ledger')
+    expect(raw['未来域标'].scope).toBe('future_domain')
+    // 改域一次即把非法旧值固化清掉（写路径同口径归一）
+    await box.tags.setScope('旧台账标', 'invoice')
+    const list2 = await box.tags.list()
+    expect(list2.find((t) => t.name === '旧台账标')?.scope).toBe('invoice')
+    const raw2 = JSON.parse(await fsp.readFile(p, 'utf-8'))
+    expect(raw2['旧台账标'].scope).toBe('invoice')
   })
 
   it('供应商标签引用源注册：rename/delete 自动覆盖（锁内读改写通道）', async () => {

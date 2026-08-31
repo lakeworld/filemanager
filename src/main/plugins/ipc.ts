@@ -8,7 +8,7 @@
  * v2.5 增量：不移植 qihebox:ai:call / aiCall（v2.4.7 时代残留）；install 的 devMode 校验在本层 handler。
  * 退出清理：dispose() → 同步触发全部已激活插件 dispose（v2.5.3 T3：disposeAll 同步完成，第一拍不延后）。
  */
-import { app, ipcMain, dialog, BrowserWindow, Notification, safeStorage } from 'electron'
+import { app, ipcMain, dialog, BrowserWindow, Notification } from 'electron'
 import path from 'node:path'
 import type { BoxService } from '../core'
 import type { AccountService } from '../account'
@@ -22,32 +22,8 @@ import { PluginRegistry, PLUGINS_DIR, STATE_DIR } from './registry'
 import { PluginLoader } from './loader'
 import { PluginInstaller } from './installer'
 import { createPluginHost, HostEventBus, HOST_EVENT_WHITELIST, fileError, mapCoreError } from './host'
-import type { SecretStore } from './encryption'
+import { makePluginSecretStore } from './secretStore'
 
-/** safeStorage 封装（密钥落盘加密；Linux 无 keyring 时退化 base64——与 account.ts raw: 同口径） */
-function makePluginSecretStore(): SecretStore {
-  return {
-    encrypt(buf: Buffer, _scope: string): string {
-      try {
-        if (safeStorage.isEncryptionAvailable()) {
-          return 'enc:' + safeStorage.encryptString(buf.toString('utf8')).toString('base64')
-        }
-      } catch {
-        /* 退化 */
-      }
-      return 'raw:' + buf.toString('base64')
-    },
-    decrypt(s: string, _scope: string): Buffer | null {
-      try {
-        if (s.startsWith('enc:')) return Buffer.from(safeStorage.decryptString(Buffer.from(s.slice(4), 'base64')), 'utf8')
-        if (s.startsWith('raw:')) return Buffer.from(s.slice(4), 'base64')
-      } catch {
-        return null
-      }
-      return null
-    },
-  }
-}
 import type { InboundProfile, InvoiceProfile } from '../../plugins/types'
 import { ShareViewService } from '../core/shareView'
 

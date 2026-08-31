@@ -21,6 +21,7 @@ import { api } from "~/wails/api";
 // —— 模块级懒加载缓存（Crepe 全部 import 隔离在动态边界内侧）——
 type CrepeModule = typeof import("@milkdown/crepe/builder");
 type BasicModule = typeof import("@milkdown/crepe/feature/block-edit");
+type KitCoreModule = typeof import("@milkdown/kit/core");
 
 interface CrepeLoaded {
   CrepeBuilder: CrepeModule["CrepeBuilder"];
@@ -31,6 +32,7 @@ interface CrepeLoaded {
   linkTooltip: typeof import("@milkdown/crepe/feature/link-tooltip").linkTooltip;
   cursor: typeof import("@milkdown/crepe/feature/cursor").cursor;
   table: typeof import("@milkdown/crepe/feature/table").table;
+  editorViewCtx: KitCoreModule["editorViewCtx"];
 }
 
 let crepeReady: Promise<CrepeLoaded> | null = null;
@@ -45,6 +47,8 @@ async function loadCrepe(): Promise<CrepeLoaded> {
       import("@milkdown/crepe/feature/link-tooltip"),
       import("@milkdown/crepe/feature/cursor"),
       import("@milkdown/crepe/feature/table"),
+      // D-08（2026-08-31 发布轮）：任务列表可访问性补丁需要 ProseMirror view 走编辑器事务（与鼠标同链）
+      import("@milkdown/kit/core"),
       import("@milkdown/crepe/theme/classic.css"),
       // feature 样式（自定义 builder 需显式引 feature css——官方默认 Crepe 全量已含，这里按启用集引）
       import("@milkdown/crepe/theme/common/style.css"),
@@ -57,7 +61,7 @@ async function loadCrepe(): Promise<CrepeLoaded> {
       import("@milkdown/crepe/theme/common/link-tooltip.css"),
       import("@milkdown/crepe/theme/common/cursor.css"),
       import("@milkdown/crepe/theme/common/table.css"),
-    ]).then(([builder, blockEdit, listItem, placeholder, toolbar, linkTooltip, cursor, table]) => ({
+    ]).then(([builder, blockEdit, listItem, placeholder, toolbar, linkTooltip, cursor, table, kitCore]) => ({
       CrepeBuilder: builder.CrepeBuilder,
       blockEdit: blockEdit.blockEdit,
       listItem: listItem.listItem,
@@ -66,6 +70,7 @@ async function loadCrepe(): Promise<CrepeLoaded> {
       linkTooltip: linkTooltip.linkTooltip,
       cursor: cursor.cursor,
       table: table.table,
+      editorViewCtx: kitCore.editorViewCtx,
     }));
     crepeReady.catch(() => {
       crepeReady = null; // 失败允许重试
@@ -77,6 +82,86 @@ async function loadCrepe(): Promise<CrepeLoaded> {
 type State = "loading" | "ready" | "tooLarge" | "error";
 
 let editorSeq = 0;
+
+// —— 任务列表可访问性补丁（D-08，2026-08-31 发布轮）——
+// Crepe 任务项是 SVG 自绘 label（无原生 checkbox、仅 pointerdown 切换）→ 读屏拿不到状态、键盘无法勾选。
+// 这里不改渲染结构（不与上游 node-view 打架），只做两件事：
+//   ① syncTaskA11y：给每个 .label-wrapper 补 role=checkbox / aria-checked / tabindex / aria-label（幂等）；
+//   ② installTaskKeys：编辑器根上挂一个捕获期委托 keydown——Space/Enter 落到 label-wrapper 时走
+//      ProseMirror 事务改 attrs（与鼠标同一条链，触发 markdownUpdated → 正常保存）。
+// 两者都只在「存在 checked 任务项」的元素上生效，普通列表/标题完全不受影响。
+type PmLikeView = {
+  state: {
+    doc: {
+      nodeAt(pos: number): { attrs: Record<string, unknown> } | null;
+      descendants(fn: (node: { type: { name: string } }, pos: number) => boolean): void;
+    };
+    tr: {
+      setNodeAttribute(pos: number, attr: string, value: unknown): unknown;
+    };
+  };
+  nodeDOM(pos: number): unknown;
+  dispatch(tr: unknown): void;
+};
+
+const TASK_WRAPPER_SEL = ".milkdown-list-item-block .label-wrapper";
+
+/** 找到某 label-wrapper 所属 listItem 在文档中的位置（与 Crepe 内部 getPos 同义） */
+function listItemPosAt(view: PmLikeView, wrapper: Element): number {
+  const li = wrapper.closest("li");
+  if (!li) return -1;
+  let pos = -1;
+  view.state.doc.descendants((node, p) => {
+    // schema 节点名是 list_item（下划线），见 @milkdown/preset-commonmark/src/node/list-item.ts
+    if (node.type.name !== "list_item") return true;
+    const dom = view.nodeDOM(p) as Element | null;
+    if (dom && (dom === li || dom.contains(li))) {
+      pos = p;
+      return false;
+    }
+    return true;
+  });
+  return pos;
+}
+
+/**
+ * 幂等地把任务项补成 checkbox 语义。checked 直接取自 PM 文档状态（不经 DOM class）——
+ * 避免「dispatch 后 Vue 还没重渲染、onToggled 立刻同步读到旧 class」的竞态。
+ */
+function syncTaskA11y(root: ParentNode, view: PmLikeView): void {
+  const wrappers = root.querySelectorAll<HTMLElement>(TASK_WRAPPER_SEL);
+  for (const w of wrappers) {
+    const pos = listItemPosAt(view, w);
+    const node = pos >= 0 ? view.state.doc.nodeAt(pos) : null;
+    const checked = node?.attrs.checked;
+    if (checked == null) continue; // bullet/ordered 不带 checkbox 语义
+    if (w.getAttribute("role") !== "checkbox") {
+      w.setAttribute("role", "checkbox");
+      w.tabIndex = 0;
+    }
+    w.setAttribute("aria-checked", checked ? "true" : "false");
+    const text = (w.closest("li")?.querySelector(".children")?.textContent ?? "").trim().slice(0, 40);
+    w.setAttribute("aria-label", `任务${checked ? "（已完成）" : ""}：${text || "未命名"}`);
+  }
+}
+
+function installTaskKeys(root: HTMLElement, view: PmLikeView, onToggled: () => void): () => void {
+  const onKey = (e: KeyboardEvent) => {
+    const t = e.target as HTMLElement | null;
+    if (!t || !t.classList.contains("label-wrapper")) return;
+    if (e.key !== " " && e.key !== "Enter") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const pos = listItemPosAt(view, t);
+    if (pos < 0) return;
+    const node = view.state.doc.nodeAt(pos);
+    if (!node || node.attrs.checked == null) return;
+    view.dispatch(view.state.tr.setNodeAttribute(pos, "checked", !node.attrs.checked));
+    onToggled();
+  };
+  root.addEventListener("keydown", onKey, { capture: true });
+  return () => root.removeEventListener("keydown", onKey, { capture: true });
+}
 
 export default function NoteEditorModal(props: {
   filePath: string;
@@ -161,7 +246,7 @@ export default function NoteEditorModal(props: {
   const initEditor = async (md: string) => {
     const mod = await loadCrepe();
     if (seq !== editorSeq || !rootRef) return;
-    const { CrepeBuilder, blockEdit, listItem, placeholder, toolbar, linkTooltip, cursor, table } = mod;
+    const { CrepeBuilder, blockEdit, listItem, placeholder, toolbar, linkTooltip, cursor, table, editorViewCtx } = mod;
     editor = new CrepeBuilder({ root: rootRef, defaultValue: md })
       .addFeature(blockEdit)
       .addFeature(listItem)
@@ -174,9 +259,14 @@ export default function NoteEditorModal(props: {
     if (seq !== editorSeq) return;
     // 快照：Crepe 规范化后的初始序列化（round-trip 差异不算脏，零写入底线）
     baselineMd = (await editor.getMarkdown()) ?? "";
+    // D-08：拿 ProseMirror view（任务项键盘勾选走事务，与鼠标同链）+ 首屏补 aria
+    const pmView = editor.editor.action((ctx) => ctx.get(editorViewCtx) as unknown as PmLikeView);
+    const uninstallTaskKeys = rootRef ? installTaskKeys(rootRef, pmView, () => syncTaskA11y(rootRef!, pmView)) : null;
+    if (rootRef) syncTaskA11y(rootRef, pmView);
     // 监听 markdown 更新 → 用户编辑判定
     editor.on((listener) => {
       listener.markdownUpdated((_ctx, md) => {
+        if (rootRef) syncTaskA11y(rootRef, pmView); // 勾选/编辑后 aria 同步（幂等，仅任务项）
         void (() => {
           if (md === baselineMd) return; // 规范化回写不触发
           dirty = true;
@@ -194,6 +284,7 @@ export default function NoteEditorModal(props: {
     window.addEventListener("keydown", onKey);
     onCleanup(() => {
       window.removeEventListener("keydown", onKey);
+      uninstallTaskKeys?.();
     });
   };
 
@@ -236,7 +327,13 @@ export default function NoteEditorModal(props: {
     editor?.destroy();
     editor = null;
     if (pendingContent !== null && props.saveRelPath) {
-      void api.files.writeText(relPath(), pendingContent).catch(() => {});
+      // 兜底写也必须排进同一条串行链：与「在飞的那一次写」并发落同一文件时，
+      // 完成顺序不确定 → 可能旧内容后落盘盖掉新内容（乱序丢写）。排队保证最后写的是最新内容。
+      saveQueue = saveQueue
+        .then(async () => {
+          await api.files.writeText(relPath(), pendingContent);
+        })
+        .catch(() => {});
     }
   });
 

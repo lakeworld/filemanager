@@ -24,7 +24,7 @@ import { BoxService } from './core'
 import { mimeTypeForPath } from './core/paths'
 import { log } from './log'
 import { getPluginKey, decryptEnc } from './plugins/encryption'
-import type { SecretStore } from './plugins/encryption'
+import type { KeyDeps, SecretStore } from './plugins/encryption'
 import type { PluginManifest } from '../plugins/types'
 
 export function workspaceFileUrl(filePath: string): string {
@@ -206,12 +206,8 @@ export function registerQiheboxProtocol(
   getThumbsRoot?: () => string,
   getPluginsRoot?: () => string,
   // v2.5.7（F5b）：官方加密插件渲染层解密。装配层注入取钥依赖 + 插件 manifest 读取。
-  encryptionDeps?: {
-    baseUrl: string
-    getToken: () => string | null
-    cacheDir: string
+  encryptionDeps?: Omit<KeyDeps, 'log'> & {
     readManifest: (pluginId: string) => PluginManifest | null
-    secretStore?: SecretStore
   },
 ): void {
   protocol.handle('qihebox', async (request) => {
@@ -243,7 +239,13 @@ export function registerQiheboxProtocol(
             const encAsset = await resolvePluginAsset(pkgRoot, parsed.relPath + '.enc')
             if (encAsset) {
               const keyHex = await getPluginKey(
-                { ...encryptionDeps, log: (lv, m) => void log(lv, m) },
+                {
+                  baseUrl: encryptionDeps.baseUrl,
+                  getToken: encryptionDeps.getToken,
+                  cacheDir: encryptionDeps.cacheDir,
+                  secretStore: encryptionDeps.secretStore,
+                  log: (lv, m) => void log(lv, m),
+                },
                 manifest,
                 await sha256Hex(encAsset),
               )
@@ -258,7 +260,7 @@ export function registerQiheboxProtocol(
                     'Content-Type': 'text/javascript; charset=utf-8',
                     'Content-Length': String(dec.length),
                   }
-                  return new Response(dec, { status: 200, headers })
+                  return new Response(new Uint8Array(dec), { status: 200, headers })
                 }
               }
             }
