@@ -8,7 +8,7 @@ import { defineConfig } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 30 * 60 * 1000,
+  timeout: 50 * 60 * 1000,  // 预热前还要等万文件夹具 UI 填充就绪（最多 ~15min，D-11），30min 会误杀
   workers: 1,
   reporter: [['list']],
   testMatch: ['**/memory-soak.spec.ts'],

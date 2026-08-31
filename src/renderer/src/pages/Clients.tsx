@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import CreateClientModal from "./clients/CreateClientModal";
 import EditInfoModal from "./clients/EditInfoModal";
-import { withBuiltinNotes } from "~/constants/notes";
+import { withBuiltinNotes, defaultSubFolder } from "~/constants/notes";
 import { tagList, loadTagDefs } from "~/stores/tags";
 import { currentWorkspace, workspaceConfig, loadWorkspaceConfig, productSets, loadProductSets } from "~/stores/workspace";
 import { customers, loadCustomers } from "~/stores/clients";
@@ -700,7 +700,7 @@ export default function Clients() {
                 v2.4.8：保底高度——档案卡高时 flex-1 把文件区压缩成小条，拖放提示溢出虚线框外；
                 改 min-h-[420px]（空态 ~180px + 面包屑/Tab ~100px 后仍有富余），内容超高时由外层 main 滚动 */}
             <div class="flex-1 min-h-[420px]">
-              <FileBrowserView scope="customer" entity={customerName()} subFolder={subFolders()[0] || ""} />
+              <FileBrowserView scope="customer" entity={customerName()} subFolder={defaultSubFolder(subFolders())} />
             </div>
           </Show>
         </Show>
