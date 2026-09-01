@@ -1,4 +1,5 @@
 # 启禾文件管理 v2.5.4 发布说明
+> 归档时间：2026-09-01 · 归档原因：版本已被取代（发布说明保留当前版 RELEASE-2.5.7；docs-staleness-policy §三，用户批准归档）
 
 > 版本：2.5.4 · 2026-08-22（08-23 局域网补丁并入，不升号）· 开源免费（Apache-2.0）
 > 下载：官网 `https://www.qihebook.cloud/file-manager` · 源码 GitHub `lakeworld/filemanager`
