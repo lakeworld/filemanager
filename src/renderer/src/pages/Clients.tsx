@@ -49,6 +49,16 @@ function fmtMoney(n: number): string {
     : "-";
 }
 
+/** 详情页时间本地化（v2.5.8 A3/挂账 W-02）：ISO(UTC) 原文直出不可读 → 转 "YYYY-MM-DD HH:mm:ss" 本地格式；
+ *  历史数据两种来源（metadata currentTimeString 的 ISO / workspace formatTime 的本地串），
+ *  本地串经 Date 解析回读值不变；不可解析的原样兜底不吞值 */
+function fmtLocalTime(v: string): string {
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return v;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 // v2.5.3（P2-12）：报价加载序号模块级（照 Images imageLoadSeq 先例）——卸载清理递增后跨挂载延续计数，
 // 旧实例在途链持有的旧值永远不会与新实例的计数撞号，过期结果必被丢弃
 let clientQuoteLoadSeq = 0;
@@ -608,7 +618,7 @@ export default function Clients() {
                   </div>
                 </Show>
                 <p class="text-xs text-surface-400 mt-4">
-                  创建于 {detailCustomer()!.created_at} · 更新于 {detailCustomer()!.updated_at}
+                  创建于 {fmtLocalTime(detailCustomer()!.created_at)} · 更新于 {fmtLocalTime(detailCustomer()!.updated_at)}
                 </p>
               </div>
 
