@@ -192,7 +192,7 @@ export default function FilePreviewModal() {
                   工作区外（批量识别外部文件夹）→ 不落盘，仅供查看（saveRelPath 空 = 无写契约）。 */}
               <Show when={isMd()}>
                 <div
-                  class="h-[60vh] bg-surface-100 rounded-xl overflow-hidden relative note-editor-wrap"
+                  class="h-[60vh] bg-surface-100 rounded-xl overflow-hidden relative"
                   onContextMenu={onContextMenu}
                 >
                   <NoteEditorModal

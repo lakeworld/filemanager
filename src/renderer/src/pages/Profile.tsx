@@ -356,7 +356,7 @@ export default function Profile() {
                   <h2 class="text-lg font-semibold text-surface-900">使用帮助</h2>
                 </div>
                 <div class="max-h-[70vh] overflow-y-auto pr-2">
-                  <div class="prose prose-sm max-w-none" innerHTML={helpHtml()} />
+                  <div class="max-w-none" innerHTML={helpHtml()} />
                 </div>
               </div>
             </Show>
@@ -396,7 +396,7 @@ export default function Profile() {
                   <h2 class="text-lg font-semibold text-surface-900">隐私协议</h2>
                 </div>
                 <div class="max-h-[70vh] overflow-y-auto pr-2">
-                  <div class="prose prose-sm max-w-none" innerHTML={privacyHtml()} />
+                  <div class="max-w-none" innerHTML={privacyHtml()} />
                 </div>
               </div>
             </Show>
