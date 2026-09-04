@@ -228,11 +228,21 @@ export function registerIpc(
   )
   ipcMain.handle('qihebox:suppliers:delete', (_e, name: string) => handle(() => box.deleteSupplier(name)))
   // v2.4.9 打磨 M8：供应商关联产品集（镜像客户 linkRelation/unlinkRelation 通道）
+  // v2.5.7 补丁（2026-09-04 真机侧载取证）：M8 镜像时漏抄了事件投递——客户侧投 customerUpdated，
+  // 供应商侧不投，导致依赖事件的插件（业务脉络）在「供应商关联产品集」后永久陈旧到重启。补投对齐。
   ipcMain.handle('qihebox:suppliers:linkRelation', (_e, supplier: string, productSet: string) =>
-    handle(() => box.suppliers.linkRelation(supplier, productSet)),
+    handle(async () => {
+      const info = await box.suppliers.linkRelation(supplier, productSet)
+      hooks.onSupplierEvent?.('supplierUpdated', { name: info.name })
+      return info
+    }),
   )
   ipcMain.handle('qihebox:suppliers:unlinkRelation', (_e, supplier: string, productSet: string) =>
-    handle(() => box.suppliers.unlinkRelation(supplier, productSet)),
+    handle(async () => {
+      const info = await box.suppliers.unlinkRelation(supplier, productSet)
+      hooks.onSupplierEvent?.('supplierUpdated', { name: info.name })
+      return info
+    }),
   )
 
   // —— v2.4.9 S3：报价单台账（报价.json + 报价/<YYYY>/ 归档；delete = removeEntry 账物分离不删文件）——
