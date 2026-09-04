@@ -96,6 +96,7 @@ interface InvoiceCreateRequest {
   buyer: string;
   status: InvoiceStatus;
   customer?: string;
+  supplier?: string;
   due_date?: string;
   file_path: string;
   tags?: string[];
@@ -113,6 +114,7 @@ interface InvoiceUpdateRequest {
   buyer?: string;
   status?: InvoiceStatus;
   customer?: string;
+  supplier?: string;
   due_date?: string;
   file_path?: string;
   tags?: string[];
@@ -205,7 +207,7 @@ export default function Invoices() {
   const [invoiceEditor, setInvoiceEditor] = createSignal<{ mode: "create" } | { mode: "edit"; record: InvoiceRecord } | null>(null);
   const [invoiceForm, setInvoiceForm] = createSignal<InvoiceFormState>({
     number: "", code: "", date: "", amount: "", seller: "", buyer: "",
-    status: "待报销", customer: "", due_date: "", file_path: "", tags: [], notes: "",
+    status: "待报销", customer: "", supplier: "", due_date: "", file_path: "", tags: [], notes: "",
   });
   const [inboundEditor, setInboundEditor] = createSignal<{ mode: "create" } | { mode: "edit"; record: InboundRecord } | null>(null);
   const [inboundForm, setInboundForm] = createSignal<InboundFormState>({
@@ -251,7 +253,7 @@ export default function Invoices() {
       date: cur.date ?? toDateKey(new Date()),
       amount: cur.amount != null ? String(cur.amount) : "",
       seller: cur.seller ?? "", buyer: cur.buyer ?? "",
-      status: "待报销", customer: cur.customer ?? "", due_date: cur.due_date ?? "",
+      status: "待报销", customer: cur.customer ?? "", supplier: "", due_date: cur.due_date ?? "",
       file_path: cur.file_path ?? "", tags: cur.tags ?? [], notes: cur.notes ?? "",
     };
     setInvoiceForm(seeded);
@@ -616,7 +618,7 @@ export default function Invoices() {
       date: draft.fields.date ?? toDateKey(new Date()),
       amount: draft.fields.amount != null && draft.fields.amount !== 0 ? String(draft.fields.amount) : "",
       seller: draft.fields.seller ?? "", buyer: draft.fields.buyer ?? "",
-      status: "待报销", customer: draft.fields.customer ?? "", due_date: draft.fields.due_date ?? "",
+      status: "待报销", customer: draft.fields.customer ?? "", supplier: "", due_date: draft.fields.due_date ?? "",
       file_path: "", tags: draft.fields.tags ?? [], notes: draft.fields.notes ?? "",
     };
     setInvoiceForm(seeded);
@@ -702,6 +704,8 @@ export default function Invoices() {
   };
 
   const customerExists = (name: string) => customers().some((c) => c.name === name);
+  // v2.5.7 补丁线（发票关联供应商）：卡片供应商 chip 存在性判断（镜像 customerExists）
+  const supplierExists = (name: string) => suppliers().some((s) => s.name === name);
 
   // —— 状态流转（行内顺序「→」+ 下拉回退，均走 setStatus 单入口）——
   const handleSetStatus = async (number: string, status: InvoiceStatus) => {
@@ -757,7 +761,7 @@ export default function Invoices() {
     setIdentifyWarnings([]);
     const seeded: InvoiceFormState = {
       number: "", code: "", date: toDateKey(new Date()), amount: "", seller: "", buyer: "",
-      status: "待报销", customer: "", due_date: "", file_path: "", tags: [], notes: "",
+      status: "待报销", customer: "", supplier: "", due_date: "", file_path: "", tags: [], notes: "",
     };
     setInvoiceForm(seeded);
     setInvoiceFormSnapshot(seeded); // v2.5.5（B1-B）：脏守卫初始快照
@@ -776,6 +780,7 @@ export default function Invoices() {
       buyer: rec.buyer,
       status: rec.status,
       customer: rec.customer ?? "",
+      supplier: rec.supplier ?? "",
       due_date: rec.due_date ?? "",
       file_path: rec.file_path,
       tags: rec.tags ?? [],
@@ -980,6 +985,7 @@ export default function Invoices() {
       buyer: f.buyer.trim(),
       status: f.status,
       customer: f.customer.trim(),
+      supplier: f.supplier.trim(),
       due_date: f.due_date,
       tags: f.tags,
       notes: f.notes.trim(),
@@ -1362,6 +1368,7 @@ export default function Invoices() {
                   rows={filteredInvoices()}
                   missing={missingFiles()}
                   customerExists={customerExists}
+                  supplierExists={supplierExists}
                   selectedIds={effectiveSelectedInvoices()}
                   onToggleSelect={toggleInvoiceSelection}
                   onSetStatus={(number, status) => void handleSetStatus(number, status)}
@@ -1522,6 +1529,7 @@ export default function Invoices() {
         onPreviewFile={() => invoiceForm().file_path && previewRelPath(invoiceForm().file_path)}
         missing={missingFiles()}
         customers={customers()}
+        suppliers={suppliers()}
         tagOptions={tagList()}
         // v2.5.5（修正轮）：表单内只保留「从文件识别」单文件命令（invoice.identifyFile），批量命令（invoice.identifyFiles）过滤走发票页「批量 AI 识别」面板
         identifyCommands={pluginGlobalCommands().filter((c) => c.commandId !== "invoice.identifyFiles")}

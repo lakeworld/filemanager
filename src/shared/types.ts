@@ -493,6 +493,8 @@ export interface InvoiceRecord {
   status: '待报销' | '已报销' | '已入账'
   /** 关联客户名（客户被删时保留字面值，UI 灰显） */
   customer?: string
+  /** 关联供应商名（v2.5.7 补丁线，进项票归属；名字引用语义同 customer——供应商被删时保留字面值，改名级联） */
+  supplier?: string
   /** 待办日期（30 天内且状态 ≠ 已入账 → 待办提醒，语义用户自定） */
   due_date?: string
   /** 归档主体：工作区相对路径（/ 分隔），指向 发票/<YYYY>/ 下原件 */

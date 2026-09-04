@@ -49,6 +49,7 @@
 - InvoiceProfile.number: string
 - InvoiceProfile.seller: string
 - InvoiceProfile.status: '待报销' | '已报销' | '已入账'
+- InvoiceProfile.supplier?: string
 - InvoiceProfile.tags?: string[]
 - InvoiceProfile.updated_at: string
 - PluginBusinessError.code: string

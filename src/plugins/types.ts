@@ -197,6 +197,8 @@ export interface InvoiceProfile {
   status: '待报销' | '已报销' | '已入账'
   /** 关联客户名 */
   customer?: string
+  /** 关联供应商名（v2.5.7 补丁线：进项票归属，box 权威字段；旧宿主投影无此字段，插件须容缺省） */
+  supplier?: string
   /** 待办日期 */
   due_date?: string
   /** 归档相对路径（发票/<YYYY>/ 下原件） */

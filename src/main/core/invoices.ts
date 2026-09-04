@@ -48,6 +48,8 @@ export interface InvoiceCreateRequest {
   buyer: string
   status: InvoiceStatus
   customer?: string
+  /** 关联供应商名（进项票归属；名字引用，语义同 customer） */
+  supplier?: string
   due_date?: string
   /** 归档文件：工作区绝对路径或 发票/<YYYY>/ 相对路径（/ 分隔），须位于 发票/ 区且真实存在 */
   file_path: string
@@ -66,6 +68,7 @@ export interface InvoiceUpdateRequest {
   buyer?: string
   status?: InvoiceStatus
   customer?: string
+  supplier?: string
   due_date?: string
   file_path?: string
   tags?: string[]
@@ -264,6 +267,7 @@ export class InvoicesService {
     }
     if ((req.code ?? '').trim()) rec.code = (req.code ?? '').trim()
     if ((req.customer ?? '').trim()) rec.customer = (req.customer ?? '').trim()
+    if ((req.supplier ?? '').trim()) rec.supplier = (req.supplier ?? '').trim()
     if ((req.due_date ?? '').trim()) rec.due_date = (req.due_date ?? '').trim()
     if (req.tags && req.tags.length > 0) rec.tags = [...new Set(req.tags)]
     if ((req.notes ?? '').trim()) rec.notes = (req.notes ?? '').trim()
@@ -332,6 +336,11 @@ export class InvoicesService {
         const v = (req.customer ?? '').trim()
         if (v) rec.customer = v
         else delete rec.customer
+      }
+      if (req.supplier !== undefined) {
+        const v = (req.supplier ?? '').trim()
+        if (v) rec.supplier = v
+        else delete rec.supplier
       }
       if (req.due_date !== undefined) {
         const v = (req.due_date ?? '').trim()
@@ -420,6 +429,24 @@ export class InvoicesService {
   }
 
   /**
+   * v2.5.7 补丁线（发票关联供应商）：供应商重命名级联——镜像 renameCustomer 的名字引用语义：
+   * 扫描全部发票，supplier === 旧名 的更新为新名；不校验存在性，无命中幂等不报错（不写盘、不刷 mtime）。
+   */
+  async renameSupplierId(oldName: string, newName: string): Promise<void> {
+    const ws = this.requireWS()
+    await this.mutateStore(ws, (store, markChanged) => {
+      let changed = false
+      for (const rec of Object.values(store.invoices)) {
+        if (rec.supplier === oldName) {
+          rec.supplier = newName
+          changed = true
+        }
+      }
+      if (changed) markChanged()
+    })
+  }
+
+  /**
    * 复制归档到 发票/<YYYY>/（YYYY = 开票日期年份；源文件可以是工作区外，UI 对话框选本地文件）。
    * 命名：套用命名模板（发票无产品集/子文件夹槽位 → 均为空，仅 original_name 生效等价原文件名；
    * 用户配置的 prefix/suffix 照常套用），冲突时按 conflict_suffix 加 _{n} 递增序号（resolveConflictName）。
@@ -452,8 +479,8 @@ export class InvoicesService {
   async exportXlsx(filePath: string, records: InvoiceRecord[]): Promise<void> {
     await this.xlsx.exportRows(filePath, {
       sheetName: '发票台账',
-      headers: ['发票号码', '发票代码', '开票日期', '金额（元）', '开票方', '购买方', '状态', '客户', '待办日期', '备注'],
-      widths: [16, 14, 12, 12, 24, 24, 10, 16, 12, 30],
+      headers: ['发票号码', '发票代码', '开票日期', '金额（元）', '开票方', '购买方', '状态', '客户', '供应商', '待办日期', '备注'],
+      widths: [16, 14, 12, 12, 24, 24, 10, 16, 16, 12, 30],
       rows: records.map((r) => [
         r.number,
         r.code ?? '',
@@ -463,6 +490,7 @@ export class InvoicesService {
         r.buyer,
         r.status,
         r.customer ?? '',
+        r.supplier ?? '',
         r.due_date ?? '',
         r.notes ?? '',
       ]),

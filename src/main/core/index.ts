@@ -225,11 +225,13 @@ export class BoxService {
 
   /**
    * 重命名供应商（v2.4.9 S2 编排）：目录迁移 + 档案 key 迁移（suppliers.rename），
-   * 随后级联更新 inbound.supplier_id 名字引用（inbound.renameSupplierId；不校验存在性）。
+   * 随后级联更新 inbound.supplier_id 与发票台账 supplier 名字引用
+   * （inbound.renameSupplierId / invoices.renameSupplierId；不校验存在性）。
    */
   async renameSupplier(oldName: string, newName: string): Promise<void> {
     await this.suppliers.rename(oldName, newName)
     await this.inbound.renameSupplierId(oldName.trim(), newName.trim())
+    await this.invoices.renameSupplierId(oldName.trim(), newName.trim())
   }
 
   /**

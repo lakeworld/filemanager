@@ -5,7 +5,7 @@ import TagInput from "~/components/TagInput";
 import MoneyInput from "~/components/MoneyInput"; // v2.5.5（B2）：金额输入统一
 import ArchiveField from "./ArchiveField";
 import { STATUSES } from "./utils";
-import type { InvoiceFormState, InvoiceStatus, InvoiceRecord, CustomerBrief } from "./types";
+import type { InvoiceFormState, InvoiceStatus, InvoiceRecord, CustomerBrief, SupplierBrief } from "./types";
 import type { TagInfo } from "~/types";
 import type { PluginFileCommand } from "~/plugins/registry";
 /**
@@ -29,6 +29,8 @@ export default function InvoiceEditorModal(props: {
   onPreviewFile: () => void;
   missing: Record<string, boolean>;
   customers: CustomerBrief[];
+  /** v2.5.7 补丁线：关联供应商下拉选项（进项票归属；与入库单供应商下拉同源 suppliers store） */
+  suppliers: SupplierBrief[];
   tagOptions: TagInfo[];
   /** v2.5.5（修正轮）：global 命令槽——新建发票 create 模式渲染「从文件识别」按钮（单文件；批量命令已过滤） */
   identifyCommands: PluginFileCommand[];
@@ -44,6 +46,13 @@ export default function InvoiceEditorModal(props: {
     props.customers;
     const v = props.form.customer;
     if (customerSelectRef && customerSelectRef.value !== v) customerSelectRef.value = v;
+  });
+  // 供应商下拉：同款补应用机制（v2.5.7 补丁线，镜像客户）
+  let supplierSelectRef: HTMLSelectElement | undefined;
+  createEffect(() => {
+    props.suppliers;
+    const v = props.form.supplier;
+    if (supplierSelectRef && supplierSelectRef.value !== v) supplierSelectRef.value = v;
   });
   return (
     <Show when={props.editor}>
@@ -174,6 +183,21 @@ export default function InvoiceEditorModal(props: {
                 <option value="">不关联客户</option>
                 <For each={props.customers}>
                   {(c) => <option value={c.name}>{c.name}</option>}
+                </For>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-surface-700 mb-1">关联供应商</label>
+              <select
+                ref={(el) => { supplierSelectRef = el; }}
+                class="select w-full"
+                aria-label="关联供应商"
+                value={props.form.supplier}
+                onChange={(e) => props.setField("supplier", e.currentTarget.value)}
+              >
+                <option value="">不关联供应商</option>
+                <For each={props.suppliers}>
+                  {(s) => <option value={s.name}>{s.name}</option>}
                 </For>
               </select>
             </div>

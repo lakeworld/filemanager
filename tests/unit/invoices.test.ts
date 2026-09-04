@@ -252,7 +252,7 @@ describe('发票台账（PLAN §6）', () => {
     const ws = await tmp()
     const box = buildTestBox(home)
     await box.workspace.create(ws)
-    await addInvoice(box, ws, { number: 'E1', code: 'CODE1', customer: '张三', notes: '备注', due_date: '2026-08-20' })
+    await addInvoice(box, ws, { number: 'E1', code: 'CODE1', customer: '张三', supplier: '供应商A', notes: '备注', due_date: '2026-08-20' })
 
     const xlsxPath = path.join(ws, 'invoices-export.xlsx')
     await box.invoices.exportXlsx(xlsxPath, await box.invoices.list())
@@ -268,7 +268,8 @@ describe('发票台账（PLAN §6）', () => {
     expect(sheet.getCell('D2').value).toBe(100)
     expect(sheet.getCell('E2').value).toBe('开票方A')
     expect(sheet.getCell('H2').value).toBe('张三')
-    expect(sheet.getCell('J2').value).toBe('备注')
+    expect(sheet.getCell('I2').value).toBe('供应商A')
+    expect(sheet.getCell('K2').value).toBe('备注')
     await expect(box.invoices.exportXlsx('', [])).rejects.toThrow('路径不能为空')
   })
 
@@ -370,6 +371,40 @@ describe('发票台账（PLAN §6）', () => {
     await addInvoice(box, ws, { number: 'CUST-1', customer: '张三' })
     await box.renameCustomer('张三', '李四')
     expect((await box.invoices.list()).find((r) => r.number === 'CUST-1')?.customer).toBe('李四')
+  })
+
+  it('v2.5.7 补丁线：发票关联供应商——create/update 落盘与改绑/清空', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    const rec = await addInvoice(box, ws, { number: 'SUP-1', supplier: '供应商A' })
+    expect(rec.supplier).toBe('供应商A')
+
+    // 改绑
+    await box.invoices.update({ number: 'SUP-1', supplier: '供应商B' })
+    expect((await box.invoices.get('SUP-1'))?.supplier).toBe('供应商B')
+
+    // 清空（空串 = 删除字段，镜像 customer 口径）
+    await box.invoices.update({ number: 'SUP-1', supplier: '' })
+    expect((await box.invoices.get('SUP-1'))?.supplier).toBeUndefined()
+
+    // update 缺省不动
+    await box.invoices.update({ number: 'SUP-1', supplier: '供应商C' })
+    await box.invoices.update({ number: 'SUP-1', notes: '仅改备注' })
+    expect((await box.invoices.get('SUP-1'))?.supplier).toBe('供应商C')
+  })
+
+  it('v2.5.7 补丁线：供应商重命名级联发票 supplier 引用（BoxService.renameSupplier）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.suppliers.create({ name: '优越科技' })
+    await addInvoice(box, ws, { number: 'SUP-2', supplier: '优越科技' })
+    await box.renameSupplier('优越科技', '广东优越科技有限公司')
+    expect((await box.invoices.list()).find((r) => r.number === 'SUP-2')?.supplier).toBe('广东优越科技有限公司')
   })
 
   it('未打开工作区时所有入口报错', async () => {

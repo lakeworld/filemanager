@@ -568,7 +568,7 @@ inbound: {
 }
 ```
 
-返回类型对齐 `shared/types.ts`（`InvoiceRecord` / `InboundRecord`）：`InvoiceProfile` = `number / code? / date / amount / seller / buyer / status('待报销'|'已报销'|'已入账') / customer? / due_date? / file_path / tags? / notes? / created_at / updated_at`（**不含 `ocr_ext` 命名空间**）；`InboundProfile` = `id / date / supplier / supplier_id? / product_set? / file_path / amount? / notes? / created_at / updated_at`。
+返回类型对齐 `shared/types.ts`（`InvoiceRecord` / `InboundRecord`）：`InvoiceProfile` = `number / code? / date / amount / seller / buyer / status('待报销'|'已报销'|'已入账') / customer? / supplier? / due_date? / file_path / tags? / notes? / created_at / updated_at`（`supplier?` = **v2.5.7 补丁线**进项票关联供应商，box 权威字段、名字引用语义同 `customer`——在宿主「发票」页编辑落，供应商改名由 `renameSupplier` 级联；旧宿主投影无此字段，插件须容缺省）（**不含 `ocr_ext` 命名空间**）；`InboundProfile` = `id / date / supplier / supplier_id? / product_set? / file_path / amount? / notes? / created_at / updated_at`。
 
 ### 5.6 share 能力域（局域网共享与拉取，v2.5.1 实装）
 

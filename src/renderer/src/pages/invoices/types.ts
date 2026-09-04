@@ -14,6 +14,8 @@ export interface InvoiceFormState {
   buyer: string;
   status: InvoiceStatus;
   customer: string;
+  /** 关联供应商名（进项票归属；空 = 不关联） */
+  supplier: string;
   due_date: string;
   file_path: string;
   tags: string[];

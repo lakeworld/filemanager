@@ -22,6 +22,8 @@ export default function InvoiceCards(props: {
   rows: InvoiceRecord[];
   missing: Record<string, boolean>;
   customerExists: (name: string) => boolean;
+  /** v2.5.7 补丁线：供应商 chip 存在性判断（镜像 customerExists） */
+  supplierExists: (name: string) => boolean;
   selectedIds: string[];
   onToggleSelect: (number: string) => void;
   onSetStatus: (number: string, status: InvoiceStatus) => void;
@@ -164,6 +166,23 @@ export default function InvoiceCards(props: {
                           title={props.customerExists(name()) ? "前往客户详情" : "客户已删除（字面值保留）"}
                           onClick={() => {
                             if (props.customerExists(name())) navigate(`/clients/${encodeURIComponent(name())}`);
+                          }}
+                        >
+                          {name()}
+                        </button>
+                      )}
+                    </Show>
+                    <Show when={rec.supplier} fallback={<span class="text-surface-300 text-xs shrink-0">无供应商</span>}>
+                      {(name) => (
+                        <button
+                          class={`text-xs px-2 py-0.5 rounded-full transition-colors shrink-0 ${
+                            props.supplierExists(name())
+                              ? "bg-surface-100 text-surface-700 hover:bg-primary-50 hover:text-primary-700"
+                              : "bg-surface-50 text-surface-400"
+                          }`}
+                          title={props.supplierExists(name()) ? "前往供应商详情" : "供应商已删除（字面值保留）"}
+                          onClick={() => {
+                            if (props.supplierExists(name())) navigate(`/suppliers/${encodeURIComponent(name())}`);
                           }}
                         >
                           {name()}
