@@ -36,7 +36,7 @@ export default function InvoiceToolbar(props: {
   // v2.5.7（D2 表单控件统一）：date input 全部换 DatePicker（compact+ariaLabel），清空原生日期控件（type=date 清零）
   return (
     <div class="flex flex-col gap-2 mb-4 shrink-0">
-      <div class="flex flex-col md:flex-row gap-3">
+      <div class="flex flex-col md:flex-row md:flex-wrap gap-3">
         <input
           type="text"
           class="input flex-1"
