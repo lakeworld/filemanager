@@ -82,7 +82,8 @@ protocol.registerSchemesAsPrivileged([
 // ② e2e 会读写真实缩略图/索引/账号文件，污染生产数据。须在单实例锁之前设置。
 if (process.env.QIHEBOX_E2E === '1') {
   // v2.5.8 A4（台账 D-07 结构收口）：userData 支持按 spec 覆盖——QIHEBOX_E2E_USERDATA 指定
-  // tmpdir 下的目录名（各 spec 经 e2eLaunchEnv 传自己的文件名），未指定时回退历史共享目录
+  // tmpdir 下的目录名（各 spec 以 tests/e2e/helpers/launch.ts 的 e2eUserDataDirName(文件名) 自组 env 传入），
+  // 未指定时回退历史共享目录
   // qihebox-e2e-userdata（兼容未迁移入口）。修的病：共享目录被某一 spec 预置的登录态污染后，
   // 后续登录态敏感套件整批假红（D-07 实录 profile-account 三例）。
   const e2eUserDataName = process.env.QIHEBOX_E2E_USERDATA || 'qihebox-e2e-userdata'
