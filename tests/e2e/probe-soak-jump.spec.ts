@@ -16,6 +16,7 @@
  * 注意：与 memory-soak / 默认 e2e 抢单实例锁，不得并行。
  */
 import { test, expect, _electron as electron } from '@playwright/test'
+import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page, CDPSession } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import fs from 'node:fs'
@@ -26,7 +27,7 @@ import { collectRendererMetrics, probeCdpCapabilities } from './helpers/memoryMe
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const INDEX_URL = 'file://' + ROOT.replace(/\\/g, '/') + '/out/renderer/index.html'
-const E2E_USER_DATA = path.join(os.tmpdir(), 'qihebox-e2e-userdata')
+const E2E_USER_DATA = path.join(os.tmpdir(), e2eUserDataDirName('probe-soak-jump'))
 const HELLO_QBOX = path.join(ROOT, 'out', 'plugins', 'com.qihe.hello.qbox')
 const CONFORMANCE_QBOX = path.join(ROOT, 'out', 'plugins', 'com.qihe.conformance.full.qbox')
 const LAPS = 4
@@ -53,7 +54,7 @@ test.describe('soak 跳变归因（probe，不入默认套件）', () => {
     const app: ElectronApplication = await electron.launch({
       args: ['.', '--no-sandbox', '--js-flags=--expose-gc'],
       cwd: ROOT,
-      env: { ...process.env, QIHEBOX_E2E: '1' },
+      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('probe-soak-jump') },
     })
     const page = await app.firstWindow()
     try {

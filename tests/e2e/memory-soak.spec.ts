@@ -8,6 +8,7 @@
  * - 输出 JSON：memory-soak-results/memory-soak-<timestamp>.json（.gitignore 已排除，不进公开仓库）。
  */
 import { test, expect, _electron as electron } from '@playwright/test'
+import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page, CDPSession } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import fs from 'node:fs'
@@ -42,7 +43,7 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
     app = await electron.launch({
       args: ['.', '--no-sandbox', '--js-flags=--expose-gc'],
       cwd: ROOT,
-      env: { ...process.env, QIHEBOX_E2E: '1' },
+      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('memory-soak') },
     })
     page = await app.firstWindow()
     page.on('pageerror', (err) => pageErrors.push(`pageerror: ${err.message}`))

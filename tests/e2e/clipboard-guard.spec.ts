@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -20,7 +21,7 @@ test.describe('剪贴板劫持守卫（v2.5.7 A1）', () => {
   let wsDir: string
 
   test.beforeAll(async () => {
-    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT, env: { ...process.env, QIHEBOX_E2E: '1' } })
+    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT, env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('clipboard-guard') } })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
@@ -147,7 +148,7 @@ test.describe('剪贴板劫持守卫（v2.5.7 A1）', () => {
     await page.locator('#clip-ctx-test').click({ button: 'right' })
     await page.waitForTimeout(400)
     // 读 e2e userData 的 main-*.log（与日志系同目录；异步写，轮询）
-    const logsDir = path.join(os.tmpdir(), 'qihebox-e2e-userdata', 'logs')
+    const logsDir = path.join(os.tmpdir(), e2eUserDataDirName('clipboard-guard'), 'logs')
     let text = ''
     for (let i = 0; i < 40; i++) {
       try {

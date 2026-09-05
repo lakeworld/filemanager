@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -24,7 +25,7 @@ test.describe('客户详情空文件区空态提示', () => {
     app = await electron.launch({
       args: ['.', '--no-sandbox'],
       cwd: ROOT,
-      env: { ...process.env, QIHEBOX_E2E: '1' },
+      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('customer-dropzone') },
     })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')

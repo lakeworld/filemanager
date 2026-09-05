@@ -17,6 +17,7 @@
  * 用例会 L2/L4 重建，共享 app 会污染后续用例时序。
  */
 import { test, expect, _electron as electron } from '@playwright/test'
+import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -77,7 +78,7 @@ test.describe('冷启动分段计时（T5 步骤 5：壳层首帧 vs Dashboard s
     const cold = await electron.launch({
       args: ['.', '--no-sandbox'],
       cwd: ROOT,
-      env: { ...process.env, QIHEBOX_E2E: '1' },
+      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('window-lifecycle') },
     })
     try {
       const coldPage = await cold.firstWindow()
@@ -122,7 +123,7 @@ test.describe('窗口生命周期（v2.5.3 常驻轻壳 T5 + 托盘冻结热修�
     app = await electron.launch({
       args: ['.', '--no-sandbox'],
       cwd: ROOT,
-      env: { ...process.env, QIHEBOX_E2E: '1' },
+      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('window-lifecycle') },
     })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
@@ -310,7 +311,7 @@ test.describe('窗口生命周期故障注入（v2.5.3 热修语义，独立 app
     app = await electron.launch({
       args: ['.', '--no-sandbox'],
       cwd: ROOT,
-      env: { ...process.env, QIHEBOX_E2E: '1' },
+      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('window-lifecycle') },
     })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')

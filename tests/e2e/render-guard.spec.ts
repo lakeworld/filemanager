@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -26,7 +27,7 @@ test.describe('v2.5.7 渲染守卫（异常零容忍 + 新面回归）', () => {
   let wsDir = ''
 
   test.beforeAll(async () => {
-    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT, env: { ...process.env, QIHEBOX_E2E: '1' } })
+    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT, env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('render-guard') } })
     page = await app.firstWindow()
     page.on('pageerror', (err) => pageErrors.push(`pageerror: ${err.message}`))
     page.on('console', (msg) => {
