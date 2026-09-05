@@ -16,6 +16,7 @@
  *   - 暴露 `conformance.emit`（host.events.emit）→ spec 在渲染层经 window.qihebox.plugins.on 订阅并断言收到。
  */
 import { test, expect, _electron as electron } from '@playwright/test'
+import { e2eUserDataDirName } from '../helpers/launch'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
@@ -67,7 +68,7 @@ test.describe('插件协议一致性体检（conformance）', () => {
     app = await electron.launch({
       args: ['.', '--no-sandbox'],
       cwd: ROOT,
-      env: { ...process.env, QIHEBOX_E2E: '1' },
+      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('conformance') },
     })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
@@ -167,8 +168,8 @@ test.describe('插件协议一致性体检（conformance）', () => {
 
     await test.step('b. devMode 开 → 侧载安装 → 管理页出现、无 broken', async () => {
       await setDevMode(true)
-      // 跨 spec 共享 e2e userData（$TMPDIR/qihebox-e2e-userdata）：前序 spec
-      // 可能残留同 id 已安装插件 → install 抛「插件已安装」。先卸载兜底。
+      // A4 per-spec userData 后同 id 残留只会来自本 spec 前序用例：
+      // 仍可能 install 抛「插件已安装」。先卸载兜底。
       await page.evaluate(async (pid) => (window as any).qihebox.plugins.uninstall(pid), id).catch(() => {})
       const ins = await page.evaluate(
         async (p) => (window as any).qihebox.plugins.install({ filePath: p }),
@@ -308,7 +309,7 @@ test.describe('插件协议一致性体检（conformance）', () => {
 
     // —— e3. 覆盖安装（2026-08-16 方案 A）：同包重装 → 成功、state/ 保留、IPC 恢复 ——
     await test.step('e3. 覆盖安装（同包重装）→ 成功、state/ 保留、IPC 恢复', async () => {
-      const stateDir = path.join(os.tmpdir(), 'qihebox-e2e-userdata', 'plugins', id, 'state')
+      const stateDir = path.join(os.tmpdir(), e2eUserDataDirName('conformance'), 'plugins', id, 'state')
       const hadState = fs.existsSync(stateDir)
       const before = hadState ? fs.readdirSync(stateDir).sort() : []
       const ins = await page.evaluate(
@@ -337,7 +338,7 @@ test.describe('插件协议一致性体检（conformance）', () => {
 
     // —— f. 禁用 → 卸载 → 清场 ——
     await test.step('f. 禁用 → 卸载 → 清单清空（state/ 一并删除）', async () => {
-      const stateDir = path.join(os.tmpdir(), 'qihebox-e2e-userdata', 'plugins', id, 'state')
+      const stateDir = path.join(os.tmpdir(), e2eUserDataDirName('conformance'), 'plugins', id, 'state')
       const off = await page.evaluate(async (pid) => (window as any).qihebox.plugins.setEnabled(pid, false), id)
       expect(off.success).toBe(true)
       const list = await listPlugins()

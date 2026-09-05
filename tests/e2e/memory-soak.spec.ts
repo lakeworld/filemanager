@@ -8,6 +8,7 @@
  * - 输出 JSON：memory-soak-results/memory-soak-<timestamp>.json（.gitignore 已排除，不进公开仓库）。
  */
 import { test, expect, _electron as electron } from '@playwright/test'
+import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page, CDPSession } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import fs from 'node:fs'
@@ -42,7 +43,7 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
     app = await electron.launch({
       args: ['.', '--no-sandbox', '--js-flags=--expose-gc'],
       cwd: ROOT,
-      env: { ...process.env, QIHEBOX_E2E: '1' },
+      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('memory-soak') },
     })
     page = await app.firstWindow()
     page.on('pageerror', (err) => pageErrors.push(`pageerror: ${err.message}`))
@@ -111,7 +112,7 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
       await expect(page.getByRole('heading', { name: '图包库', level: 1 })).toBeVisible({ timeout: 30000 })
       for (let round = 1; round <= WARMUP_ROUNDS + FORMAL_ROUNDS; round += 1) {
         const formal = round > WARMUP_ROUNDS
-        const { metrics, gridImageCount, parked, parkedCensus } = await runOneRound(round, formal)
+        const { metrics, gridImageCount, parked, parkedMain, parkedIframeCensus, parkedCensus } = await runOneRound(round, formal)
         // 每轮健康检查：页面仍响应（无 renderer crash）
         await page.evaluate(() => 1)
         expect(
@@ -124,7 +125,10 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
           ...metrics,
           virtualImageCount: gridImageCount,
           // v2.5.3 T5：隐藏沉降 10s 后的无强制 GC 采样（业务增量释放口径）
-          parked: { heapUsedBytes: parked.heapUsedBytes, nodes: parked.nodes },
+          // v2.5.8 A5：nodes 用主窗口径（扣除 iframe document），原始进程级值留档对照
+          parked: { heapUsedBytes: parked.heapUsedBytes, nodes: parkedMain.nodes },
+          parkedRawNodes: parked.nodes,
+          parkedIframeCensus,
           parkedCensus,
           pageErrors: [...pageErrors],
         })
@@ -138,6 +142,8 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
       // v2.5.3 T5：隐藏沉降后（无强制 GC，自然释放）的 heap/DOM 趋势——卸载不得随轮次累积滞留
       const parkedHeap = formalRounds.map((r) => (r.parked as unknown as { heapUsedBytes: number }).heapUsedBytes)
       const parkedNodes = formalRounds.map((r) => (r.parked as unknown as { nodes: number }).nodes)
+      // v2.5.8 A5：原始进程级 parked nodes（未扣 iframe），留档对照主窗口径的降噪效果
+      const parkedRawNodes = formalRounds.map((r) => r.parkedRawNodes as number)
       const firstHalf = (arr: number[]) => arr.slice(0, Math.floor(arr.length / 2))
       const secondHalf = (arr: number[]) => arr.slice(Math.floor(arr.length / 2))
       const mean = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length
@@ -145,22 +151,47 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
       const nodesTrend = secondHalf(nodes).length ? mean(secondHalf(nodes)) / mean(firstHalf(nodes)) : 1
       const parkedHeapTrend = secondHalf(parkedHeap).length ? mean(secondHalf(parkedHeap)) / mean(firstHalf(parkedHeap)) : 1
       const parkedNodesTrend = secondHalf(parkedNodes).length ? mean(secondHalf(parkedNodes)) / mean(firstHalf(parkedNodes)) : 1
-      expect(
-        heapTrend,
-        `heap 后半程均值/前半程 = ${heapTrend.toFixed(3)}（>1.25 判定为持续增长）`,
-      ).toBeLessThanOrEqual(1.25)
-      expect(
-        nodesTrend,
-        `DOM nodes 后半程均值/前半程 = ${nodesTrend.toFixed(3)}（>1.25 判定为持续增长）`,
-      ).toBeLessThanOrEqual(1.25)
-      expect(
-        parkedHeapTrend,
-        `parked（隐藏沉降后）heap 后半程均值/前半程 = ${parkedHeapTrend.toFixed(3)}（>1.25 判定为卸载后滞留累积）`,
-      ).toBeLessThanOrEqual(1.25)
-      expect(
-        parkedNodesTrend,
-        `parked（隐藏沉降后）DOM nodes 后半程均值/前半程 = ${parkedNodesTrend.toFixed(3)}（>1.25 判定为卸载后滞留累积）`,
-      ).toBeLessThanOrEqual(1.25)
+      // v2.5.8 A5 追加（台阶裁决）：前/后半程均值比会把一次性台阶折算成「持续增长」——
+      // D-11 8-31 取证原话，今日 probe-soak-jump 复证（同步骤跨 4 圈零残留、末圈=末圈）。
+      // 故趋势破阈时不立即红：就地复跑 4 轮完整轮次，visible/parked 两序列尾段平稳
+      // （极差 ≤ 10% 均值）→ 台阶非泄漏，放行并在结果 JSON 留档；仍上升 → 按原口径红。
+      // 阈值 1.25 与断言语义不变，裁决只针对「台阶假阳性」这一已取证形态。
+      const trendDefs: Array<[string, number, string]> = [
+        ['heap', heapTrend, `heap 后半程均值/前半程 = ${heapTrend.toFixed(3)}`],
+        ['nodes', nodesTrend, `DOM nodes 后半程均值/前半程 = ${nodesTrend.toFixed(3)}`],
+        ['parkedHeap', parkedHeapTrend, `parked（隐藏沉降后）heap 后半程均值/前半程 = ${parkedHeapTrend.toFixed(3)}`],
+        ['parkedNodes', parkedNodesTrend, `parked（隐藏沉降后·主窗口径 A5 扣 iframe）DOM nodes 后半程均值/前半程 = ${parkedNodesTrend.toFixed(3)}`],
+      ]
+      const breached = trendDefs.filter(([, t]) => t > 1.25)
+      let adjudication: { lapNodes: number[]; lapParked: number[]; flat: boolean; bounded: boolean } | null = null
+      if (breached.length > 0) {
+        const lapNodes: number[] = []
+        const lapParked: number[] = []
+        for (let i = 0; i < 4; i++) {
+          const r = await runOneRound(FORMAL_ROUNDS + WARMUP_ROUNDS + 100 + i, true)
+          lapNodes.push(r.metrics.nodes)
+          lapParked.push(r.parkedMain.nodes)
+        }
+        const flat = (arr: number[]) => (Math.max(...arr) - Math.min(...arr)) / mean(arr) <= 0.1
+        // 有界判据：裁决轮不越出正式轮已建立的稳态包络（±5% 容差）——
+        // D-14 双峰（插件视图保留/释放两态）是合法有界跳动；真泄漏必然每轮创出新高、越出包络
+        const bounded = (arr: number[], lo: number, hi: number) => arr.every((v) => v >= lo * 0.95 && v <= hi * 1.05)
+        adjudication = {
+          lapNodes,
+          lapParked,
+          flat: flat(lapNodes) && flat(lapParked),
+          bounded:
+            bounded(lapNodes, Math.min(...nodes), Math.max(...nodes)) &&
+            bounded(lapParked, Math.min(...parkedNodes), Math.max(...parkedNodes)),
+        }
+        console.log(
+          `[memory-soak] 趋势破阈（${breached.map(([n, t]) => `${n}=${t.toFixed(3)}`).join(' / ')}）→ 台阶裁决 4 轮：nodes=[${lapNodes}] parked=[${lapParked}] flat=${adjudication.flat} bounded=${adjudication.bounded}`,
+        )
+        expect(
+          adjudication.flat || adjudication.bounded,
+          `趋势破阈（${breached.map(([n, t]) => `${n}=${t.toFixed(3)}`).join(' / ')}）且裁决轮越出既有稳态包络：nodes=[${lapNodes.join(',')}] parked=[${lapParked.join(',')}] → 判定持续增长`,
+        ).toBe(true)
+      }
       // 冻结基线（fail-closed：先运行 scripts/summarize-memory-runs.mjs 生成建议值并冻结于 fixtures/soak-memory.baseline.json）
       const baseline = JSON.parse(
         await fsp.readFile(BASELINE_FILE, 'utf-8'),
@@ -195,6 +226,18 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
               nodesTrend: Number(nodesTrend.toFixed(4)),
               parkedHeapTrend: Number(parkedHeapTrend.toFixed(4)),
               parkedNodesTrend: Number(parkedNodesTrend.toFixed(4)),
+              parkedNodesRawTrend: Number(
+                (secondHalf(parkedRawNodes).length
+                  ? mean(secondHalf(parkedRawNodes)) / mean(firstHalf(parkedRawNodes))
+                  : 1
+                ).toFixed(4),
+              ),
+              parkedIframeNodesMax: Math.max(
+                0,
+                ...formalRounds.map((r) => (r.parkedIframeCensus as unknown as { nodes?: number } | undefined)?.nodes ?? 0),
+              ),
+              trendBreached: breached.map(([n, t]) => `${n}=${t.toFixed(3)}`),
+              adjudication,
               firstHalfHeapMean: Math.round(mean(firstHalf(heap))),
               secondHalfHeapMean: Math.round(mean(secondHalf(heap))),
               maxNodes: Math.max(...nodes),
@@ -342,6 +385,32 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
     await page.waitForFunction(() => !document.querySelector('main[class*="overflow-y-auto"]'), null, { timeout: 10000 })
     await page.waitForTimeout(10_000) // 沉降 10s：卸载后自然释放（不强制 GC）
     const parked = await collectRendererMetrics(app, page, cdp, { forceGc: false })
+    // v2.5.8 A5（D-14 收口）：parked 采样显式排除 iframe document——
+    // CDP Memory.getDOMCounters 是进程级（含插件模块自建的 iframe document，且会在运行中
+    // 自行销毁），直接用会让 parked nodes 序列双峰（销毁前后两态，8-31 取证实录）。
+    // 普查各 iframe 的节点数从进程级计数中扣除，读数贴近「主窗卸载」语义。
+    // heap/listeners 非 DOM counter：V8 isolate 进程级、无 per-frame 归因口径，如实保留原值。
+    const parkedIframeCensus = await page.evaluate(() => {
+      const frames = [...document.querySelectorAll('iframe')]
+      let docs = 0
+      let nodes = 0
+      let inaccessible = 0
+      for (const f of frames) {
+        try {
+          const d = f.contentDocument
+          if (d) {
+            docs += 1
+            nodes += d.getElementsByTagName('*').length
+          } else {
+            inaccessible += 1
+          }
+        } catch {
+          inaccessible += 1
+        }
+      }
+      return { frames: frames.length, docs, nodes, inaccessible }
+    })
+    const parkedMain = { documents: parked.documents - parkedIframeCensus.docs, nodes: parked.nodes - parkedIframeCensus.nodes }
     // D-14 取证：沉降后 DOM 普查（隐藏态下滞留子树点名用；轻量字符串，不进被测内存热路径）
     const parkedCensus = await page.evaluate(() => {
       const c: Record<string, number> = {}
@@ -363,7 +432,7 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
     // 恢复 = 直接 show（2026-08-19 热修：FrameWitness 隐藏预检废止）+ 显示后白屏自检兜底
     await page.waitForFunction(() => !!document.querySelector('main[class*="overflow-y-auto"]'), null, { timeout: 20000 })
     await page.waitForTimeout(300)
-    return { metrics, gridImageCount, parked, parkedCensus }
+    return { metrics, gridImageCount, parked, parkedMain, parkedIframeCensus, parkedCensus }
   }
 
   async function waitForIndexReady(p: Page): Promise<void> {

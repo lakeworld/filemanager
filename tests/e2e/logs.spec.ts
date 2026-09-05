@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -9,9 +10,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 
 /**
  * e2e 日志目录：index.ts 的 QIHEBOX_E2E 分支把 logs 与 userData 一并隔离到
- * <tmpdir>/qihebox-e2e-userdata/logs（与生产 ~/.config/启禾文件管理/logs 完全隔离）。
+ * <tmpdir>/qihebox-e2e-logs/logs（A4 per-spec 隔离；与生产 ~/.config/启禾文件管理/logs 完全隔离）。
  */
-const LOGS_DIR = path.join(os.tmpdir(), 'qihebox-e2e-userdata', 'logs')
+const LOGS_DIR = path.join(os.tmpdir(), e2eUserDataDirName('logs'), 'logs')
 
 /**
  * S6 日志系统（v2.4.9，PLAN §3.6.3 / §3.6.4）：
@@ -26,7 +27,7 @@ test.describe('S6 日志系统', () => {
   test.beforeAll(async () => {
     // 清空历史 e2e 日志（共享 tmp 目录可能残留上次运行产物），保证断言从干净状态开始
     await fsp.rm(LOGS_DIR, { recursive: true, force: true }).catch(() => {})
-    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT, env: { ...process.env, QIHEBOX_E2E: '1' } })
+    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT, env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('logs') } })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })

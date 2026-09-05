@@ -10,6 +10,7 @@
  * 数据留档供波次 5 裁决门禁是否修订。
  */
 import { test, expect, _electron as electron } from '@playwright/test'
+import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page, CDPSession } from '@playwright/test'
 import http from 'node:http'
 import fsp from 'node:fs/promises'
@@ -69,7 +70,7 @@ test.describe('波次5 内存两新面 probe（Crepe 编辑态 + F5 解密驻留
     await startMock()
     const { qbox, keyHex } = await buildEncryptedQbox()
     lastKey[PLUGIN_ID] = keyHex
-    const userData = path.join(os.tmpdir(), 'qihebox-e2e-userdata')
+    const userData = path.join(os.tmpdir(), e2eUserDataDirName('probe-wave5-memory-f5-crepe'))
     await fsp.rm(userData, { recursive: true, force: true }).catch(() => {})
     await fsp.mkdir(userData, { recursive: true })
     await fsp.writeFile(
@@ -81,7 +82,7 @@ test.describe('波次5 内存两新面 probe（Crepe 编辑态 + F5 解密驻留
     const app: ElectronApplication = await electron.launch({
       args: ['.', '--no-sandbox', '--js-flags=--expose-gc'],
       cwd: ROOT,
-      env: { ...process.env, QIHEBOX_E2E: '1', QIHE_API_BASE: mockBase },
+      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('probe-wave5-memory-f5-crepe'), QIHE_API_BASE: mockBase },
     })
     const page: Page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
@@ -177,12 +178,12 @@ test.describe('波次5 内存两新面 probe（Crepe 编辑态 + F5 解密驻留
     await new Promise<void>((r) => mockServer.close(() => r()))
   })
 
-  // 本 spec 往**共享** e2e userData（$TMPDIR/qihebox-e2e-userdata，由 QIHEBOX_E2E=1 固定）预置过登录态。
+  // 本 spec 往**本 spec 专属** e2e userData（A4：e2eUserDataDirName('probe-wave5-memory-f5-crepe')）预置登录态。
   // 不清就是给后续套件埋「已登录」地雷：profile-account / conformance 的未登录断言会整批红，
   // 且症状酷似产品回归（2026-08-31 发布轮即因此误红 3 例，白排查一轮）。
   // 只删自己写的 account.json，不碰其它 spec 依赖的共享残留。
   test.afterAll(async () => {
-    const seeded = path.join(os.tmpdir(), 'qihebox-e2e-userdata', 'account.json')
+    const seeded = path.join(os.tmpdir(), e2eUserDataDirName('probe-wave5-memory-f5-crepe'), 'account.json')
     await fsp.rm(seeded, { force: true }).catch(() => {})
   })
 })

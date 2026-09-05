@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import fs from 'node:fs'
@@ -18,7 +19,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
  */
 
 /** e2e 日志目录（index.ts 的 QIHEBOX_E2E 分支隔离到 tmp，S6-2 已实现） */
-const LOGS_DIR = path.join(os.tmpdir(), 'qihebox-e2e-userdata', 'logs')
+const LOGS_DIR = path.join(os.tmpdir(), e2eUserDataDirName('autostart'), 'logs')
 /** 本 spec 专用自启目录：注入 XDG_CONFIG_HOME 使 autostart 落到临时目录，不碰真实 autostart */
 const XDG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'qihebox-autostart-e2e-'))
 const DESKTOP_ENTRY = path.join(XDG_DIR, 'autostart', '启禾文件管理.desktop')
@@ -66,7 +67,7 @@ test.describe('S4 开机自启：设置页开关', () => {
     app = await electron.launch({
       args: ['.', '--no-sandbox'],
       cwd: ROOT,
-      env: { ...process.env, QIHEBOX_E2E: '1', XDG_CONFIG_HOME: XDG_DIR },
+      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('autostart'), XDG_CONFIG_HOME: XDG_DIR },
     })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
@@ -123,7 +124,7 @@ test.describe('S4 开机自启：--autostart 启动分支（QIHEBOX_AUTOSTART=1�
     app = await electron.launch({
       args: ['.', '--no-sandbox'],
       cwd: ROOT,
-      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_AUTOSTART: '1', XDG_CONFIG_HOME: XDG_DIR },
+      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('autostart'), QIHEBOX_AUTOSTART: '1', XDG_CONFIG_HOME: XDG_DIR },
     })
   })
 
