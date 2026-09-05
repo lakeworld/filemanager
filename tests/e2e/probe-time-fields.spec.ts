@@ -40,14 +40,9 @@ test.describe('详情页时间字段取证（probe，不入默认套件）', () 
         date: '2026-09-05',
         lines: [{ product: '走查品', qty: 1, unit_price: 1, amount: 1 }],
       })
-      // 草稿→已确认：触发 confirmed_at 落值（取单号从列表读）
     })
-    // IPC 统一 ApiResult 信封 {ok,data}——取值须解 .data
-    const no = await page.evaluate(async () => {
-      const res = await (window as any).qihebox.quotes.list()
-      const list = Array.isArray(res?.data) ? res.data : []
-      return list[0]?.quotation_no ?? ''
-    })
+    // 草稿→已确认：触发 confirmed_at 落值（单号经 readFirstQuoteNo 从列表读；Node 侧上下文）
+    const no = await readFirstQuoteNo()
     console.log(`[tmprobe] tag=${TAG} 报价单号=${no}`)
     if (no) {
       await page.evaluate(async (no) => {
@@ -69,6 +64,14 @@ test.describe('详情页时间字段取证（probe，不入默认套件）', () 
       await Promise.race([app.close(), new Promise((r) => setTimeout(r, 5000))]).catch(() => {})
     }
   })
+
+  // IPC 统一 ApiResult 信封 {ok,data}——取值须解 .data（beforeAll 置确认态与 test 体取单号共用）
+  const readFirstQuoteNo = (): Promise<string> =>
+    page.evaluate(async () => {
+      const res = await (window as any).qihebox.quotes.list()
+      const list = Array.isArray(res?.data) ? res.data : []
+      return list[0]?.quotation_no ?? ''
+    })
 
   const goto = async (url: string): Promise<void> => {
     await page.goto(INDEX_URL)
@@ -95,11 +98,7 @@ test.describe('详情页时间字段取证（probe，不入默认套件）', () 
 
   test('四面时间字段渲染文本 + 截图留档', async () => {
     await page.setViewportSize({ width: 1440, height: 900 })
-    const no = await page.evaluate(async () => {
-      const res = await (window as any).qihebox.quotes.list()
-      const list = Array.isArray(res?.data) ? res.data : []
-      return list[0]?.quotation_no ?? ''
-    })
+    const no = await readFirstQuoteNo()
 
     await goto('/clients/' + encodeURIComponent('走查客户'))
     console.log(`[tmprobe] tag=${TAG} 客户详情：${await timeText()}`)
