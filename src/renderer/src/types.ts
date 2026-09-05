@@ -51,6 +51,9 @@ export type {
   InvoiceRecord,
   InboundRecord,
   ExchangeReceipt,
+  // —— v2.5.8（D3）：导入硬链接去重 ——
+  ImportResult,
+  DedupItem,
 } from "../../shared/types";
 
 // —— v2.4.7：发票 / 入库请求类型（镜像 main core 契约；shared/types.ts 仅承载持久形态）——

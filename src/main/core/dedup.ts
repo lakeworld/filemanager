@@ -6,7 +6,7 @@
 import crypto from 'node:crypto'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
-import { PRODUCT_SETS_DIR, CERTS_DIR, DOCS_DIR } from './paths'
+import { PRODUCT_SETS_DIR, CERTS_DIR, DOCS_DIR, isPathInsideWorkspaceReal } from './paths'
 
 const HASH_CHUNK = 1024 * 1024
 
@@ -46,13 +46,13 @@ export async function buildContentIndex(ws: string): Promise<ContentIndex> {
   for (const ps of psEntries) {
     if (!ps.isDirectory() || ps.name.startsWith('.')) continue
     for (const domain of [CERTS_DIR, DOCS_DIR]) {
-      await walkIndex(path.join(psRoot, ps.name, domain), index)
+      await walkIndex(path.join(psRoot, ps.name, domain), index, ws)
     }
   }
   return index
 }
 
-async function walkIndex(dir: string, index: ContentIndex): Promise<void> {
+async function walkIndex(dir: string, index: ContentIndex, ws: string): Promise<void> {
   let entries: import('node:fs').Dirent[]
   try {
     entries = await fsp.readdir(dir, { withFileTypes: true })
@@ -63,15 +63,22 @@ async function walkIndex(dir: string, index: ContentIndex): Promise<void> {
     if (e.name.startsWith('.')) continue
     const full = path.join(dir, e.name)
     if (e.isDirectory()) {
-      await walkIndex(full, index)
+      await walkIndex(full, index, ws)
       continue
     }
-    if (!e.isFile()) continue
+    // 形态照 listDirFilesRecursive：经 stat（跟随符号链接）判定，symlink 文件同样纳入
+    if (!e.isFile() && !e.isSymbolicLink()) continue
     const info = await fsp.stat(full).catch(() => null)
-    if (!info) continue
+    if (!info || !info.isFile()) continue
+    let registered = full
+    if (e.isSymbolicLink()) {
+      // link(2) 不解引用 symlink——索引登记解析后的真实文件路径，且不得逃逸工作区（与列表 realpath 边界同规）
+      registered = await fsp.realpath(full).catch(() => '')
+      if (!registered || !(await isPathInsideWorkspaceReal(ws, registered))) continue
+    }
     const list = index.get(info.size)
-    if (list) list.push(full)
-    else index.set(info.size, [full])
+    if (list) list.push(registered)
+    else index.set(info.size, [registered])
   }
 }
 
@@ -95,7 +102,10 @@ export async function findContentMatch(
   for (const p of index.get(srcSize) ?? []) {
     let h = cache.get(p)
     if (h === undefined) {
-      h = await hashFile(p).catch(() => '')
+      h = await hashFile(p).catch((err) => {
+        console.warn('[dedup] 候选哈希失败，本批跳过该候选:', err)
+        return ''
+      })
       cache.set(p, h)
     }
     if (h && h === srcHash) return p

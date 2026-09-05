@@ -242,4 +242,29 @@ describe('v2.5.8 D3 硬链接去重（证书/文档域）', () => {
     const b = await fsp.stat(dest)
     expect(b.ino).not.toBe(a.ino)
   })
+
+  it('索引纳入符号链接文件（形态照 listDirFilesRecursive），建链落在真实文件且不逃逸', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: 'PS-A' })
+    await box.workspace.productSetCreate({ name: 'PS-B' })
+    const src = path.join(home, 'cert.pdf')
+    await fsp.writeFile(src, CERT_A)
+
+    const r1 = await box.files.importFiles(certReq([src], 'PS-A'))
+    // 证书域内放一个指向已导入文件的符号链接（别名）
+    const alias = path.join(ws, '产品集', 'PS-A', '证书', '子目录', '别名.pdf')
+    await fsp.symlink(r1.imported[0].path, alias)
+
+    // 指向工作区外的 symlink 候选不得入索引（此处仅验证内链场景可命中）
+    const r2 = await box.files.importFiles(certReq([src], 'PS-B'))
+    expect(r2.linked).toHaveLength(1)
+    // link 源是解析后的真实文件（非 symlink 本身）
+    expect(r2.linked[0].existing).toBe(r1.imported[0].path)
+    const b = await fsp.stat(r2.imported[0].path)
+    expect(b.ino).toBe((await fsp.stat(r1.imported[0].path)).ino)
+    expect(b.nlink).toBeGreaterThanOrEqual(2)
+  })
 })

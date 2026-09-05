@@ -4,7 +4,7 @@ import { api } from "~/wails/api";
 import { showToast } from "~/stores/notifyBanner";
 import { isInternalDragActive, clearInternalDrag, getInternalDragPaths } from "~/utils/dragout";
 import { currentWorkspace, productSets, loadProductSets, workspaceConfig, setFileBrowserRefreshTrigger } from "~/stores/workspace";
-import type { ApiResult, CustomerInfo, SupplierInfo, FileEntry } from "~/types";
+import type { ApiResult, CustomerInfo, SupplierInfo, FileEntry, DedupItem } from "~/types";
 
 export default function GlobalDropOverlay() {
   const params = useParams();
@@ -158,8 +158,8 @@ export default function GlobalDropOverlay() {
         setImportStatus("done");
         setFileBrowserRefreshTrigger((k) => k + 1);
         // v2.5.8（D3）：去重结果 toast 汇总（skipped=同位置同内容跳过；linked=硬链接复用）
-        const skipped: { path: string }[] = data.skipped ?? [];
-        const linked: { path: string }[] = data.linked ?? [];
+        const skipped: DedupItem[] = data.skipped ?? [];
+        const linked: DedupItem[] = data.linked ?? [];
         if (skipped.length > 0 || linked.length > 0) {
           const parts = [`导入 ${data.count} 个`];
           if (linked.length > 0) parts.push(`复用已有文件 ${linked.length} 个（硬链接，不占额外空间）`);
