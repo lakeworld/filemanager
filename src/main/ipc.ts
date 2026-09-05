@@ -364,6 +364,9 @@ export function registerIpc(
           failed: result.failed,
           cancelled: false,
           error: null,
+          // v2.5.8（D3）：去重汇报——skipped=同位置同内容跳过；linked=硬链接复用（count 语义不变 = imported 数）
+          skipped: result.skipped,
+          linked: result.linked,
         })
         // v2.5（P1-A4）：宿主事件 importComplete——完成即投递（成功）
         hooks.onImportComplete?.({ success: true, count: result.imported.length, cancelled: false })

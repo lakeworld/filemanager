@@ -1,6 +1,7 @@
 import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
+import { showToast } from "~/stores/notifyBanner";
 import { isInternalDragActive, clearInternalDrag, getInternalDragPaths } from "~/utils/dragout";
 import { currentWorkspace, productSets, loadProductSets, workspaceConfig, setFileBrowserRefreshTrigger } from "~/stores/workspace";
 import type { ApiResult, CustomerInfo, SupplierInfo, FileEntry } from "~/types";
@@ -156,6 +157,20 @@ export default function GlobalDropOverlay() {
       if (data && data.success) {
         setImportStatus("done");
         setFileBrowserRefreshTrigger((k) => k + 1);
+        // v2.5.8（D3）：去重结果 toast 汇总（skipped=同位置同内容跳过；linked=硬链接复用）
+        const skipped: { path: string }[] = data.skipped ?? [];
+        const linked: { path: string }[] = data.linked ?? [];
+        if (skipped.length > 0 || linked.length > 0) {
+          const parts = [`导入 ${data.count} 个`];
+          if (linked.length > 0) parts.push(`复用已有文件 ${linked.length} 个（硬链接，不占额外空间）`);
+          if (skipped.length > 0) parts.push(`跳过已存在 ${skipped.length} 个`);
+          const names = [...linked, ...skipped]
+            .slice(0, 4)
+            .map((it) => String(it.path || "").split(/[\\/]/).pop())
+            .filter(Boolean)
+            .join("、");
+          showToast("success", parts.join(" · "), names || undefined);
+        }
       } else if (data && data.cancelled) {
         setImportStatus("cancelled");
       } else {

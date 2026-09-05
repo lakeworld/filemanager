@@ -41,6 +41,7 @@ import {
 import { WorkspaceService, formatTime } from './workspace'
 import { MetadataService, FileMetadata, currentTimeString } from './metadata'
 import { sanitizeName, composeTargetName, resolveConflictName, ImportContext } from './naming'
+import { buildContentIndex, findContentMatch, hashFile, registerContent, type ContentIndex } from './dedup'
 import { globalWorkspaceIndex } from './indexCache'
 import type { CompactItem } from './indexCache'
 import type {
@@ -48,6 +49,7 @@ import type {
   FileListRequest,
   ImportFileRequest,
   ImportResult,
+  DedupItem,
   FileRenameRequest,
   MoveFilesRequest,
   BatchMoveResult,
@@ -321,6 +323,15 @@ export class FilesService {
     return this.withImportLock(async () => {
       await fsp.mkdir(targetDir, { recursive: true })
 
+      // v2.5.8（D3）：证书/文档域启用硬链接去重——scope 缺省或 'productSet' 且 target_type 归证书/文档目录
+      //（即非 image/video，与 targetDir 的 doc/cert 分支对齐）；批级索引锁内构建一次，批内落盘即时登记
+      const dedupActive =
+        (req.scope ?? 'productSet') === 'productSet' &&
+        req.target_type !== 'image' &&
+        req.target_type !== 'video'
+      const dedupIndex = dedupActive ? await buildContentIndex(ws) : null
+      const dedupHashCache = new Map<string, string>()
+
       // v2.3.3（P2）：源路径支持目录——先递归平铺展开为文件列表，再逐项导入
       // v2.4.2（I1）：展开阶段不可读的源（未水合/坏符号链接/不存在）进入失败清单，不中断整批
       const { files: sourceFiles, failed: expandFailed } = await this.expandSourcePaths(req.source_paths)
@@ -328,6 +339,9 @@ export class FilesService {
 
       const imported: FileEntry[] = []
       const failed: FailedItem[] = [...expandFailed]
+      // v2.5.8（D3）：去重结果桶（skipped=同位置同内容；linked=跨位置建链）
+      const skipped: DedupItem[] = []
+      const linked: DedupItem[] = []
       // v2.4.2（I3）：元数据累积，循环结束一次落盘（finally 兜底取消路径）
       const metaEntries: { filePath: string; meta: FileMetadata }[] = []
       const total = sourceFiles.length
@@ -339,8 +353,19 @@ export class FilesService {
           if (opts?.isCancelled?.()) throw new ImportCancelledError(imported)
           try {
             const seq = String(i + 1).padStart(seqWidth, '0')
-            const entry = await this.importOneFile(sourceFiles[i], targetDir, req, cfg, metaEntries, seq)
-            imported.push(entry)
+            const r = await this.importOneFile(
+              sourceFiles[i],
+              targetDir,
+              req,
+              cfg,
+              metaEntries,
+              seq,
+              dedupIndex,
+              dedupHashCache,
+            )
+            if (r.entry) imported.push(r.entry)
+            if (r.skipped) skipped.push(r.skipped)
+            if (r.linked) linked.push(r.linked)
           } catch (err) {
             // v2.4.2（I1）：单文件失败收集，不中断整批
             failed.push({
@@ -360,7 +385,7 @@ export class FilesService {
           )
         }
       }
-      return { imported, failed }
+      return { imported, failed, skipped, linked }
     })
   }
 
@@ -422,7 +447,9 @@ export class FilesService {
     cfg: WorkspaceConfig,
     metaEntries: { filePath: string; meta: FileMetadata }[],
     sequence: string,
-  ): Promise<FileEntry> {
+    dedupIndex: ContentIndex | null,
+    dedupHashCache: Map<string, string>,
+  ): Promise<{ entry: FileEntry | null; skipped?: DedupItem; linked?: DedupItem }> {
     const p = this.normalizeSourcePath(srcPath)
     if (!p) throw new Error('源路径为空')
     const srcInfo = await fsp.stat(p)
@@ -436,15 +463,43 @@ export class FilesService {
     const ctx: ImportContext = { targetProductSet: req.target_product_set, subFolder: req.sub_folder, sequence }
     let candidate = composeTargetName(cfg.naming_template, base, ext, ctx)
 
-    // 冲突后缀
     const destPath = path.join(targetDir, candidate)
+
+    // v2.5.8（D3）：证书/文档域去重——大小预筛（无同大小候选零哈希开销）+ 哈希比对
+    let dedupLinked: DedupItem | undefined
+    if (dedupIndex && dedupIndex.has(srcInfo.size)) {
+      const srcHash = await hashFile(p)
+      const existing = await findContentMatch(dedupIndex, srcInfo.size, srcHash, dedupHashCache)
+      if (existing) {
+        if (path.resolve(existing) === path.resolve(destPath)) {
+          // 同位置同内容已存在 → 跳过：不复制不建链、不写元数据、不生成缩略图
+          return { entry: null, skipped: { path: p, existing } }
+        }
+        // 跨位置同内容 → 目标名照常冲突解析后建硬链接（link 失败回退复制，不丢文件）
+        dedupLinked = { path: p, existing }
+      }
+    }
+
+    // 冲突后缀
     if (await fsp.stat(destPath).then(() => true).catch(() => false)) {
       candidate = await resolveConflictName(targetDir, candidate, cfg.naming_template.conflict_suffix, ext)
     }
 
     const finalDest = path.join(targetDir, candidate)
-    // v2.4.2（I2）：COPYFILE_EXCL 兜底并发同名冲突（互斥锁之外的最后防线），EEXIST 由外层收集为失败项
-    await fsp.copyFile(p, finalDest, fs.constants.COPYFILE_EXCL)
+    if (dedupLinked) {
+      try {
+        await fsp.link(dedupLinked.existing, finalDest)
+      } catch (err) {
+        console.warn('[import] 硬链接失败，回退普通复制:', err)
+        dedupLinked = undefined
+        // v2.4.2（I2）：COPYFILE_EXCL 兜底并发同名冲突（互斥锁之外的最后防线），EEXIST 由外层收集为失败项
+        await fsp.copyFile(p, finalDest, fs.constants.COPYFILE_EXCL)
+      }
+    } else {
+      await fsp.copyFile(p, finalDest, fs.constants.COPYFILE_EXCL)
+    }
+    // v2.5.8（D3）：批内落盘即时登记（同批后续同内容文件直接建链；回退副本同样登记）
+    if (dedupIndex) registerContent(dedupIndex, finalDest, srcInfo.size)
 
     // v2.4.2（I4）：缩略图不再阻塞导入——已缓存则直接带上路径，未缓存异步触发后台生成
     let thumb = ''
@@ -464,7 +519,7 @@ export class FilesService {
     })
 
     const info = await fsp.stat(finalDest)
-    return {
+    const entry: FileEntry = {
       name: path.basename(finalDest),
       path: finalDest,
       size: info.size,
@@ -472,6 +527,7 @@ export class FilesService {
       file_type: classifyFileType(finalDest),
       thumbnail_path: thumb || null,
     }
+    return dedupLinked ? { entry, linked: dedupLinked } : { entry }
   }
 
   // —— FileDelete（v2.3.1：改为移入回收站，可恢复；元数据/缩略图保留）——

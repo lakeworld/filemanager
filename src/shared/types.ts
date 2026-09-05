@@ -182,6 +182,16 @@ export interface FailedItem {
 export interface ImportResult {
   imported: FileEntry[]
   failed: FailedItem[]
+  /** v2.5.8（D3）：同位置同内容重复 → 直接跳过（不复制不建链不写元数据） */
+  skipped: DedupItem[]
+  /** v2.5.8（D3）：跨位置同内容 → 硬链接复用（磁盘只存一份；link 失败回退复制则不在此列） */
+  linked: DedupItem[]
+}
+
+/** v2.5.8（D3）：去重明细——path=导入源，existing=工作区已有文件 */
+export interface DedupItem {
+  path: string
+  existing: string
 }
 
 export interface BatchMoveResult {
