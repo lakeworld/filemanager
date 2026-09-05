@@ -1,6 +1,7 @@
 import { Show, For, createSignal, createEffect, createMemo, onCleanup } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
+import { fmtLocalTime } from "~/utils/datetime";
 import CreateClientModal from "./clients/CreateClientModal";
 import EditInfoModal from "./clients/EditInfoModal";
 import { withBuiltinNotes, defaultSubFolder } from "~/constants/notes";
@@ -47,16 +48,6 @@ function fmtMoney(n: number): string {
   return Number.isFinite(n)
     ? n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : "-";
-}
-
-/** 详情页时间本地化（v2.5.8 A3/挂账 W-02）：ISO(UTC) 原文直出不可读 → 转 "YYYY-MM-DD HH:mm:ss" 本地格式；
- *  历史数据两种来源（metadata currentTimeString 的 ISO / workspace formatTime 的本地串），
- *  本地串经 Date 解析回读值不变；不可解析的原样兜底不吞值 */
-function fmtLocalTime(v: string): string {
-  const d = new Date(v);
-  if (isNaN(d.getTime())) return v;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 // v2.5.3（P2-12）：报价加载序号模块级（照 Images imageLoadSeq 先例）——卸载清理递增后跨挂载延续计数，

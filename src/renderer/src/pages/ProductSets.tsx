@@ -1,6 +1,7 @@
 import { Show, For, createSignal, createEffect, onCleanup } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
+import { fmtLocalTime } from "~/utils/datetime";
 import CreatePsModal from "./productSets/CreatePsModal";
 import EditInfoPsModal from "./productSets/EditInfoPsModal";
 import { withBuiltinNotes, defaultSubFolder } from "~/constants/notes";
@@ -455,7 +456,7 @@ export default function ProductSets() {
                     </div>
                   </div>
                   <h3 class="text-lg font-semibold mt-3 text-surface-900">{ps.name}</h3>
-                  <p class="text-sm text-surface-400 mt-1">{ps.created_at}</p>
+                  <p class="text-sm text-surface-400 mt-1">{fmtLocalTime(ps.created_at)}</p>
                   <Show when={ps.tags && ps.tags.length > 0}>
                     <div class="flex flex-wrap gap-1.5 mt-3">
                       <For each={ps.tags}>

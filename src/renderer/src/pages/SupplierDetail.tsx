@@ -1,6 +1,7 @@
 import { Show, For, createSignal, createEffect } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
+import { fmtLocalTime } from "~/utils/datetime";
 import Modal from "~/components/ui/Modal";
 import { tagList, loadTagDefs } from "~/stores/tags";
 import { currentWorkspace, productSets, loadProductSets } from "~/stores/workspace";
@@ -283,7 +284,7 @@ export default function SupplierDetail() {
               </div>
             </Show>
             <p class="text-xs text-surface-400 mt-4">
-              创建于 {detailSupplier()!.created_at} · 更新于 {detailSupplier()!.updated_at}
+              创建于 {fmtLocalTime(detailSupplier()!.created_at)} · 更新于 {fmtLocalTime(detailSupplier()!.updated_at)}
             </p>
           </div>
 

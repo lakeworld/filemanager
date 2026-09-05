@@ -8,6 +8,7 @@
 import { Show, For, createSignal, createEffect, onCleanup } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
+import { fmtLocalTime } from "~/utils/datetime";
 import { currentWorkspace } from "~/stores/workspace";
 import { customers, loadCustomers } from "~/stores/clients";
 import { showToast } from "~/stores/notifyBanner";
@@ -215,11 +216,11 @@ export default function QuoteDetail() {
               <div class="grid grid-cols-1 md:grid-cols-4 gap-x-6 gap-y-3">
                 <InfoRow label="报价日期" value={rec().date} />
                 <InfoRow label="关联客户" value={rec().customer} muted={!!rec().customer && !customerExists(rec().customer)} />
-                <InfoRow label="创建于" value={rec().created_at} />
-                <InfoRow label="更新于" value={rec().updated_at} />
+                <InfoRow label="创建于" value={fmtLocalTime(rec().created_at)} />
+                <InfoRow label="更新于" value={fmtLocalTime(rec().updated_at)} />
               </div>
               <Show when={rec().confirmed_at}>
-                <p class="text-xs text-surface-400 mt-2">确认于 {rec().confirmed_at}</p>
+                <p class="text-xs text-surface-400 mt-2">确认于 {fmtLocalTime(rec().confirmed_at)}</p>
               </Show>
               <Show when={rec().notes}>
                 <p class="text-sm text-surface-600 mt-4 whitespace-pre-wrap">{rec().notes}</p>
