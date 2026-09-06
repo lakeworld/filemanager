@@ -408,6 +408,8 @@ export function registerIpc(
     return ok<boolean>(true)
   })
   ipcMain.handle('qihebox:files:delete', (_e, paths: string[]) => handle(() => box.files.fileDelete(paths)))
+  // v2.5.8（D3.5）：去重巡检（证书/文档域同内容重建硬链接；重入由 FilesService 拒绝）
+  ipcMain.handle('qihebox:files:dedupSweep', () => handle(() => box.files.dedupSweep()))
   ipcMain.handle('qihebox:files:rename', (_e, req) => handle(() => box.files.renameFile(req)))
   ipcMain.handle('qihebox:files:move', (_e, req) => handle(() => box.files.moveFiles(req)))
   ipcMain.handle('qihebox:files:copyFilesToClipboard', (_e, paths: string[]) =>

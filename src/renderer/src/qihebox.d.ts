@@ -106,6 +106,8 @@ interface QiheboxApi {
     import: (req: unknown) => Promise<unknown>
     importCancel: (token: string) => Promise<unknown>
     delete: (paths: string[]) => Promise<unknown>
+    // v2.5.8（D3.5）：去重巡检（证书/文档域同内容重建硬链接）
+    dedupSweep: () => Promise<unknown>
     rename: (req: unknown) => Promise<unknown>
     move: (req: unknown) => Promise<unknown>
     copyFilesToClipboard: (paths: string[]) => Promise<unknown>

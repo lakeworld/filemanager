@@ -122,6 +122,7 @@ const api = {
     import: (req: unknown) => invoke('qihebox:files:import', req),
     importCancel: (token: string) => invoke('qihebox:files:importCancel', token),
     delete: (paths: string[]) => invoke('qihebox:files:delete', paths),
+    dedupSweep: () => invoke('qihebox:files:dedupSweep'),
     rename: (req: unknown) => invoke('qihebox:files:rename', req),
     move: (req: unknown) => invoke('qihebox:files:move', req),
     copyFilesToClipboard: (paths: string[]) => invoke('qihebox:files:copyFilesToClipboard', paths),

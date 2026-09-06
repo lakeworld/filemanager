@@ -194,6 +194,14 @@ export interface DedupItem {
   existing: string
 }
 
+/** v2.5.8（D3.5）：去重巡检结果——证书/文档域同内容文件重建硬链接 */
+export interface SweepResult {
+  groups: number
+  relinked: number
+  bytesSaved: number
+  failed: FailedItem[]
+}
+
 export interface BatchMoveResult {
   moved: FileEntry[]
   failed: FailedItem[]

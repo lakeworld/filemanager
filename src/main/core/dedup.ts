@@ -9,6 +9,8 @@ import path from 'node:path'
 import { PRODUCT_SETS_DIR, CERTS_DIR, DOCS_DIR, isPathInsideWorkspaceReal } from './paths'
 
 const HASH_CHUNK = 1024 * 1024
+/** 部分哈希读取字节数（漏斗第②级：仅同大小组读文件头比对） */
+const PARTIAL_HASH_BYTES = 64 * 1024
 
 /** 文件大小 → 路径列表（内容索引，大小预筛用） */
 export type ContentIndex = Map<number, string[]>
@@ -24,6 +26,21 @@ export async function hashFile(p: string): Promise<string> {
       if (bytesRead === 0) break
       h.update(buf.subarray(0, bytesRead))
     }
+  } finally {
+    await fh.close()
+  }
+  return h.digest('hex')
+}
+
+/** 首 bytes 字节哈希（漏斗第②级；64KB ≤ 单块，一次读入） */
+export async function partialHashFile(p: string, bytes = PARTIAL_HASH_BYTES): Promise<string> {
+  const read = Math.min(bytes, HASH_CHUNK)
+  const h = crypto.createHash('sha256')
+  const fh = await fsp.open(p, 'r')
+  try {
+    const buf = Buffer.alloc(read)
+    const { bytesRead } = await fh.read(buf, 0, read)
+    if (bytesRead > 0) h.update(buf.subarray(0, bytesRead))
   } finally {
     await fh.close()
   }
@@ -111,4 +128,57 @@ export async function findContentMatch(
     if (h && h === srcHash) return p
   }
   return null
+}
+
+export interface FindContentGroupsOpts {
+  /** 每处理完一个候选让出事件循环（sweep 串行节流用） */
+  yield?: () => Promise<void>
+  onProgress?: (done: number, total: number) => void
+}
+
+/**
+ * v2.5.8（D3.5）：去重巡检漏斗——大小分组（零内容 IO）→ 首 64KB 部分哈希 → 全量 SHA-256，
+ * 返回同内容组（每组 ≥2 路径，组内排序）。哈希缓存放组内局部，组完即弃；读失败候选跳过。
+ */
+export async function findContentGroups(
+  index: ContentIndex,
+  opts?: FindContentGroupsOpts,
+): Promise<string[][]> {
+  const sizeGroups = [...index.entries()].filter(([, list]) => list.length >= 2)
+  const total = sizeGroups.reduce((t, [, list]) => t + list.length, 0)
+  const groups: string[][] = []
+  let done = 0
+  for (const [, paths] of sizeGroups) {
+    // 第②级：部分哈希
+    const byHead = new Map<string, string[]>()
+    for (const p of paths) {
+      const head = await partialHashFile(p).catch(() => '')
+      if (head) {
+        const list = byHead.get(head)
+        if (list) list.push(p)
+        else byHead.set(head, [p])
+      }
+      done++
+      opts?.onProgress?.(done, total)
+      if (opts?.yield) await opts.yield()
+    }
+    // 第③级：全量哈希（仅部分哈希撞上的候选）
+    for (const candidates of byHead.values()) {
+      if (candidates.length < 2) continue
+      const byFull = new Map<string, string[]>()
+      for (const p of candidates) {
+        const full = await hashFile(p).catch(() => '')
+        if (full) {
+          const list = byFull.get(full)
+          if (list) list.push(p)
+          else byFull.set(full, [p])
+        }
+        if (opts?.yield) await opts.yield()
+      }
+      for (const g of byFull.values()) {
+        if (g.length >= 2) groups.push(g.sort())
+      }
+    }
+  }
+  return groups
 }

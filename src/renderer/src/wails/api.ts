@@ -53,6 +53,7 @@ import type {
   OrphanReport,
   DirBrowseResult,
   NoteEntryInfo,
+  SweepResult,
 } from "~/types";
 
 /**
@@ -191,6 +192,8 @@ export const api = {
     import: (req: ImportFileRequest) => qb.files.import(req as any) as Promise<ApiResult<FileEntry[]>>,
     importCancel: (token: string) => qb.files.importCancel(token) as Promise<ApiResult<boolean>>,
     delete: (paths: string[]) => qb.files.delete(paths) as Promise<ApiResult<DeleteResult>>,
+    // v2.5.8（D3.5）：去重巡检（证书/文档域同内容重建硬链接）
+    dedupSweep: () => qb.files.dedupSweep() as Promise<ApiResult<SweepResult>>,
     rename: (req: FileRenameRequest) => qb.files.rename(req as any) as Promise<ApiResult<boolean>>,
     move: (req: MoveFilesRequest) => qb.files.move(req as any) as Promise<ApiResult<BatchMoveResult>>,
     copyFilesToClipboard: (paths: string[]) =>

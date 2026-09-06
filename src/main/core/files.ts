@@ -41,7 +41,7 @@ import {
 import { WorkspaceService, formatTime } from './workspace'
 import { MetadataService, FileMetadata, currentTimeString } from './metadata'
 import { sanitizeName, composeTargetName, resolveConflictName, ImportContext } from './naming'
-import { buildContentIndex, findContentMatch, hashFile, registerContent, type ContentIndex } from './dedup'
+import { buildContentIndex, findContentMatch, hashFile, registerContent, findContentGroups, type ContentIndex } from './dedup'
 import { globalWorkspaceIndex } from './indexCache'
 import type { CompactItem } from './indexCache'
 import type {
@@ -57,6 +57,7 @@ import type {
   DeleteSubfolderRequest,
   DeleteResult,
   FailedItem,
+  SweepResult,
 } from '../../shared/types'
 
 export type {
@@ -528,6 +529,62 @@ export class FilesService {
       thumbnail_path: thumb || null,
     }
     return dedupLinked ? { entry, linked: dedupLinked } : { entry }
+  }
+
+  private sweepRunning = false
+
+  /**
+   * v2.5.8（D3.5）：去重巡检——证书/文档域同内容文件重建硬链接（同步物化副本的本机回收）。
+   * 锁内执行（与导入互斥）；每组路径排序取首为本体，组内 nlink===1 成员
+   * `link(本体,tmp)+rename(tmp,副本)` 原子替换目录项——不删文件、不动元数据/缩略图。
+   * 单文件失败跳过计数不中断；日志只打汇总（失败明细 >20 条折叠为计数）。
+   */
+  async dedupSweep(): Promise<SweepResult> {
+    const ws = this.requireWS()
+    if (this.sweepRunning) throw new Error('去重巡检进行中')
+    this.sweepRunning = true
+    console.log('[dedup-sweep] 开始（证书/文档域）')
+    try {
+      return await this.withImportLock(async () => {
+        const index = await buildContentIndex(ws)
+        const groups = await findContentGroups(index, {
+          yield: () => new Promise((r) => setImmediate(r)),
+        })
+        let relinked = 0
+        let bytesSaved = 0
+        const failed: FailedItem[] = []
+        for (const group of groups) {
+          const canon = group[0]
+          for (const dup of group.slice(1)) {
+            try {
+              const info = await fsp.stat(dup)
+              if (info.nlink > 1) continue // 已有链接关系，无需重建
+              const tmp = `${dup}.qihe-sweep-${process.pid}`
+              await fsp.link(canon, tmp)
+              await fsp.rename(tmp, dup)
+              relinked++
+              bytesSaved += info.size
+            } catch (err) {
+              failed.push({
+                path: dup,
+                error: err instanceof Error ? err.message : String(err),
+              })
+            }
+          }
+        }
+        console.log(
+          `[dedup-sweep] 完成：${groups.length} 组 / 重建 ${relinked} / 节省 ${bytesSaved} 字节 / 失败 ${failed.length}`,
+        )
+        if (failed.length > 20) {
+          console.warn(`[dedup-sweep] 失败明细超过 20 条，折叠（共 ${failed.length}）`)
+        } else {
+          for (const f of failed) console.warn(`[dedup-sweep] 跳过 ${f.path}: ${f.error}`)
+        }
+        return { groups: groups.length, relinked, bytesSaved, failed }
+      })
+    } finally {
+      this.sweepRunning = false
+    }
   }
 
   // —— FileDelete（v2.3.1：改为移入回收站，可恢复；元数据/缩略图保留）——

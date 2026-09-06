@@ -20,6 +20,69 @@ const PALETTE = [
   "#64748b",
 ];
 
+/** v2.5.8（D3.5）：存储优化——去重巡检（证书/文档域同内容重建硬链接；同步物化副本的本机回收） */
+function DedupSweepCard() {
+  const [sweeping, setSweeping] = createSignal(false);
+  const [result, setResult] = createSignal<{ groups: number; relinked: number; bytesSaved: number; failed: number } | null>(null);
+
+  const fmtBytes = (n: number): string => {
+    if (n >= 1073741824) return (n / 1073741824).toFixed(2) + " GB";
+    if (n >= 1048576) return (n / 1048576).toFixed(1) + " MB";
+    if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
+    return n + " B";
+  };
+
+  const runSweep = async () => {
+    if (sweeping()) return;
+    setSweeping(true);
+    setResult(null);
+    try {
+      const r = await api.files.dedupSweep();
+      if (!r.success || !r.data) {
+        showToast("error", "去重巡检失败", r.error || "未知错误");
+        return;
+      }
+      setResult({ groups: r.data.groups, relinked: r.data.relinked, bytesSaved: r.data.bytesSaved, failed: r.data.failed.length });
+      if (r.data.groups === 0) showToast("success", "未发现重复内容");
+      else
+        showToast(
+          "success",
+          `发现 ${r.data.groups} 组重复，重建 ${r.data.relinked} 个硬链接`,
+          `节省磁盘约 ${fmtBytes(r.data.bytesSaved)}` + (r.data.failed.length > 0 ? `，${r.data.failed.length} 个跳过` : ""),
+        );
+    } catch (err) {
+      showToast("error", "去重巡检失败", String(err));
+    } finally {
+      setSweeping(false);
+    }
+  };
+
+  return (
+    <div class="card p-6">
+      <h2 class="text-lg font-semibold mb-2">存储优化 · 去重巡检</h2>
+      <p class="text-sm text-surface-500 mb-1">
+        扫描证书/文档域中内容完全相同的文件并重建硬链接：磁盘只存一份，各产品集照常可见，标签/到期日等元数据不动，不删除任何文件。
+      </p>
+      <p class="text-xs text-surface-400 mb-4">
+        适用场景：坚果云同步到另一台机器后，硬链接关系一般会断（物化为两份独立文件），在新机器上跑一次巡检即可回收。仅对大小相同的文件做内容比对，串行低占用；巡检后另一端同步软件会对被替换文件做一次对账（内容相同，流量影响极小）。
+      </p>
+      <div class="flex items-center gap-3">
+        <button class="btn-primary px-4" disabled={sweeping()} onClick={() => void runSweep()}>
+          {sweeping() ? "巡检中…" : "开始巡检"}
+        </button>
+        <Show when={result()}>
+          {(r) => (
+            <span class="text-sm text-surface-600">
+              发现 {r().groups} 组 · 重建 {r().relinked} 个 · 节省 {fmtBytes(r().bytesSaved)}
+              <Show when={r().failed > 0}> · 跳过 {r().failed} 个</Show>
+            </span>
+          )}
+        </Show>
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const [config, setConfig] = createSignal<WorkspaceConfig>(defaultWorkspaceConfig());
   const [newImageFolder, setNewImageFolder] = createSignal("");
@@ -1123,6 +1186,9 @@ export default function Settings() {
               <div class="mt-2 text-sm text-danger-600">{renameError()}</div>
             </Show>
           </div>
+
+          {/* v2.5.8（D3.5）：存储优化——去重巡检 */}
+          <DedupSweepCard />
 
           <div class="flex items-center gap-4">
             <button class="btn-primary px-6" onClick={handleSave}>
