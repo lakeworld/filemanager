@@ -317,7 +317,7 @@ export default function SupplierDetail() {
             </Show>
             <div class="flex gap-2 mt-4">
               <select
-                class="flex-1 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+                class="flex-1 min-w-0 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
                 value={linkSelect()}
                 onChange={(e) => setLinkSelect(e.currentTarget.value)}
               >

@@ -701,3 +701,11 @@
 - **发票台账 create×1000**: 2274ms（list 2ms）
 - **报价台账 create×1000**: 3082ms（list 4ms）
 - **进程内存(RSS)**: 156MB
+
+## 2026-09-06（v2.5.8 精致化 D4：壳层玻璃化 blur 上线三态实测，Deepin）
+- 方法：W0/W1 合入后 `npm run build`，`node scripts/measure-memory.mjs --repeat 3` + `--autostart --repeat 3`（每轮独立 XDG 配置目录，baselineEligible=true）。
+- **醒着**: RSS 中位 **520448 KiB（508.3 MiB）**（主 252.2 / 渲染 185–187.6 / utility 70.9；CV ≈0.49%）——vs 冻结基线 489.5 **+3.8%**，±5% 门禁（≤514.0）✓
+- **托盘常驻**: RSS 中位 **508.5 MiB**——vs 基线 489.6 **+3.9%**，门禁（≤514.1）✓
+- **自启态**: RSS 中位 **293800 KiB（286.9 MiB）**，CV 0.19%——vs 基线 285.4 **+0.5%**，门禁（≤299.7）✓
+- 判定：三门禁全过。醒着/托盘较冻结基线偏 +3.8–4.3%，落在 2026-08-15 起多次记录的**环境双稳态高态档（501–512）**内（当时同环境对照已证非回归）；renderer 增量 ≈ +9–11MB 与 Sidebar/Header blur 引入同数量级，无法与既有环境双稳态完全区分——**如实记录，不据此改基线**；D7 动效轮与 M3 验收收口各复测一次盯趋势。
+- 壳层 blur 面积预算：Sidebar(260px×h, blur16) + Header(h-14, blur) + TitleBar(h-9, blur) ≪ 视口 30%（PLAN §四）✓

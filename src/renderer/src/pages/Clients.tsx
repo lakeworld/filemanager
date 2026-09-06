@@ -464,7 +464,7 @@ export default function Clients() {
           <div class="flex flex-col md:flex-row gap-3 mb-4">
             <input
               type="text"
-              class="flex-1 px-3 py-2 border border-surface-200 rounded-lg text-sm"
+              class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg text-sm"
               placeholder="搜索客户名称或别名..."
               value={cSearch()}
               onInput={(e) => setCSearch(e.currentTarget.value)}
@@ -642,7 +642,7 @@ export default function Clients() {
                 </Show>
                 <div class="flex gap-2 mt-4">
                   <select
-                    class="flex-1 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+                    class="flex-1 min-w-0 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
                     value={linkSelect()}
                     onChange={(e) => setLinkSelect(e.currentTarget.value)}
                   >

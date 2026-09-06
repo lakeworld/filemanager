@@ -402,7 +402,7 @@ export default function ProductSets() {
           <div class="flex flex-col md:flex-row gap-3 mb-4">
             <input
               type="text"
-              class="flex-1 px-3 py-2 border border-surface-200 rounded-lg text-sm"
+              class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg text-sm"
               placeholder="搜索产品集名称..."
               value={psSearch()}
               onInput={(e) => setPsSearch(e.currentTarget.value)}
