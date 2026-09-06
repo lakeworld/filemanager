@@ -81,13 +81,61 @@
   .btn-secondary {
     @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-surface-100 text-surface-700 font-medium rounded-lg transition-[background-color,transform] duration-200 hover:bg-surface-200 active:scale-95;
   }
-  /* .card：双层软阴影 + 内亮边合并写（hover 加深同样保留内亮边）；transition 精确属性（v2.5.1 T1 纪律补课） */
+  /* .card：双层软阴影 + 内亮边合并写（hover 加深同样保留内亮边）；transition 精确属性（v2.5.1 T1 纪律补课）；
+     v2.5.8（精致化 W2 批 1）：hover 上浮 2px（W3 项由 .card 统一承载）+ outExpo 缓动 */
   .card {
-    @apply bg-white rounded-xl border border-surface-200 transition-[box-shadow] duration-200;
+    @apply bg-white rounded-xl border border-surface-200 transition-[transform,box-shadow] duration-200 ease-out-expo;
     box-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.06), 0 6px 20px 0 rgb(15 23 42 / 0.08), inset 0 1px 0 0 rgb(255 255 255 / 0.6);
   }
   .card:hover {
+    transform: translateY(-2px);
     box-shadow: 0 2px 4px 0 rgb(15 23 42 / 0.06), 0 12px 28px 0 rgb(15 23 42 / 0.12), inset 0 1px 0 0 rgb(255 255 255 / 0.6);
+  }
+  /* v2.5.8（精致化 W2 批 1）：玻璃卡——低基数页卡片材质（demo §3.2 口径）：.65 白底 + blur10 saturate1.4
+     + 1px 半透外描边 + 双层软阴影 + 内亮边；hover 与 .card 同节奏。高基数页（Images/Certs/FileBrowser 大列表）
+     禁用本类（PLAN §四豁免），仍用实底 .card */
+  .card-glass {
+    @apply rounded-xl transition-[transform,box-shadow] duration-200 ease-out-expo;
+    background: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(10px) saturate(1.4);
+    -webkit-backdrop-filter: blur(10px) saturate(1.4);
+    border: 1px solid rgb(255 255 255 / 0.35);
+    box-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.06), 0 6px 20px 0 rgb(15 23 42 / 0.08), inset 0 1px 0 0 rgb(255 255 255 / 0.6);
+  }
+  .card-glass:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 4px 0 rgb(15 23 42 / 0.06), 0 12px 28px 0 rgb(15 23 42 / 0.12), inset 0 1px 0 0 rgb(255 255 255 / 0.6);
+  }
+}
+
+/* v2.5.8（精致化 W3 前置）：入场 stagger——fade-rise 300ms outExpo（transform/opacity only）；
+   fill backwards（delay 期间保持 from 态防闪现，结束后归还 transform 给 hover）；页面按序号内联 80ms 步进 delay */
+@keyframes fadeRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-rise {
+  animation: fadeRise 300ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* v2.5.8（精致化 W3 前置）：减少动画偏好——坍缩 hover 上浮与入场动画（D7 随动效清单扩全） */
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .card-glass {
+    transition: none;
+  }
+  .card:hover,
+  .card-glass:hover {
+    transform: none;
+  }
+  .fade-rise {
+    animation: none;
   }
 }
 
@@ -137,7 +185,13 @@
     @apply fixed inset-0 bg-black/70 flex items-center justify-center z-modal p-4;
   }
   .modal-panel {
-    @apply bg-white rounded-2xl shadow-xl max-h-[90vh] overflow-y-auto;
+    @apply rounded-2xl max-h-[90vh] overflow-y-auto;
+    /* v2.5.8（精致化 W2 批 1）：弹窗底座玻璃化（.82 白底 + blur14 + 内亮边，shadow-xl 数值保留并叠加内亮边）；
+       overlay 不动；ConfirmDialog 及全部业务弹窗零改动自动继承 */
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1), inset 0 1px 0 0 rgb(255 255 255 / 0.6);
   }
   .skeleton {
     @apply animate-pulse bg-surface-200 rounded;

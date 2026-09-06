@@ -239,7 +239,7 @@ export default function SupplierDetail() {
         {/* 档案卡 + 关联产品集（v2.4.9 打磨 M8：布局镜像客户详情 Clients.tsx:439 三列网格） */}
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 shrink-0">
           {/* 档案卡 */}
-          <div class="lg:col-span-2 card p-6">
+          <div class="lg:col-span-2 card card-glass p-6">
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-lg font-semibold text-surface-900">供应商档案</h3>
               <button class="btn-secondary text-sm" onClick={() => openEditInfo(detailSupplier()!)}>
@@ -289,7 +289,7 @@ export default function SupplierDetail() {
           </div>
 
           {/* 关联产品集（镜像客户 Clients.tsx:494-534 独立卡片即点即存；唯一写点在供应商侧） */}
-          <div class="card p-6">
+          <div class="card card-glass p-6">
             <h3 class="text-lg font-semibold text-surface-900 mb-4">关联产品集</h3>
             <Show when={relatedProductSets().length > 0} fallback={
               <p class="text-sm text-surface-400">暂未关联产品集</p>

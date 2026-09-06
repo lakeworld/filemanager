@@ -219,7 +219,7 @@ export default function Suppliers() {
 
   const renderCard = (s: SupplierInfo) => (
     <div
-      class="card p-5 cursor-pointer hover:shadow-card-hover group relative"
+      class="card card-glass p-5 cursor-pointer group relative"
       onClick={() => navigate(`/suppliers/${encodeURIComponent(s.name)}`)}
       onContextMenu={(e) => contextMenu.open(e, s)}
     >
