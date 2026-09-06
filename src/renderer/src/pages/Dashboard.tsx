@@ -79,15 +79,18 @@ export default function Dashboard() {
 
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         <For each={statCards}>
-          {(card) => {
+          {(card, i) => {
             // v2.4.9 打磨 M5：报价卡无 href（subText 内嵌链接）→ 外层用 div，避免 A 嵌套 A
             // （HTML 解析器会提前闭合外层 A，副链接无法独立导航）；其余卡片保持整卡 A 跳转
             const inner = (
-              <div class="card p-5 h-full transition-shadow hover:shadow-card-hover">
+              <div
+                class="card card-glass fade-rise p-5 h-full"
+                style={{ "animation-delay": `${i() * 80}ms` }}
+              >
                 <div class="flex items-center justify-between">
                   <div>
                     <div class="text-sm text-surface-500 mb-1">{card.label}</div>
-                    <div class="text-3xl font-bold text-surface-900">{card.value()}</div>
+                    <div class="text-3xl font-bold text-surface-900 tabular-nums">{card.value()}</div>
                     <Show when={card.subText}>
                       <div class="mt-1.5">
                         <Show
@@ -124,7 +127,7 @@ export default function Dashboard() {
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="card p-5">
+        <div class="card card-glass p-5">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-lg font-semibold">最近文件</h2>
             <A href="/images" class="text-sm text-primary-600 hover:text-primary-700">查看全部</A>
@@ -145,7 +148,7 @@ export default function Dashboard() {
                       <div class="text-sm font-medium truncate">{file.name}</div>
                       <div class="text-xs text-surface-400">{file.modified}</div>
                     </div>
-                    <div class="text-xs text-surface-400">{formatBytes(file.size)}</div>
+                    <div class="text-xs text-surface-400 tabular-nums">{formatBytes(file.size)}</div>
                   </div>
                 )}
               </For>
@@ -153,7 +156,7 @@ export default function Dashboard() {
           </Show>
         </div>
 
-        <div class="card p-5">
+        <div class="card card-glass p-5">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-lg font-semibold">到期提醒</h2>
             <span class="text-sm text-surface-400">30 天内到期</span>
@@ -180,7 +183,7 @@ export default function Dashboard() {
         </div>
 
         {/* v2.4.7（§4.3）：发票待办——30 天内 due_date 且状态 ≠ 已入账；点击跳 /invoices 带待办筛选 */}
-        <div class="card p-5">
+        <div class="card card-glass p-5">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-lg font-semibold">发票待办</h2>
             <span class="text-sm text-surface-400">30 天内待办日期</span>

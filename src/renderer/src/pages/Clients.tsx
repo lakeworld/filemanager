@@ -213,7 +213,7 @@ export default function Clients() {
   // v2.5.2：客户卡片渲染——小列表 For 与超阈值 VirtualGrid 共用（避免两份 JSX 漂移，照 Suppliers renderCard 模式）
   const renderCard = (c: CustomerInfo) => (
     <div
-      class="card p-5 cursor-pointer hover:shadow-card-hover group relative"
+      class="card card-glass p-5 cursor-pointer group relative"
       onClick={() => navigate(`/clients/${encodeURIComponent(c.name)}`)}
       onContextMenu={(e) => contextMenu.open(e, c)}
     >
@@ -560,7 +560,7 @@ export default function Clients() {
           }>
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 shrink-0">
               {/* ① 档案卡 */}
-              <div class="lg:col-span-2 card p-6">
+              <div class="lg:col-span-2 card card-glass p-6">
                 <div class="flex items-center justify-between mb-4">
                   <h3 class="text-lg font-semibold text-surface-900">客户档案</h3>
                   <button class="btn-secondary text-sm" onClick={() => openEditInfo(detailCustomer()!)}>
@@ -614,7 +614,7 @@ export default function Clients() {
               </div>
 
               {/* ③ 关联产品集 */}
-              <div class="card p-6">
+              <div class="card card-glass p-6">
                 <h3 class="text-lg font-semibold text-surface-900 mb-4">关联产品集</h3>
                 <Show when={relatedProductSets().length > 0} fallback={
                   <p class="text-sm text-surface-400">暂未关联产品集</p>
@@ -656,7 +656,7 @@ export default function Clients() {
               </div>
 
               {/* ④ 报价单（v2.4.9 S3b：该客户报价数 + 列表，点击跳报价详情；改名级联由 core 编排） */}
-              <div class="card p-6">
+              <div class="card card-glass p-6">
                 <div class="flex items-center justify-between mb-1">
                   <h3 class="text-lg font-semibold text-surface-900">报价单</h3>
                   <button

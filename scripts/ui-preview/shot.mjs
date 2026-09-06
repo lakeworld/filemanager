@@ -90,6 +90,20 @@ for (const [key, route] of ROUTES) {
   }
 }
 
+// v2.5.8（D5）：弹窗打开态——新建客户（modal-panel 玻璃化走查素材）；Esc 关闭后确认 overlay 归零
+try {
+  await goto('/clients')
+  await page.getByRole('button', { name: '新建客户' }).click()
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: path.join(OUT, 'modal-create.png'), timeout: 12000 })
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(300)
+  console.log('✓ modal-create /clients')
+} catch (err) {
+  failures++
+  console.log(`✗ modal-create: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`)
+}
+
 console.log(`截图输出：${OUT}`)
 await Promise.race([app.close(), new Promise((r) => setTimeout(r, 4000))]).catch(() => {})
 process.exit(failures === 0 ? 0 : 1)

@@ -422,7 +422,7 @@ export default function ProductSets() {
             <For each={filteredProductSets()}>
               {(ps) => (
                 <div
-                  class="card p-5 cursor-pointer hover:shadow-card-hover group relative"
+                  class="card card-glass p-5 cursor-pointer group relative"
                   onClick={() => navigate(`/product-sets/${encodeURIComponent(ps.name)}`)}
                   onContextMenu={(e) => contextMenu.open(e, ps)}
                 >
@@ -431,7 +431,7 @@ export default function ProductSets() {
                       📦
                     </div>
                     <div class="flex items-center gap-2">
-                      <span class="text-xs px-2 py-1 rounded-full bg-surface-100 text-surface-500">
+                      <span class="text-xs px-2 py-1 rounded-full bg-white/60 ring-1 ring-white/40 text-surface-600 tabular-nums">
                         {ps.image_count} 图 / {ps.cert_count} 证 / {ps.doc_count ?? 0} 文
                       </span>
                       {/* v2.4.7（F9）：打包整个产品集目录 */}

@@ -47,6 +47,7 @@ const SKIP = new Set([
   'align-content',    // CSS 属性名（VirtualGrid style 对象）
   'background-color', // CSS 属性名（TagChip/TagChips/TagInput/Settings/tags store）
   'background-size', // CSS 属性名（App 背景光斑/点阵 style 对象，v2.5.8 精致化 W0）
+  'animation-delay', // CSS 属性名（Dashboard 统计卡 stagger style 对象，v2.5.8 精致化 W2 批 1）
   'grid-template-columns', // CSS 属性名（Quotes/QuoteDetail/QuoteFormModal/VirtualGrid）
   'label-wrapper',    // Crepe/milkdown 第三方库内部类（样式在库分片 CSS，非宿主编译产物）
   'ctx-menu-root',    // ContextMenu 容器 id
