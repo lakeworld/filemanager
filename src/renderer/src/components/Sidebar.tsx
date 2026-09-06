@@ -100,7 +100,7 @@ export default function Sidebar() {
 
   return (
     <aside
-      class="h-full flex flex-col border-r border-surface-200 bg-surface-0"
+      class="h-full flex flex-col border-r border-surface-200 glass-panel relative z-20"
       style={{ width: expanded() ? "260px" : "64px", transition: "width 0.2s" }}
     >
       <div class="h-14 flex items-center px-4 border-b border-surface-200">
@@ -148,7 +148,7 @@ export default function Sidebar() {
                     <button
                       class="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-surface-100"
                       classList={{
-                        "text-primary-700 bg-primary-50 border-r-2 border-primary-600": isActive(item.path),
+                        "text-primary-700 bg-primary-600/[0.12] ring-1 ring-primary-600/35 rounded-[9px]": isActive(item.path),
                         "text-surface-600": !isActive(item.path),
                       }}
                       title={!expanded() ? item.label : undefined}
@@ -195,7 +195,7 @@ export default function Sidebar() {
                     <button
                       class="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-surface-100"
                       classList={{
-                        "text-primary-700 bg-primary-50 border-r-2 border-primary-600": isActive(item.path),
+                        "text-primary-700 bg-primary-600/[0.12] ring-1 ring-primary-600/35 rounded-[9px]": isActive(item.path),
                         "text-surface-600": !isActive(item.path),
                       }}
                       title={!expanded() ? item.label : undefined}
