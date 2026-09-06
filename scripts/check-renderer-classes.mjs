@@ -46,6 +46,7 @@ const SKIP = new Set([
   'no-drag',          // -webkit-app-region 内联 style 取值（App/Header/TitleBar）
   'align-content',    // CSS 属性名（VirtualGrid style 对象）
   'background-color', // CSS 属性名（TagChip/TagChips/TagInput/Settings/tags store）
+  'background-size', // CSS 属性名（App 背景光斑/点阵 style 对象，v2.5.8 精致化 W0）
   'grid-template-columns', // CSS 属性名（Quotes/QuoteDetail/QuoteFormModal/VirtualGrid）
   'label-wrapper',    // Crepe/milkdown 第三方库内部类（样式在库分片 CSS，非宿主编译产物）
   'ctx-menu-root',    // ContextMenu 容器 id

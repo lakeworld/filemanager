@@ -639,6 +639,9 @@ export default function Settings() {
             </label>
           </div>
 
+          {/* v2.5.8（D3.5）：存储优化——去重巡检（2026-09-06 用户拍板：置于「通用」卡下方） */}
+          <DedupSweepCard />
+
           {/* 标签管理 */}
           <div class="card p-6">
             <h2 class="text-lg font-semibold mb-2">标签管理</h2>
@@ -1047,7 +1050,7 @@ export default function Settings() {
             <div class="flex gap-2 mb-4">
               <input
                 type="text"
-                class="flex-1 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="新增子文件夹名称"
                 value={newImageFolder()}
                 onInput={(e) => setNewImageFolder(e.currentTarget.value)}
@@ -1075,7 +1078,7 @@ export default function Settings() {
             <div class="flex gap-2 mb-4">
               <input
                 type="text"
-                class="flex-1 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="新增证书类型名称"
                 value={newCertFolder()}
                 onInput={(e) => setNewCertFolder(e.currentTarget.value)}
@@ -1103,7 +1106,7 @@ export default function Settings() {
             <div class="flex gap-2 mb-4">
               <input
                 type="text"
-                class="flex-1 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="新增客户子文件夹名称"
                 value={newCustomerFolder()}
                 onInput={(e) => setNewCustomerFolder(e.currentTarget.value)}
@@ -1133,7 +1136,7 @@ export default function Settings() {
             <div class="flex gap-2 mb-4">
               <input
                 type="text"
-                class="flex-1 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="新增文档子文件夹名称"
                 value={newDocFolder()}
                 onInput={(e) => setNewDocFolder(e.currentTarget.value)}
@@ -1163,7 +1166,7 @@ export default function Settings() {
             <div class="flex gap-2 mb-4">
               <input
                 type="text"
-                class="flex-1 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="新增供应商子文件夹名称"
                 value={newSupplierFolder()}
                 onInput={(e) => setNewSupplierFolder(e.currentTarget.value)}
@@ -1187,9 +1190,7 @@ export default function Settings() {
             </Show>
           </div>
 
-          {/* v2.5.8（D3.5）：存储优化——去重巡检 */}
-          <DedupSweepCard />
-
+          {/* v2.5.8（D3.5）：存储优化——去重巡检（已上移至「通用」下方） */}
           <div class="flex items-center gap-4">
             <button class="btn-primary px-6" onClick={handleSave}>
               {saved() ? "已保存 ✓" : "保存设置"}

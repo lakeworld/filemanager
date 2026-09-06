@@ -33,7 +33,7 @@ export default function TitleBar() {
   return (
     <div
       data-e2e-titlebar
-      class="h-9 flex items-center justify-between select-none bg-surface-0/90 backdrop-blur border-b border-surface-200"
+      class="h-9 flex items-center justify-between select-none bg-surface-0/90 backdrop-blur border-b border-surface-200 shadow-[inset_0_1px_0_0_rgb(255_255_255/0.55)] relative"
       style={{ "-webkit-app-region": "drag" }}
     >
       {/* Draggable title region */}

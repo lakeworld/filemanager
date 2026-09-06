@@ -74,7 +74,7 @@ export default function Header() {
 
   return (
     <header
-      class="h-14 flex items-center gap-4 px-6 bg-surface-0 border-b border-surface-200"
+      class="h-14 flex items-center gap-4 px-6 bg-surface-0/80 backdrop-blur border-b border-surface-200 shadow-[inset_0_1px_0_0_rgb(255_255_255/0.55)] relative z-20"
       style={{ "-webkit-app-region": "drag" }}
     >
       <div class="relative flex-1 max-w-md" style={{ "-webkit-app-region": "no-drag" }}>

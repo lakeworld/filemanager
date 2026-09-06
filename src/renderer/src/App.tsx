@@ -252,7 +252,21 @@ export default function App(props: RouteSectionProps) {
   });
 
   return (
-    <div class="h-screen w-screen flex flex-col overflow-hidden bg-surface-50 relative">
+    <div class="h-screen w-screen flex flex-col overflow-hidden bg-[#f4f6f9] relative">
+      {/* v2.5.8（精致化 W0）：全局背景层单实例——三枚极淡径向光斑（primary/cert/success，alpha ≤.05）+ 极淡点阵，
+          纯 CSS gradient 零运行时成本；玻璃面板（W1 起）的「透底显形」来源。fixed + z-0 + pointer-events:none，页面零感知 */}
+      <div
+        class="fixed inset-0 z-0 pointer-events-none"
+        aria-hidden="true"
+        style={{
+          background:
+            "radial-gradient(600px 400px at 12% 8%, rgb(0 120 212 / 0.05), transparent 70%)," +
+            "radial-gradient(520px 360px at 88% 18%, rgb(249 115 22 / 0.04), transparent 70%)," +
+            "radial-gradient(560px 420px at 70% 92%, rgb(22 163 74 / 0.04), transparent 70%)," +
+            "radial-gradient(rgb(15 23 42 / 0.05) 1px, transparent 1px)",
+          "background-size": "auto, auto, auto, 24px 24px",
+        }}
+      />
       <TitleBar />
       {/* v2.4.2（C3）：证书到期提醒降级横幅；v2.4.3（F8）：通用 toast 按 tone 着色（success 绿 / error 红 / info 蓝），
           证书提醒 tone=error 保持红色 15s 行为不变 */}
