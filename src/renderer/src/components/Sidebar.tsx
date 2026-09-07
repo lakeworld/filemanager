@@ -148,7 +148,7 @@ export default function Sidebar() {
                     <button
                       class="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-surface-100"
                       classList={{
-                        "text-primary-700 bg-primary-600/[0.12] ring-1 ring-primary-600/35 rounded-[9px]": isActive(item.path),
+                        "text-primary-700 bg-primary-600/[0.12]": isActive(item.path),
                         "text-surface-600": !isActive(item.path),
                       }}
                       title={!expanded() ? item.label : undefined}
@@ -195,7 +195,7 @@ export default function Sidebar() {
                     <button
                       class="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-surface-100"
                       classList={{
-                        "text-primary-700 bg-primary-600/[0.12] ring-1 ring-primary-600/35 rounded-[9px]": isActive(item.path),
+                        "text-primary-700 bg-primary-600/[0.12]": isActive(item.path),
                         "text-surface-600": !isActive(item.path),
                       }}
                       title={!expanded() ? item.label : undefined}

@@ -216,10 +216,12 @@ export default function Suppliers() {
   };
 
   // —— 卡片渲染（For 与 VirtualGrid 共用，避免两份 JSX 漂移；参照 Trash renderEntry 先例）——
+  // v2.5.8（精致化批 1 修正）：glass 由调用方按量级给——For 小列表（≤60）玻璃卡；VirtualGrid 高基数一律
+  // 实底 .card（PLAN §四 高基数豁免：逐卡 backdrop-filter 是滚动卡顿来源，用户真机反馈）
 
-  const renderCard = (s: SupplierInfo) => (
+  const renderCard = (s: SupplierInfo, glass: boolean) => (
     <div
-      class="card card-glass p-5 cursor-pointer group relative"
+      class={`card ${glass ? "card-glass " : ""}p-5 cursor-pointer group relative`}
       onClick={() => navigate(`/suppliers/${encodeURIComponent(s.name)}`)}
       onContextMenu={(e) => contextMenu.open(e, s)}
     >
@@ -294,7 +296,7 @@ export default function Suppliers() {
           fallback={
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <For each={suppliers()}>
-                {(s) => renderCard(s)}
+                {(s) => renderCard(s, suppliers().length <= 60)}
               </For>
             </div>
           }
@@ -306,7 +308,7 @@ export default function Suppliers() {
               itemHeight={SUPPLIER_ROW_HEIGHT}
               columns={{ base: 1, md: 2, lg: 3 }}
               gap={16}
-              renderItem={(s) => renderCard(s)}
+              renderItem={(s) => renderCard(s, false)}
             />
           </div>
         </Show>

@@ -211,9 +211,11 @@ export default function Clients() {
   });
 
   // v2.5.2：客户卡片渲染——小列表 For 与超阈值 VirtualGrid 共用（避免两份 JSX 漂移，照 Suppliers renderCard 模式）
-  const renderCard = (c: CustomerInfo) => (
+  // v2.5.8（精致化批 1 修正）：glass 由调用方按量级给——For 小列表（≤60）玻璃卡；VirtualGrid 高基数一律
+  // 实底 .card（PLAN §四 高基数豁免：逐卡 backdrop-filter 是滚动卡顿来源，用户真机反馈）
+  const renderCard = (c: CustomerInfo, glass: boolean) => (
     <div
-      class="card card-glass p-5 cursor-pointer group relative"
+      class={`card ${glass ? "card-glass " : ""}p-5 cursor-pointer group relative`}
       onClick={() => navigate(`/clients/${encodeURIComponent(c.name)}`)}
       onContextMenu={(e) => contextMenu.open(e, c)}
     >
@@ -496,7 +498,7 @@ export default function Clients() {
             when={filteredCustomers().length >= CLIENT_VIRTUAL_THRESHOLD}
             fallback={
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <For each={filteredCustomers()}>{(c) => renderCard(c)}</For>
+                <For each={filteredCustomers()}>{(c) => renderCard(c, filteredCustomers().length <= 60)}</For>
               </div>
             }
           >
@@ -509,7 +511,7 @@ export default function Clients() {
                 gap={16}
                 // v2.5.3（P2-11）：搜索/筛选切换时滚动归零（照 Quotes/Invoices scrollResetKey 先例）
                 scrollResetKey={`${cSearch()}|${tagFilter()}|${typeFilter()}`}
-                renderItem={(c) => renderCard(c)}
+                renderItem={(c) => renderCard(c, false)}
               />
             </div>
           </Show>
