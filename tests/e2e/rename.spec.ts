@@ -20,7 +20,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 test.describe('批量重命名复用命名模板（v2.4.9 S5）', () => {
   let app: ElectronApplication
   let page: Page
-  /** 应用初始入口 URL（file:// index.html）；既有测试 pushState 会改 history URL，重载需回初始入口 */
+  /** 应用初始入口 URL（file:// index.html）；既有测试 导航会改 location.hash，重载需回初始入口 */
   let baseUrl: string
 
   test.beforeAll(async () => {
@@ -68,8 +68,7 @@ test.describe('批量重命名复用命名模板（v2.4.9 S5）', () => {
     // 进入文件浏览器（/files/image/<产品集>/<子文件夹>）
     await page.evaluate(async () => {
       const route = `/files/image/${encodeURIComponent('重命名集')}/${encodeURIComponent('主图')}`
-      window.history.pushState({}, '', route)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(route)
     })
     const cards = page.locator('.card')
     await cards.first().waitFor({ timeout: 15000 })
@@ -124,7 +123,8 @@ test.describe('批量重命名复用命名模板（v2.4.9 S5）', () => {
     await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: '重命名集' }))
 
     // 裸 IPC 只切主进程 currentWS，渲染层 signal 需整页重载对齐（照 smoke 基建同款口径）
-    await page.goto(baseUrl)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
 
@@ -139,8 +139,7 @@ test.describe('批量重命名复用命名模板（v2.4.9 S5）', () => {
     // 进入文件浏览器
     await page.evaluate(async () => {
       const route = `/files/image/${encodeURIComponent('重命名集')}/${encodeURIComponent('主图')}`
-      window.history.pushState({}, '', route)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(route)
     })
     const cards = page.locator('.card')
     await cards.first().waitFor({ timeout: 15000 })
@@ -215,8 +214,7 @@ test.describe('批量重命名复用命名模板（v2.4.9 S5）', () => {
     // 进入文件浏览器（/files/image/<产品集>/<子文件夹>）→ 多选 → 批量重命名
     await page.evaluate(async () => {
       const route = `/files/image/${encodeURIComponent('嵌套集')}/${encodeURIComponent('主图')}`
-      window.history.pushState({}, '', route)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(route)
     })
     const cards = page.locator('.card')
     await cards.first().waitFor({ timeout: 15000 })

@@ -73,20 +73,19 @@ test.describe('预览生命周期治理（v2.5.3 T7）', () => {
   })
 
   const navigateTo = async (url: string): Promise<void> => {
-    await page.goto(INDEX_URL)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate((u) => {
-      window.history.pushState({}, '', u)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(u)
     }, url)
   }
 
   /** SPA 内导航（整页不 reload）——验证路由切换行为时使用 */
   const spaNavigate = async (url: string): Promise<void> => {
     await page.evaluate((u) => {
-      window.history.pushState({}, '', u)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(u)
     }, url)
   }
 

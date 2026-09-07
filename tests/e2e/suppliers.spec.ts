@@ -22,8 +22,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
   let app: ElectronApplication
   let page: Page
-  /** 应用初始入口 URL（file:// index.html）；既有测试 pushState 会改 history URL，
-   *  后续 reload() 会加载假 URL → ERR_FILE_NOT_FOUND，故统一 goto 回初始入口 */
+  /** 应用初始入口 URL（file:// index.html）；导航只改 location.hash（文档路径恒定），
+   *  复位统一走 hash='/__e2e-reset' + reload（v2.5.7 补丁：hash 路由下 reload 安全） */
   let baseUrl: string
 
   test.beforeAll(async () => {
@@ -48,14 +48,14 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     }
   })
 
-  /** 回初始入口重跑应用启动流（同步 currentWorkspace），再导航到指定路由（pushState + popstate） */
+  /** 复位并重跑应用启动流（同步 currentWorkspace），再导航到指定路由（location.hash） */
   const gotoRoute = async (route: string) => {
-    await page.goto(baseUrl)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate((r) => {
-      window.history.pushState({}, '', r)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(r)
     }, route)
   }
 
@@ -358,7 +358,7 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     await expect(dialog).toBeVisible()
     await dialog.locator('input[placeholder="如：报价"]').fill('样品')
     await dialog.locator('input[placeholder="如：报价"]').press('Enter')
-    await page.waitForFunction(() => decodeURIComponent(location.pathname).includes('/files/supplier/子夹供应商/样品'))
+    await page.waitForFunction(() => decodeURIComponent(location.hash).includes('/files/supplier/子夹供应商/样品'))
 
     // config.supplier_subfolders 已写入 样品（默认集 合同/对账单/往来文件 保留）
     const cfgRes = await page.evaluate(async () => (window as any).qihebox.config.get())
@@ -373,7 +373,7 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     await expect(del.getByText(/移入回收站/)).toBeVisible()
     await del.getByRole('button', { name: '删除', exact: true }).click()
 
-    await page.waitForFunction(() => !decodeURIComponent(location.pathname).includes('/files/supplier/子夹供应商/样品'))
+    await page.waitForFunction(() => !decodeURIComponent(location.hash).includes('/files/supplier/子夹供应商/样品'))
     const cfgRes2 = await page.evaluate(async () => (window as any).qihebox.config.get())
     expect(cfgRes2.success).toBe(true)
     expect(cfgRes2.data.supplier_subfolders).not.toContain('样品')
@@ -388,7 +388,8 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
 
     // 侧边栏 → 设置页
-    await page.goto(baseUrl)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.getByRole('button', { name: /设置/ }).click()
     await page.getByRole('heading', { name: '设置' }).waitFor({ timeout: 10000 })

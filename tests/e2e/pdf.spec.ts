@@ -98,8 +98,7 @@ test.describe('PDF 预览回归（v2.4.2）', () => {
     expect(imp.success).toBe(true)
 
     await page.evaluate(async () => {
-      window.history.pushState({}, '', `/files/cert/${encodeURIComponent('PDF系列')}/${encodeURIComponent('3C')}`)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(`/files/cert/${encodeURIComponent('PDF系列')}/${encodeURIComponent('3C')}`)
     })
     await page.waitForSelector('.card', { timeout: 15000 })
 
