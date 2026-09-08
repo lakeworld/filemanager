@@ -64,7 +64,8 @@ test.describe('soak 跳变归因（probe，不入默认套件）', () => {
         const r = await (window as any).qihebox.workspace.open(dir)
         if (!r?.success) throw new Error('打开工作区失败: ' + JSON.stringify(r))
       }, wsDir)
-      await page.goto(INDEX_URL)
+      await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+      await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
       await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 30000 })
       // 不以 Dashboard 为就绪锚点（万文件下首载统计极慢，soak 同款处理）：直接进 /images
       await spaTo(page, '/images')
@@ -188,8 +189,7 @@ function topDiff(before: Record<string, number>, after: Record<string, number>, 
 
 async function spaTo(page: Page, url: string): Promise<void> {
   await page.evaluate((u) => {
-    window.history.pushState({}, '', u)
-    window.dispatchEvent(new PopStateEvent('popstate'))
+    window.location.hash = decodeURIComponent(u)
   }, url)
 }
 

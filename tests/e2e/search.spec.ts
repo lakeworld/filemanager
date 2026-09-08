@@ -13,12 +13,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
  * 1. 未输入 → 引导：可搜索范围（产品集 / 客户 / 文件 + 客户、供应商、发票、入库、报价区文件本体）+ 可命中示例
  *    （示例用真实可命中词；供应商名/报价单号不参与全局搜索匹配，不用它们）
  * 2. 输词零结果 → 「无匹配」提示（换词），与未输入引导区分两种文案
- * 基建参照 quotes.spec.ts（QIHEBOX_E2E=1 独立 userData；gotoRoute 回初始入口重跑应用启动流同步 currentWorkspace）。
+ * 基建参照 quotes.spec.ts（QIHEBOX_E2E=1 独立 userData；gotoRoute 复位并重跑应用启动流同步 currentWorkspace）。
  */
 test.describe('搜索页空状态引导 e2e（v2.4.9 M6）', () => {
   let app: ElectronApplication
   let page: Page
-  /** 应用初始入口 URL（file:// index.html）；既有测试 pushState 会改 history URL，reload 需回初始入口 */
+  /** 应用初始入口 URL（file:// index.html）；既有测试 导航会改 location.hash，reload 需回初始入口 */
   let baseUrl: string
 
   test.beforeAll(async () => {
@@ -43,14 +43,14 @@ test.describe('搜索页空状态引导 e2e（v2.4.9 M6）', () => {
     }
   })
 
-  /** 回初始入口重跑应用启动流（同步 currentWorkspace），再导航到指定路由（pushState + popstate） */
+  /** 复位并重跑应用启动流（同步 currentWorkspace），再导航到指定路由（location.hash） */
   const gotoRoute = async (route: string) => {
-    await page.goto(baseUrl)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate((r) => {
-      window.history.pushState({}, '', r)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(r)
     }, route)
   }
 
@@ -136,8 +136,7 @@ test.describe('搜索页空状态引导 e2e（v2.4.9 M6）', () => {
     await page.waitForTimeout(310)
     // 搜索在途时移除查询（q 清空 → effect else 分支）——红态在此不复位 loading
     await page.evaluate(() => {
-      window.history.pushState({}, '', '/search')
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent('/search')
     })
     // 断言 loading 复位（红态永久卡死，此断言 5s 超时）
     await expect(page.getByText('搜索中...')).toHaveCount(0, { timeout: 5000 })

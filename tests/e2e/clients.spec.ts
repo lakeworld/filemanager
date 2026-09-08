@@ -18,8 +18,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 test.describe('客户维度 e2e（v2.4.7）', () => {
   let app: ElectronApplication
   let page: Page
-  /** 应用初始入口 URL（file:// index.html）；既有测试 pushState 会改 history URL，
-   *  后续 reload() 会加载假 URL（file:///clients/...）→ ERR_FILE_NOT_FOUND，故统一 goto 回初始入口 */
+  /** 应用初始入口 URL（file:// index.html）；既有测试 导航会改 location.hash，
+   *  复位统一走 hash='/__e2e-reset' + reload（hash 路由下 reload 安全） */
   let baseUrl: string
 
   test.beforeAll(async () => {
@@ -132,8 +132,7 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate(async (name) => {
-      window.history.pushState({}, '', `/clients/${encodeURIComponent(name)}`)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(`/clients/${encodeURIComponent(name)}`)
     }, '搜索客户乙')
     await expect(page.getByRole('heading', { name: '搜索客户乙' })).toBeVisible({ timeout: 15000 })
     // 档案卡（详情态标题唯一；避免 getByText 命中多个含「客户档案」的节点）
@@ -170,13 +169,13 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
     await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
     await page.evaluate(async () => (window as any).qihebox.clients.create({ name: 'S1编辑客户' }))
 
-    // 回初始入口重跑应用启动流（同步 currentWorkspace）；不能 page.reload()——history URL 可能被既有测试 pushState 污染
-    await page.goto(baseUrl)
+    // 复位并重跑应用启动流（同步 currentWorkspace）；reload 前须复位 hash——location.hash 可能被既有测试导航改变，复位 + reload 取干净挂载
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate(async (name) => {
-      window.history.pushState({}, '', `/clients/${encodeURIComponent(name)}`)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(`/clients/${encodeURIComponent(name)}`)
     }, 'S1编辑客户')
     await expect(page.getByRole('heading', { name: 'S1编辑客户' })).toBeVisible({ timeout: 15000 })
 
@@ -206,13 +205,13 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
     await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
     await page.evaluate(async () => (window as any).qihebox.clients.create({ name: 'S1旧客户' }))
 
-    // 同 A：回初始入口重跑应用启动流
-    await page.goto(baseUrl)
+    // 同 A：复位并重跑应用启动流
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate(async (name) => {
-      window.history.pushState({}, '', `/clients/${encodeURIComponent(name)}`)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(`/clients/${encodeURIComponent(name)}`)
     }, 'S1旧客户')
     await expect(page.getByRole('heading', { name: 'S1旧客户' })).toBeVisible({ timeout: 15000 })
 
@@ -230,13 +229,13 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
     const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-clients-e2e-m2-'))
     await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
 
-    // 回初始入口重跑应用启动流（同步 currentWorkspace），再进客户列表页
-    await page.goto(baseUrl)
+    // 复位并重跑应用启动流（同步 currentWorkspace），再进客户列表页
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate(() => {
-      window.history.pushState({}, '', '/clients')
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent('/clients')
     })
     // 无客户时 头部 + 空状态 两个「新建客户」按钮并存 → .first() 规避 strict mode
     await expect(page.getByRole('button', { name: /新建客户/ }).first()).toBeVisible({ timeout: 15000 })
@@ -256,8 +255,7 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
 
     // 详情页档案卡：type/电话/邮箱/地址 可见
     await page.evaluate(async (name) => {
-      window.history.pushState({}, '', `/clients/${encodeURIComponent(name)}`)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(`/clients/${encodeURIComponent(name)}`)
     }, 'M2新建客户')
     await expect(page.getByRole('heading', { name: 'M2新建客户' })).toBeVisible({ timeout: 15000 })
     await expect(page.getByText('企业', { exact: true })).toBeVisible()
@@ -285,12 +283,12 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
       expect.arrayContaining(['类型企业客户', '类型个人客户', '类型未分类客户']),
     )
 
-    await page.goto(baseUrl)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate(() => {
-      window.history.pushState({}, '', '/clients')
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent('/clients')
     })
 
     // 筛选区「客户类型」下拉（aria-label 定位，r3 拍板）；默认「全部类型」三客户全显
@@ -336,13 +334,13 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
       ;(dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: paths })
     }, [srcA, srcB])
 
-    // 客户详情路由 UI：回初始入口重跑应用启动流（同步 currentWorkspace）；不能 page.reload()——history URL 可能被既有测试 pushState 污染
-    await page.goto(baseUrl)
+    // 客户详情路由 UI：复位并重跑应用启动流（同步 currentWorkspace）；reload 前须复位 hash——location.hash 可能被既有测试导航改变，复位 + reload 取干净挂载
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate(async (name) => {
-      window.history.pushState({}, '', `/clients/${encodeURIComponent(name)}`)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(`/clients/${encodeURIComponent(name)}`)
     }, '导入客户')
     await expect(page.getByRole('heading', { name: '导入客户' })).toBeVisible({ timeout: 15000 })
 

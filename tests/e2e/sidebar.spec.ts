@@ -100,7 +100,8 @@ test.describe('侧边栏分组折叠（v2.4.9 M7）', () => {
     await expect(sidebar().getByRole('button', { name: '搜索' })).toHaveCount(0)
 
     // reload 回初始入口（工作区选择由主进程持久化，重启后自动恢复当前工作区）
-    await page.goto(baseUrl)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
 

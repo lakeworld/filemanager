@@ -15,7 +15,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 test.describe('qihe-box e2e', () => {
   let app: ElectronApplication
   let page: Page
-  /** 应用初始入口 URL（file:// index.html）；既有测试 pushState 会改 history URL，重载需回初始入口 */
+  /** 应用初始入口 URL（file:// index.html）；既有测试 导航会改 location.hash，重载需回初始入口 */
   let baseUrl: string
 
   test.beforeAll(async () => {
@@ -308,12 +308,11 @@ test.describe('qihe-box e2e', () => {
     await importTo(imgMain, '主图')
     await importTo(imgDetail, '详情页')
 
-    // 驱动路由进入文件浏览页（history 模式：pushState + popstate）
+    // 驱动路由进入文件浏览页（history 模式：location.hash（hash 路由））
     const goRoute = (sub: string) =>
       page.evaluate(async (sub) => {
         const route = `/files/image/${encodeURIComponent('丝滑系列')}/${encodeURIComponent(sub)}`
-        window.history.pushState({}, '', route)
-        window.dispatchEvent(new PopStateEvent('popstate'))
+        window.location.hash = decodeURIComponent(route)
       }, sub)
 
     // 目标文件夹经 files:list 得到的图片数——网格内缩略图数量必须与之对应。
@@ -386,12 +385,12 @@ test.describe('qihe-box e2e', () => {
 
     // 重载回初始入口同步渲染层工作区（裸 IPC workspace.create 只切主进程 currentWS，渲染层 signal 需整页重载后
     // loadCurrentWorkspace 对齐——既有 gotoRoute 基建同款），再导航到仪表盘（/）触发 stats 拉取
-    await page.goto(baseUrl)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate(() => {
-      window.history.pushState({}, '', '/')
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent('/')
     })
 
     // 统计卡数字：供应商=1（目录扫描口径）、报价总数=2（卡片容器定位 + 卡内精确值）

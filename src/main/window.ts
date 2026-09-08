@@ -400,6 +400,8 @@ async function pingRenderer(win: BrowserWindow): Promise<void> {
  * 生产模式 file:// 下 SPA 路由（history.pushState）会把文档 URL 改成 file:///<route>，
  * 直接 reload() 会加载不存在的路径 → chrome-error://chromewebdata/ 死页（渲染层挂、JS ping
  * 却正常 → 恢复链卡死）。dev 模式回 dev server URL。
+ * v2.5.7 补丁（2026-09-07）：渲染层 file:// 已切 HashRouter，文档 URL 路径不再被路由改写；
+ * loadFile 回 index.html 后 hash 为空 → 路由落仪表盘，lastRoute 恢复链照常接管。
  */
 function reloadRenderer(win: BrowserWindow): void {
   if (win.isDestroyed()) return

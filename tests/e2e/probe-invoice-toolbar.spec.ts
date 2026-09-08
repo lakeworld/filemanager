@@ -56,12 +56,12 @@ test.describe('发票筛选行窄宽取证（probe，不入默认套件）', () 
   })
 
   const goto = async (url: string): Promise<void> => {
-    await page.goto(INDEX_URL)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // v2.5.7 补丁：hash 路由下 goto 去 fragment 不重载，复位 + reload 取干净挂载
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate((u) => {
-      window.history.pushState({}, '', u)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(u)
     }, url)
     await page.waitForTimeout(700)
   }

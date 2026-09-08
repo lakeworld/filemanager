@@ -64,8 +64,7 @@ test.describe('插件宿主 e2e（v2.5）', () => {
 
   const gotoRoute = (route: string) =>
     page.evaluate((r) => {
-      window.history.pushState({}, '', r)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(r)
     }, route)
 
   const uninstallAll = () => page.evaluate(async (id) => (window as any).qihebox.plugins.uninstall(id), HELLO_ID)
@@ -162,7 +161,7 @@ test.describe('插件宿主 e2e（v2.5）', () => {
     const ins = await page.evaluate(async (p) => (window as any).qihebox.plugins.install({ filePath: p }), HELLO_QBOX)
     expect(ins.success).toBe(true)
     try {
-      // 同会话 pushState 导航（不重载）：重载会重挂 PluginDispatch、掩盖「同实例不重求值」缺陷，
+      // 同会话 hash 导航（不重载）：重载会重挂 PluginDispatch、掩盖「同实例不重求值」缺陷，
       // 必须 SPA 内连续切换才能复现——修复前第二页永不渲染（URL 变、内容不变）
       await gotoRoute('/plugin/hello')
       await expect(page.getByRole('heading', { name: '👋 Hello 示例插件' })).toBeVisible({ timeout: 15000 })

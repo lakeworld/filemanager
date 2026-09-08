@@ -14,6 +14,16 @@
 
 - 界面材质升级（换材质不换布局，零功能变更）：应用底色更柔和（#f4f6f9）+ 三枚极淡背景光斑与点阵（近乎不可见，玻璃下显形）；侧边栏/顶栏/标题栏改玻璃拟态（半透底 + 模糊 + 内亮边）；侧边栏选中项由「右竖线」改圆角药丸高亮；卡片阴影升级双层软阴影 + 内亮边（全站生效）；键盘焦点框统一品牌蓝（替换系统琥珀色）；原生勾选框/单选钮统一品牌色
 
+### 生产 file:// 路由切 HashRouter（v2.5.7 补丁 2026-09-07，同步入 2.5.8 线）——修 Windows「点仪表盘不跳转」
+
+- **Windows 真机「点击仪表盘不跳转、其余菜单正常、冷启动即现」**（2.5.7 补丁包实装反馈）：根因 = 生产 file:// 加载（`window.ts` loadFile）+ 路径型 pushState 路由的组合，在 Windows 盘符语义下双重失效——①冷启动 `pathname = /C:/Users/…/index.html` 匹配不到任何路由（内容空白）；②`navigate('/')` 的 pushState 目标解析为 `file:///`（无盘符无路径）被 Chromium 判非法抛 SecurityError，而 `navigate('/images')` 等有路径目标合法 → 只有「仪表盘」点不动。与 v2.5.3 T5 reload 撞 chrome-error 死页同类（档案见 `window.ts` reloadRenderer 注释）
+- **修复**：`src/renderer/src/index.tsx` 渲染层在 `file:` 协议下切 `HashRouter`（路由值住 `#/…`，文档 URL 路径不再被路由改写，三类 file:// 路由失效整类消除；冷启动空 hash 自动落 `/` 直达仪表盘）；dev server（http）保持路径型路由
+- **e2e 全量适配生产模式**（勘误：默认 e2e 套件 **全部** 跑 file:// 构建产物，无 dev-server 模式——只有 `probe-wave5` 一只探针走 http）：
+  - `pushState + popstate` 导航 → `location.hash` 赋值（原生触发 `hashchange`）：28 个 spec / 47 处；赋值统一包 `decodeURIComponent`（`location.hash` setter 会自动编码，spec 里预编码的模板会二次编码致路由不匹配）
+  - `page.goto(初始入口)` 复位 → 改为「`hash='/__e2e-reset'` 复位 + `page.reload()`」：34 处——**新发现**：hash 路由下 goto 去 fragment **不再触发文档重载**，旧的 goto-reset 语义（干净挂载 / 组件状态归零 / 工作区重新同步）静默失效；复位到无匹配空路由而非 `/`，避免冷启动多拉一次 Dashboard 统计污染 soak 计量
+  - 断言点 `location.pathname` / `new URL(page.url()).pathname` 随改为 hash 口径
+  - `clipboard-guard` 新增「file:// 侧边栏 仪表盘 ↔ 产品集 往返」金丝雀（复现原缺陷的最低覆盖）
+- 测试基线（2.5.8 线同步轮实测，已 rebase 至 `16077be`）：单测 **1032**（1031 过 + 1 跳过，含 master 新增 Windows 平台测试家族，与 `16077be` 基线持平）；`check:classes` 475 token 全命中（`SKIP` 白名单补协议字面量 `'file:'`）；e2e **178**（177 → +1 金丝雀）——172 过 + 1 失败 + 5 级联未跑，唯一失败 `clipboard-guard` beforeAll 经**未改动 master `16077be` 同序三文件对照**同样失败、同一条断言（本线 A4 每 spec 独立 userData 下仍复现 → 属既有的前置 spec 残留负载/索引时序问题，非本同步引入），隔离复跑 6/6 绿（含金丝雀）
 
 ## v2.5.7 — 2026-08-31：剪贴板守卫修复 + 内建笔记 + 标签域 + 表单控件统一 + 启禾云链路修复
 

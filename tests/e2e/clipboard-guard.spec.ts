@@ -77,14 +77,14 @@ test.describe('剪贴板劫持守卫（v2.5.7 A1）', () => {
     if (wsDir) await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
 
-  /** 回初始入口再导航（干净挂载） */
+  /** 复位后再导航（干净挂载）；v2.5.7 补丁：file:// 走 HashRouter，location.hash 赋值原生触发 hashchange */
   const gotoRoute = async (route: string) => {
-    await page.goto('file://' + ROOT.replace(/\\/g, '/') + '/out/renderer/index.html')
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate((r) => {
-      window.history.pushState({}, '', r)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(r)
     }, route)
   }
 
@@ -196,5 +196,21 @@ test.describe('剪贴板劫持守卫（v2.5.7 A1）', () => {
     // 焦点仍在编辑器（未被搜索框抢走）
     const activeTag = await page.evaluate(() => document.activeElement?.tagName)
     expect(activeTag).not.toBe('INPUT')
+  })
+
+  // v2.5.7 补丁金丝雀（2026-09-07）：生产 file:// 下路径型 pushState 路由失效——
+  // Windows 真机「点仪表盘不跳转、其余菜单正常」根因 = navigate('/') 的 pushState 目标
+  // 解析为 file:/// 非法 + 冷启动 pathname 为物理路径匹配不到路由。HashRouter 后本用例
+  // 在 file:// 构建产物上守住「侧边栏 ↔ 仪表盘」跳转这一真实生产路径。
+  test('file:// 侧边栏跳转金丝雀：仪表盘 ↔ 产品集往返（生产模式路由）', async () => {
+    await gotoRoute('/product-sets')
+    await expect(page.getByRole('heading', { name: '产品集', exact: true, level: 1 })).toBeVisible({ timeout: 15000 })
+    // 复现原缺陷的点击路径：从业务页回仪表盘（旧路径型路由下此点击静默失败）
+    await page.getByRole('button', { name: '仪表盘' }).click()
+    await expect(page.getByRole('heading', { name: '仪表盘', exact: true, level: 1 })).toBeVisible({ timeout: 15000 })
+    await page.getByRole('button', { name: '产品集' }).click()
+    await expect(page.getByRole('heading', { name: '产品集', exact: true, level: 1 })).toBeVisible({ timeout: 15000 })
+    await page.getByRole('button', { name: '仪表盘' }).click()
+    await expect(page.getByRole('heading', { name: '仪表盘', exact: true, level: 1 })).toBeVisible({ timeout: 15000 })
   })
 })

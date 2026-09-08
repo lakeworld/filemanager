@@ -143,8 +143,7 @@ test.describe('右键菜单钳制', () => {
     // 进入文件浏览器（/files/image/<产品集>/<子文件夹>）
     await page.evaluate(async () => {
       const route = `/files/image/${encodeURIComponent('右键集')}/${encodeURIComponent('主图')}`
-      window.history.pushState({}, '', route)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(route)
     })
     const card = page.locator('.card').first()
     await card.waitFor({ timeout: 10000 })
@@ -200,8 +199,7 @@ test.describe('右键菜单钳制', () => {
     await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: '外部关闭集' }))
 
     await page.evaluate(async () => {
-      window.history.pushState({}, '', '/product-sets')
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent('/product-sets')
     })
     const card = page.locator('.card').first()
     await card.waitFor({ timeout: 10000 })
@@ -246,11 +244,10 @@ test.describe('右键菜单钳制', () => {
     ) as Promise<{ success: boolean }>
   }
 
-  /** pushState + popstate 导航（对齐既有测试写法） */
+  /** location.hash（hash 路由） 导航（对齐既有测试写法） */
   const gotoRoute = async (route: string) => {
     await page.evaluate((r) => {
-      window.history.pushState({}, '', r)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(r)
     }, route)
   }
 
@@ -290,7 +287,8 @@ test.describe('右键菜单钳制', () => {
     expect((await importFile(page, imgY, '移入集', '主图')).success).toBe(true)
 
     // reload 同步渲染层 store（bootstrap：currentWorkspace=wsB、workspaces=[wsB, wsA]）
-    await page.goto(baseUrl)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
 
