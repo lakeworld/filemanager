@@ -1,20 +1,46 @@
-import { Show, For, createSignal, createEffect } from "solid-js";
+import { Show, createSignal, createEffect, createMemo, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
-import { currentWorkspace } from "~/stores/workspace";
+import {
+  currentWorkspace,
+  loadProductSets,
+  productSets,
+} from "~/stores/workspace";
+import { customers, loadCustomers } from "~/stores/clients";
+import { suppliers, loadSuppliers } from "~/stores/suppliers";
+import { openFileSmart } from "~/stores/preview";
 import { showToast } from "~/stores/notifyBanner";
+import VirtualGrid from "~/components/VirtualGrid";
+import ContextMenu from "~/components/ContextMenu";
+import ConfirmDialog from "~/components/ConfirmDialog";
+import BatchTagDialog from "~/components/BatchTagDialog";
+import RenameDialog from "~/components/RenameDialog";
+import SearchSelect, { type SearchSelectOption } from "~/components/ui/SearchSelect";
 import EmptyState from "~/components/EmptyState";
 import Loading from "~/components/Loading";
+import TagChips from "~/components/TagChips";
 import Modal from "~/components/ui/Modal";
-import type { NoteEntryInfo } from "~/types";
+import { handleDragOut } from "~/utils/dragout";
+import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
+import { useContextMenu } from "~/hooks/useContextMenu";
+import { fmtLocalTime } from "~/utils/datetime";
+import { BUILTIN_NOTES_FOLDER } from "~/constants/notes";
+import type { ContextMenuItem } from "~/components/ContextMenu";
+import type { FileEntry, NoteEntryInfo } from "~/types";
 
 /**
- * 笔记工作台（v2.5.7 A2）：侧边栏顶层 tab → /notes。
- * - 聚合三域最近笔记（产品集文档区 / 客户 / 供应商，mtime 倒序；core listRecentNotes 只读）
- * - 每行：归属徽标（域）+ 实体名 + 标题 + mtime + 标签（读 metadata 标签）
- * - 点击行 → 深链 /files/<scope>/<entity>/笔记?note=<文件名> → 文件区直开编辑器
- * - 「新建笔记」→ 归属选择器 + 标题 → 写入对应笔记文件夹 → 开编辑
- *   「不产生游离笔记」——新笔记必须选归属（三域之一）。
+ * 笔记库（v2.5.7 A2 立项，v2.5.8 本批**全量对标图包库/证书库**）。
+ *
+ * 「文档就是笔记」契约不变：笔记 = 三域（产品集文档区 / 客户 / 供应商）内建「笔记」子文件夹里的 .md，
+ * 无独立存储、无 index.json；数据源仍是 `api.notes.listRecent`（聚合口径与仪表盘统计卡同源）。
+ *
+ * 本批补的是「库页骨架」——此前只有一列平铺行 + 一个新建按钮，与其他库差一套筛选/多选/右键，
+ * 现在与 `Images.tsx` / `Certs.tsx` 同构：搜索 + 域/实体/标签筛选 + 排序 + 计数与全选 +
+ * VirtualGrid 卡片 + 多选操作条 + 右键菜单 + 重命名/删除/打标/复制/在文件夹中显示 + 拖拽出 + 空态加载态。
+ *
+ * 与其它库的两处刻意差异：
+ * 1. 卡片用实底 `.card` 不加 `.card-glass`——走 `VirtualGrid` 的路径按 v2.5.8 D5 定的量级豁免回实底；
+ * 2. 不做「压缩分享 / 移动到…」：单篇 .md 打包无意义，跨实体移动会让「笔记属于某实体」的语义漂移。
  */
 
 const KIND_LABEL: Record<NoteEntryInfo["kind"], string> = {
@@ -29,190 +55,675 @@ const KIND_ICON: Record<NoteEntryInfo["kind"], string> = {
   supplier: "🏭",
 };
 
-function formatTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  } catch {
-    return iso;
-  }
+/** 域筛选选项（SearchSelect 用；「全部」用空串哨兵，与 Images/Certs 的原生 select 口径一致） */
+const KIND_OPTIONS: readonly SearchSelectOption[] = [
+  { value: "", label: "全部归属" },
+  { value: "product_set", label: KIND_LABEL.product_set },
+  { value: "customer", label: KIND_LABEL.customer },
+  { value: "supplier", label: KIND_LABEL.supplier },
+];
+
+const SORT_OPTIONS: readonly SearchSelectOption[] = [
+  { value: "modified", label: "按修改时间" },
+  { value: "title", label: "按标题" },
+  { value: "size", label: "按大小" },
+];
+
+/**
+ * 一次取全量的上限（v2.5.8 库页化：原来只取 200 条「最近」，无法支撑筛选/全选语义）。
+ * 超过上限时列表顶部如实提示「仅显示最近 N 条」，不假装是全量。
+ */
+const NOTE_LOAD_LIMIT = 1000;
+
+// 代际守卫（照 Certs certLoadSeq / Images imageLoadSeq 先例，模块级）：
+// 切工作区或重新挂载后，旧聚合链/标签池的迟到结果一律丢弃
+let noteLoadSeq = 0;
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
 export default function Notes() {
   const navigate = useNavigate();
   const [notes, setNotes] = createSignal<NoteEntryInfo[]>([]);
   const [loading, setLoading] = createSignal(true);
+  // path → 标签（笔记是普通文件，标签住在既有 metadata 库里，按绝对路径取）
+  const [tagMap, setTagMap] = createSignal<Record<string, string[]>>({});
+  const [search, setSearch] = createSignal("");
+  const [kindFilter, setKindFilter] = createSignal("");
+  const [entityFilter, setEntityFilter] = createSignal("");
+  const [tagFilter, setTagFilter] = createSignal("");
+  const [sortBy, setSortBy] = createSignal<"modified" | "title" | "size">("modified");
+  const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
+  const [actionMessage, setActionMessage] = createSignal("");
+  const [truncated, setTruncated] = createSignal(false);
+  const contextMenu = useContextMenu<string[]>();
+
+  // —— 弹窗与对话框状态 ——
   const [showNew, setShowNew] = createSignal(false);
   const [entityKind, setEntityKind] = createSignal<NoteEntryInfo["kind"]>("product_set");
-  const [entityName, setEntityName] = createSignal("");
-  const [title, setTitle] = createSignal("");
+  const [newEntity, setNewEntity] = createSignal("");
+  const [newTitle, setNewTitle] = createSignal("");
   const [creating, setCreating] = createSignal(false);
+  const [renameTarget, setRenameTarget] = createSignal<NoteEntryInfo | null>(null);
+  const [renameError, setRenameError] = createSignal("");
+  const [renameBusy, setRenameBusy] = createSignal(false);
+  const [batchTagState, setBatchTagState] = createSignal<{ paths: string[]; commonTags: string[] } | null>(null);
+  const [confirmDelete, setConfirmDelete] = createSignal<NoteEntryInfo[] | null>(null);
 
-  const loadNotes = async () => {
+  let actionMessageTimer: number | undefined;
+  const showActionMessage = (msg: string) => {
+    setActionMessage(msg);
+    window.clearTimeout(actionMessageTimer);
+    actionMessageTimer = window.setTimeout(() => setActionMessage(""), 2000);
+  };
+  onCleanup(() => window.clearTimeout(actionMessageTimer));
+  onCleanup(() => {
+    noteLoadSeq++;
+  });
+
+  createEffect(() => {
+    if (currentWorkspace()) {
+      // 新建笔记的归属下拉取正式列表（用户拍板：不产生游离笔记，也要能选到还没有笔记的实体）
+      void loadProductSets();
+      void loadCustomers();
+      void loadSuppliers();
+      void loadNotes();
+    }
+  });
+
+  /** 标签批量拉取：8 并发 worker（照 Certs expiry 拉取先例），每轮取任务前校验代际 */
+  const loadTags = async (list: NoteEntryInfo[], seq: number): Promise<void> => {
+    const map: Record<string, string[]> = {};
+    const queue = list.map((n) => n.path);
+    const workers = Array.from({ length: 8 }, async () => {
+      while (queue.length > 0) {
+        if (seq !== noteLoadSeq) return;
+        const p = queue.shift()!;
+        const r = await api.metadata.get(p);
+        if (r.success && r.data?.tags?.length) map[p] = r.data.tags;
+      }
+    });
+    await Promise.all(workers);
+    if (seq !== noteLoadSeq) return;
+    setTagMap(map);
+  };
+
+  const loadNotes = async (): Promise<void> => {
+    if (!currentWorkspace()) return;
+    const seq = ++noteLoadSeq;
     setLoading(true);
     try {
-      const r = await api.notes.listRecent(null, 200);
-      if (r.success && r.data) setNotes(r.data);
+      const r = await api.notes.listRecent(null, NOTE_LOAD_LIMIT);
+      if (seq !== noteLoadSeq) return;
+      if (!r.success || !r.data) {
+        showToast("error", "加载笔记失败", r.error || "未知错误");
+        return;
+      }
+      setNotes(r.data);
+      setTruncated(r.data.length >= NOTE_LOAD_LIMIT);
+      setSelectedPaths([]);
+      await loadTags(r.data, seq);
     } finally {
-      setLoading(false);
+      // 仅当前链仍最新时复位（过期链的 finally 不得关闭新链的 loading）
+      if (seq === noteLoadSeq) setLoading(false);
     }
   };
 
-  createEffect(() => {
-    if (currentWorkspace()) loadNotes();
+  const tagsOf = (n: NoteEntryInfo): string[] => tagMap()[n.path] ?? [];
+
+  /** 笔记条目 → FileEntry 形状：直接复用预览链路与统一右键菜单，不另写一套 */
+  const entryOf = (n: NoteEntryInfo): FileEntry => ({
+    name: `${n.title}.md`,
+    path: n.path,
+    size: n.size,
+    modified: n.mtime,
+    // md 的 classifyFileType 就是 'other'（shared types 枚举零改动，D21）；预览分流按扩展名判 md
+    file_type: "other",
+    thumbnail_path: null,
+    tags: tagsOf(n),
   });
 
-  /** 深链跳文件区并开编辑（query ?note=<文件名>） */
-  const openNote = (n: NoteEntryInfo) => {
-    const file = n.title + ".md";
-    let path = "";
-    if (n.kind === "product_set") path = `/files/doc/${encodeURIComponent(n.entity)}/笔记?note=${encodeURIComponent(file)}`;
-    else if (n.kind === "customer") path = `/files/customer/${encodeURIComponent(n.entity)}/笔记?note=${encodeURIComponent(file)}`;
-    else path = `/files/supplier/${encodeURIComponent(n.entity)}/笔记?note=${encodeURIComponent(file)}`;
-    navigate(path);
+  // —— 筛选选项 ——
+  /** 实体下拉：当前域下「有笔记的实体」∩ 正式列表（正式列表在，但没笔记的实体筛出来必空，不进选项） */
+  const entityOptions = createMemo<readonly SearchSelectOption[]>(() => {
+    const formal = new Set<string>(
+      kindFilter() === "customer"
+        ? apiEntityNames("customer")
+        : kindFilter() === "supplier"
+          ? apiEntityNames("supplier")
+          : kindFilter() === "product_set"
+            ? apiEntityNames("product_set")
+            : [...apiEntityNames("product_set"), ...apiEntityNames("customer"), ...apiEntityNames("supplier")],
+    );
+    const counts = new Map<string, number>();
+    for (const n of notes()) {
+      if (kindFilter() && n.kind !== kindFilter()) continue;
+      counts.set(n.entity, (counts.get(n.entity) ?? 0) + 1);
+    }
+    const list = [...counts.entries()]
+      // 正式列表为空（客户/供应商 store 还没回来）时不因它把选项全滤掉——退化为「有笔记即可选」
+      .filter(([name]) => formal.size === 0 || formal.has(name))
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return [
+      { value: "", label: "全部实体" },
+      ...list.map(([name, count]) => ({ value: name, label: name, hint: `${count}` })),
+    ];
+  });
+
+  const tagOptions = createMemo<readonly SearchSelectOption[]>(() => {
+    const set = new Set<string>();
+    for (const n of notes()) for (const t of tagsOf(n)) set.add(t);
+    return [
+      { value: "", label: "全部标签" },
+      ...[...set].sort((a, b) => a.localeCompare(b)).map((t) => ({ value: t, label: t })),
+    ];
+  });
+
+  const kindOfSelected = () => {
+    const p = new Set(selectedPaths());
+    return notes().filter((n) => p.has(n.path));
   };
 
-  /** 归属可选项（与 core listRecentNotes 三域一致） */
-  const entityOptions = () => {
-    // 从现有笔记推导 + 常见实体（简化：从聚合结果取实体名集合；产品集/客户/供应商列表查询见各 store）
-    const set = new Set<string>();
-    for (const n of notes()) if (n.kind === entityKind()) set.add(n.entity);
-    return [...set].sort();
+  const filtered = createMemo(() => {
+    const term = search().trim().toLowerCase();
+    const kind = kindFilter();
+    const entity = entityFilter();
+    const tag = tagFilter();
+    let list = notes().filter((n) => {
+      if (kind && n.kind !== kind) return false;
+      if (entity && n.entity !== entity) return false;
+      if (tag && !tagsOf(n).includes(tag)) return false;
+      if (term && !n.title.toLowerCase().includes(term) && !n.entity.toLowerCase().includes(term)) return false;
+      return true;
+    });
+    list = [...list].sort((a, b) => {
+      switch (sortBy()) {
+        case "title":
+          return a.title.localeCompare(b.title);
+        case "size":
+          return b.size - a.size;
+        case "modified":
+        default:
+          return b.mtime.localeCompare(a.mtime); // ISO 串字典序 == 时间序
+      }
+    });
+    return list;
+  });
+
+  const toggleSelection = (path: string) => {
+    setSelectedPaths((prev) => (prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]));
   };
+  const selectAllVisible = () => setSelectedPaths(filtered().map((n) => n.path));
+  const clearSelection = () => setSelectedPaths([]);
+  const selectedCount = () => selectedPaths().length;
+  const visibleCount = () => filtered().length;
+
+  // —— 动作 ——
+  /** 双击/菜单「编辑笔记」：走全站同一预览链路（md → 弹窗内嵌 NoteEditorModal，编辑即保存） */
+  const openNote = (n: NoteEntryInfo) => void openFileSmart(entryOf(n), { onDelete: () => void loadNotes() });
+
+  /** 「在文件区中打开」= v2.5.7 的深链链路保留（文件区命中 `?note=` 直开编辑器），两条入口并存不互相顶掉 */
+  const openInFileBrowser = (n: NoteEntryInfo) => {
+    const seg = n.kind === "product_set" ? "doc" : n.kind;
+    navigate(
+      `/files/${seg}/${encodeURIComponent(n.entity)}/${encodeURIComponent(BUILTIN_NOTES_FOLDER)}?note=${encodeURIComponent(`${n.title}.md`)}`,
+    );
+  };
+
+  const handleCopy = async (paths: string[]) => {
+    if (paths.length === 0) return;
+    const r = await api.files.copyFilesToClipboard(paths);
+    if (r.success) showActionMessage(`已复制 ${paths.length} 篇笔记到剪贴板`);
+    else showToast("error", "复制失败", r.error || "未知错误");
+  };
+
+  const handleShowInExplorer = async (paths: string[]) => {
+    if (paths.length === 0) return;
+    const r = await api.files.showFilesInExplorer(paths);
+    if (!r.success) showToast("error", "打开文件夹失败", r.error || "未知错误");
+  };
+
+  const handleDelete = (paths: string[]) => {
+    if (paths.length === 0) return;
+    setConfirmDelete(kindOfSelected().filter((n) => paths.includes(n.path)));
+  };
+
+  const doDelete = async (list: NoteEntryInfo[]) => {
+    const r = await api.files.delete(list.map((n) => n.path));
+    if (r.success) {
+      setSelectedPaths([]);
+      void loadNotes();
+    } else {
+      showToast("error", "删除失败", r.error || "未知错误");
+    }
+  };
+
+  const handleRename = (n: NoteEntryInfo) => {
+    setRenameError("");
+    setRenameTarget(n);
+  };
+
+  const doRename = async (rawName: string) => {
+    const n = renameTarget();
+    if (!n) return;
+    // 标题即文件名：补回 .md 后缀（RenameDialog 编辑的是完整文件名，缺后缀则补上）
+    const newName = /\.md$/i.test(rawName) ? rawName : `${rawName}.md`;
+    setRenameBusy(true);
+    setRenameError("");
+    try {
+      const r = await api.files.rename({ path: n.path, newName });
+      if (r.success) {
+        setRenameTarget(null);
+        setSelectedPaths([]);
+        void loadNotes();
+      } else {
+        setRenameError(r.error || "未知错误");
+      }
+    } finally {
+      setRenameBusy(false);
+    }
+  };
+
+  const commonTagsOf = (paths: string[]) => {
+    const lists = paths.map((p) => tagMap()[p] ?? []);
+    if (lists.length === 0) return [];
+    return lists[0].filter((t) => lists.every((l) => l.includes(t)));
+  };
+  const handleBatchTag = (paths: string[]) => setBatchTagState({ paths, commonTags: commonTagsOf(paths) });
+
+  /** 三域正式实体列表（新建归属下拉与实体筛选的候选源；用户拍板 B9：不从「已有笔记」反推） */
+  function apiEntityNames(kind: NoteEntryInfo["kind"]): string[] {
+    if (kind === "product_set") return productSets().map((p) => p.name);
+    if (kind === "customer") return customers().map((c) => c.name);
+    return suppliers().map((s) => s.name);
+  }
+
+  const noteByPath = (p: string): NoteEntryInfo | undefined => notes().find((n) => n.path === p);
+  /** 右键菜单主条目（单选时给 builder 当 file；多选或未命中则 undefined，单文件项自动隐藏） */
+  const ctxFile = createMemo(() => {
+    const p = (contextMenu.payload() ?? [])[0];
+    const n = p ? noteByPath(p) : undefined;
+    return n ? entryOf(n) : undefined;
+  });
+
+  /**
+   * 笔记右键菜单 = 统一 builder 的产物 + 一条「在文件区中打开」（仅单选）。
+   * builder 是全站共用的固定顺序，不为了本页去改它；这里在「编辑笔记/预览」之后插一条，
+   * 保住 v2.5.7 的深链链路（文件区命中 `?note=` 直开编辑器）不因站内编辑器而消失。
+   */
+  const noteMenuItems = createMemo<ContextMenuItem[]>(() => {
+    const paths = contextMenu.payload() ?? [];
+    const base = buildFileContextMenuItems({
+      file: ctxFile(),
+      paths,
+      onPreview: (e) => {
+        const n = noteByPath(e.path);
+        if (n) openNote(n);
+      },
+      onOpenDefault: (e) => void api.files.openWithDefaultApp(e.path),
+      onCopy: handleCopy,
+      onShowInExplorer: handleShowInExplorer,
+      onRename: (e) => {
+        const n = noteByPath(e.path);
+        if (n) handleRename(n);
+      },
+      onBatchTag: handleBatchTag,
+      onDelete: handleDelete,
+    });
+    if (paths.length !== 1) return base;
+    const n = noteByPath(paths[0]);
+    if (!n) return base;
+    const at = base.findIndex((i) => i.label === "编辑笔记" || i.label === "预览");
+    base.splice(at < 0 ? base.length : at + 1, 0, {
+      label: "在文件区中打开",
+      icon: "🗂",
+      action: () => openInFileBrowser(n),
+    });
+    return base;
+  });
+
+  const newEntityOptions = createMemo<readonly SearchSelectOption[]>(() =>
+    apiEntityNames(entityKind()).map((name) => ({ value: name, label: name })),
+  );
 
   const createNote = async () => {
     if (creating()) return;
-    const t = title().trim();
-    if (!t) return;
+    const t = newTitle().trim();
+    const entity = newEntity().trim();
+    if (!t || !entity) return;
     setCreating(true);
     try {
-      // 物理路径（core/paths + notes.ts 三域一致）；标题 → <标题>.md
       const fileName = t.endsWith(".md") ? t : `${t}.md`;
+      // 物理路径与 core/notes.ts 三域口径一致（产品集在文档区下，客户/供应商在实体根下）
       const rel =
         entityKind() === "product_set"
-          ? `产品集/${entityName()}/文档/笔记/${fileName}`
+          ? `产品集/${entity}/文档/笔记/${fileName}`
           : entityKind() === "customer"
-            ? `客户/${entityName()}/笔记/${fileName}`
-            : `供应商/${entityName()}/笔记/${fileName}`;
+            ? `客户/${entity}/笔记/${fileName}`
+            : `供应商/${entity}/笔记/${fileName}`;
       const r = await api.files.writeText(rel, `# ${t.replace(/\.md$/i, "")}\n\n`);
-      if (r.success) {
-        setShowNew(false);
-        setTitle("");
-        await loadNotes();
-        // 打开刚建的笔记（编辑态）
-        const created = notes().find((n) => n.title + ".md" === fileName && n.entity === entityName());
-        if (created) openNote(created);
-        else {
-          // 未能匹配（列表刷新竞态）——直接深链
-          const q =
-            entityKind() === "product_set" ? `?note=${encodeURIComponent(fileName)}` : "";
-          navigate(
-            entityKind() === "product_set"
-              ? `/files/doc/${encodeURIComponent(entityName())}/笔记${q}`
-              : entityKind() === "customer"
-                ? `/files/customer/${encodeURIComponent(entityName())}/笔记`
-                : `/files/supplier/${encodeURIComponent(entityName())}/笔记`,
-          );
-        }
-      } else {
+      if (!r.success) {
         showToast("error", "新建笔记失败", r.error ?? undefined);
+        return;
       }
+      setShowNew(false);
+      setNewTitle("");
+      await loadNotes();
+      const created = notes().find((n) => n.path.endsWith(`/${fileName}`) && n.entity === entity);
+      if (created) openNote(created);
     } finally {
       setCreating(false);
     }
   };
 
   return (
-    <div class="p-6">
+    <div class="p-6 max-w-7xl mx-auto flex flex-col h-full">
       <div class="flex items-center justify-between mb-6">
         <div>
           <h1 class="text-2xl font-bold text-surface-900">笔记库</h1>
-          <p class="text-surface-500 mt-1">三域最近笔记（产品集 / 客户 / 供应商；编辑即保存为 .md）</p>
+          <p class="text-surface-500 mt-1">三域笔记（产品集 / 客户 / 供应商；编辑即保存为 .md）</p>
         </div>
         <button class="btn-primary" onClick={() => setShowNew(true)}>
           📝 新建笔记
         </button>
       </div>
 
-      <Show when={loading()} fallback={
-        <Show when={notes().length > 0} fallback={<EmptyState icon="📝" title="还没有笔记" desc="在产品集 / 客户 / 供应商的「笔记」文件夹新建第一篇笔记" />}>
-          <div class="card divide-y divide-surface-100">
-            <For each={notes()}>
-              {(n) => (
-                <button
-                  class="w-full flex items-center gap-4 px-5 py-3 text-left hover:bg-surface-50 transition-colors"
-                  onClick={() => openNote(n)}
-                  data-note-row={n.relPath}
-                >
-                  <span class="shrink-0 w-10 h-10 rounded-lg bg-surface-100 flex items-center justify-center text-lg">
-                    {KIND_ICON[n.kind]}
-                  </span>
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-2">
-                      <span class="text-[11px] px-1.5 py-0.5 rounded bg-surface-100 text-surface-500">{KIND_LABEL[n.kind]}</span>
-                      <span class="text-xs text-surface-400 truncate">{n.entity}</span>
-                    </div>
-                    <div class="text-sm font-medium text-surface-900 truncate">{n.title}</div>
-                    <div class="flex items-center gap-3 mt-1">
-                      <span class="text-xs text-surface-400">{formatTime(n.mtime)}</span>
-                      {/* 标签：读 metadata 需按 relPath 查——此处用文件列表接口简化为注释位；tags 留待后续 */}
-                    </div>
-                  </div>
-                  <span class="text-surface-300">›</span>
-                </button>
-              )}
-            </For>
+      {/* 筛选行（SearchSelect：本组件 v2.5.8 W4 提前投产，这两个库页是首批使用者）。
+          响应式与 Certs 同口径：flex-wrap + 各控件收缩下限，防窄窗口把搜索框压扁并撑出横向滚动条。 */}
+      <div class="flex flex-wrap items-center gap-3 mb-4">
+        <input
+          type="text"
+          class="input w-full min-w-0 md:w-auto md:flex-1 md:min-w-[180px]"
+          placeholder="搜索标题或归属…"
+          value={search()}
+          onInput={(e) => setSearch(e.currentTarget.value)}
+        />
+        <SearchSelect
+          class="min-w-[112px] md:w-36"
+          compact
+          ariaLabel="归属域筛选"
+          options={KIND_OPTIONS}
+          value={kindFilter()}
+          searchable={false}
+          matchTriggerWidth={false}
+          onChange={(v) => {
+            setKindFilter(v);
+            setEntityFilter(""); // 域变了实体候选也变，先回「全部实体」
+          }}
+        />
+        <SearchSelect
+          class="min-w-[112px] md:w-44"
+          compact
+          ariaLabel="归属实体筛选"
+          options={entityOptions()}
+          value={entityFilter()}
+          matchTriggerWidth={false}
+          placeholder="全部实体"
+          emptyText="该域下暂无带笔记的实体"
+          onChange={setEntityFilter}
+        />
+        <SearchSelect
+          class="min-w-[112px] md:w-40"
+          compact
+          ariaLabel="标签筛选"
+          options={tagOptions()}
+          value={tagFilter()}
+          matchTriggerWidth={false}
+          emptyText="暂无已打标的笔记"
+          onChange={setTagFilter}
+        />
+        <SearchSelect
+          class="min-w-[112px] md:w-40"
+          compact
+          ariaLabel="排序方式"
+          options={SORT_OPTIONS}
+          value={sortBy()}
+          searchable={false}
+          matchTriggerWidth={false}
+          onChange={(v) => setSortBy(v as "modified" | "title" | "size")}
+        />
+      </div>
+
+      {/* 多选操作条：底部**悬浮**浮条（W5 形态），不进文档流。
+          为什么这里不像 Images/Certs 那样内嵌在列表上方——实测内嵌条插入会把网格整体下移 ~68px，
+          用户「单击选中 → 再单击/双击」的第二次点击就落到上边的计数行上，双击开编辑直接丢失
+          （e2e 事件轨迹抓实）。浮条不改变布局，两条动作互不干扰；D10 全站收口时同形态复用它。 */}
+      <Show when={selectedCount() > 0}>
+        {/* w-max 必需：fixed + left-1/2 且未给 right，可用宽度只剩半屏（1022 视口下 511px），
+            不显式按内容取宽则每个按钮都被挤成两行；再挂 max-w-[92vw] 兜窄窗口的换行。 */}
+        <div class="fixed bottom-6 left-1/2 z-30 -translate-x-1/2 w-max max-w-[92vw] flex items-center justify-between gap-4 p-3 glass-panel rounded-xl shadow-card-hover border border-primary-100">
+          <div class="flex flex-col gap-1">
+            <span class="text-sm text-primary-700 whitespace-nowrap">已选择 {selectedCount()} 篇笔记</span>
+            <Show when={actionMessage()}>
+              <span class="text-xs text-primary-600">{actionMessage()}</span>
+            </Show>
           </div>
-        </Show>
-      }>
-        <Loading />
+          <div class="flex gap-2">
+            <button class="px-3 py-1.5 text-sm text-surface-600 hover:bg-white rounded-lg whitespace-nowrap" onClick={clearSelection}>
+              取消选择
+            </button>
+            <button
+              class="px-3 py-1.5 text-sm text-white bg-primary-500 hover:bg-primary-600 rounded-lg whitespace-nowrap"
+              onClick={() => void handleCopy(selectedPaths())}
+            >
+              📋 复制
+            </button>
+            <button
+              class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg whitespace-nowrap"
+              onClick={() => void handleShowInExplorer(selectedPaths())}
+            >
+              📂 在文件夹中显示
+            </button>
+            <button
+              class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg whitespace-nowrap"
+              onClick={() => handleBatchTag(selectedPaths())}
+            >
+              🏷️ 打标
+            </button>
+            <button
+              class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg whitespace-nowrap"
+              onClick={() => handleDelete(selectedPaths())}
+            >
+              🗑️ 删除
+            </button>
+          </div>
+        </div>
       </Show>
 
-      {/* 新建笔记：归属选择器 + 标题（不产生游离笔记——必须选归属） */}
+      <Show when={visibleCount() > 0 || loading()} fallback={
+        <Show when={!loading()} fallback={<Loading text="笔记加载中…" />}>
+          <EmptyState
+            icon="📝"
+            title={notes().length === 0 ? "还没有笔记" : "没有符合筛选的笔记"}
+            desc={
+              notes().length === 0
+                ? "在产品集 / 客户 / 供应商的「笔记」文件夹新建第一篇笔记"
+                : "换个关键词，或把归属/实体/标签筛选清空"
+            }
+          />
+        </Show>
+      }>
+        <div class="flex items-center justify-between mb-3 shrink-0">
+          <span class="text-sm text-surface-500">
+            {visibleCount()} 篇笔记
+            <Show when={truncated()}>
+              <span class="text-warning-600"> · 仅显示最近 {NOTE_LOAD_LIMIT} 条</span>
+            </Show>
+          </span>
+          <button class="text-sm text-primary-600 hover:text-primary-700" onClick={selectAllVisible}>
+            全选当前结果
+          </button>
+        </div>
+        {/* pb-20：VirtualGrid 是 h-full 的独立滚动区，父级扣掉底部一段，
+            最后一行卡片就永远在浮条之上，不会被遮住（浮条高度约 60px + bottom-6）。 */}
+        <div class="flex-1 min-h-0 pb-24">
+          <Show when={!loading()} fallback={<Loading text="笔记加载中…" />}>
+            <VirtualGrid
+              items={filtered()}
+              // 行高按出档像素实测校准：初版估 172，实拍卡片内容只有 ~92（两行标题 + 标签换行
+              // 的最坏情形 ≈ 134）——VirtualGrid 的行是 align-content:start，卡片按内容取高，
+              // 行高给大了就是每行一条空隙。
+              itemHeight={140}
+              columns={{ base: 1, md: 2, lg: 3, xl: 4 }}
+              gap={14}
+              // 筛选/搜索变化滚动归零（照 Quotes/Invoices/Certs scrollResetKey 先例）
+              scrollResetKey={`${search()}|${kindFilter()}|${entityFilter()}|${tagFilter()}|${sortBy()}`}
+              renderItem={(n) => (
+                <div
+                  class={`card p-3 min-h-[118px] flex flex-col gap-1.5 cursor-pointer select-none relative overflow-hidden ${
+                    selectedPaths().includes(n.path) ? "border-primary-500 bg-primary-50" : ""
+                  }`}
+                  draggable={true}
+                  onDragStart={(e) => handleDragOut(e, n.path, selectedPaths())}
+                  onContextMenu={(e) => {
+                    const paths = selectedPaths().includes(n.path) ? selectedPaths() : [n.path];
+                    if (!selectedPaths().includes(n.path)) setSelectedPaths([n.path]);
+                    contextMenu.open(e, paths);
+                  }}
+                  onClick={() => toggleSelection(n.path)}
+                  onDblClick={() => openNote(n)}
+                  data-note-card={n.relPath}
+                >
+                  {/* 左侧域色带：一眼分产品集/客户/供应商（替代原「emoji 底框」占位） */}
+                  <span
+                    class={`absolute left-0 top-0 bottom-0 w-1 ${
+                      n.kind === "product_set" ? "bg-primary-400" : n.kind === "customer" ? "bg-warning-400" : "bg-success-400"
+                    }`}
+                  />
+                  <div class="flex items-center gap-2 pl-1">
+                    <input
+                      type="checkbox"
+                      class="w-4 h-4 shrink-0 accent-primary-600 cursor-pointer"
+                      checked={selectedPaths().includes(n.path)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleSelection(n.path)}
+                    />
+                    <span class="text-xs shrink-0">{KIND_ICON[n.kind]}</span>
+                    <span class="text-[11px] px-1.5 py-0.5 rounded bg-surface-100 text-surface-500 shrink-0">
+                      {KIND_LABEL[n.kind]}
+                    </span>
+                    <span class="text-xs text-surface-400 truncate">{n.entity}</span>
+                  </div>
+                  <div class="text-sm font-medium text-surface-900 pl-1 line-clamp-2">{n.title}</div>
+                  <TagChips tags={tagsOf(n)} max={2} />
+                  <div class="mt-auto pl-1 text-[11px] text-surface-400 tabular-nums truncate">
+                    {formatBytes(n.size)} · {fmtLocalTime(n.mtime)}
+                  </div>
+                </div>
+              )}
+            />
+          </Show>
+        </div>
+      </Show>
+
+      {/* 右键菜单：统一 builder + 站内深链项（实现见 noteMenuItems） */}
+      <Show when={contextMenu.show()}>
+        <ContextMenu
+          x={contextMenu.x()}
+          y={contextMenu.y()}
+          onClose={contextMenu.close}
+          items={noteMenuItems()}
+        />
+      </Show>
+
+      {/* 重命名（标题即文件名） */}
+      <Show when={renameTarget()}>
+        <RenameDialog
+          currentName={`${renameTarget()!.title}.md`}
+          busy={renameBusy()}
+          error={renameError()}
+          onConfirm={(n) => void doRename(n)}
+          onCancel={() => setRenameTarget(null)}
+        />
+      </Show>
+
+      {/* 批量打标（与图包/证书同一弹窗，标签库共用） */}
+      <Show when={batchTagState()}>
+        <BatchTagDialog
+          paths={batchTagState()!.paths}
+          commonTags={batchTagState()!.commonTags}
+          onClose={() => setBatchTagState(null)}
+          onDone={() => {
+            void loadNotes();
+            setSelectedPaths([]);
+          }}
+        />
+      </Show>
+
+      <Show when={confirmDelete()}>
+        <ConfirmDialog
+          title="删除笔记"
+          message={`确定删除选中的 ${confirmDelete()!.length} 篇笔记吗？将移入回收站，可在回收站恢复。`}
+          confirmLabel="删除"
+          danger
+          onConfirm={() => {
+            const list = confirmDelete()!;
+            setConfirmDelete(null);
+            void doDelete(list);
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      </Show>
+
+      {/* 新建笔记：归属域 + 归属实体（正式列表）+ 标题——不产生游离笔记，必须选归属 */}
       <Show when={showNew()}>
         <Modal open title="新建笔记" size="md" onClose={() => setShowNew(false)}>
           <div class="p-6">
             <div class="mb-4">
-              <label class="block text-xs text-surface-500 mb-1">归属</label>
-              <div class="flex gap-2 mb-2">
+              <label class="block text-xs text-surface-500 mb-1">归属域</label>
+              <div class="flex gap-2">
                 {(["product_set", "customer", "supplier"] as const).map((k) => (
                   <button
-                    class={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${entityKind() === k ? "border-primary-500 bg-primary-50 text-primary-700" : "border-surface-200 text-surface-600 hover:bg-surface-50"}`}
-                    onClick={() => { setEntityKind(k); setEntityName(""); }}
+                    class={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                      entityKind() === k
+                        ? "border-primary-500 bg-primary-50 text-primary-700"
+                        : "border-surface-200 text-surface-600 hover:bg-surface-50"
+                    }`}
+                    onClick={() => {
+                      setEntityKind(k);
+                      setNewEntity("");
+                    }}
                   >
                     {KIND_LABEL[k]}
                   </button>
                 ))}
               </div>
-              <input
-                type="text"
-                class="input w-full"
-                placeholder={entityKind() === "product_set" ? "产品集名称" : entityKind() === "customer" ? "客户名称" : "供应商名称"}
-                list="note-entities"
-                value={entityName()}
-                onInput={(e) => setEntityName(e.currentTarget.value)}
+            </div>
+            <div class="mb-4">
+              <label class="block text-xs text-surface-500 mb-1">归属实体</label>
+              <SearchSelect
+                class="w-full"
+                ariaLabel="归属实体"
+                options={newEntityOptions()}
+                value={newEntity()}
+                placeholder={
+                  entityKind() === "product_set" ? "选择产品集" : entityKind() === "customer" ? "选择客户" : "选择供应商"
+                }
+                emptyText="还没有该域实体，请先在对应库新建实体"
+                onChange={setNewEntity}
               />
-              <datalist id="note-entities">
-                <For each={entityOptions()}>
-                  {(e) => <option value={e} />}
-                </For>
-              </datalist>
             </div>
             <input
               type="text"
               class="input w-full mb-4"
               placeholder="笔记标题（保存为 .md）"
-              value={title()}
+              value={newTitle()}
               disabled={creating()}
-              onInput={(e) => setTitle(e.currentTarget.value)}
+              onInput={(e) => setNewTitle(e.currentTarget.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && void createNote()}
             />
             <div class="flex gap-3 justify-end">
-              <button class="btn-secondary" onClick={() => setShowNew(false)}>取消</button>
+              <button class="btn-secondary" onClick={() => setShowNew(false)}>
+                取消
+              </button>
               <button
                 class="btn-primary"
-                disabled={creating() || !entityName().trim() || !title().trim()}
+                disabled={creating() || !newEntity().trim() || !newTitle().trim()}
                 onClick={() => void createNote()}
               >
                 创建并编辑

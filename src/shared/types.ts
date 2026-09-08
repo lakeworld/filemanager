@@ -162,6 +162,12 @@ export interface DeleteSubfolderRequest {
   scope?: 'productSet' | 'customer' | 'supplier'
 }
 
+/**
+ * 元数据保存请求。**全量覆盖语义**，不是补丁：`metadata.update()` 会用本请求里的四个字段
+ * 整体替换该文件现有元数据，未携带（undefined）一律落到空值——只传 `tags` 就会清掉
+ * `expiry_date`，反之亦然（v2.5.8 写截图样本时实测踩到：证书打完标签到期徽标就没了）。
+ * 因此调用方必须先读后写：预览面板 `saveCurrentMetadata` 与 `shareView` 都是四字段齐传。
+ */
 export interface MetadataUpdateRequest {
   /** v2.4.2：改为绝对文件路径（主进程按路径推导 产品集/图包|证书/子文件夹，元数据 key 含子文件夹、跨平台分隔符统一） */
   file_path: string
@@ -308,6 +314,8 @@ export interface ArchiveResult {
 export interface NoteEntryInfo {
   /** 工作区相对路径（/ 分隔） */
   relPath: string
+  /** 绝对路径（v2.5.8 笔记库对标：渲染层预览/重命名/删除/打标吃绝对路径，同 FileEntry.path 口径） */
+  path: string
   /** 归属实体名（产品集/客户/供应商名） */
   entity: string
   /** 实体类型 */

@@ -79,14 +79,17 @@ test.describe('笔记工作台与整包勾选（v2.5.7 A2）', () => {
     }
   })
 
-  test('/notes 工作台：三域聚合 + 点击行深链开编辑', async () => {
+  test('/notes 笔记库：三域聚合 + 双击卡片开编辑器（v2.5.8 库页化）', async () => {
     const wsDir = await setup()
     try {
       await navigateTo('/notes')
-      await expect(page.getByText('产品纪事')).toBeVisible({ timeout: 20000 })
-      await expect(page.getByText('拜访纪要')).toBeVisible({ timeout: 20000 })
-      // 点击产品集笔记行 → 深链开编辑器
-      await page.locator('[data-note-row]').filter({ hasText: '产品纪事' }).click()
+      await expect(page.getByRole('heading', { name: '笔记库' })).toBeVisible({ timeout: 20000 })
+      await expect(page.locator('[data-note-card]').filter({ hasText: '产品纪事' })).toBeVisible({ timeout: 20000 })
+      await expect(page.locator('[data-note-card]').filter({ hasText: '拜访纪要' })).toBeVisible({ timeout: 20000 })
+      // 库页交互模型与图包/证书一致：单击 = 选择，双击 = 打开（md → 预览弹窗内嵌 NoteEditorModal）
+      await page.locator('[data-note-card]').filter({ hasText: '产品纪事' }).click()
+      await expect(page.getByText('已选择 1 篇笔记')).toBeVisible({ timeout: 5000 })
+      await page.locator('[data-note-card]').filter({ hasText: '产品纪事' }).dblclick()
       await expect(page.locator('[data-note-editor]')).toBeVisible({ timeout: 20000 })
       await expect(page.locator('[data-note-editor] [contenteditable="true"]')).toContainText('产品纪事', { timeout: 20000 })
     } finally {
@@ -94,28 +97,73 @@ test.describe('笔记工作台与整包勾选（v2.5.7 A2）', () => {
     }
   })
 
-  test('新建笔记（选归属）→ 落盘 → 开编辑', async () => {
+  test('/notes 笔记库：搜索与归属域筛选（对标其他库的筛选行）', async () => {
     const wsDir = await setup()
     try {
       await navigateTo('/notes')
-      await expect(page.getByText('产品纪事')).toBeVisible({ timeout: 20000 })
-      // 供应商归属——建供应商实体（目录须真实存在，create 会建 dir）
+      await expect(page.locator('[data-note-card]')).toHaveCount(2, { timeout: 20000 })
+      // 关键词搜索：命中标题
+      await page.getByPlaceholder('搜索标题或归属…').fill('拜访')
+      await expect(page.locator('[data-note-card]')).toHaveCount(1)
+      await expect(page.locator('[data-note-card]').filter({ hasText: '拜访纪要' })).toBeVisible()
+      await page.getByPlaceholder('搜索标题或归属…').fill('')
+      // 归属域筛选：只看客户 → 只剩拜访纪要（产品集那条被滤掉）
+      await page.getByLabel('归属域筛选').click()
+      await page.locator('[data-search-select] [data-option="customer"]').click()
+      await expect(page.locator('[data-note-card]')).toHaveCount(1)
+      // 计数行随筛选结果变化（全选当前结果只作用于筛出的集合）
+      await expect(page.getByText('1 篇笔记')).toBeVisible()
+      await page.getByRole('button', { name: '全选当前结果' }).click()
+      await expect(page.getByText('已选择 1 篇笔记')).toBeVisible()
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true })
+    }
+  })
+
+  test('/notes 笔记库：右键「在文件区中打开」保留 v2.5.7 深链链路', async () => {
+    const wsDir = await setup()
+    try {
+      await navigateTo('/notes')
+      const card = page.locator('[data-note-card]').filter({ hasText: '拜访纪要' })
+      await expect(card).toBeVisible({ timeout: 20000 })
+      await card.click({ button: 'right' })
+      await page.getByText('在文件区中打开').click()
+      // 跳到客户文件区的「笔记」子文件夹并直开编辑器（?note= 深链，与 v2.5.7 同一条链路）
+      await expect(page.locator('[data-note-editor]')).toBeVisible({ timeout: 20000 })
+      expect(page.url()).toContain('/files/customer/')
+      expect(decodeURIComponent(page.url())).toContain('笔记')
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true })
+    }
+  })
+
+  test('新建笔记（归属取正式实体列表）→ 落盘 → 开编辑', async () => {
+    const wsDir = await setup()
+    try {
+      // 供应商归属——实体目录须先存在（v2.5.8：归属下拉取 suppliers 正式列表，
+      // 不再是「从已有笔记反推」的可手输 datalist；先建目录再挂载页面才进得了候选）
+      const spDir = path.join(wsDir, '供应商', '李四', '笔记')
+      await fsp.mkdir(spDir, { recursive: true })
+      await navigateTo('/notes')
+      await expect(page.locator('[data-note-card]').filter({ hasText: '产品纪事' })).toBeVisible({ timeout: 20000 })
       await page.getByRole('button', { name: /新建笔记/ }).click()
       // kind 选择按钮在弹窗内（精确匹配，避开侧边栏/列表）
       await page.locator('.p-6').getByRole('button', { name: '供应商', exact: true }).click()
-      const spDir = path.join(wsDir, '供应商', '李四', '笔记')
-      await fsp.mkdir(spDir, { recursive: true })
-      const supplierInputs = page.locator('input[placeholder="供应商名称"]')
-      await supplierInputs.fill('李四')
+      // 归属实体 = SearchSelect（点触发器 → 点选项），替代旧的手输 input + datalist
+      // 精确匹配：筛选行还有一个「归属实体筛选」，用包含匹配会同时命中两个 aria-label
+      await page.getByLabel('归属实体', { exact: true }).click()
+      await page.locator('[data-search-select] [data-option="李四"]').click()
       const titleInput = page.locator('input[placeholder="笔记标题（保存为 .md）"]')
       await titleInput.fill('采购备忘')
       await page.getByRole('button', { name: /创建并编辑/ }).click()
+      // 直开编辑器（站内预览弹窗内嵌）
+      await expect(page.locator('[data-note-editor]')).toBeVisible({ timeout: 20000 })
       // 落盘
       await page.waitForTimeout(1500)
       expect(await fsp.stat(path.join(spDir, '采购备忘.md')).then((s) => s.size).catch(() => 0)).toBeGreaterThan(0)
       // 工作台刷新后可见
       await navigateTo('/notes')
-      await expect(page.getByText('采购备忘')).toBeVisible({ timeout: 20000 })
+      await expect(page.locator('[data-note-card]').filter({ hasText: '采购备忘' })).toBeVisible({ timeout: 20000 })
     } finally {
       await fsp.rm(wsDir, { recursive: true, force: true })
     }

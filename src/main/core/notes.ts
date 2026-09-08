@@ -29,6 +29,12 @@ export type NoteEntityFilter =
 export interface NoteEntry {
   /** 工作区相对路径（/ 分隔）——深链与详情定位用 */
   relPath: string
+  /**
+   * 绝对路径（v2.5.8 笔记库对标）——渲染层的预览/重命名/删除/打标全部吃绝对路径
+   * （`FileEntry.path` 同款口径；`FilePreviewModal` 的 md 写契约要靠「绝对路径 − 工作区根」反推 relPath）。
+   * 只给 relPath 会让渲染层自己拼分隔符，Windows 上拼错就是静默失败，故在主进程统一出。
+   */
+  path: string
   /** 归属实体名（产品集/客户/供应商名） */
   entity: string
   /** 实体类型（产品集文档区 / 客户文件区 / 供应商文件区） */
@@ -62,6 +68,7 @@ async function scanDir(dir: string, prefix: string, kind: NoteEntry['kind'], ent
     if (!st.isFile()) continue
     out.push({
       relPath: `${prefix}/${e.name}`,
+      path: abs,
       entity,
       kind,
       title: e.name.replace(/\.md$/i, ''),
