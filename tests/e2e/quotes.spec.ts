@@ -23,7 +23,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 test.describe('报价单 e2e（v2.4.9 S3）', () => {
   let app: ElectronApplication
   let page: Page
-  /** 应用初始入口 URL（file:// index.html）；既有测试 pushState 会改 history URL，reload 需回初始入口 */
+  /** 应用初始入口 URL（file:// index.html）；既有测试 导航会改 location.hash，reload 需回初始入口 */
   let baseUrl: string
 
   test.beforeAll(async () => {
@@ -48,14 +48,14 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     }
   })
 
-  /** 回初始入口重跑应用启动流（同步 currentWorkspace），再导航到指定路由（pushState + popstate） */
+  /** 复位并重跑应用启动流（同步 currentWorkspace），再导航到指定路由（location.hash） */
   const gotoRoute = async (route: string) => {
-    await page.goto(baseUrl)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate((r) => {
-      window.history.pushState({}, '', r)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(r)
     }, route)
   }
 

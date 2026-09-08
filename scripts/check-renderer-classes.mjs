@@ -58,6 +58,7 @@ const SKIP = new Set([
   'staged-identify',  // StagedIdentifyList data-testid
   'staged-identify-banner', // Invoices data-testid
   'batch-identifying', // Invoices data-testid
+  'file:',            // 协议比较字面量（index.tsx window.location.protocol === 'file:'，v2.5.7 补丁）——非 Tailwind file: 变体
 ])
 // 无连字符的 utility/自定义类（含连字符的 token 一律核查；单词类只信这个集合，
 // 避免把 'peer'/'all'/'create' 这类业务字符串字面量误当 class）

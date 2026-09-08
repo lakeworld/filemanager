@@ -92,12 +92,12 @@ test.describe('渲染性能探针（v2.5.1 D4 / v2.5.3 T0）', () => {
     for (const route of ROUTES) {
       const samples: number[] = []
       for (let sample = 0; sample < 3; sample += 1) {
-        await page.goto(INDEX_URL)
+        await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+        await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
         await page.waitForLoadState('domcontentloaded')
         const start = await page.evaluate(() => performance.now())
         await page.evaluate((url) => {
-          window.history.pushState({}, '', url)
-          window.dispatchEvent(new PopStateEvent('popstate'))
+          window.location.hash = decodeURIComponent(url)
         }, route.path)
         await expect(page.getByRole('heading', { name: route.heading, exact: true, level: 1 })).toBeVisible({ timeout: 10000 })
         const elapsed = await page.evaluate((started) => performance.now() - started, start)

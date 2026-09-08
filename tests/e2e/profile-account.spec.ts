@@ -40,13 +40,13 @@ test.describe('账号区（v2.5.1 登录增强）', () => {
   })
 
   const navigateToProfile = async (): Promise<void> => {
-    await page.goto(INDEX_URL)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
-    // history 路由：pushState + popstate（对齐 ui-consistency.spec.ts navigateTo 模式）
+    // hash 路由：location.hash 赋值触发 hashchange（v2.5.7 补丁，对齐 ui-consistency.spec.ts navigateTo 模式）
     await page.evaluate(() => {
-      window.history.pushState({}, '', '/profile')
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent('/profile')
     })
     await page.waitForTimeout(500)
   }

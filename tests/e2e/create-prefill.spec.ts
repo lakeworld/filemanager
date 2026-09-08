@@ -164,8 +164,7 @@ test.describe('全业务新建预填 e2e（v2.5.4）', () => {
 
     // 手动新建客户：空表（预填不产生残留）
     await page.evaluate(() => {
-      window.history.pushState({}, '', '/clients')
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent('/clients')
     })
     await page.getByRole('button', { name: '新建客户' }).first().click()
     const dlg = page.locator('[role="dialog"][aria-label="新建客户"]')

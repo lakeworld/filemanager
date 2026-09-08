@@ -41,12 +41,12 @@ test.describe('用默认应用打开（v2.5.1 F3）', () => {
   })
 
   const navigateTo = async (url: string): Promise<void> => {
-    await page.goto(INDEX_URL)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })
     await page.evaluate((u) => {
-      window.history.pushState({}, '', u)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(u)
     }, url)
   }
 
@@ -76,7 +76,7 @@ test.describe('用默认应用打开（v2.5.1 F3）', () => {
 
       // E2E 模式：open.ts 直接 resolve，无预览弹窗、无报错 toast
       await page.waitForTimeout(600)
-      expect(decodeURIComponent(new URL(page.url()).pathname)).toContain('/files/doc/打开系列/说明书')
+      expect(decodeURIComponent(new URL(page.url()).hash)).toContain('/files/doc/打开系列/说明书')
       await expect(page.getByText('打开失败').or(page.getByText('无法打开文件'))).toHaveCount(0)
     } finally {
       await fsp.rm(wsDir, { recursive: true, force: true })
@@ -103,7 +103,7 @@ test.describe('用默认应用打开（v2.5.1 F3）', () => {
       const previewOpen = await page.evaluate(() => document.body.innerText.includes('用系统程序打开'))
       expect(previewOpen).toBe(false)
       // 仍停留在文档视图
-      expect(decodeURIComponent(new URL(page.url()).pathname)).toContain('/files/doc/打开系列/说明书')
+      expect(decodeURIComponent(new URL(page.url()).hash)).toContain('/files/doc/打开系列/说明书')
     } finally {
       await fsp.rm(wsDir, { recursive: true, force: true })
     }

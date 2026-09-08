@@ -61,12 +61,12 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
     pluginRoutes = await installSoakPlugins(page)
     // 说明：Dashboard 首载统计在 10000 文件工作区下需极长时间（探针实测 >120s，既有问题，本轮不修），
     // soak 不以 Dashboard 为就绪锚点：整页加载后直接进入 /images（应用恢复路由也会记住它，避免每轮触发 Dashboard 统计）
-    await page.goto(INDEX_URL)
+    await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+    await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 15000 })
     await page.evaluate(() => {
-      window.history.pushState({}, '', '/images')
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent('/images')
     })
     await expect(page.getByRole('heading', { name: '图包库', level: 1 })).toBeVisible({ timeout: 30000 })
     // 索引就绪：轮询文件列表直到指定叶子目录出现条目（索引快照构建完成）
@@ -102,12 +102,12 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
     let fullJsonWritten = false
     try {
       // 整页加载只做一次；轮次内全部 SPA 导航（测真实累积状态，不做 reload 复位）
-      await page.goto(INDEX_URL)
+      await page.evaluate(() => { window.location.hash = '/__e2e-reset' }) // 复位到无匹配空路由（等价旧 goto 的空白挂载，不触发任何页面数据拉取）
+      await page.reload({ waitUntil: 'domcontentloaded' }) // v2.5.7 补丁：hash 路由下文档路径恒定，reload 取干净挂载
       await page.waitForLoadState('domcontentloaded')
       await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 15000 })
       await page.evaluate(() => {
-        window.history.pushState({}, '', '/images')
-        window.dispatchEvent(new PopStateEvent('popstate'))
+        window.location.hash = decodeURIComponent('/images')
       })
       await expect(page.getByRole('heading', { name: '图包库', level: 1 })).toBeVisible({ timeout: 30000 })
       for (let round = 1; round <= WARMUP_ROUNDS + FORMAL_ROUNDS; round += 1) {
@@ -278,11 +278,10 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
     }
   })
 
-  // —— 单轮流程（v2.5.3 T8 修订：纯 SPA 导航，不 reload）——
+  // —— 单轮流程（v2.5.3 T8 修订：纯 SPA 导航，不 reload；v2.5.7 补丁：location.hash 触发 hashchange）——
   async function spaTo(url: string): Promise<void> {
     await page.evaluate((u) => {
-      window.history.pushState({}, '', u)
-      window.dispatchEvent(new PopStateEvent('popstate'))
+      window.location.hash = decodeURIComponent(u)
     }, url)
   }
 
@@ -482,13 +481,11 @@ test.describe('renderer 内存 soak（@soak，v2.5.3 T8）', () => {
       await p.waitForTimeout(2000)
       if (i % 20 === 19) {
         await p.evaluate(() => {
-          window.history.pushState({}, '', '/product-sets')
-          window.dispatchEvent(new PopStateEvent('popstate'))
+          window.location.hash = decodeURIComponent('/product-sets')
         })
         await p.waitForTimeout(800)
         await p.evaluate(() => {
-          window.history.pushState({}, '', '/images')
-          window.dispatchEvent(new PopStateEvent('popstate'))
+          window.location.hash = decodeURIComponent('/images')
         })
         await p.waitForTimeout(1200)
       }

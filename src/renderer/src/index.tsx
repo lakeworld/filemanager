@@ -1,6 +1,6 @@
 import { render } from "solid-js/web";
 import { lazy } from "solid-js";
-import { Router, Route, useNavigate } from "@solidjs/router";
+import { Router, HashRouter, Route, useNavigate } from "@solidjs/router";
 import type { RouteSectionProps } from "@solidjs/router";
 import App from "./App";
 import { PluginRoutes } from "./plugins/routes";
@@ -9,6 +9,13 @@ import "./index.css";
 // v2.5.2（视觉升级）：思源黑体（Noto Sans SC）中文子集——400 正文 + 700 标题加粗；
 // 自建精简 @font-face（仅 CJK 主区/标点/全角分片，拉丁走 Inter、emoji 走系统字体）
 import "./assets/fonts.css";
+
+// v2.5.7 补丁（2026-09-07）：生产 file:// 下路径型路由（pushState 改写文档 URL）失效——
+// Windows 盘符语义下冷启动 pathname = /C:/Users/…/index.html 匹配不到任何路由（内容空白），
+// navigate('/') 的 pushState 目标解析为 file:/// 非法（点「仪表盘」无反应，其余菜单正常）；
+// v2.5.3 T5 的 reload 撞 chrome-error 死页同类。file:// 切 HashRouter（路由值住 #/…，
+// 文档 URL 路径不再被改写），dev server（http）保持路径型路由不受影响。
+const AppRouter = window.location.protocol === "file:" ? HashRouter : Router;
 
 // 路由级懒加载：首屏只加载仪表盘，其余页面按需分包（性能优化）
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -44,7 +51,7 @@ function RootApp(props: RouteSectionProps) {
 
 render(
   () => (
-    <Router root={RootApp}>
+    <AppRouter root={RootApp}>
       <Route path="/" component={Dashboard} />
       <Route path="/product-sets" component={ProductSets} />
       <Route path="/product-sets/:name" component={ProductSets} />
@@ -73,7 +80,7 @@ render(
       <Route path="/files/:type/:productSet/:subFolder" component={FileBrowser} />
       {/* v2.5：插件管理页 + 启用插件的动态页面路由（随插件清单响应式增减，启停即时生效） */}
       <PluginRoutes />
-    </Router>
+    </AppRouter>
   ),
   document.getElementById("root")!
 );
