@@ -41,7 +41,7 @@ export default function Dashboard() {
     });
   });
 
-  /** 统计卡元组（v2.4.9 打磨 M5：href 可选——报价卡外层 div 规避 A 嵌套 A；subText/subHref 可选——草稿数副链接） */
+  /** 统计卡元组（href 可选——整卡跳转；subText/subHref 可选副链接，当前无卡片使用，渲染分支保留） */
   interface StatCard {
     label: string;
     value: () => number;
@@ -57,17 +57,10 @@ export default function Dashboard() {
     { label: "证书", value: () => stats()?.data?.total_certs ?? 0, icon: "📜", color: "bg-cert-50 text-cert-700", href: "/certs" },
     // v2.4.7（§4.3）：客户数统计卡
     { label: "客户", value: () => stats()?.data?.total_customers ?? 0, icon: "🤝", color: "bg-success-50 text-success-700", href: "/clients" },
-    // v2.4.9 打磨 M5：供应商/报价统计卡（目录扫描口径，同 total_customers）
+    // v2.4.9 打磨 M5：供应商统计卡（目录扫描口径，同 total_customers）
     { label: "供应商", value: () => stats()?.data?.total_suppliers ?? 0, icon: "🏭", color: "bg-cyan-50 text-cyan-700", href: "/suppliers" },
-    // 报价卡：总报价数 + subText「草稿 N 条」副链接（外层无 href → div，subText 独立 A 导航，规避嵌套锚点）
-    {
-      label: "报价",
-      value: () => stats()?.data?.total_quotes ?? 0,
-      icon: "📄",
-      color: "bg-warning-50 text-warning-700",
-      subText: () => `草稿 ${stats()?.data?.draft_quotes ?? 0} 条`,
-      subHref: `/quotes?status=${encodeURIComponent("草稿")}`,
-    },
+    // v2.5.8（用户拍板 2026-09-07）：统计卡「报价」→「笔记」（三域笔记计数，整卡跳 /notes 工作台）
+    { label: "笔记", value: () => stats()?.data?.total_notes ?? 0, icon: "📝", color: "bg-warning-50 text-warning-700", href: "/notes" },
   ];
 
   return (
@@ -80,8 +73,8 @@ export default function Dashboard() {
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         <For each={statCards}>
           {(card, i) => {
-            // v2.4.9 打磨 M5：报价卡无 href（subText 内嵌链接）→ 外层用 div，避免 A 嵌套 A
-            // （HTML 解析器会提前闭合外层 A，副链接无法独立导航）；其余卡片保持整卡 A 跳转
+            // 副链接卡片（无 href）→ 外层用 div，避免 A 嵌套 A（HTML 解析器会提前闭合外层 A）；
+            // 整卡跳转卡片保持 A 包裹
             const inner = (
               <div
                 class="card card-glass fade-rise p-5 h-full"

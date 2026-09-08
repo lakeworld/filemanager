@@ -20,13 +20,13 @@ import {
   INBOUND_DIR,
   EXCHANGE_DIR,
   invoicesPath,
-  quotesPath,
   readJsonFile,
 } from './paths'
 import { WorkspaceService, countFiles, formatTime } from './workspace'
 import { MetadataService, parseExpiryDate } from './metadata'
 import { FilesService, FileEntry } from './files'
-import type { DashboardStats, InvoiceRecord, QuoteRecord } from '../../shared/types'
+import { listRecentNotes } from './notes'
+import type { DashboardStats, InvoiceRecord } from '../../shared/types'
 
 export type { DashboardStats } from '../../shared/types'
 
@@ -183,18 +183,10 @@ export class DashboardService {
     const supplierEntries = await fsp.readdir(suppliersDir, { withFileTypes: true }).catch(() => [])
     stats.total_suppliers = supplierEntries.filter((e) => e.isDirectory()).length
 
-    // v2.4.9 打磨 M5：报价数 + 草稿报价数（报价.json 台账条目数；台账缺失/损坏按 0，仿 invoiceTodos 容错）
-    const quotesStore = await readJsonFile<{ quotes?: Record<string, QuoteRecord> }>(quotesPath(ws))
-    let totalQuotes = 0
-    let draftQuotes = 0
-    if (quotesStore && quotesStore.quotes && typeof quotesStore.quotes === 'object') {
-      for (const rec of Object.values(quotesStore.quotes)) {
-        totalQuotes++
-        if (rec.status === '草稿') draftQuotes++
-      }
-    }
-    stats.total_quotes = totalQuotes
-    stats.draft_quotes = draftQuotes
+    // v2.5.8（用户拍板 2026-09-07）：统计卡「报价」→「笔记」——三域笔记聚合计数（复用 core/notes.listRecentNotes，
+    // 同 /notes 工作台口径；目录缺失/无权限按 0 容错）。limit 传 MAX_SAFE_INTEGER 仅为取全量计数
+    const notes = await listRecentNotes(ws, undefined, Number.MAX_SAFE_INTEGER)
+    stats.total_notes = notes.length
 
     // v2.5.3（P1-4）：集间 8 并发扫描（照本文件 checkExpiringCerts 8 worker 先例）；每集内 图包/证书 两路 Promise.all 保留。
     // resolveThumb:false——recent_files 渲染层只消费 name/modified/size/path/file_type，thumbnail_path 零消费

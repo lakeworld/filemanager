@@ -223,10 +223,8 @@ export interface DashboardStats {
   total_customers?: number
   /** v2.4.9 打磨 M5：供应商数（供应商/ 一级目录数，同 total_customers 目录扫描口径；渲染端 ?? 0 兜底） */
   total_suppliers?: number
-  /** v2.4.9 打磨 M5：报价数（报价.json 条目数；台账缺失按 0） */
-  total_quotes?: number
-  /** v2.4.9 打磨 M5：草稿报价数（status='草稿'；台账缺失按 0） */
-  draft_quotes?: number
+  /** v2.5.8（用户拍板 2026-09-07）：笔记数（三域「笔记」子文件夹 .md 聚合计数，同 /notes 工作台口径；目录缺失按 0） */
+  total_notes?: number
 }
 
 export interface SearchResult {
