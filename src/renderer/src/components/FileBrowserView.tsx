@@ -459,6 +459,16 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     }
   };
 
+  /**
+   * 笔记归属目录（三域口径与 core/paths + notes.ts 一致）。
+   * v2.5.8 弹窗专项：抽成单点，写入点与弹窗副标题共用同一份——此前归属只在代码里算、
+   * 界面上不显示，用户在这个入口建笔记时不知道会落到哪儿（台账 B10 的"锁死"一半是它没说出来）。
+   */
+  const noteDirRel = () =>
+    isEntityScope()
+      ? `${isCustomer() ? "客户" : "供应商"}/${props.entity}/${BUILTIN_NOTES_FOLDER}`
+      : `产品集/${props.entity}/${fileType() === "doc" ? "文档" : fileType() === "cert" ? "证书" : "图包"}/${BUILTIN_NOTES_FOLDER}`;
+
   /** v2.5.7（A2 笔记）：文件区「笔记」视图新建笔记——标题 → <标题>.md（重名加 _1/_2 序号）→ 直开编辑 */
   const handleCreateNote = async () => {
     if (creatingNote()) return;
@@ -472,9 +482,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         return;
       }
       // 笔记物理路径（与 core/paths + notes.ts 三域一致）
-      const noteDir = isEntityScope()
-        ? `${isCustomer() ? "客户" : "供应商"}/${props.entity}/${BUILTIN_NOTES_FOLDER}`
-        : `产品集/${props.entity}/${fileType() === "doc" ? "文档" : fileType() === "cert" ? "证书" : "图包"}/${BUILTIN_NOTES_FOLDER}`;
+      const noteDir = noteDirRel();
       // 重名冲突：<标题>.md → <标题>_1.md → …（照命名先例）
       const titles = files().filter((f) => f.name.endsWith(".md")).map((f) => f.name);
       let base = title.endsWith(".md") ? title : `${title}.md`;
@@ -746,23 +754,36 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
 
       {/* v2.5.7（A2 笔记）：新建笔记弹窗（文件区「笔记」视图 —— 标题 → .md → 直开编辑） */}
       <Show when={showNewNote()}>
-        <Modal open title="新建笔记" size="md" onClose={() => setShowNewNote(false)}>
-          <div class="p-6">
+        <Modal
+          open
+          title="新建笔记"
+          subtitle={<>
+            保存到 <span class="font-mono text-xs">{noteDirRel()}/</span>
+            （归属为当前实体；要给别的实体记笔记，请到「笔记库」新建）
+          </>}
+          size="md"
+          framed
+          onClose={() => setShowNewNote(false)}
+          footer={
+            <>
+              <button class="btn-secondary" onClick={() => setShowNewNote(false)}>取消</button>
+              <button class="btn-primary" onClick={() => void handleCreateNote()} disabled={creatingNote() || !newNoteTitle().trim()}>
+                创建并编辑
+              </button>
+            </>
+          }
+        >
+          <div class="dlg-field">
+            <label class="dlg-label dlg-required">笔记标题</label>
             <input
               type="text"
-              class="input w-full mb-4"
-              placeholder="笔记标题（保存为 .md）"
+              class="input w-full"
+              placeholder="保存为 <标题>.md"
               value={newNoteTitle()}
               disabled={creatingNote()}
               onInput={(e) => setNewNoteTitle(e.currentTarget.value)}
               onKeyDown={(e) => e.key === "Enter" && void handleCreateNote()}
             />
-            <div class="flex gap-3 justify-end">
-              <button class="btn-secondary" onClick={() => setShowNewNote(false)}>取消</button>
-              <button class="btn-primary" onClick={() => void handleCreateNote()} disabled={creatingNote() || !newNoteTitle().trim()}>
-                创建并编辑
-              </button>
-            </div>
           </div>
         </Modal>
       </Show>
