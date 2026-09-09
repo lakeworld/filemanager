@@ -43,6 +43,17 @@ interface ModalProps {
   dirty?: boolean;
   onCloseRequest?: () => void;
   title?: string;
+  /**
+   * v2.5.8 弹窗专项：framed = 统一骨架（头部标题/副标题/关闭钮 + 固定页脚动作区，仅字段区滚动）。
+   * 默认 false = 渲染与迁移前逐字一致（19 个既有调用点零改动）。
+   * 开 framed 时 title 会**显示**出来（此前只进 aria-label），调用方须删掉自己手写的 `<h2>` 标题，
+   * 并把底部按钮放进 `footer`。
+   */
+  framed?: boolean;
+  /** framed 头部副标题（一句话说明这个弹窗在干什么/影响范围） */
+  subtitle?: JSX.Element;
+  /** framed 页脚内容（通常是一组动作按钮），固定在面板底部 */
+  footer?: JSX.Element;
   children: JSX.Element;
 }
 
@@ -68,7 +79,11 @@ function ModalInner(props: ModalProps) {
 
   const focusFirst = () => {
     if (!panelRef) return;
-    const el = panelRef.querySelector<HTMLElement>(FOCUSABLE);
+    // framed 形态头部有「关闭」钮，但它不是用户的输入目标——带 data-no-auto-focus 的元素跳过，
+    // 焦点照旧落在首个字段（保持与迁移前一致的行为，e2e 打字/回车类用例零改动）
+    const el = Array.from(panelRef.querySelectorAll<HTMLElement>(FOCUSABLE)).find(
+      (n) => !n.hasAttribute("data-no-auto-focus"),
+    );
     el?.focus();
   };
 
@@ -124,10 +139,39 @@ function ModalInner(props: ModalProps) {
         role="dialog"
         aria-modal="true"
         aria-label={props.title}
-        class={`modal-panel w-full ${SIZE_MAP[props.size ?? "md"]} transition-[opacity,transform] duration-fast scale-95 opacity-0 animate-[modalIn_150ms_ease-out_forwards]`}
+        class={`modal-panel w-full ${SIZE_MAP[props.size ?? "md"]} ${
+          props.framed ? "modal-panel-framed" : ""
+        } transition-[opacity,transform] duration-fast scale-95 opacity-0 animate-[modalIn_150ms_ease-out_forwards]`}
         onClick={(e) => e.stopPropagation()}
       >
-        {props.children}
+        {props.framed ? (
+          <>
+            <div class="dlg-header">
+              <div class="min-w-0">
+                <div class="dlg-title">{props.title}</div>
+                <Show when={props.subtitle}>
+                  <div class="dlg-sub">{props.subtitle}</div>
+                </Show>
+              </div>
+              {/* data-no-auto-focus：打开时焦点落首个字段而不是关闭钮；Tab 循环仍可走到 */}
+              <button
+                type="button"
+                class="dlg-close"
+                aria-label="关闭"
+                data-no-auto-focus=""
+                onClick={requestClose}
+              >
+                ✕
+              </button>
+            </div>
+            <div class="dlg-body">{props.children}</div>
+            <Show when={props.footer}>
+              <div class="dlg-footer">{props.footer}</div>
+            </Show>
+          </>
+        ) : (
+          props.children
+        )}
       </div>
     </div>
   );

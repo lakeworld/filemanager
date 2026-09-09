@@ -187,8 +187,10 @@ export default function SearchSelect(props: SearchSelectProps) {
         aria-label={props.ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open()}
+        /* 非紧凑态（表单态）恒 h-9 与 `.input`/`.select` 等高——同排字段一高一矮是"没对齐"的观感来源；
+           紧凑态（筛选行）保持原 py-2 口径不动 */
         class={`flex items-center gap-2 border border-surface-200 rounded-lg bg-white text-sm hover:border-surface-300 transition-colors ${
-          props.compact ? "px-2 py-2" : "px-3 py-2"
+          props.compact ? "px-2 py-2" : "px-3 h-9"
         } ${props.class ?? ""}`}
         onClick={() => (open() ? close() : openPanel())}
         onKeyDown={onTriggerKeyDown}

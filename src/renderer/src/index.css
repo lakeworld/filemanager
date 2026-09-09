@@ -152,10 +152,14 @@
     @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-transparent text-danger-600 font-medium rounded-lg transition-colors duration-fast hover:bg-danger-50 active:scale-95;
   }
   .input {
-    @apply h-9 px-3 rounded-lg border border-surface-200 bg-white text-sm text-surface-800 placeholder:text-surface-400 transition-colors duration-fast focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 disabled:opacity-50 disabled:cursor-not-allowed;
+    /* v2.5.8 弹窗专项：+1px 内凹影 + hover 描边加深——纯白控件贴在浅灰面板上原本"糊成一片"，
+       凹一点才有「面板浮着、字段嵌着」的层次（纯 box-shadow/border，零 backdrop 成本） */
+    @apply h-9 px-3 rounded-lg border border-surface-200 bg-white text-sm text-surface-800 placeholder:text-surface-400 transition-colors duration-fast hover:border-surface-300 focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 disabled:opacity-50 disabled:cursor-not-allowed;
+    box-shadow: inset 0 1px 1px rgb(15 23 42 / 0.04);
   }
   .select {
-    @apply h-9 px-3 rounded-lg border border-surface-200 bg-white text-sm text-surface-800 transition-colors duration-fast focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 disabled:opacity-50;
+    @apply h-9 px-3 rounded-lg border border-surface-200 bg-white text-sm text-surface-800 transition-colors duration-fast hover:border-surface-300 focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 disabled:opacity-50;
+    box-shadow: inset 0 1px 1px rgb(15 23 42 / 0.04);
   }
   .badge {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium whitespace-nowrap;
@@ -186,12 +190,56 @@
   }
   .modal-panel {
     @apply rounded-2xl max-h-[90vh] overflow-y-auto;
-    /* v2.5.8（精致化 W2 批 1）：弹窗底座玻璃化（.82 白底 + blur14 + 内亮边，shadow-xl 数值保留并叠加内亮边）；
-       overlay 不动；ConfirmDialog 及全部业务弹窗零改动自动继承 */
-    background: rgba(255, 255, 255, 0.82);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1), inset 0 1px 0 0 rgb(255 255 255 / 0.6);
+    /* v2.5.8（精致化 W2 批 1）：弹窗底座玻璃化（.82 白底 + blur14 + 内亮边）
+       v2.5.8 弹窗专项再修「灰平板」观感：白底提到 .92 + saturate 让透底但不发灰；补 1px 半透白描边
+       （无描边时玻璃边缘与 #f4f6f9 底色糊成一片）；外影换双层（近距离一档定形 + 远距离一档托底），
+       面板这才真正"浮"在内容上；内亮边保留作厚度感 */
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(18px) saturate(1.5);
+    -webkit-backdrop-filter: blur(18px) saturate(1.5);
+    border: 1px solid rgb(255 255 255 / 0.7);
+    box-shadow: 0 2px 4px 0 rgb(15 23 42 / 0.05), 0 24px 48px -12px rgb(15 23 42 / 0.22), inset 0 1px 0 0 rgb(255 255 255 / 0.75);
+  }
+  /* framed 弹窗（Modal 的 framed 形态）：面板改纵向三段——头部与页脚固定，仅字段区滚动，
+     长表单滚到底也不用连按钮一起滚走 */
+  .modal-panel-framed {
+    @apply flex flex-col overflow-hidden;
+  }
+  /* —— v2.5.8 弹窗专项：表单弹窗统一排版（此前每个弹窗各写各的 p-6 + h2 + 按钮行，是"丑"的结构根因）—— */
+  .dlg-header {
+    @apply px-6 pt-5 pb-4 flex items-start justify-between gap-4 border-b border-surface-200/70;
+  }
+  .dlg-title {
+    @apply text-[17px] leading-6 font-semibold text-surface-900;
+  }
+  .dlg-sub {
+    @apply mt-1 text-xs text-surface-500;
+  }
+  .dlg-close {
+    @apply shrink-0 w-7 h-7 -mr-1 inline-flex items-center justify-center rounded-lg text-surface-400 transition-colors duration-fast hover:bg-surface-100 hover:text-surface-600;
+  }
+  .dlg-body {
+    @apply px-6 py-5 flex flex-col gap-4 overflow-y-auto;
+  }
+  .dlg-footer {
+    @apply px-6 py-4 flex items-center justify-end gap-3 border-t border-surface-200/70 bg-surface-50/70;
+  }
+  .dlg-field {
+    @apply flex flex-col gap-1.5;
+  }
+  .dlg-label {
+    @apply text-xs font-medium text-surface-500;
+  }
+  /* 必填星号走伪元素：文案里不用手写 * （语义由 aria-required 承担） */
+  .dlg-required::after {
+    @apply text-danger-500;
+    content: ' *';
+  }
+  .dlg-hint {
+    @apply text-xs text-surface-400;
+  }
+  .dlg-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 gap-4;
   }
   .skeleton {
     @apply animate-pulse bg-surface-200 rounded;
