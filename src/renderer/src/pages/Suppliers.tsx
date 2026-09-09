@@ -10,6 +10,8 @@ import type { SupplierPrefill } from "~/stores/createPrefillNormalize";
 import { showToast } from "~/stores/notifyBanner";
 import TagChip from "~/components/TagChip";
 import TagInput from "~/components/TagInput";
+import Input from "~/components/ui/Input";
+import Textarea from "~/components/ui/Textarea";
 import EmptyState from "~/components/EmptyState";
 import ContextMenu from "~/components/ContextMenu";
 import ConfirmDialog from "~/components/ConfirmDialog";
@@ -319,91 +321,90 @@ export default function Suppliers() {
         <Modal
           open
           title="新建供应商"
-          size="xl"
+          subtitle="名称即供应商文件夹名；联系人/电话/邮箱可后补"
+          size="2xl"
+          framed
           onClose={cancelCreate}
           // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc 走 onCloseRequest（二次确认）
           dirty={createDirty()}
           onCloseRequest={requestCloseCreate}
-        >
-          <div class="bg-white rounded-2xl w-full max-w-xl p-6 shadow-xl max-h-[90vh] overflow-y-auto overflow-x-hidden" onClick={(e) => e.stopPropagation()}>
-            <h2 class="text-xl font-bold mb-4">新建供应商</h2>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">供应商名称</label>
-              <input
-                type="text"
-                class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                placeholder="如：义乌恒通供应链"
-                value={newName()}
-                onInput={(e) => setNewName(e.currentTarget.value)}
-              />
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div class="mb-4">
-                <label class="block text-sm font-medium text-surface-700 mb-1">联系人</label>
-                <input
-                  type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="如：王经理"
-                  value={newContact()}
-                  onInput={(e) => setNewContact(e.currentTarget.value)}
-                />
-              </div>
-              <div class="mb-4">
-                <label class="block text-sm font-medium text-surface-700 mb-1">电话</label>
-                <input
-                  type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="如：13800138000"
-                  value={newPhone()}
-                  onInput={(e) => setNewPhone(e.currentTarget.value)}
-                />
-              </div>
-              <div class="mb-4">
-                <label class="block text-sm font-medium text-surface-700 mb-1">邮箱</label>
-                <input
-                  type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="如：supplier@example.com"
-                  value={newEmail()}
-                  onInput={(e) => setNewEmail(e.currentTarget.value)}
-                />
-              </div>
-              <div class="mb-4">
-                <label class="block text-sm font-medium text-surface-700 mb-1">地址</label>
-                <input
-                  type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  placeholder="如：浙江省义乌市…"
-                  value={newAddress()}
-                  onInput={(e) => setNewAddress(e.currentTarget.value)}
-                />
-              </div>
-            </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">标签（建议从已定义标签中选择）</label>
-              <TagInput
-                value={newTags()}
-                onChange={setNewTags}
-                options={tagList()}
-                placeholder="如：重点供应商、外贸"
-                scope="supplier" // v2.5.7（A3）：供应商域标签
-              />
-            </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>
-              <textarea
-                class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
-                rows={3}
-                placeholder="添加备注..."
-                value={newNotes()}
-                onInput={(e) => setNewNotes(e.currentTarget.value)}
-              />
-            </div>
-            <div class="flex gap-3 justify-end">
+          footer={
+            <>
               {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestCloseCreate（二次确认） */}
               <button class="btn-secondary" onClick={requestCloseCreate}>取消</button>
               <button class="btn-primary" onClick={handleCreate}>确认创建</button>
+            </>
+          }
+        >
+          {/* v2.5.8 弹窗专项：删掉原先套在 Modal 里的「自绘白卡 + 自己的 stopPropagation」——
+              底座已由 .modal-panel 玻璃面板负责，双层卡让内亮边与圆角互相打架；
+              手写 input/textarea 串一并收敛到 ui/Input、ui/Textarea（D9 点位顺带消化 6 处） */}
+          <div class="dlg-field">
+            <label class="dlg-label dlg-required">供应商名称</label>
+            <Input
+              value={newName()}
+              placeholder="如：义乌恒通供应链"
+              onInput={(e) => setNewName(e.currentTarget.value)}
+              class="w-full"
+            />
+          </div>
+          <div class="dlg-grid">
+            <div class="dlg-field">
+              <label class="dlg-label">联系人</label>
+              <Input
+                value={newContact()}
+                placeholder="如：王经理"
+                onInput={(e) => setNewContact(e.currentTarget.value)}
+                class="w-full"
+              />
             </div>
+            <div class="dlg-field">
+              <label class="dlg-label">电话</label>
+              <Input
+                value={newPhone()}
+                placeholder="如：13800138000"
+                onInput={(e) => setNewPhone(e.currentTarget.value)}
+                class="w-full"
+              />
+            </div>
+            <div class="dlg-field">
+              <label class="dlg-label">邮箱</label>
+              <Input
+                value={newEmail()}
+                placeholder="如：supplier@example.com"
+                onInput={(e) => setNewEmail(e.currentTarget.value)}
+                class="w-full"
+              />
+            </div>
+            <div class="dlg-field">
+              <label class="dlg-label">地址</label>
+              <Input
+                value={newAddress()}
+                placeholder="如：浙江省义乌市…"
+                onInput={(e) => setNewAddress(e.currentTarget.value)}
+                class="w-full"
+              />
+            </div>
+          </div>
+          <div class="dlg-field">
+            <label class="dlg-label">标签<span class="dlg-hint">（建议从已定义标签中选择）</span></label>
+            <TagInput
+              value={newTags()}
+              onChange={setNewTags}
+              options={tagList()}
+              placeholder="如：重点供应商、外贸"
+              scope="supplier" // v2.5.7（A3）：供应商域标签
+            />
+          </div>
+          <div class="dlg-field">
+            <label class="dlg-label">备注</label>
+            <Textarea
+              value={newNotes()}
+              rows={3}
+              placeholder="添加备注..."
+              onInput={(e) => setNewNotes(e.currentTarget.value)}
+              class="w-full"
+            />
           </div>
         </Modal>
       </Show>
@@ -423,24 +424,29 @@ export default function Suppliers() {
 
       {/* 重命名弹窗（入口：卡片右键菜单；改名后 inbound 级联在 core BoxService.renameSupplier） */}
       <Show when={renameTarget()}>
-        <Modal open title="重命名供应商" size="md" onClose={() => setRenameTarget(null)}>
-          <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 class="text-xl font-bold mb-4">重命名供应商</h2>
-            <p class="text-sm text-surface-500 mb-3">
-              「{renameTarget()!.name}」→ 新名称（关联入库单的供应商引用将同步更新）
-            </p>
-            <input
-              type="text"
-              class="w-full px-3 py-2 border border-surface-200 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-primary-500"
+        <Modal
+          open
+          title="重命名供应商"
+          subtitle={<>「{renameTarget()!.name}」→ 新名称（关联入库单的供应商引用同步更新）</>}
+          size="md"
+          framed
+          onClose={() => setRenameTarget(null)}
+          footer={
+            <>
+              <button class="btn-secondary" onClick={() => setRenameTarget(null)}>取消</button>
+              <button class="btn-primary" onClick={() => void handleRename()}>确认重命名</button>
+            </>
+          }
+        >
+          {/* v2.5.8 弹窗专项：同上新建弹窗——去掉套在玻璃底座里的第二层自绘白卡 */}
+          <div class="dlg-field">
+            <label class="dlg-label">新名称</label>
+            <Input
               value={renameValue()}
               onInput={(e) => setRenameValue(e.currentTarget.value)}
               onKeyDown={(e) => e.key === "Enter" && void handleRename()}
-              autofocus
+              class="w-full"
             />
-            <div class="flex gap-3 justify-end">
-              <button class="btn-secondary" onClick={() => setRenameTarget(null)}>取消</button>
-              <button class="btn-primary" onClick={() => void handleRename()}>确认重命名</button>
-            </div>
           </div>
         </Modal>
       </Show>

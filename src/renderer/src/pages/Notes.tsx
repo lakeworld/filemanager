@@ -672,11 +672,31 @@ export default function Notes() {
 
       {/* 新建笔记：归属域 + 归属实体（正式列表）+ 标题——不产生游离笔记，必须选归属 */}
       <Show when={showNew()}>
-        <Modal open title="新建笔记" size="md" onClose={() => setShowNew(false)}>
-          <div class="p-6">
-            <div class="mb-4">
-              <label class="block text-xs text-surface-500 mb-1">归属域</label>
-              <div class="flex gap-2">
+        <Modal
+          open
+          title="新建笔记"
+          subtitle="笔记是挂在归属实体下的 .md，编辑即保存"
+          size="md"
+          framed
+          onClose={() => setShowNew(false)}
+          footer={
+            <>
+              <button class="btn-secondary" onClick={() => setShowNew(false)}>
+                取消
+              </button>
+              <button
+                class="btn-primary"
+                disabled={creating() || !newEntity().trim() || !newTitle().trim()}
+                onClick={() => void createNote()}
+              >
+                创建并编辑
+              </button>
+            </>
+          }
+        >
+          <div class="dlg-field">
+            <label class="dlg-label">归属域</label>
+            <div class="flex gap-2">
                 {(["product_set", "customer", "supplier"] as const).map((k) => (
                   <button
                     class={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
@@ -692,43 +712,33 @@ export default function Notes() {
                     {KIND_LABEL[k]}
                   </button>
                 ))}
-              </div>
             </div>
-            <div class="mb-4">
-              <label class="block text-xs text-surface-500 mb-1">归属实体</label>
-              <SearchSelect
-                class="w-full"
-                ariaLabel="归属实体"
-                options={newEntityOptions()}
-                value={newEntity()}
-                placeholder={
-                  entityKind() === "product_set" ? "选择产品集" : entityKind() === "customer" ? "选择客户" : "选择供应商"
-                }
-                emptyText="还没有该域实体，请先在对应库新建实体"
-                onChange={setNewEntity}
-              />
-            </div>
+          </div>
+          <div class="dlg-field">
+            <label class="dlg-label">归属实体</label>
+            <SearchSelect
+              class="w-full"
+              ariaLabel="归属实体"
+              options={newEntityOptions()}
+              value={newEntity()}
+              placeholder={
+                entityKind() === "product_set" ? "选择产品集" : entityKind() === "customer" ? "选择客户" : "选择供应商"
+              }
+              emptyText="还没有该域实体，请先在对应库新建实体"
+              onChange={setNewEntity}
+            />
+          </div>
+          <div class="dlg-field">
+            <label class="dlg-label dlg-required">笔记标题</label>
             <input
               type="text"
-              class="input w-full mb-4"
-              placeholder="笔记标题（保存为 .md）"
+              class="input w-full"
+              placeholder="保存为 <标题>.md"
               value={newTitle()}
               disabled={creating()}
               onInput={(e) => setNewTitle(e.currentTarget.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && void createNote()}
             />
-            <div class="flex gap-3 justify-end">
-              <button class="btn-secondary" onClick={() => setShowNew(false)}>
-                取消
-              </button>
-              <button
-                class="btn-primary"
-                disabled={creating() || !newEntity().trim() || !newTitle().trim()}
-                onClick={() => void createNote()}
-              >
-                创建并编辑
-              </button>
-            </div>
           </div>
         </Modal>
       </Show>

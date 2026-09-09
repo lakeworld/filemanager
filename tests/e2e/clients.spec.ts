@@ -245,8 +245,10 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
     await expect(modal).toBeVisible()
 
     await modal.getByPlaceholder('如：张三').fill('M2新建客户')
-    // 新建弹窗加 type select 后仍为弹窗内唯一 select（TagInput 无原生 select），沿用 modal.locator('select') 模式
-    await modal.locator('select').selectOption('企业')
+    // v2.5.8 弹窗专项：客户类型由原生 select 换搜索下拉（面板 Portal 到 body，故用页面级定位）
+    await modal.getByRole('button', { name: '客户类型' }).click()
+    await page.locator('[data-search-select] [data-option="企业"]').click()
+    await expect(modal.getByRole('button', { name: '客户类型' })).toContainText('企业')
     await modal.getByPlaceholder('如：13800138000').fill('13800138000')
     await modal.getByPlaceholder('如：name@example.com').fill('m2@example.com')
     await modal.getByPlaceholder('如：浙江省义乌市…').fill('浙江省义乌市')

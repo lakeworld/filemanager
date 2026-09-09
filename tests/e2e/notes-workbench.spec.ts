@@ -153,7 +153,7 @@ test.describe('笔记工作台与整包勾选（v2.5.7 A2）', () => {
       // 精确匹配：筛选行还有一个「归属实体筛选」，用包含匹配会同时命中两个 aria-label
       await page.getByLabel('归属实体', { exact: true }).click()
       await page.locator('[data-search-select] [data-option="李四"]').click()
-      const titleInput = page.locator('input[placeholder="笔记标题（保存为 .md）"]')
+      const titleInput = page.locator('input[placeholder="保存为 <标题>.md"]')
       await titleInput.fill('采购备忘')
       await page.getByRole('button', { name: /创建并编辑/ }).click()
       // 直开编辑器（站内预览弹窗内嵌）

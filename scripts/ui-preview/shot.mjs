@@ -107,6 +107,17 @@ const goto = async (url) => {
   await page.waitForFunction(() => !!window.qihebox, null, { timeout: 10000 })
   await page.waitForTimeout(900)
 }
+/**
+ * 关掉当前叠在页面上的弹窗/菜单。
+ * 必要性：hash 路由下 goto() 只是同文档片段跳转、**不重载文档**，上一张截图留下的弹窗会一直开着，
+ * 把下一个场景的目标挡住（实测 dlg-rename-supplier 因此 30s 等不到右键目标）。
+ */
+const closeAnyDialog = async () => {
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(200)
+  }
+}
 
 let failures = 0
 for (const [key, route] of ROUTES) {
@@ -160,6 +171,34 @@ if (!process.env.QIHE_SHOT_BASELINE) {
     ['notes-nomatch', async () => {
       await goto('/notes')
       await page.getByPlaceholder('搜索标题或归属…').fill('zzz不存在')
+      await page.waitForTimeout(400)
+    }],
+    // —— v2.5.8 弹窗专项：逐个改版弹窗的 framed 形态取证（Modal 头部/页脚 + .dlg-field 排版）——
+    ['dlg-create-ps', async () => {
+      await goto('/product-sets')
+      await closeAnyDialog()
+      await page.getByRole('button', { name: /新建产品集/ }).first().click()
+      await page.waitForTimeout(400)
+    }],
+    ['dlg-create-supplier', async () => {
+      await goto('/suppliers')
+      await closeAnyDialog()
+      await page.getByRole('button', { name: /新建供应商/ }).first().click()
+      await page.waitForTimeout(400)
+    }],
+    ['dlg-rename-supplier', async () => {
+      await goto('/suppliers')
+      await closeAnyDialog()
+      // 重命名入口在卡片右键菜单（副标题那句「关联入库单引用同步更新」是本次要留证的重点提示）
+      // 右键目标取卡片内的名称文本（照 suppliers.spec.ts:161 已验证口径；点 .card 容器实测不弹菜单）
+      await page.getByText('走查供应商', { exact: true }).click({ button: 'right' })
+      await page.getByRole('button', { name: /重命名/ }).click()
+      await page.waitForTimeout(400)
+    }],
+    ['dlg-create-note', async () => {
+      await goto('/notes')
+      await closeAnyDialog()
+      await page.getByRole('button', { name: /新建笔记/ }).first().click()
       await page.waitForTimeout(400)
     }],
   ]

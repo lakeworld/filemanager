@@ -58,7 +58,8 @@ test.describe('全业务新建预填 e2e（v2.5.4）', () => {
     const dlg = page.locator('[role="dialog"][aria-label="新建客户"]')
     await expect(dlg).toBeVisible({ timeout: 10000 })
     await expect(dlg.locator('input[placeholder="如：张三"]')).toHaveValue('预填客户甲')
-    await expect(dlg.locator('select')).toHaveValue('企业')
+    // v2.5.8 弹窗专项：客户类型改搜索下拉 → 断言触发器回显文案（不再是原生 select 的 value）
+    await expect(dlg.getByRole('button', { name: '客户类型' })).toContainText('企业')
     await expect(dlg.locator('textarea[placeholder="添加备注..."]')).toHaveValue('预填备注')
 
     await dlg.getByRole('button', { name: '确认创建' }).click()
