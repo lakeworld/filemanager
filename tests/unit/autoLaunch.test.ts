@@ -13,21 +13,29 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   AUTOSTART_ARGS,
+  UNPACKED_AUTOLAUNCH_MESSAGE,
   autostartDir,
   buildDesktopEntry,
   desktopEntryPath,
+  entryOwnedByExec,
   isAutoLaunchMode,
+  resolveAutoLaunchTarget,
 } from '../../src/main/core/autoLaunch'
 
 /** 平台薄壳依赖 electron —— 单测 mock 掉（electron 包在纯 node 下 require 返回二进制路径，不可用） */
-const { setLoginItemSettings, getLoginItemSettings } = vi.hoisted(() => ({
+const { setLoginItemSettings, getLoginItemSettings, appState } = vi.hoisted(() => ({
   setLoginItemSettings: vi.fn(),
   getLoginItemSettings: vi.fn(() => ({ openAtLogin: false, wasOpenedAtLogin: false })),
+  /** 可变打包态：isPackaged 用 getter 暴露，逐例翻转（mock 工厂只求值一次，故不能写死属性值） */
+  appState: { isPackaged: true },
 }))
 vi.mock('electron', () => ({
   app: {
     setLoginItemSettings,
     getLoginItemSettings,
+    get isPackaged() {
+      return appState.isPackaged
+    },
   },
 }))
 
@@ -77,6 +85,82 @@ describe('core/autoLaunch 纯函数', () => {
       'Exec="/opt/qihe-box" ' + AUTOSTART_ARGS.join(' '),
     )
   })
+
+  it('buildDesktopEntry 桌面项字段齐备：Icon/Terminal/StartupWMClass/Categories/Comment（与安装器 qihe-box.desktop 同口径）', () => {
+    const content = buildDesktopEntry('/opt/启禾文件管理/qihe-box')
+    // 缺 Icon → DE 启动项面板显示成通用齿轮；缺 Terminal=false → 部分 DE 会按终端程序处理
+    expect(content).toContain('Icon=qihe-box')
+    expect(content).toContain('Terminal=false')
+    expect(content).toContain('StartupWMClass=qihe-box')
+    expect(content).toContain('Categories=Office;')
+    expect(content).toContain('Name=启禾文件管理')
+    expect(content).toContain('Type=Application')
+  })
+})
+
+describe('resolveAutoLaunchTarget 自启目标解析（v2.5.8 缺陷修：未打包/AppImage 形态）', () => {
+  it('AppImage 形态优先取 env.APPIMAGE（execPath 在 /tmp/.mount_* 每次挂载都变，写它重启即失效）', () => {
+    expect(
+      resolveAutoLaunchTarget({
+        env: { APPIMAGE: '/home/user/下载/启禾文件管理-2.5.8.AppImage' },
+        execPath: '/tmp/.mount_abc123/启禾文件管理',
+        isPackaged: true,
+      }),
+    ).toBe('/home/user/下载/启禾文件管理-2.5.8.AppImage')
+  })
+
+  it('已打包且非 AppImage → process.execPath；APPIMAGE 空串视为未设（XDG 式宽松），不吃空值', () => {
+    expect(
+      resolveAutoLaunchTarget({ env: {}, execPath: '/opt/启禾文件管理/qihe-box', isPackaged: true }),
+    ).toBe('/opt/启禾文件管理/qihe-box')
+    expect(
+      resolveAutoLaunchTarget({ env: { APPIMAGE: '' }, execPath: '/opt/qihe-box', isPackaged: true }),
+    ).toBe('/opt/qihe-box')
+  })
+
+  it('未打包（dev / `electron .` 预览实例）→ null：execPath 是 electron 裸二进制、app 路径住在 argv 里，写它登录必弹 Electron 空窗', () => {
+    expect(
+      resolveAutoLaunchTarget({
+        env: {},
+        execPath: '/repo/node_modules/electron/dist/electron',
+        isPackaged: false,
+      }),
+    ).toBeNull()
+  })
+
+  it('QIHEBOX_AUTOSTART_FORCE=1 开发/测试旁路：未打包也按安装版取 execPath（e2e 验开关链路用），且 APPIMAGE 仍优先', () => {
+    expect(
+      resolveAutoLaunchTarget({
+        env: { QIHEBOX_AUTOSTART_FORCE: '1' },
+        execPath: '/repo/node_modules/electron/dist/electron',
+        isPackaged: false,
+      }),
+    ).toBe('/repo/node_modules/electron/dist/electron')
+    expect(
+      resolveAutoLaunchTarget({
+        env: { QIHEBOX_AUTOSTART_FORCE: '1', APPIMAGE: '/home/u/启禾.AppImage' },
+        execPath: '/tmp/.mount_x/启禾文件管理',
+        isPackaged: false,
+      }),
+    ).toBe('/home/u/启禾.AppImage')
+    // 非 '1' 不放行（旁路只认精确值，防误设 QIHEBOX_AUTOSTART_FORCE=true/0 打开）
+    expect(
+      resolveAutoLaunchTarget({
+        env: { QIHEBOX_AUTOSTART_FORCE: '0' },
+        execPath: '/repo/electron',
+        isPackaged: false,
+      }),
+    ).toBeNull()
+  })
+})
+
+describe('entryOwnedByExec 坏条目归属判定（只清自己写坏的那条，不误删安装版条目）', () => {
+  it('Exec 指向该 execPath → true；指向别处 / 内容缺失 → false', () => {
+    const dev = '/repo/node_modules/electron/dist/electron'
+    expect(entryOwnedByExec(buildDesktopEntry(dev), dev)).toBe(true)
+    expect(entryOwnedByExec(buildDesktopEntry('/opt/启禾文件管理/qihe-box'), dev)).toBe(false)
+    expect(entryOwnedByExec('', dev)).toBe(false)
+  })
 })
 
 describe('平台薄壳（autoLaunchMain，mock electron，platform 参数化）', () => {
@@ -84,6 +168,10 @@ describe('平台薄壳（autoLaunchMain，mock electron，platform 参数化）'
   beforeEach(() => {
     xdg = fs.mkdtempSync(path.join(os.tmpdir(), 'autolaunch-'))
     process.env.XDG_CONFIG_HOME = xdg
+    // 逐例复位到「安装版」形态：打包态与 AppImage 变量都会左右自启目标解析
+    appState.isPackaged = true
+    delete process.env.APPIMAGE
+    delete process.env.QIHEBOX_AUTOSTART_FORCE
     setLoginItemSettings.mockClear()
     getLoginItemSettings.mockClear()
   })
@@ -130,6 +218,41 @@ describe('平台薄壳（autoLaunchMain，mock electron，platform 参数化）'
     expect(isMacAutostartLaunch('linux')).toBe(false) // 非 mac 平台短路，不调 API
     getLoginItemSettings.mockReturnValue({ openAtLogin: true, wasOpenedAtLogin: false })
     expect(isMacAutostartLaunch('darwin')).toBe(false)
+  })
+
+  it('Linux 未打包：开 → 拒写并抛人话（不写坏条目），关 → 静默幂等清掉本实例写坏的那条', () => {
+    const entry = path.join(xdg, 'autostart', '启禾文件管理.desktop')
+    // 先按安装版形态（beforeEach 已置 isPackaged=true）写一条合法条目，再切未打包
+    setAutoLaunch(true, 'linux')
+    expect(fs.existsSync(entry)).toBe(true)
+    // 未打包实例点「开」：抛人话，且原条目一字未改
+    appState.isPackaged = false
+    expect(() => setAutoLaunch(true, 'linux')).toThrow(UNPACKED_AUTOLAUNCH_MESSAGE)
+    expect(fs.readFileSync(entry, 'utf8')).toContain('Exec="' + process.execPath + '"') // 未被改写
+    setAutoLaunch(false, 'linux') // execPath 与条目 Exec 同源 → 判为本实例所有，清掉
+    expect(fs.existsSync(entry)).toBe(false)
+    // 合法条目属另一个 execPath：未打包实例的「关」不得越权删除
+    fs.mkdirSync(path.dirname(entry), { recursive: true })
+    fs.writeFileSync(entry, buildDesktopEntry('/opt/启禾文件管理/qihe-box'), 'utf8')
+    setAutoLaunch(false, 'linux')
+    expect(fs.existsSync(entry)).toBe(true)
+  })
+
+  it('Linux AppImage 形态：条目 Exec 取 env.APPIMAGE 本体路径，不取挂载点内的 execPath', () => {
+    const entry = path.join(xdg, 'autostart', '启禾文件管理.desktop')
+    process.env.APPIMAGE = '/home/user/下载/启禾文件管理-2.5.8.AppImage'
+    setAutoLaunch(true, 'linux')
+    const content = fs.readFileSync(entry, 'utf8')
+    expect(content).toContain('Exec="' + process.env.APPIMAGE + '" ' + AUTOSTART_ARGS.join(' '))
+    expect(content).not.toContain(process.execPath)
+  })
+
+  it('Windows 未打包：开 → 抛人话不写注册表（Run 键指 electron.exe 同样弹空窗）；关 → 仍可撤销（不需目标）', () => {
+    appState.isPackaged = false
+    expect(() => setAutoLaunch(true, 'win32')).toThrow(UNPACKED_AUTOLAUNCH_MESSAGE)
+    expect(setLoginItemSettings).not.toHaveBeenCalled()
+    setAutoLaunch(false, 'win32')
+    expect(setLoginItemSettings).toHaveBeenCalledWith({ openAtLogin: false })
   })
 })
 

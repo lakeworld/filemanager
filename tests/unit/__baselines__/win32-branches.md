@@ -4,11 +4,11 @@
 count: 11
 
 - src/main/account.ts:315 | platform-read | tests/unit/account.test.ts tests/unit/ipc-entity-events.test.ts | platform: process.platform + (process.arch ? `-${process.arch}` : ''),
-- src/main/autoLaunchMain.ts:21 | platform-read | tests/unit/autoLaunch.test.ts | export function isMacAutostartLaunch(platform: NodeJS.Platform = process.platform): boolean {
-- src/main/autoLaunchMain.ts:26 | platform-read | tests/unit/autoLaunch.test.ts | export function setAutoLaunch(enabled: boolean, platform: NodeJS.Platform = process.platform): void {
-- src/main/autoLaunchMain.ts:27 | win32-branch | tests/unit/autoLaunch.test.ts | if (platform === 'win32') {
-- src/main/autoLaunchMain.ts:51 | platform-read | tests/unit/autoLaunch.test.ts | export function isAutoLaunch(platform: NodeJS.Platform = process.platform): boolean {
-- src/main/autoLaunchMain.ts:52 | win32-branch | tests/unit/autoLaunch.test.ts | if (platform === 'win32') return app.getLoginItemSettings().openAtLogin
+- src/main/autoLaunchMain.ts:29 | platform-read | tests/unit/autoLaunch.test.ts | export function isMacAutostartLaunch(platform: NodeJS.Platform = process.platform): boolean {
+- src/main/autoLaunchMain.ts:34 | platform-read | tests/unit/autoLaunch.test.ts | export function setAutoLaunch(enabled: boolean, platform: NodeJS.Platform = process.platform): void {
+- src/main/autoLaunchMain.ts:41 | win32-branch | tests/unit/autoLaunch.test.ts | if (platform === 'win32') {
+- src/main/autoLaunchMain.ts:77 | platform-read | tests/unit/autoLaunch.test.ts | export function isAutoLaunch(platform: NodeJS.Platform = process.platform): boolean {
+- src/main/autoLaunchMain.ts:78 | win32-branch | tests/unit/autoLaunch.test.ts | if (platform === 'win32') return app.getLoginItemSettings().openAtLogin
 - src/main/clipboard.ts:36 | win32-branch | tests/unit/winPlatformBranches.test.ts | if (process.platform === 'win32') {
 - src/main/explorer.ts:11 | win32-branch | tests/unit/winPlatformBranches.test.ts | if (process.platform === 'win32') {
 - src/main/open.ts:25 | win32-branch | tests/unit/winPlatformBranches.test.ts | if (process.platform === 'win32') {

@@ -108,7 +108,8 @@ export default function Settings() {
       showToast("error", "设置失败", r.error || "开机自启设置失败，请重试");
       return;
     }
-    setAutoLaunchState(checked);
+    // 成功也按主进程回读的真实状态落位（未打包实例的「关」可能是 no-op，恒按 checked 落位会留下假象）
+    setAutoLaunchState(r.data === undefined ? checked : !!r.data);
   };
 
   createEffect(() => {
