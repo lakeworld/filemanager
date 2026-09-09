@@ -8,7 +8,7 @@
  * 失焦回写纪律：纯表示层格式化（2 → 2.00）不回写信号，避免脏守卫（B1-B）误报「放弃未保存内容？」；
  *              语义变化（超长小数截两位 / 非法清空）才 onChange——保存值 = 用户所见值。
  */
-import { filterMoneyInput, formatMoneyBlur } from "~/lib/moneyInput";
+import { filterMoneyInput, formatMoneyBlur, moneyInputClass } from "~/lib/moneyInput";
 
 interface MoneyInputProps {
   value: string;
@@ -19,6 +19,10 @@ interface MoneyInputProps {
   min?: number;
   max?: number;
   class?: string;
+  /** v2.5.8（W4/D8）：工具栏等高档（`.input-compact`），与同排 DatePicker.compact 成对使用 */
+  compact?: boolean;
+  /** 缺能力补 props（调研 §五.2 红线：不为了加个 aria-label 就绕开组件手写 input） */
+  ariaLabel?: string;
 }
 
 export default function MoneyInput(props: MoneyInputProps) {
@@ -26,7 +30,8 @@ export default function MoneyInput(props: MoneyInputProps) {
     <input
       type="text"
       inputMode="decimal"
-      class={props.class ?? "input"}
+      aria-label={props.ariaLabel}
+      class={moneyInputClass(props)}
       placeholder={props.placeholder}
       disabled={props.disabled}
       min={props.min}

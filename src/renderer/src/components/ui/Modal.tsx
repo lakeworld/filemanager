@@ -7,7 +7,8 @@ import { pushLayer, isTop } from "./layerStack";
  * - role="dialog" + aria-modal="true" + aria-label（=title，D6）
  * - Esc 与 overlay 点击仅栈顶响应（layerStack）；lockOpen 时两者均不触发 onClose
  * - 打开时焦点入 panel 首个可聚焦元素，Tab/Shift-Tab 循环困于栈顶 panel，关闭后焦点还原触发源
- * - 进入过渡 opacity + scale-95→100 150ms（transform/opacity only，D13）
+ * - 进入过渡 opacity + scale-95→100 150ms（transform/opacity only，D13；v2.5.8 D7 起曲线 = outExpo，
+ *   预态与动画一起住在 index.css 的 .modal-panel 里，prefers-reduced-motion 单点可关）
  * - open=false 时 UNMOUNT 不渲染（对齐现状 Show 语义）
  * 业务态守卫（如 MoveDialog 闲时可关、BatchTagDialog 关闭带副作用）由调用方在 onClose 内实现。
  * v2.5.5（P0）：脏守卫底座——可选 dirty/onCloseRequest：dirty 时遮罩/Esc 改调 onCloseRequest
@@ -141,7 +142,7 @@ function ModalInner(props: ModalProps) {
         aria-label={props.title}
         class={`modal-panel w-full ${SIZE_MAP[props.size ?? "md"]} ${
           props.framed ? "modal-panel-framed" : ""
-        } transition-[opacity,transform] duration-fast scale-95 opacity-0 animate-[modalIn_150ms_ease-out_forwards]`}
+        } transition-[opacity,transform] duration-fast`}
         onClick={(e) => e.stopPropagation()}
       >
         {props.framed ? (

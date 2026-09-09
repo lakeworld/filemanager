@@ -21,6 +21,7 @@ import EmptyState from "~/components/EmptyState";
 import Loading from "~/components/Loading";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import DatePicker from "~/components/DatePicker";
+import MoneyInput from "~/components/MoneyInput";
 import QuoteStatusActions from "~/components/QuoteStatusActions";
 import QuoteFormModal from "~/components/QuoteFormModal";
 import ContextMenu from "~/components/ContextMenu";
@@ -398,23 +399,11 @@ export default function Quotes() {
           <DatePicker compact ariaLabel="结束日期" value={dateTo()} onChange={setDateTo} />
           <span class="w-px h-6 bg-surface-200 shrink-0" />
           <label class="text-xs text-surface-400 shrink-0">金额</label>
-          <input
-            type="number"
-            class="w-28 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
-            aria-label="金额下限"
-            placeholder="下限"
-            value={amountMin()}
-            onInput={(e) => setAmountMin(e.currentTarget.value)}
-          />
+          {/* v2.5.8 精致化 W4/D8：金额筛选两处 → MoneyInput compact（type=text + 输入期过滤 + 失焦两位小数；
+              原生 number 的滚轮改值与 e/+/- 输入本来就是金额筛选的漏口，调研 §七 截断口径一致） */}
+          <MoneyInput compact ariaLabel="金额下限" placeholder="下限" value={amountMin()} onChange={setAmountMin} />
           <span class="text-surface-400 text-sm">至</span>
-          <input
-            type="number"
-            class="w-28 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
-            aria-label="金额上限"
-            placeholder="上限"
-            value={amountMax()}
-            onInput={(e) => setAmountMax(e.currentTarget.value)}
-          />
+          <MoneyInput compact ariaLabel="金额上限" placeholder="上限" value={amountMax()} onChange={setAmountMax} />
           <span class="w-px h-6 bg-surface-200 shrink-0" />
           <select
             class="select"
@@ -454,11 +443,13 @@ export default function Quotes() {
       <Show when={viewMode() === "records" && quotes().length === 0} fallback={
         <Show when={viewMode() === "records"}>
         <div class="flex-1 min-h-0 flex flex-col">
-          <div class="card p-2 flex flex-col flex-1 min-h-0">
+          {/* v2.5.8 精致化 D6 批 2：页面骨架卡玻璃化（每页 1 张，非列表项）；
+              列表行仍走 VirtualGrid → 按 PLAN §四 高基数豁免保持实底，禁逐行 backdrop-filter */}
+          <div class="card card-glass fade-rise p-2 flex flex-col flex-1 min-h-0">
             <div class="flex items-center justify-between px-3 py-2 shrink-0">
               <span class="text-sm text-surface-500">
                 共 {filteredQuotes().length} 条报价 · 金额合计
-                <span class="font-medium text-surface-900">
+                <span class="font-medium text-surface-900 tabular-nums">
                   ¥{fmtMoney(filteredQuotes().reduce((a, r) => a + r.total_amount, 0))}
                 </span>
                 <Show when={effectiveSelectedQuotes().length > 0}>
@@ -519,7 +510,7 @@ export default function Quotes() {
                       const isSel = () => effectiveSelectedQuotes().includes(rec.quotation_no);
                       return (
                   <div
-                    class={`px-3 py-2 rounded-lg grid items-center gap-2 text-sm transition-colors cursor-pointer ${isSel() ? "bg-primary-50 ring-1 ring-primary-300" : "hover:bg-surface-50"} ${missingFiles()[rec.file_path] ? "opacity-60" : ""}`}
+                    class={`px-3 py-2 rounded-lg grid items-center gap-2 text-sm transition-colors cursor-pointer ${isSel() ? "card-selected" : "hover:bg-surface-50"} ${missingFiles()[rec.file_path] ? "opacity-60" : ""}`}
                     style={{ "grid-template-columns": QUOTE_COL_TEMPLATE }}
                     onClick={(e) => {
                       const t = e.target as HTMLElement;
@@ -567,7 +558,7 @@ export default function Quotes() {
                           }
                         >
                           <button
-                            class="text-xs px-2 py-0.5 rounded-full bg-surface-100 text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors w-fit"
+                            class="chip bg-surface-100 text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors w-fit"
                             title="前往客户详情"
                             onClick={() => navigate(`/clients/${encodeURIComponent(name())}`)}
                           >

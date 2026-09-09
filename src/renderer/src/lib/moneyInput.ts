@@ -53,3 +53,16 @@ export function formatMoneyBlur(raw: string): string {
   const frac2 = (fracPart + "00").slice(0, 2);
   return `${neg ? "-" : ""}${intNorm}.${frac2}`;
 }
+
+/**
+ * 材质档位解析（v2.5.8 W4/D8）：`.input`（表单单档）/ `.input-compact`（工具栏等高档，与
+ * DatePicker.compact 成对）/ 调用方 class 覆盖（例：InboundToolbar 历史上就是 w-24 窄一档，
+ * 收组件时不趁势改版式，用覆盖保持原栅格）。
+ *
+ * 为什么抽成纯函数放这里：本仓**没有组件渲染测试设施**（无 @solidjs/testing-library），
+ * 与其造一个假 DOM 断言，不如把「选哪一档」这点真实逻辑直测；材质本身由
+ * scripts/check-renderer-classes.mjs（类名必须存在于编译 CSS）与 e2e 覆盖。
+ */
+export function moneyInputClass(p: { class?: string; compact?: boolean }): string {
+  return p.class ?? (p.compact ? "input-compact" : "input");
+}

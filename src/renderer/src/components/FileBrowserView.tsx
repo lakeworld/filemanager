@@ -696,7 +696,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
               scrollResetKey={`${props.scope}/${props.entity}/${props.subFolder}`}
               renderItem={(file) => (
                 <div
-                  class={`card p-3 cursor-pointer hover:shadow-card-hover select-none ${selectedFilePaths().includes(file.path) ? "border-primary-500 bg-primary-50" : ""}`}
+                  class={`card p-3 cursor-pointer select-none ${selectedFilePaths().includes(file.path) ? "card-selected" : ""}`}
                   draggable={true}
                   onDragStart={(e) => handleDragOut(e, file.path, selectedFilePaths())}
                   onContextMenu={(e) => {

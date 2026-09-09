@@ -346,7 +346,7 @@ export default function NoteEditorModal(props: {
           <span class="truncate text-sm font-medium text-surface-800">{fileName()}</span>
           <Show when={saveState() !== null}>
             <span
-              class={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+              class={`chip shrink-0 ${
                 saveState() === "saving"
                   ? "bg-amber-100 text-amber-700"
                   : saveState() === "error"

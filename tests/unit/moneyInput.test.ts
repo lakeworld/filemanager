@@ -4,7 +4,7 @@
  * 组合语义 = 组件输入→失焦：filter 只清非法字符不打断输入，blur 才格式化为两位小数。
  */
 import { describe, it, expect } from "vitest";
-import { filterMoneyInput, formatMoneyBlur } from "../../src/renderer/src/lib/moneyInput";
+import { filterMoneyInput, formatMoneyBlur, moneyInputClass } from "../../src/renderer/src/lib/moneyInput";
 
 describe("filterMoneyInput（输入中过滤）", () => {
   it("只留数字与小数点，其余字符丢弃", () => {
@@ -90,5 +90,19 @@ describe("filter + format 组合（组件输入 → 失焦语义）", () => {
 
   it("超长小数输入失焦截两位", () => {
     expect(formatMoneyBlur(filterMoneyInput("12.3456"))).toBe("12.34");
+  });
+});
+
+describe("moneyInputClass（v2.5.8 W4/D8 材质档位解析）", () => {
+  it("默认走表单档 .input", () => {
+    expect(moneyInputClass({})).toBe("input");
+  });
+  it("compact 走工具栏等高档 .input-compact（与 DatePicker.compact 成对）", () => {
+    expect(moneyInputClass({ compact: true })).toBe("input-compact");
+    expect(moneyInputClass({ compact: false })).toBe("input");
+  });
+  it("调用方 class 优先于 compact——InboundToolbar 历史窄一档 w-24，收组件不趁势改版式", () => {
+    expect(moneyInputClass({ class: "input-compact w-24", compact: true })).toBe("input-compact w-24");
+    expect(moneyInputClass({ class: "w-full", compact: false })).toBe("w-full");
   });
 });

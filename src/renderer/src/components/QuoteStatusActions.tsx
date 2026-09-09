@@ -53,7 +53,7 @@ export default function QuoteStatusActions(props: {
 
   return (
     <div class="flex items-center gap-1.5 min-w-0 flex-wrap">
-      <span class={`text-xs px-2 py-0.5 rounded-full shrink-0 ${statusChipClass(props.status)}`}>
+      <span class={`chip shrink-0 ${statusChipClass(props.status)}`}>
         {props.status}
       </span>
       <Show when={props.status === "草稿"}>

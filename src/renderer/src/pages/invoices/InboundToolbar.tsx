@@ -5,6 +5,7 @@
  * v2.5.7（D2 表单控件统一）：日期两输入换 DatePicker（compact+ariaLabel），清空原生日期控件。
  */
 import DatePicker from "~/components/DatePicker";
+import MoneyInput from "~/components/MoneyInput";
 
 export default function InboundToolbar(props: {
   query: string;
@@ -36,22 +37,22 @@ export default function InboundToolbar(props: {
       <span class="text-surface-400 self-center text-sm shrink-0">至</span>
       <DatePicker compact ariaLabel="结束日期" value={props.dateTo} onChange={props.onDateTo} />
       <label class="text-xs text-surface-400 self-center shrink-0">金额</label>
-      <input
-        type="number"
-        class="w-24 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
-        aria-label="金额下限"
+      {/* v2.5.8 精致化 W4/D8：本工具栏原用窄一档 w-24（Quotes/InvoiceToolbar 是 w-28），
+          走 MoneyInput compact 时用 class 覆盖宽度，保持既有栅格不改（不趁收组件顺手改版式） */}
+      <MoneyInput
+        class="input-compact w-24"
+        ariaLabel="金额下限"
         placeholder="下限"
         value={props.amountMin}
-        onInput={(e) => props.onAmountMin(e.currentTarget.value)}
+        onChange={props.onAmountMin}
       />
       <span class="text-surface-400 self-center text-sm shrink-0">至</span>
-      <input
-        type="number"
-        class="w-24 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
-        aria-label="金额上限"
+      <MoneyInput
+        class="input-compact w-24"
+        ariaLabel="金额上限"
         placeholder="上限"
         value={props.amountMax}
-        onInput={(e) => props.onAmountMax(e.currentTarget.value)}
+        onChange={props.onAmountMax}
       />
       <select
         class="select"

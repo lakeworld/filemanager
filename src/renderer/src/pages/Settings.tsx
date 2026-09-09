@@ -58,7 +58,7 @@ function DedupSweepCard() {
   };
 
   return (
-    <div class="card p-6">
+    <div class="card card-glass p-6">
       <h2 class="text-lg font-semibold mb-2">存储优化 · 去重巡检</h2>
       <p class="text-sm text-surface-500 mb-1">
         扫描证书/文档域中内容完全相同的文件并重建硬链接：磁盘只存一份，各产品集照常可见，标签/到期日等元数据不动，不删除任何文件。
@@ -614,7 +614,7 @@ export default function Settings() {
       <Show
         when={currentWorkspace()}
         fallback={
-          <div class="card p-12 text-center">
+          <div class="card card-glass p-12 text-center">
             <div class="text-4xl mb-3">⚙️</div>
             <h3 class="text-lg font-medium text-surface-700">未选择工作区</h3>
             <p class="text-sm text-surface-400 mt-1">请先创建或打开一个工作区</p>
@@ -623,7 +623,7 @@ export default function Settings() {
       >
         <div class="space-y-6">
           {/* v2.4.9（S4）：通用——开机自启（应用级设置，Linux .desktop / Win·mac 系统登录项） */}
-          <div class="card p-6">
+          <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-2">通用</h2>
             <p class="text-sm text-surface-500 mb-4">应用级通用设置</p>
             <label class="flex items-center justify-between gap-4 cursor-pointer">
@@ -644,7 +644,7 @@ export default function Settings() {
           <DedupSweepCard />
 
           {/* 标签管理 */}
-          <div class="card p-6">
+          <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-2">标签管理</h2>
             <p class="text-sm text-surface-500 mb-4">统一管理标签颜色；重命名/删除会同步所有文件与产品集</p>
 
@@ -706,7 +706,7 @@ export default function Settings() {
                     <div>
                       <Show when={group.scope !== "general"}>
                         <div class="flex items-center gap-2 mb-1">
-                          <span class="text-xs font-medium text-primary-600 px-2 py-0.5 bg-primary-50 rounded-full">
+                          <span class="chip bg-primary-50 text-primary-600">
                             {group.label}域
                           </span>
                           <span class="text-[11px] text-surface-400">仅在该业务域选择器中出现</span>
@@ -978,7 +978,7 @@ export default function Settings() {
           </div>
 
           {/* Naming Template */}
-          <div class="card p-6">
+          <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">命名模板</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -1046,7 +1046,7 @@ export default function Settings() {
           <p class="text-xs text-surface-400 mb-2">LAN 传输来的文件夹会自动加入对应清单（图包/证书/文档/客户），无需手动添加。</p>
 
           {/* Image Subfolders */}
-          <div class="card p-6">
+          <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">图包子文件夹</h2>
             <div class="flex gap-2 mb-4">
               <input
@@ -1074,7 +1074,7 @@ export default function Settings() {
           </div>
 
           {/* Cert Subfolders */}
-          <div class="card p-6">
+          <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">证书子文件夹</h2>
             <div class="flex gap-2 mb-4">
               <input
@@ -1102,7 +1102,7 @@ export default function Settings() {
           </div>
 
           {/* v2.4.7：客户子文件夹（对齐 image/cert 段；重命名同步迁移所有客户目录） */}
-          <div class="card p-6">
+          <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">客户子文件夹</h2>
             <div class="flex gap-2 mb-4">
               <input
@@ -1132,7 +1132,7 @@ export default function Settings() {
           </div>
 
           {/* v2.5.3（P2-19）：文档子文件夹（对齐客户段；config.doc_subfolders；重命名同步迁移所有产品集「文档/」目录） */}
-          <div class="card p-6">
+          <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">文档子文件夹</h2>
             <div class="flex gap-2 mb-4">
               <input
@@ -1162,7 +1162,7 @@ export default function Settings() {
           </div>
 
           {/* v2.5.5：供应商子文件夹（对齐客户段；config.supplier_subfolders；重命名同步迁移所有供应商目录） */}
-          <div class="card p-6">
+          <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">供应商子文件夹</h2>
             <div class="flex gap-2 mb-4">
               <input

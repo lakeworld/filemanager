@@ -106,6 +106,13 @@
     transform: translateY(-2px);
     box-shadow: 0 2px 4px 0 rgb(15 23 42 / 0.06), 0 12px 28px 0 rgb(15 23 42 / 0.12), inset 0 1px 0 0 rgb(255 255 255 / 0.6);
   }
+  /* v2.5.8（精致化 W3 / D7）：选中卡单一口径——语义色 8% 底 + 描边光晕（对齐 demo 契约 4 上半选中态）。
+     此前台账行用 `border-primary-500 bg-primary-50`、报价行用 `bg-primary-50 ring-1 ring-primary-300`
+     两套写法；卡片底色的内亮边必须一起带住，否则选中瞬间会掉高光。放 .card-glass 之后 = 同特异度后者胜出。 */
+  .card-selected {
+    background: rgb(37 99 235 / 0.08);
+    box-shadow: 0 0 0 1px rgb(37 99 235 / 0.35), inset 0 1px 0 0 rgb(255 255 255 / 0.6);
+  }
 }
 
 /* v2.5.8（精致化 W3 前置）：入场 stagger——fade-rise 300ms outExpo（transform/opacity only）；
@@ -124,6 +131,26 @@
   animation: fadeRise 300ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
+/* v2.5.8（精致化 W3 / D7）：入场 stagger 容器版——80ms 步进、6 档封顶（超出不再延迟，防长列表拖沓）。
+   只允许挂在**低基数容器**（产品集详情三域卡 / 关联区两张卡这类固定小张数网格）；
+   VirtualGrid 与结果数无上限的列表禁止使用（PLAN §四），那里最多只能给容器挂单次 .fade-rise。
+   用容器类而不是逐卡内联 animation-delay：省掉每张卡一行 style，也防止新页面各写一套节奏。 */
+.stagger > * {
+  animation: fadeRise 300ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.stagger > :nth-child(2) {
+  animation-delay: 80ms;
+}
+.stagger > :nth-child(3) {
+  animation-delay: 160ms;
+}
+.stagger > :nth-child(4),
+.stagger > :nth-child(5),
+.stagger > :nth-child(6),
+.stagger > :nth-child(n + 7) {
+  animation-delay: 240ms;
+}
+
 /* v2.5.8（精致化 W3 前置）：减少动画偏好——坍缩 hover 上浮与入场动画（D7 随动效清单扩全） */
 @media (prefers-reduced-motion: reduce) {
   .card,
@@ -137,24 +164,42 @@
   .fade-rise {
     animation: none;
   }
+  /* v2.5.8（D7）：动效清单扩全——弹窗入场与分段切换器也在这一处坍缩（全站仅此一个 media query，
+     由 tests/unit/uiInventory.test.ts 锁死单点） */
+  .modal-panel {
+    animation: none;
+  }
+  .seg-item {
+    transition: none;
+  }
 }
 
 /* v2.5.1（T1，D10/D13）：组件类扩充——尺寸档：sm = px-3 py-1.5 text-sm / md = px-4 py-2（= 现状 btn-primary 规格）；
    全部禁 all 类过渡（精确属性），悬停/激活用 colors+transform+shadow 分列 */
 @layer components {
+  /* v2.5.8（精致化 W4 / D8）：五档按钮同一节奏——danger/ghost/ghost-danger 原本挂 `active:scale-95`
+     却只 transition-colors，按压是瞬移；与 btn-primary/secondary 对齐成精确属性过渡（含 transform）。
+     仍禁 transition-all（v2.5.1 T1 纪律） */
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-danger-600 text-white font-medium rounded-lg transition-colors duration-fast hover:bg-danger-700 active:scale-95 shadow-sm;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-danger-600 text-white font-medium rounded-lg transition-[background-color,transform] duration-200 hover:bg-danger-700 active:scale-95 shadow-sm;
   }
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-transparent text-surface-600 font-medium rounded-lg transition-colors duration-fast hover:bg-surface-100 hover:text-surface-800 active:scale-95;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-transparent text-surface-600 font-medium rounded-lg transition-[background-color,color,transform] duration-200 hover:bg-surface-100 hover:text-surface-800 active:scale-95;
   }
   .btn-ghost-danger {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-transparent text-danger-600 font-medium rounded-lg transition-colors duration-fast hover:bg-danger-50 active:scale-95;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 bg-transparent text-danger-600 font-medium rounded-lg transition-[background-color,transform] duration-200 hover:bg-danger-50 active:scale-95;
   }
   .input {
     /* v2.5.8 弹窗专项：+1px 内凹影 + hover 描边加深——纯白控件贴在浅灰面板上原本"糊成一片"，
        凹一点才有「面板浮着、字段嵌着」的层次（纯 box-shadow/border，零 backdrop 成本） */
     @apply h-9 px-3 rounded-lg border border-surface-200 bg-white text-sm text-surface-800 placeholder:text-surface-400 transition-colors duration-fast hover:border-surface-300 focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 disabled:opacity-50 disabled:cursor-not-allowed;
+    box-shadow: inset 0 1px 1px rgb(15 23 42 / 0.04);
+  }
+  /* v2.5.8（精致化 W4 / D8）：工具栏等高档——与 `.input` 同一套材质（描边/内凹影/focus 光环/hover 加深），
+     只收尺寸；给 MoneyInput.compact 与工具栏窄字段用。宽度沿用改造前实测值（w-28 + px-2 py-2），
+     与同排的 DatePicker.compact（w-36 px-2 py-2）保持一行等高，不重新发明第三档。 */
+  .input-compact {
+    @apply w-28 px-2 py-2 rounded-lg border border-surface-200 bg-white text-sm text-surface-800 placeholder:text-surface-400 transition-[border-color,box-shadow] duration-fast hover:border-surface-300 focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 disabled:opacity-50 disabled:cursor-not-allowed;
     box-shadow: inset 0 1px 1px rgb(15 23 42 / 0.04);
   }
   .select {
@@ -182,6 +227,26 @@
   .badge-cert {
     @apply badge bg-cert-50 text-cert-700;
   }
+  /* v2.5.8（精致化 D6 批 2）：状态药丸单一口径——与 .badge 同字号/内距/字重/不换行，只差圆角
+     （台账与报价的状态药丸按 demo 契约取全圆）。此前 7 处内联串各自为政（Quotes / InvoiceCards ×4 /
+     InboundCards / QuoteStatusActions），收敛到本类；色调仍由 invoices/utils.statusChipClass() 单点给。
+     禁 `@apply badge rounded-full`：与 .badge 的 rounded-md 同层冲突，半径结果依赖 @apply 展开顺序，不稳。 */
+  .chip {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap;
+  }
+  /* v2.5.8（精致化 D6 批 2）：分段切换器（FileBrowser 视图切换）实底精致档——描边 + 内凹影 + 选中白底浮起。
+     刻意**不加 backdrop-filter**：本条正贴在虚拟滚动列表上方，玻璃层会随每帧滚动重采样（09-08 真机反馈同源）。 */
+  .seg-track {
+    @apply flex bg-surface-100 rounded-lg p-1 border border-surface-200/70;
+    box-shadow: inset 0 1px 1px rgb(15 23 42 / 0.05);
+  }
+  .seg-item {
+    @apply px-4 py-2 text-sm rounded-md transition-[background-color,box-shadow,color] duration-200;
+  }
+  .seg-item-on {
+    @apply bg-white text-surface-900 font-medium;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.06), inset 0 0 0 1px rgb(15 23 42 / 0.04);
+  }
   .modal-overlay {
     @apply fixed inset-0 bg-black/50 flex items-center justify-center z-modal p-4;
   }
@@ -198,6 +263,10 @@
     backdrop-filter: blur(18px) saturate(1.5);
     -webkit-backdrop-filter: blur(18px) saturate(1.5);
     border: 1px solid rgb(255 255 255 / 0.7);
+    /* v2.5.8（精致化 D7）：入场曲线换 outExpo（与 W0 令牌同源，「快出缓收」和卡片上浮同节奏）；
+       fill=both 让 from 帧（scale .95 / opacity 0）由动画自己带，面板上不再挂 scale-95 opacity-0
+       预态类——那样 reduced-motion 里一关动画就会留下一个半透明不上的弹窗 */
+    animation: modalIn 150ms cubic-bezier(0.22, 1, 0.36, 1) both;
     box-shadow: 0 2px 4px 0 rgb(15 23 42 / 0.05), 0 24px 48px -12px rgb(15 23 42 / 0.22), inset 0 1px 0 0 rgb(255 255 255 / 0.75);
   }
   /* framed 弹窗（Modal 的 framed 形态）：面板改纵向三段——头部与页脚固定，仅字段区滚动，

@@ -458,7 +458,7 @@ export default function Images() {
             scrollResetKey={`${typeFilter()}|${search()}|${tagFilter()}|${productSetFilter()}|${subFolderFilter()}|${sortBy()}`}
             renderItem={(img) => (
               <div
-                class={`card p-2 cursor-pointer select-none hover:shadow-card-hover ${selectedPaths().includes(img.path) ? "border-primary-500 bg-primary-50" : ""}`}
+                class={`card p-2 cursor-pointer select-none ${selectedPaths().includes(img.path) ? "card-selected" : ""}`}
                 draggable={true}
                 onDragStart={(e) => handleDragOut(e, img.path, selectedPaths())}
                 onContextMenu={(e) => {

@@ -576,7 +576,7 @@ export default function Notes() {
               renderItem={(n) => (
                 <div
                   class={`card p-3 min-h-[118px] flex flex-col gap-1.5 cursor-pointer select-none relative overflow-hidden ${
-                    selectedPaths().includes(n.path) ? "border-primary-500 bg-primary-50" : ""
+                    selectedPaths().includes(n.path) ? "card-selected" : ""
                   }`}
                   draggable={true}
                   onDragStart={(e) => handleDragOut(e, n.path, selectedPaths())}
@@ -701,7 +701,7 @@ export default function Notes() {
                   <button
                     class={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                       entityKind() === k
-                        ? "border-primary-500 bg-primary-50 text-primary-700"
+                        ? "card-selected text-primary-700"
                         : "border-surface-200 text-surface-600 hover:bg-surface-50"
                     }`}
                     onClick={() => {

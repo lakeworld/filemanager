@@ -44,6 +44,15 @@ const ROUTES = [
   ['certs', '/certs'],
   ['notes', '/notes'], // v2.5.8 W5：笔记库库页化（对标图包/证书）
   ['settings', '/settings'],
+  // v2.5.8 精致化 D6：把批 2 / 批 3 改到的页面全部纳入同机位走查（此前只 7 页，改完看不见全貌）
+  ['quotes', '/quotes'], // 台账骨架卡玻璃 + .chip 药丸 + 金额 tabular-nums
+  ['product-set-detail', '/product-sets/' + encodeURIComponent('走查系列1')], // 三域卡 + 关联空态虚线
+  ['images', '/images'], // 高基数豁免面：应无玻璃且 hover 保内亮边
+  ['search', '/search'], // 结果卡实底（基数不可控）
+  ['exports', '/exports'], // 小列表玻璃卡（≥200 条分支走实底，此处为小列表态）
+  ['trash', '/trash'],
+  ['profile', '/profile'], // 未走 .card 体系（D6 登记为 D9 债，此处留基线照）
+  ['help', '/help'],
 ]
 
 const app = await electron.launch({

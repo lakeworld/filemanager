@@ -155,4 +155,68 @@ test.describe('发票/入库卡片化 + 批量 + 孤儿（B3）', () => {
       await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
     }
   })
+
+  test('金额筛选 = MoneyInput compact（材质档位 + 输入期过滤 + 失焦两位小数后仍按数值筛）', async () => {
+    // v2.5.8 精致化 W4/D8 新增：金额筛选 6 处此前**零 e2e 覆盖**，收进 MoneyInput 后必须补上——
+    // 断言的不只是「能筛」，还有这次改造的三处行为差异（原生 number → 自绘 text 档）。
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-mf-e2e-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    try {
+      const src = path.join(wsDir, '..', `e2e-mf-发票-${Date.now()}.pdf`)
+      await fsp.writeFile(src, '%PDF-1.4')
+      for (const [number, amount] of [
+        ['MF-1', 50],
+        ['MF-2', 200],
+        ['MF-3', 500],
+      ] as const) {
+        const arc = await page.evaluate(async (p) => (window as any).qihebox.invoices.archiveFile(p, '2026-08-10'), src)
+        await page.evaluate(
+          async ({ fp, number, amount }: { fp: string; number: string; amount: number }) =>
+            (window as any).qihebox.invoices.create({
+              number, date: '2026-08-10', amount, seller: '开票方MF', buyer: '购买方MF', status: '待报销', file_path: fp,
+            }),
+          { fp: arc.data, number, amount },
+        )
+      }
+      await gotoRoute('/invoices')
+      await expect(page.getByRole('heading', { name: '发票管理' })).toBeVisible({ timeout: 15000 })
+
+      const min = page.getByLabel('金额下限')
+      const blur = async () => page.getByRole('heading', { name: '发票管理' }).click()
+
+      // ① 材质档位：MoneyInput = type=text + inputmode=decimal + 工具栏等高档 .input-compact
+      await expect(min).toHaveAttribute('type', 'text')
+      await expect(min).toHaveAttribute('inputmode', 'decimal')
+      await expect(min).toHaveClass(/input-compact/)
+
+      // ② 输入期过滤：指数记法逐字符清掉（原生 number 下 "1e2" 会让 value 整个作废成空串）
+      await min.click()
+      await min.pressSequentially('1e2')
+      await expect(min).toHaveValue('12')
+
+      // ③ 失焦格式化为两位小数；12 与 12.00 数值同义 → 不额外回写信号，但筛选必须照常生效
+      await blur()
+      await expect(min).toHaveValue('12.00')
+      await expect(page.getByTitle('金额 ¥50.00', { exact: true })).toBeVisible({ timeout: 10000 })
+
+      await min.click()
+      await min.fill('100')
+      await blur()
+      await expect(page.getByTitle('金额 ¥50.00', { exact: true })).toHaveCount(0, { timeout: 10000 })
+      await expect(page.getByTitle('金额 ¥200.00', { exact: true })).toBeVisible()
+
+      // ④ 上下限倒挂自动交换（filterUtils.inAmountRange：min>max 时按 [max,min] 处理）
+      //    400 / 150 → 实际区间 150–400：50 与 500 都出局，200 留下
+      await min.click()
+      await min.fill('400')
+      const max = page.getByLabel('金额上限')
+      await max.click()
+      await max.fill('150')
+      await blur()
+      await expect(page.getByTitle('金额 ¥500.00', { exact: true })).toHaveCount(0, { timeout: 10000 })
+      await expect(page.getByTitle('金额 ¥200.00', { exact: true })).toBeVisible()
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+    }
+  })
 })

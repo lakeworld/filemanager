@@ -518,8 +518,8 @@ export default function Certs() {
               const exp = () => expiryInfo(cert.path);
               return (
                 <div
-                  class={`card p-2.5 min-h-[250px] flex flex-col gap-1.5 cursor-pointer select-none hover:shadow-card-hover ${
-                    selectedPaths().includes(cert.path) ? "border-primary-500 bg-primary-50" : ""
+                  class={`card p-2.5 min-h-[250px] flex flex-col gap-1.5 cursor-pointer select-none ${
+                    selectedPaths().includes(cert.path) ? "card-selected" : ""
                   }`}
                   draggable={true}
                   onDragStart={(e) => handleDragOut(e, cert.path, selectedPaths())}
