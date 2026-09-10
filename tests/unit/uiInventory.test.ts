@@ -1,13 +1,15 @@
 /**
  * 渲染层视觉红线清单门禁（v2.5.8 精致化 D6 固化，2026-09-10）
  *
- * 守四件事（都是本轮读码/改码时真实踩到或差点踩到的坑，写成常驻断言而不是一次性 grep 取证）：
+ * 守五件事（都是本轮读码/改码时真实踩到或差点踩到的坑，写成常驻断言而不是一次性 grep 取证）：
  *   1. **玻璃卡点位**：`card-glass` 出现的文件与次数 === 基线（PLAN §四「高基数 × blur = 内存/滚动炸弹」
  *      只有显式更新基线才能扩散，防「顺手给列表卡加个玻璃」）。
  *   2. **高基数硬白名单**：Images / FileBrowserView / Search / InvoiceCards / InboundCards 玻璃计数**必须为 0**。
  *   3. **材质单点**：`backdrop-filter` 只允许出现在 index.css，任何 .tsx/.ts 里写它都是绕过令牌。
  *   4. **控件与动效红线**：药丸内联串 / `hover:shadow-card-hover` / `transition-all` / `type="date"` 全清零；
  *      `type="number"` 只允许在非金额语义的白名单文件里（金额一律走 MoneyInput，D8 收 6 处）。
+ *   5. **读字表面豁免**：`.modal-panel` / `.dlg-*` 必须实底——禁 `backdrop-filter`、禁半透明白底/白描边、
+ *      禁头尾分隔线与 ✕ 关闭钮回潮（2026-09-10 弹窗材质回退，PLAN §四；变异验证已确认本条能抓）。
  *
  * 机制与 tests/unit/winBranchInventory.test.ts 同构（同一套 UPDATE / BREAK 环境变量约定）。
  * 背景：PLAN §三 批 2 原句「台账卡基数低 → 玻璃化」的前提已被 v2.5.5 卡片化推翻（现走 VirtualGrid），
@@ -174,6 +176,26 @@ describe('渲染层视觉红线清单（v2.5.8 D6 固化）', () => {
   it('选中态单点：旧的两套手写选中串不再回潮（统一 .card-selected）', () => {
     const hits = countByFile('border-primary-500 bg-primary-50', codeFiles())
     expect(Object.entries(hits), `选中态又各写一套：${JSON.stringify(hits)}`).toEqual([])
+  })
+
+  it('弹窗表面必须实底（.modal-panel / .dlg-* 禁透明材质、禁头尾分隔线、禁 ✕ 回潮）', () => {
+    // 依据 PLAN §四「读字表面豁免」（2026-09-10 用户实拍裁决）：弹窗叠在 bg-black/50 遮罩上，
+    // 任何半透明白底都会算成彩度 0 的灰平板（实测 rgb(245,245,245)），半透白描边则使边缘糊死。
+    const css = stripComments(fs.readFileSync(path.join(SRC, 'index.css'), 'utf8'))
+    const modalTsx = fs.readFileSync(path.join(SRC, 'components', 'ui', 'Modal.tsx'), 'utf8')
+    const bad: string[] = []
+    const ruleRe = /\.((?:modal-panel|dlg-)[\w-]*)\s*\{([^}]*)\}/g
+    for (let m = ruleRe.exec(css); m; m = ruleRe.exec(css)) {
+      const who = `.${m[1]}`
+      const body = m[2]
+      if (/backdrop-filter/.test(body)) bad.push(`${who} 挂了 backdrop-filter`)
+      if (/background(?:-color)?\s*:\s*rgba\(\s*255\s*,\s*255\s*,\s*255\s*,\s*0?\./.test(body)) bad.push(`${who} 用了半透明白底`)
+      if (/border[^:]*:\s*[^;]*rgb\(\s*255\s+255\s+255\s*\//.test(body)) bad.push(`${who} 用了半透明白描边`)
+      // 头尾分隔线：实底白面板上靠字重与留白分层，画线会重现"灰面板"观感
+      if ((who === '.dlg-header' || who === '.dlg-footer') && /\bborder-[tb]\b/.test(body)) bad.push(`${who} 又加回了上下分隔线`)
+    }
+    expect(bad, `弹窗回到玻璃材质（见 PLAN §四 读字表面豁免）：${bad.join('；')}`).toEqual([])
+    expect(modalTsx.includes('class="dlg-close"'), '弹窗头部不应重新出现 ✕ 关闭钮').toBe(false)
   })
 
   it('prefers-reduced-motion 全站单点（动画一处坍缩）', () => {

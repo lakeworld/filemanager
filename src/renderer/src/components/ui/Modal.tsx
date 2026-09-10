@@ -45,7 +45,8 @@ interface ModalProps {
   onCloseRequest?: () => void;
   title?: string;
   /**
-   * v2.5.8 弹窗专项：framed = 统一骨架（头部标题/副标题/关闭钮 + 固定页脚动作区，仅字段区滚动）。
+   * v2.5.8 弹窗专项：framed = 统一骨架（头部标题/副标题 + 固定页脚动作区，仅字段区滚动）。
+   * 头部**无 ✕ 关闭钮**（2026-09-10 材质回退一并撤除）：关闭途径 = 点遮罩外部 / Esc / 页脚「取消」。
    * 默认 false = 渲染与迁移前逐字一致（19 个既有调用点零改动）。
    * 开 framed 时 title 会**显示**出来（此前只进 aria-label），调用方须删掉自己手写的 `<h2>` 标题，
    * 并把底部按钮放进 `footer`。
@@ -80,11 +81,9 @@ function ModalInner(props: ModalProps) {
 
   const focusFirst = () => {
     if (!panelRef) return;
-    // framed 形态头部有「关闭」钮，但它不是用户的输入目标——带 data-no-auto-focus 的元素跳过，
-    // 焦点照旧落在首个字段（保持与迁移前一致的行为，e2e 打字/回车类用例零改动）
-    const el = Array.from(panelRef.querySelectorAll<HTMLElement>(FOCUSABLE)).find(
-      (n) => !n.hasAttribute("data-no-auto-focus"),
-    );
+    // framed 形态头部已无关闭钮（2026-09-10 材质回退：关闭 = 遮罩/Esc/页脚取消），
+    // 首个可聚焦元素本就是第一个字段，直接取即可（与迁移前行为一致，e2e 打字/回车类用例零改动）
+    const el = panelRef.querySelector<HTMLElement>(FOCUSABLE);
     el?.focus();
   };
 
@@ -147,6 +146,8 @@ function ModalInner(props: ModalProps) {
       >
         {props.framed ? (
           <>
+            {/* 头部无 ✕（2026-09-10 材质回退）：关闭途径 = 点遮罩外部 / Esc / 页脚「取消」；
+                无页脚的弹窗（纯信息型）须自行保证前两者可用（lockOpen 禁用点遮罩/Esc）。 */}
             <div class="dlg-header">
               <div class="min-w-0">
                 <div class="dlg-title">{props.title}</div>
@@ -154,16 +155,6 @@ function ModalInner(props: ModalProps) {
                   <div class="dlg-sub">{props.subtitle}</div>
                 </Show>
               </div>
-              {/* data-no-auto-focus：打开时焦点落首个字段而不是关闭钮；Tab 循环仍可走到 */}
-              <button
-                type="button"
-                class="dlg-close"
-                aria-label="关闭"
-                data-no-auto-focus=""
-                onClick={requestClose}
-              >
-                ✕
-              </button>
             </div>
             <div class="dlg-body">{props.children}</div>
             <Show when={props.footer}>
