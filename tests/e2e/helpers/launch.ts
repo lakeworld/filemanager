@@ -9,7 +9,14 @@
  * （v2.5.8 D1-D3 审核：不设 e2eLaunchEnv 统一入口——各 spec 常需附加自有变量
  * （QIHEBOX_AUTOSTART/XDG_CONFIG_HOME 等），显式展开更直白，避免为传参而传参。）
  */
+/**
+ * e2e userData 目录名前缀（tmpdir 下）。唯一真相源：
+ * 组装（e2eUserDataDirName）与收尾（tmpTeardown）都从这里取，避免手抄清单腐烂。
+ * 历史共享目录 qihebox-e2e-userdata（src/main/index.ts 的回退名）同样以此前缀开头，一并被收尾覆盖。
+ */
+export const E2E_USERDATA_PREFIX = 'qihebox-e2e-'
+
 /** spec label → e2e userData 目录名（tmpdir 下） */
 export function e2eUserDataDirName(label: string): string {
-  return `qihebox-e2e-${label}`
+  return `${E2E_USERDATA_PREFIX}${label}`
 }

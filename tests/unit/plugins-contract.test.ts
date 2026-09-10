@@ -188,6 +188,12 @@ async function makeContractHost(
 }
 
 /** 构造带真实工作区（含 UTF-8 文本 / 二进制 / 超限文件 / symlink 逃逸）的宿主，限界注入缩小便于触发 TOO_LARGE。 */
+/**
+ * `makeFilesHost` 造的「工作区外」文件：刻意放在 tmp 根（ symlink 逃逸用例要求它在 wsDir 之外），
+ * 所以 tracker 收 wsDir 时带不走它，自己登记自己删（见下方 afterAll）。
+ */
+const outsideEscapeFiles: string[] = []
+
 async function makeFilesHost(): Promise<HostCtx> {
   const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihe-contract-ws-'))
   await fsp.mkdir(path.join(wsDir, '导出'), { recursive: true })
@@ -196,12 +202,20 @@ async function makeFilesHost(): Promise<HostCtx> {
   await fsp.writeFile(path.join(wsDir, 'big.txt'), 'x'.repeat(200))
   const outside = path.join(os.tmpdir(), `qihe-contract-outside-${path.basename(wsDir)}.txt`)
   await fsp.writeFile(outside, 'secret')
+  outsideEscapeFiles.push(outside)
   await fsp.symlink(outside, path.join(wsDir, 'evil-link.txt'))
   return makeContractHost({
     workspacePath: () => wsDir,
     limits: { maxReadTextBytes: 100, maxReadBufferBytes: 100, maxExportBytes: 100 },
   })
 }
+
+/** symlink 逃逸用例的「工作区外」文件由本文件自己登记，这里统一收尾（tracker 只收目录，够不到它）。 */
+afterAll(async () => {
+  for (const f of outsideEscapeFiles.splice(0)) {
+    await fsp.rm(f, { force: true })
+  }
+})
 
 /** 提取宿主业务错误的 code（成功 → undefined）。 */
 async function codeOf(p: Promise<unknown>): Promise<string | undefined> {

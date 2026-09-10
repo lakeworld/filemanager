@@ -572,13 +572,19 @@ describe('文件移动（moveFiles）', () => {
     // 目标在工作区内但源越界 → 聚合为失败明细，不产生任何文件
     const outsideSrc = path.join(os.tmpdir(), `qihebox-move-outside-${Date.now()}.jpg`)
     await fsp.writeFile(outsideSrc, PNG_1PX)
-    const r = await box.files.moveFiles({
-      paths: [outsideSrc],
-      targetDir: path.join(ws, '产品集', '外移系列', '图包', '详情页'),
-    })
-    expect(r.moved).toHaveLength(0)
-    expect(r.failed).toHaveLength(1)
-    expect(r.failed[0].error).toContain('只能移动工作区内的文件')
+    let r: Awaited<ReturnType<typeof box.files.moveFiles>>
+    try {
+      r = await box.files.moveFiles({
+        paths: [outsideSrc],
+        targetDir: path.join(ws, '产品集', '外移系列', '图包', '详情页'),
+      })
+      expect(r.moved).toHaveLength(0)
+      expect(r.failed).toHaveLength(1)
+      expect(r.failed[0].error).toContain('只能移动工作区内的文件')
+    } finally {
+      // 源文件躺在 tmp 根（越界用例要求它在 wsDir 之外），tracker 只收目录够不到它，自己删
+      await fsp.rm(outsideSrc, { force: true })
+    }
   })
 
   it('跨设备回退：rename 抛 EXDEV 时走 copyFile + rm', async () => {
