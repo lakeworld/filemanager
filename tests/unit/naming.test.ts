@@ -158,25 +158,82 @@ describe('batchRenameTargets（v2.4.9 S5 模板化签名）', () => {
 })
 
 describe('resolveConflictName', () => {
-  it('冲突时追加 _{n} 序号（与原 Go 累积行为一致）', async () => {
+  /** 用例自带临时目录并在 finally 删除（本仓历史用例把 mkdtemp 目录留在 /tmp，见 DEBUG-SOP §三收工清残留） */
+  async function withDir(fn: (dir: string) => Promise<void>): Promise<void> {
     const dir = await fsp.mkdtemp('/tmp/qihebox-naming-')
-    await fsp.writeFile(path.join(dir, 'a.jpg'), 'x')
-    await fsp.writeFile(path.join(dir, 'a_1.jpg'), 'x')
-    const name = await resolveConflictName(dir, 'a.jpg', '_{n}', '.jpg')
-    expect(name).toBe('a_1_2.jpg') // 累积：a → a_1（已存在）→ a_1_2
+    try {
+      await fn(dir)
+    } finally {
+      await fsp.rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  it('冲突时追加 _{n}（基数永远是原始候选名，不叠罗汉）', async () => {
+    await withDir(async (dir) => {
+      await fsp.writeFile(path.join(dir, 'a.jpg'), 'x')
+      await fsp.writeFile(path.join(dir, 'a_1.jpg'), 'x')
+      const name = await resolveConflictName(dir, 'a.jpg', '_{n}', '.jpg')
+      // v2.5.x 修：旧实现在上一轮产物上继续追加，得到 a_1_2.jpg——那是从原 Go 平移进来的缺陷
+      // （名字里 _ 是 SKU 分隔符，_1_2 会被误读成编号槽位出了两次；且字典序 X_1_10 排在 X_1_2 前）
+      expect(name).toBe('a_2.jpg')
+    })
+  })
+
+  it('连续导入同名文件得到 a / a_1 / a_2 / a_3（不出现 a_1_2 形态）', async () => {
+    await withDir(async (dir) => {
+      const got: string[] = []
+      for (let i = 0; i < 4; i++) {
+        const name = await resolveConflictName(dir, '详情页.jpg', '_{n}', '.jpg')
+        got.push(name)
+        await fsp.writeFile(path.join(dir, name), 'x') // 模拟真正落盘
+      }
+      expect(got).toEqual(['详情页.jpg', '详情页_1.jpg', '详情页_2.jpg', '详情页_3.jpg'])
+      expect(got.some((n) => /_\d+_\d+\./.test(n))).toBe(false)
+    })
+  })
+
+  it('返回的名字必定尚未存在（占用后让路到下一个号）', async () => {
+    await withDir(async (dir) => {
+      await fsp.writeFile(path.join(dir, 'b.jpg'), 'x')
+      const first = await resolveConflictName(dir, 'b.jpg', '_{n}', '.jpg')
+      await fsp.writeFile(path.join(dir, first), 'x')
+      const second = await resolveConflictName(dir, 'b.jpg', '_{n}', '.jpg')
+      expect(second).not.toBe(first)
+      await expect(fsp.stat(path.join(dir, second))).rejects.toThrow()
+    })
+  })
+
+  it('候选名尾部大小写与 ext 参数不一致时不得截错主名（守卫）', async () => {
+    await withDir(async (dir) => {
+      // 调用点传的 ext 未必小写化（files.ts:832 / archive.ts:394 用 path.extname 原样），
+      // 朴素 slice 会把 `.JPG` 当扩展名截走或截偏，产出 A_JPG.JPG 之类
+      await fsp.writeFile(path.join(dir, 'A.JPG'), 'x')
+      const name = await resolveConflictName(dir, 'A.JPG', '_{n}', '.jpg')
+      expect(name).toBe('A_1.JPG')
+    })
   })
 
   it('无冲突时返回原名', async () => {
-    const dir = await fsp.mkdtemp('/tmp/qihebox-naming-')
-    const name = await resolveConflictName(dir, 'a.jpg', '_{n}', '.jpg')
-    expect(name).toBe('a.jpg')
+    await withDir(async (dir) => {
+      const name = await resolveConflictName(dir, 'a.jpg', '_{n}', '.jpg')
+      expect(name).toBe('a.jpg')
+    })
   })
 
   it('v2.4.2（D1）：无扩展名文件冲突 → 原名保留 + 序号后缀（LICENSE → LICENSE_1）', async () => {
-    const dir = await fsp.mkdtemp('/tmp/qihebox-naming-')
-    await fsp.writeFile(path.join(dir, 'LICENSE'), 'x')
-    const name = await resolveConflictName(dir, 'LICENSE', '_{n}', '')
-    // 旧实现 slice(0,-0) 会清空整个文件名得到 `_1`，这里必须保留 LICENSE 前缀
-    expect(name).toBe('LICENSE_1')
+    await withDir(async (dir) => {
+      await fsp.writeFile(path.join(dir, 'LICENSE'), 'x')
+      const name = await resolveConflictName(dir, 'LICENSE', '_{n}', '')
+      // 旧实现 slice(0,-0) 会清空整个文件名得到 `_1`，这里必须保留 LICENSE 前缀
+      expect(name).toBe('LICENSE_1')
+    })
+  })
+
+  it('自定义 conflict_suffix 形态照常套用（不写死下划线）', async () => {
+    await withDir(async (dir) => {
+      await fsp.writeFile(path.join(dir, 'a.jpg'), 'x')
+      await fsp.writeFile(path.join(dir, 'a-1.jpg'), 'x')
+      expect(await resolveConflictName(dir, 'a.jpg', '-{n}', '.jpg')).toBe('a-2.jpg')
+    })
   })
 })

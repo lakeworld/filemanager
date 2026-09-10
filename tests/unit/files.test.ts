@@ -115,6 +115,45 @@ describe('文件导入与命名（对照原 files.go / app_test.go 链路）', (
     expect(names[3]).toMatch(/系列A_主图_img2_2_1\.png$/)
   })
 
+  it('v2.5.x 修：连续导入同名文件序号不叠罗汉（第 4 次得 _1_3，不是 _1_1_2）', async () => {
+    // 用户 2026-09-10 实拍：产品集/详情页 连续导入同名图，落盘成 `..._详情页_1_2.jpg`。
+    // 本仓默认模板开着 sequence 槽位，所以候选名自带 `_1`；旧实现在上一轮产物上继续追加，
+    // 第 4 次会得到 `..._1_1_2`（三层）。这里用 4 次导入把「合法两层」与「bug 三层」钉死区分。
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: 'HXQ03烘鞋器' })
+
+    const src = path.join(ws, '..', '详情页.jpg')
+    await fsp.writeFile(src, PNG_1PX)
+    const req = {
+      source_paths: [src],
+      target_product_set: 'HXQ03烘鞋器',
+      target_folder: '详情页',
+      target_type: 'image',
+      sub_folder: '详情页',
+    }
+    const names: string[] = []
+    let destDir = ''
+    for (let i = 0; i < 4; i++) {
+      const imported = (await box.files.importFiles(req)).imported
+      expect(imported).toHaveLength(1) // 每次都必须真导入成功，不能静默丢弃
+      names.push(imported[0].name)
+      // FileEntry.path 是绝对路径（工作区根 = 本用例的 tmp ws），直接取目录即可
+      destDir = path.dirname(imported[0].path) // 产品集/<集>/图包/<子文件夹>
+    }
+    expect(names).toEqual([
+      'HXQ03烘鞋器_详情页_详情页_1.jpg',
+      'HXQ03烘鞋器_详情页_详情页_1_1.jpg',
+      'HXQ03烘鞋器_详情页_详情页_1_2.jpg',
+      'HXQ03烘鞋器_详情页_详情页_1_3.jpg',
+    ])
+    // 磁盘上不得出现「后缀叠后缀」的第 3 层形态（`_1_1_2` 之类）
+    const onDisk = await fsp.readdir(destDir)
+    expect(onDisk.some((n) => /_\d+_\d+_\d+\./.test(n))).toBe(false)
+  })
+
   it('v2.4.2（I1）：单文件失败不中断整批——坏源跳过，其余导入成功', async () => {
     const home = await tmp()
     const ws = await tmp()
