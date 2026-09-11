@@ -28,6 +28,7 @@ import { handleDragOut } from "~/utils/dragout";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import { useContextMenu } from "~/hooks/useContextMenu";
 import type { FileEntry, ProductSetInfo } from "~/types";
+import Input from "~/components/ui/Input";
 
 interface CertItem extends FileEntry {
   productSet: string;
@@ -402,9 +403,8 @@ export default function Certs() {
           `flex-1 min-w-0`，窄窗口下多出来的宽度全被搜索框吃掉（实测 1022 视口压成 16px，
           且行宽超出容器冒出横向滚动条），违反 ui-consistency「1024 无横向滚动」条。 */}
       <div class="flex flex-wrap items-center gap-3 mb-4">
-        <input
-          type="text"
-          class="input w-full min-w-0 md:w-auto md:flex-1 md:min-w-[180px]"
+        <Input
+        class="w-full min-w-0 md:w-auto md:flex-1 md:min-w-[180px]"
           placeholder="搜索文件名..."
           value={search()}
           onInput={(e) => setSearch(e.currentTarget.value)}

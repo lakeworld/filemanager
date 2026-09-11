@@ -10,6 +10,7 @@ import DatePicker from "~/components/DatePicker";
 import MoneyInput from "~/components/MoneyInput";
 import SearchSelect from "~/components/ui/SearchSelect";
 import { HAS_FILE_OPTIONS, VIEW_OPTIONS } from "./utils";
+import Input from "~/components/ui/Input";
 
 export default function InboundToolbar(props: {
   query: string;
@@ -29,9 +30,8 @@ export default function InboundToolbar(props: {
 }) {
   return (
     <div class="flex flex-col md:flex-row gap-2 mb-4 shrink-0 flex-wrap">
-      <input
-        type="text"
-        class="input flex-1 min-w-[180px]"
+      <Input
+      class="flex-1 min-w-[180px]"
         placeholder="搜索单据编号 / 供应商..."
         value={props.query}
         onInput={(e) => props.onQuery(e.currentTarget.value)}

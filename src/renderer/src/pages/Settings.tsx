@@ -13,6 +13,7 @@ import ConfirmDialog from "~/components/ConfirmDialog";
 import SearchSelect from "~/components/ui/SearchSelect";
 import type { ApiResult, NamingField, TagInfo, WorkspaceConfig } from "~/types";
 import { BUILTIN_NOTES_FOLDER } from "~/constants/notes";
+import Input from "~/components/ui/Input";
 
 /** 预设色板（标签颜色选择） */
 const PALETTE = [
@@ -651,8 +652,8 @@ export default function Settings() {
 
             {/* 新建标签 */}
             <div class="flex items-center gap-2 mb-4 flex-wrap">
-              <input
-                class="px-3 py-2 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 w-36"
+              <Input
+              class="w-36"
                 placeholder="标签名称"
                 value={newTagName()}
                 onInput={(e) => setNewTagName(e.currentTarget.value)}
@@ -990,36 +991,36 @@ export default function Settings() {
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm font-medium text-surface-700 mb-1">产品集前缀</label>
-                <input
+                <Input
                   type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  class="w-full"
                   value={config().naming_template.product_set_prefix}
                   onInput={(e) => updateNamingField("product_set_prefix", e.currentTarget.value)}
                 />
               </div>
               <div>
                 <label class="block text-sm font-medium text-surface-700 mb-1">产品集后缀</label>
-                <input
+                <Input
                   type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  class="w-full"
                   value={config().naming_template.product_set_suffix}
                   onInput={(e) => updateNamingField("product_set_suffix", e.currentTarget.value)}
                 />
               </div>
               <div>
                 <label class="block text-sm font-medium text-surface-700 mb-1">SKU 分隔符</label>
-                <input
+                <Input
                   type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  class="w-full"
                   value={config().naming_template.sku_separator}
                   onInput={(e) => updateNamingField("sku_separator", e.currentTarget.value)}
                 />
               </div>
               <div>
                 <label class="block text-sm font-medium text-surface-700 mb-1">冲突后缀模板</label>
-                <input
+                <Input
                   type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  class="w-full"
                   value={config().naming_template.conflict_suffix}
                   onInput={(e) => updateNamingField("conflict_suffix", e.currentTarget.value)}
                 />
@@ -1056,9 +1057,9 @@ export default function Settings() {
           <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">图包子文件夹</h2>
             <div class="flex gap-2 mb-4">
-              <input
+              <Input
                 type="text"
-                class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                class="flex-1 min-w-0"
                 placeholder="新增子文件夹名称"
                 value={newImageFolder()}
                 onInput={(e) => setNewImageFolder(e.currentTarget.value)}
@@ -1084,9 +1085,9 @@ export default function Settings() {
           <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">证书子文件夹</h2>
             <div class="flex gap-2 mb-4">
-              <input
+              <Input
                 type="text"
-                class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                class="flex-1 min-w-0"
                 placeholder="新增证书类型名称"
                 value={newCertFolder()}
                 onInput={(e) => setNewCertFolder(e.currentTarget.value)}
@@ -1112,9 +1113,9 @@ export default function Settings() {
           <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">客户子文件夹</h2>
             <div class="flex gap-2 mb-4">
-              <input
+              <Input
                 type="text"
-                class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                class="flex-1 min-w-0"
                 placeholder="新增客户子文件夹名称"
                 value={newCustomerFolder()}
                 onInput={(e) => setNewCustomerFolder(e.currentTarget.value)}
@@ -1142,9 +1143,9 @@ export default function Settings() {
           <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">文档子文件夹</h2>
             <div class="flex gap-2 mb-4">
-              <input
+              <Input
                 type="text"
-                class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                class="flex-1 min-w-0"
                 placeholder="新增文档子文件夹名称"
                 value={newDocFolder()}
                 onInput={(e) => setNewDocFolder(e.currentTarget.value)}
@@ -1172,9 +1173,9 @@ export default function Settings() {
           <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">供应商子文件夹</h2>
             <div class="flex gap-2 mb-4">
-              <input
+              <Input
                 type="text"
-                class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                class="flex-1 min-w-0"
                 placeholder="新增供应商子文件夹名称"
                 value={newSupplierFolder()}
                 onInput={(e) => setNewSupplierFolder(e.currentTarget.value)}

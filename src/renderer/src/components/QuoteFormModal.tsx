@@ -22,6 +22,8 @@ import SearchSelect from "~/components/ui/SearchSelect";
 import ConfirmDialog from "~/components/ConfirmDialog"; // v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认
 import type { QuoteRecord, CustomerInfo, FileEntry } from "~/types";
 import type { QuotePrefill } from "~/stores/createPrefillNormalize";
+import Textarea from "~/components/ui/Textarea";
+import Input from "~/components/ui/Input";
 
 /** 明细行表单态（qty/unit_price 字符串输入，保存时校验转换；amount 实时计算） */
 interface LineForm {
@@ -280,8 +282,13 @@ export default function QuoteFormModal(props: {
     }
   };
 
-  const inputCls =
-    "w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-surface-100 disabled:text-surface-400";
+  /**
+   * v2.5.8 D9：三处 `<input>` 已收进 `ui/Input`，本串只服务剩下的两个 `MoneyInput`
+   * （它自带 .input 材质，这里传的是**排布 + disabled 观感**）。
+   * `disabled:bg-surface-100 disabled:text-surface-400` 是收敛前就有的口径，显式保留——
+   * 收组件不顺手改版式（`.input` 自身的 disabled 是 opacity-50，观感不同）。
+   */
+  const inputCls = "w-full disabled:bg-surface-100 disabled:text-surface-400";
   const labelCls = "block text-sm font-medium text-surface-700 mb-1";
 
   return (
@@ -331,15 +338,14 @@ export default function QuoteFormModal(props: {
             <Show
               when={!isEdit}
               fallback={
-                <input type="text" class={`${inputCls} bg-surface-100`} value={quotationNo()} disabled title="报价单号生成后不可修改" />
+                <Input value={quotationNo()} disabled title="报价单号生成后不可修改" class="w-full bg-surface-100" />
               }
             >
-              <input
-                type="text"
-                class={inputCls}
+              <Input
                 placeholder="如：QT-20260812-001"
                 value={quotationNo()}
                 onInput={(e) => setQuotationNo(e.currentTarget.value)}
+                class="w-full"
               />
             </Show>
           </div>
@@ -373,21 +379,19 @@ export default function QuoteFormModal(props: {
                   class="grid items-center gap-2"
                   style={{ "grid-template-columns": "minmax(150px,1.4fr) minmax(90px,0.9fr) minmax(70px,0.7fr) minmax(90px,0.9fr) minmax(90px,0.9fr) 28px" }}
                 >
-                  <input
-                    type="text"
-                    class={inputCls}
+                  <Input
                     placeholder="品名"
                     value={l.product}
                     disabled={locked}
                     onInput={(e) => setLine(i(), { product: e.currentTarget.value })}
+                    class="w-full disabled:bg-surface-100 disabled:text-surface-400"
                   />
-                  <input
-                    type="text"
-                    class={inputCls}
+                  <Input
                     placeholder="货号"
                     value={l.sku}
                     disabled={locked}
                     onInput={(e) => setLine(i(), { sku: e.currentTarget.value })}
+                    class="w-full disabled:bg-surface-100 disabled:text-surface-400"
                   />
                   <MoneyInput
                     class={inputCls}
@@ -435,8 +439,8 @@ export default function QuoteFormModal(props: {
 
         <div class="mt-4">
           <label class={labelCls}>备注</label>
-          <textarea
-            class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+          <Textarea
+          class="w-full"
             rows={2}
             placeholder="添加备注..."
             value={notes()}

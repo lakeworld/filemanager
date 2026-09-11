@@ -6,6 +6,7 @@ import { showToast } from "~/stores/notifyBanner";
 import { api } from "~/wails/api";
 import TagChip from "~/components/TagChip";
 import type { TagInfo } from "~/types";
+import Input from "~/components/ui/Input";
 
 /**
  * 标签输入组件（v2.4.x 增强）：
@@ -228,9 +229,9 @@ export default function TagInput(props: {
           </For>
         </div>
       </Show>
-      <input
+      <Input
         type="text"
-        class="w-full px-3 py-2 border border-surface-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+        class="w-full"
         placeholder={props.placeholder ?? "输入标签按回车"}
         value={input()}
         onInput={(e) => {

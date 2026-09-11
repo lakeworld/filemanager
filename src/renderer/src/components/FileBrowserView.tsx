@@ -25,6 +25,7 @@ import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import { useContextMenu } from "~/hooks/useContextMenu";
 import type { FileEntry } from "~/types";
 import { withBuiltinNotes, BUILTIN_NOTES_FOLDER, defaultSubFolder } from "~/constants/notes";
+import Input from "~/components/ui/Input";
 
 /** v2.4.7（PLAN §4.6）：文件区作用域——productSet = 产品集文件区；customer = 客户文件区；v2.4.9 S2：supplier = 供应商文件区 */
 export type FileBrowserScope = "productSet" | "customer" | "supplier";
@@ -740,9 +741,8 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       <Show when={showNewFolder()}>
         <Modal open title={`新建${isCustomer() || isSupplier() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : fileType() === "cert" ? "证书类型" : "文档类型"}`} size="md" onClose={() => setShowNewFolder(false)}>
           <div class="p-6">
-            <input
-              type="text"
-              class="input w-full mb-4"
+            <Input
+            class="w-full mb-4"
               placeholder={isCustomer() || isSupplier() ? "如：报价" : fileType() === "image" ? "如：场景图" : fileType() === "cert" ? "如：FDA认证" : "如：使用说明"}
               value={newFolderName()}
               disabled={creatingFolder()}
@@ -780,9 +780,8 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         >
           <div class="dlg-field">
             <label class="dlg-label dlg-required">笔记标题</label>
-            <input
-              type="text"
-              class="input w-full"
+            <Input
+            class="w-full"
               placeholder="保存为 <标题>.md"
               value={newNoteTitle()}
               disabled={creatingNote()}

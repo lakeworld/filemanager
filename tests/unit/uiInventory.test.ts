@@ -81,6 +81,72 @@ function codeFiles(): string[] {
   return walk(SRC).filter((f) => /\.tsx?$/.test(f))
 }
 
+/**
+ * 「刻意异几何」的输入点豁免表（文件 → 命中数基线）。
+ *
+ * 判据只认「class 里同时出现 `border-surface-200` 与 `px-3`/`py-2`」= `.input` 骨架被重述，
+ * 所以真正需要豁免的**只有 Header 全局搜索一处**：它要 `py-2` 撑高度，但左内缩 `pl-9` 给
+ * 绝对定位的搜索图标让位、底色是 `bg-surface-100`（嵌在顶栏里，不是白底表单字段）——
+ * 换成 `ui/Input` 会同时改掉几何与底色，属趁重构改版式（本卡 §五.2 禁止），故登记放行。
+ *
+ * 其余几处在判据下天然不命中，无需登记（列在这里反而会让门禁虚设）：
+ *  - `pages/Search.tsx:211` hero 大输入 `py-3 rounded-xl text-lg shadow-sm`
+ *  - `components/PdfPreview.tsx:210` 工具条微控件 `px-2 py-1 rounded text-xs`
+ *  - `pages/Clients.tsx:541` / `pages/ProductSets.tsx:505` / `pages/Settings.tsx:765,878`
+ *    小筛选与内联重命名 `px-2 py-1 rounded`（注意是 `rounded` 不是 `rounded-lg`）
+ *
+ * 新增豁免必须同时写清「为什么不是同配方」，否则视为绕过。
+ */
+const INPUT_GEOMETRY_EXEMPT: Record<string, number> = {
+  'components/Header.tsx': 1,
+}
+
+/**
+ * 扫「手写在 `<input>` / `<textarea>` 标签上的 `.input` 材质串」。
+ *
+ * 必须**引号/花括号感知**地取整个标签：`[^>]*?>` 这类写法会停在
+ * `onKeyDown={(e) => ...}` 的 `>` 上把标签截断（本仓 codemod 首跑实测漏掉一个点位）。
+ * 命中判据：class 里同时有 `border-surface-200` 与（`px-3` 或 `py-2`）——
+ * 即 `.input` 的骨架（`h-9 px-3 rounded-lg border border-surface-200 bg-white text-sm`）被重述。
+ */
+function inputMaterialHits(): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const f of codeFiles()) {
+    const src = stripComments(fs.readFileSync(f, 'utf8'))
+    let n = 0
+    for (const m of src.matchAll(/<(input|textarea)\b/g)) {
+      const end = scanTag(src, m.index ?? 0, m[1])
+      if (end < 0) continue
+      const tag = src.slice(m.index, end)
+      const cls = /class="([^"]*)"/.exec(tag)?.[1]
+      if (!cls) continue
+      if (cls.includes('border-surface-200') && (/(^|\s)px-3(\s|$)/.test(cls) || /(^|\s)py-2(\s|$)/.test(cls))) n++
+    }
+    if (n > 0) out[rel(f)] = n
+  }
+  return out
+}
+
+/** 从 `<input` / `<textarea` 起点扫到该标签结束下标（不含）；引号与花括号内不判边界 */
+function scanTag(s: string, i: number, name: string): number {
+  let j = i + name.length + 1
+  let depth = 0
+  let q: string | null = null
+  while (j < s.length) {
+    const c = s[j]
+    if (q) {
+      if (c === '\\') j += 2
+      else if (c === q) q = null
+    } else if (c === '"' || c === "'" || c === '`') q = c
+    else if (c === '{') depth++
+    else if (c === '}') depth--
+    else if (depth === 0 && c === '/' && s[j + 1] === '>') return j + 2
+    else if (depth === 0 && c === '>') return j + 1
+    j++
+  }
+  return -1
+}
+
 function serialize(map: Record<string, number>): string {
   return Object.entries(map)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -194,6 +260,111 @@ describe('渲染层视觉红线清单（v2.5.8 D6 固化）', () => {
       `页面/弹窗里又出现原生 select，请改用 ui/SearchSelect（能力不够就给它补 props）：${JSON.stringify(offenders)}`,
     ).toEqual([])
     expect(hits['components/ui/Select.tsx'] ?? 0, 'ui/Select 底座里的原生 select 元素数量变了（连带更新本门禁）').toBe(1)
+  })
+
+  /**
+   * v2.5.8 D9（W4 控件统一 II）第二步：`.input` 配方**材质串**不得在页面里手写重述。
+   *
+   * 为什么按「元素 + 材质串」扫而不是按文件 grep：`border border-surface-200 rounded-lg` 这一串
+   * 被大量 div/button 当通用边框复用（实测 49 行命中），按文件数会把无关命中一起算进来；
+   * 只有住在 `<input>` / `<textarea>` 标签上的那一份才是「绕过 `ui/Input` 重写材质」，才是要拦的。
+   *
+   * 拦的判据 = 材质 token 命中 `px-3` 或 `py-2` 且带 `border-surface-200`（= `.input` 的骨架）。
+   * 刻意不同几何的写法**不在此列**，走显式豁免表：左内缩让位搜索图标的 `pl-9 pr-4`、
+   * hero 大输入 `py-3 rounded-xl text-lg`、工具条微控件 `px-2 py-1 rounded text-xs`、
+   * 内联重命名 `px-2 py-1 rounded`——它们本来就不是 `.input` 那一档，
+   * 收进来等于趁重构改版式（本卡 §五.2 明令禁止），故登记后放行。
+   */
+  it('控件红线：手写 .input 材质串清零（异几何走豁免表，其余必须用 ui/Input）', () => {
+    const hits = inputMaterialHits()
+    const offenders = Object.entries(hits).filter(([f]) => !(f in INPUT_GEOMETRY_EXEMPT))
+    expect(
+      offenders,
+      `页面里又手写了 .input 材质串，请改用 ui/Input / ui/Textarea（缺 props 就补，别绕开底座）：${JSON.stringify(offenders)}`,
+    ).toEqual([])
+    // 豁免表里的条目命中数也要钉死：谁「顺手」给异几何输入框补回标准材质，或清空了豁免，都会红
+    for (const [f, c] of Object.entries(INPUT_GEOMETRY_EXEMPT)) {
+      expect(hits[f] ?? 0, `豁免点位 ${f} 的命中数变了（现 ${hits[f] ?? 0}，基线 ${c}）——改版式请显式改本表`).toBe(c)
+    }
+  })
+
+  /**
+   * v2.5.8 D9：原生 `<textarea>` 与 `<select>` 同理清零，唯一归宿 = `ui/Textarea.tsx` 底座。
+   * 底座自身命中数钉死为 1（与 select 那条同一口径，防「删底座」蒙过门禁）。
+   */
+  it('控件红线：原生 textarea 元素清零（只准住在 ui/Textarea 底座）', () => {
+    const hits = countByFile('<textarea', codeFiles())
+    const offenders = Object.entries(hits).filter(([f]) => f !== 'components/ui/Textarea.tsx')
+    expect(
+      offenders,
+      `页面/弹窗里又出现原生 textarea，请改用 ui/Textarea：${JSON.stringify(offenders)}`,
+    ).toEqual([])
+    expect(hits['components/ui/Textarea.tsx'] ?? 0, 'ui/Textarea 底座里的 textarea 元素数量变了').toBe(1)
+  })
+
+  /**
+   * v2.5.8 D9（W4 控件统一 II）：`.input` / `.select` / `.input-compact` 是底座的**内部实现**，
+   * 页面只准用组件（`ui/Input`、`ui/Textarea`、`SearchSelect`），不准直接挂组件类。
+   * 这一条管的是「看起来已经统一、其实绕过了底座」那一类：挂 `class="input …"` 的裸 `<input>`
+   * 材质与 `ui/Input` 相同，但 error 态 / disabled 态 / 未来改档都要各点自己维护——
+   * D9 实测这类点位有 14 个，全部收进 `ui/Input` 后此处钉为 0。
+   * 底座自己（`components/ui/`）与 SearchSelect 面板内搜索框（同组件内部）不在此列。
+   */
+  it('控件红线：页面不得直接挂 .input/.select 组件类（类属底座内部）', () => {
+    const hits: Record<string, number> = {}
+    for (const f of codeFiles()) {
+      if (rel(f).startsWith('components/ui/')) continue
+      const src = stripComments(fs.readFileSync(f, 'utf8'))
+      let n = 0
+      for (const m of src.matchAll(/<(input|textarea|select)\b/g)) {
+        const end = scanTag(src, m.index, m[1])
+        if (end < 0) continue
+        const cls = /class="(input|select|input-compact)(\s|")/.exec(src.slice(m.index, end))
+        if (cls) n++
+      }
+      if (n > 0) hits[rel(f)] = n
+    }
+    expect(
+      hits,
+      `页面里又有裸元素直接挂组件类，请改用 ui/Input / ui/Textarea / SearchSelect：${JSON.stringify(hits)}`,
+    ).toEqual({})
+  })
+
+  /**
+   * v2.5.8 D9 踩坑固化：`ui/Input` / `ui/Textarea` 用**显式透传**（Solid 1.9 无 `omitKeys`，
+   * spread 会把 `class`/`children` 一起灌进原生元素），所以调用点写了底座没接的属性时，
+   * **构建不报错、运行静默丢**。更糟的是 TypeScript 对**连字符属性**（`aria-label`、`data-*`）
+   * 走 JSX 特例放行，`tsc` 也抓不到——本晚 `RenameDialog` 换 `<Input>` 后 e2e 立刻找不到
+   * `getByLabel('新文件名')`，就是这么来的（原生 `aria-label` 被吞）。
+   * 这条把「组件标签上的连字符属性必须在底座 props 里有声明」钉成机器检查。
+   */
+  it('底座透传红线：ui/Input / ui/Textarea 调用点不得出现底座未声明的连字符属性', () => {
+    const bases = { Input: 'components/ui/Input.tsx', Textarea: 'components/ui/Textarea.tsx' }
+    const declared: Record<string, Set<string>> = {}
+    for (const [name, file] of Object.entries(bases)) {
+      const src = fs.readFileSync(path.join(SRC, file), 'utf8')
+      // 只认 interface 声明的 camelCase prop。**不能**把底座内部 JSX 上写的属性名
+      // （如 `aria-label={props.ariaLabel}`）算进「已声明」——调用点传 `aria-label` 依然会被
+      // 显式透传的底座吞掉，那正是本条要抓的形态（反向实验第一版就漏在这一句上）。
+      declared[name] = new Set([...src.matchAll(/^\s{2}(\w+)\??\s*:/gm)].map((m) => m[1]))
+    }
+    const bad: string[] = []
+    for (const f of codeFiles()) {
+      const src = stripComments(fs.readFileSync(f, 'utf8'))
+      for (const m of src.matchAll(/<(Input|Textarea)\b/g)) {
+        const end = scanTag(src, m.index, '<' + m[1])
+        const tag = src.slice(m.index, end < 0 ? src.length : end)
+        for (const a of tag.matchAll(/[\s]([a-z][\w]*-[\w-]*)=/g)) {
+          if (!declared[m[1]].has(a[1])) {
+            bad.push(`${rel(f)}:${src.slice(0, m.index).split('\n').length} <${m[1]} ${a[1]}>`)
+          }
+        }
+      }
+    }
+    expect(
+      bad,
+      `连字符属性会被显式透传的底座静默丢弃且 tsc 不报（TS 对带 - 的 JSX 属性放行），请改用 camelCase prop：${bad.join(' | ')}`,
+    ).toEqual([])
   })
 
   it('弹窗表面必须实底（.modal-panel / .dlg-* 禁透明材质、禁头尾分隔线、禁 ✕ 回潮）', () => {

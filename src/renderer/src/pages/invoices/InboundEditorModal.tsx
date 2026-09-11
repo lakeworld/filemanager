@@ -6,6 +6,8 @@ import SearchSelect from "~/components/ui/SearchSelect";
 import type { SearchSelectOption } from "~/components/ui/SearchSelect";
 import ArchiveField from "./ArchiveField";
 import type { InboundFormState, InboundRecord, SupplierBrief } from "./types";
+import Textarea from "~/components/ui/Textarea";
+import Input from "~/components/ui/Input";
 
 /**
  * 入库单新建/编辑弹窗（v2.5.1 T3 波1 拆分 + overlay→Modal 迁移）：
@@ -68,9 +70,8 @@ export default function InboundEditorModal(props: {
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">单据编号 *</label>
-              <input
-                type="text"
-                class="input w-full"
+              <Input
+              class="w-full"
                 placeholder="如：RK-2026-001"
                 value={props.form.id}
                 onInput={(e) => props.setField("id", e.currentTarget.value)}
@@ -101,9 +102,8 @@ export default function InboundEditorModal(props: {
                   props.setField("supplier_id", name);
                 }}
               />
-              <input
-                type="text"
-                class="input w-full"
+              <Input
+              class="w-full"
                 placeholder="供应商名称"
                 value={props.form.supplier}
                 onInput={(e) => {
@@ -136,8 +136,8 @@ export default function InboundEditorModal(props: {
           </div>
           <div class="mt-4">
             <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>
-            <textarea
-              class="input w-full h-auto py-2 resize-none"
+            <Textarea
+            class="w-full"
               rows={2}
               placeholder="添加备注..."
               value={props.form.notes}

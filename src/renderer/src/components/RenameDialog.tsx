@@ -1,5 +1,6 @@
 import { Show, createSignal } from "solid-js";
 import Modal from "~/components/ui/Modal";
+import Input from "~/components/ui/Input";
 
 /**
  * 单文件重命名对话框（v2.5.2，替代 window.prompt ×4：FileBrowserView/Certs/Images/Search）。
@@ -31,14 +32,14 @@ export default function RenameDialog(props: {
     <Modal open title="重命名" size="md" onClose={props.onCancel}>
       <div class="bg-white rounded-2xl p-6 shadow-xl">
         <h2 class="text-xl font-bold mb-4">重命名</h2>
-        <input
-          class="w-full px-3 py-2 border border-surface-200 rounded-lg text-sm focus:border-primary-500 focus:outline-none"
+        <Input
+        class="w-full"
           value={value()}
           onInput={(e) => setValue(e.currentTarget.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") confirm();
           }}
-          aria-label="新文件名"
+          ariaLabel="新文件名"
           placeholder={props.currentName}
         />
         <Show when={props.error}>
