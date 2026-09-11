@@ -85,7 +85,7 @@ export default function InboundCards(props: {
             const supplierDeleted = !!rec.supplier_id && !props.suppliers.some((s) => s.name === rec.supplier_id);
             return (
               <div
-                class={`card p-3 flex flex-col h-full relative select-none group transition-colors hover:shadow-card-hover cursor-pointer ${isSel() ? "border-primary-500 bg-primary-50" : ""}`}
+                class={`card p-3 flex flex-col h-full relative select-none group transition-colors cursor-pointer ${isSel() ? "card-selected" : ""}`}
                 onClick={(e) => {
                   const t = e.target as HTMLElement;
                   if (t.closest("button, input, a")) return;
@@ -133,7 +133,7 @@ export default function InboundCards(props: {
                   <Show when={rec.product_set} fallback={<span class="text-surface-300 text-xs shrink-0">无产品集</span>}>
                     {(name) => (
                       <button
-                        class="text-xs px-2 py-0.5 rounded-full bg-surface-100 text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors shrink-0"
+                        class="chip bg-surface-100 text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors shrink-0"
                         title="前往产品集"
                         onClick={() => navigate(`/product-sets/${encodeURIComponent(name())}`)}
                       >

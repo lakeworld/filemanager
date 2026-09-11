@@ -22,6 +22,8 @@ import ConfirmDialog from "~/components/ConfirmDialog";
 import EmptyState from "~/components/EmptyState";
 import Loading from "~/components/Loading";
 import RenameDialog from "~/components/RenameDialog";
+import SearchSelect, { type SearchSelectOption } from "~/components/ui/SearchSelect";
+import { fmtLocalTime } from "~/utils/datetime";
 import { handleDragOut } from "~/utils/dragout";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import { useContextMenu } from "~/hooks/useContextMenu";
@@ -31,6 +33,13 @@ interface CertItem extends FileEntry {
   productSet: string;
   subFolder: string;
 }
+
+/** 排序档（v2.5.8：SearchSelect 数据源，与既有三个 option 一字不动） */
+const SORT_OPTIONS: readonly SearchSelectOption[] = [
+  { value: "modified", label: "按修改时间" },
+  { value: "name", label: "按文件名" },
+  { value: "size", label: "按文件大小" },
+];
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -89,9 +98,32 @@ export default function Certs() {
 
   onCleanup(() => window.clearTimeout(actionMessageTimer));
 
+  // v2.5.8：筛选下拉选项（SearchSelect 数据源）见下方 certFolders 之后声明——
+  // createMemo 是急求值，放在 certFolders 之前会在挂载即读它而踩 TDZ（实测白屏，e2e 抓 pageerror 定位）
+
   // —— 虚拟滚动由 VirtualGrid 承担：只渲染可见行，滚出即卸载（替代旧 slice+哨兵分批）——
-  // 证书卡片为横向布局，固定行高（v2.4.4：加标签 chips 行后抬高，避免行重叠）
-  const ITEM_HEIGHT = 152;
+  // v2.5.8：卡型由「横向宽卡 + 48px 小图标」改「纵向信息封面卡」——
+  // 旧版一行三列时上下留白巨大、名称单行截断、复选框孤悬右侧，观感空洞；
+  // 新卡行高按**出档像素实测**定：单行名称的卡内容 ≈ 247（封面 112 + 名称 20 + 归属/时间两行 32
+  // + 标签 26 + 内边距 20 + 描边阴影），名称两行（line-clamp-2）再 +19 ⇒ 行高取 280；
+  // 卡片挂 min-h-[250px] 让单行名称也撑到同一档，行间距落在 14–30px（VirtualGrid 的行是
+  // align-content:start，卡片按内容取高——行高给多了就是纯空隙，初版估 262 实测偏松）。
+  // 高基数页禁 blur（PLAN §四 豁免）：一律实底 .card，不用 .card-glass。
+  const ITEM_HEIGHT = 280;
+
+  /** 封面底色按子文件夹语义分档（未知类型回退中性 cert 档） */
+  const coverTone = (sub: string): { bg: string; band: string } => {
+    if (sub === "3C") return { bg: "bg-info-50", band: "bg-info-400" };
+    if (sub === "质检") return { bg: "bg-success-50", band: "bg-success-400" };
+    if (sub === "专利") return { bg: "bg-warning-50", band: "bg-warning-400" };
+    return { bg: "bg-cert-50", band: "bg-cert-400" };
+  };
+
+  /** 扩展名徽标（封面右上角）：PDF / 图片走真缩略图，其余按扩展名出字标 */
+  const extBadge = (name: string): string => {
+    const ext = name.slice(name.lastIndexOf(".") + 1).toUpperCase();
+    return ext && ext !== name.toUpperCase() ? ext.slice(0, 4) : "FILE";
+  };
 
   createEffect(() => {
     if (currentWorkspace()) {
@@ -102,6 +134,20 @@ export default function Certs() {
   });
 
   const certFolders = () => workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"];
+
+  // 筛选下拉选项（产品集/子文件夹/标签三族；排序档是常量，放模块顶层）
+  const productSetOptions = createMemo<readonly SearchSelectOption[]>(() => [
+    { value: "", label: "全部产品集" },
+    ...productSets().map((ps: ProductSetInfo) => ({ value: ps.name, label: ps.name })),
+  ]);
+  const subFolderOptions = createMemo<readonly SearchSelectOption[]>(() => [
+    { value: "", label: "全部子文件夹" },
+    ...certFolders().map((f) => ({ value: f, label: f })),
+  ]);
+  const tagOptions = createMemo<readonly SearchSelectOption[]>(() => [
+    { value: "", label: "全部标签" },
+    ...tagList().map((t) => ({ value: t.name, label: tagLabel(t.name) })),
+  ]);
 
   const loadAllCerts = async () => {
     if (!currentWorkspace()) return;
@@ -351,54 +397,59 @@ export default function Certs() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div class="flex flex-col md:flex-row gap-3 mb-4">
+      {/* 筛选行（v2.5.8：原生 select → SearchSelect 搜索下拉；本页与笔记库是该组件首批使用者）。
+          响应式口径：整行 flex-wrap，控件可收缩且各有下限——早先给下拉挂 `shrink-0` 而搜索框
+          `flex-1 min-w-0`，窄窗口下多出来的宽度全被搜索框吃掉（实测 1022 视口压成 16px，
+          且行宽超出容器冒出横向滚动条），违反 ui-consistency「1024 无横向滚动」条。 */}
+      <div class="flex flex-wrap items-center gap-3 mb-4">
         <input
           type="text"
-          class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg text-sm"
+          class="input w-full min-w-0 md:w-auto md:flex-1 md:min-w-[180px]"
           placeholder="搜索文件名..."
           value={search()}
           onInput={(e) => setSearch(e.currentTarget.value)}
         />
-        <select
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+        <SearchSelect
+          class="min-w-[112px] md:w-44"
+          compact
+          ariaLabel="产品集筛选"
+          options={productSetOptions()}
           value={productSetFilter()}
-          onChange={(e) => setProductSetFilter(e.currentTarget.value)}
-        >
-          <option value="">全部产品集</option>
-          <For each={productSets()}>
-            {(ps: ProductSetInfo) => <option value={ps.name}>{ps.name}</option>}
-          </For>
-        </select>
-        <select
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+          placeholder="全部产品集"
+          matchTriggerWidth={false}
+          onChange={setProductSetFilter}
+        />
+        <SearchSelect
+          class="min-w-[112px] md:w-40"
+          compact
+          ariaLabel="子文件夹筛选"
+          options={subFolderOptions()}
           value={subFolderFilter()}
-          onChange={(e) => setSubFolderFilter(e.currentTarget.value)}
-        >
-          <option value="">全部子文件夹</option>
-          <For each={certFolders()}>
-            {(folder) => <option value={folder}>{folder}</option>}
-          </For>
-        </select>
-        <select
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+          placeholder="全部子文件夹"
+          searchable={false}
+          matchTriggerWidth={false}
+          onChange={setSubFolderFilter}
+        />
+        <SearchSelect
+          class="min-w-[112px] md:w-40"
+          compact
+          ariaLabel="标签筛选"
+          options={tagOptions()}
           value={tagFilter()}
-          onChange={(e) => setTagFilter(e.currentTarget.value)}
-        >
-          <option value="">全部标签</option>
-          <For each={tagList()}>
-            {(t) => <option value={t.name}>{tagLabel(t.name)}</option>}
-          </For>
-        </select>
-        <select
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+          placeholder="全部标签"
+          matchTriggerWidth={false}
+          onChange={setTagFilter}
+        />
+        <SearchSelect
+          class="min-w-[112px] md:w-40"
+          compact
+          ariaLabel="排序方式"
+          options={SORT_OPTIONS}
           value={sortBy()}
-          onChange={(e) => setSortBy(e.currentTarget.value as "modified" | "name" | "size")}
-        >
-          <option value="modified">按修改时间</option>
-          <option value="name">按文件名</option>
-          <option value="size">按文件大小</option>
-        </select>
+          searchable={false}
+          matchTriggerWidth={false}
+          onChange={(v) => setSortBy(v as "modified" | "name" | "size")}
+        />
         {/* v2.4.7（F9）：一键打包当前筛选结果（无需先全选）——产物落 工作区/导出/，完成弹窗可见 */}
         <button
           class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white text-surface-700 hover:bg-surface-50 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -457,48 +508,82 @@ export default function Certs() {
           <VirtualGrid
             items={filteredItems()}
             itemHeight={ITEM_HEIGHT}
-            columns={{ base: 1, md: 2, lg: 3 }}
-            gap={12}
+            columns={{ base: 2, md: 3, lg: 4 }}
+            gap={14}
             // v2.5.3（P2-11）：筛选/搜索切换时滚动归零（照 Quotes/Invoices scrollResetKey 先例）
             scrollResetKey={`${search()}|${productSetFilter()}|${subFolderFilter()}|${tagFilter()}|${sortBy()}`}
-            renderItem={(cert) => (
-              <div
-                class={`card p-4 flex items-center gap-4 cursor-pointer select-none hover:shadow-card-hover ${selectedPaths().includes(cert.path) ? "border-primary-500 bg-primary-50" : ""}`}
-                draggable={true}
-                onDragStart={(e) => handleDragOut(e, cert.path, selectedPaths())}
-                onContextMenu={(e) => {
-                  // v2.4.2：右键——目标未选中时先单选它，菜单作用于该文件
-                  if (!selectedPaths().includes(cert.path)) setSelectedPaths([cert.path]);
-                  contextMenu.open(e, cert.path);
-                }}
-                onClick={() => toggleSelection(cert.path)}
-                onDblClick={() => openFileSmart(cert, { onDelete: loadAllCerts })}
-              >
-                <div class="w-12 h-12 rounded-lg bg-cert-50 flex items-center justify-center text-2xl overflow-hidden shrink-0">
-                  <FileThumbnail filePath={cert.path} fileType={cert.file_type} class="w-full h-full object-cover" />
+            renderItem={(cert) => {
+              const tone = () => coverTone(cert.subFolder);
+              const isImg = () => cert.file_type === "image";
+              const exp = () => expiryInfo(cert.path);
+              return (
+                <div
+                  class={`card p-2.5 min-h-[250px] flex flex-col gap-1.5 cursor-pointer select-none ${
+                    selectedPaths().includes(cert.path) ? "card-selected" : ""
+                  }`}
+                  draggable={true}
+                  onDragStart={(e) => handleDragOut(e, cert.path, selectedPaths())}
+                  onContextMenu={(e) => {
+                    // v2.4.2：右键——目标未选中时先单选它，菜单作用于该文件
+                    if (!selectedPaths().includes(cert.path)) setSelectedPaths([cert.path]);
+                    contextMenu.open(e, cert.path);
+                  }}
+                  onClick={() => toggleSelection(cert.path)}
+                  onDblClick={() => openFileSmart(cert, { onDelete: loadAllCerts })}
+                >
+                  {/* 信息封面：图片证书走真缩略图；PDF/其它以「类型色带 + 扩展名字标」构成可辨识封面
+                      （v2.1.0 起主进程不给 PDF 出缩略图，用户 2026-09-08 拍板本批也不引入 pdfjs 抓帧） */}
+                  <div class={`relative h-28 rounded-lg overflow-hidden ${tone().bg} shrink-0`}>
+                    <span class={`absolute left-0 top-0 bottom-0 w-1 ${tone().band}`} />
+                    <Show
+                      when={isImg()}
+                      fallback={
+                        <div class="w-full h-full flex items-center justify-center">
+                          <span class="text-3xl leading-none opacity-70">📄</span>
+                        </div>
+                      }
+                    >
+                      <FileThumbnail filePath={cert.path} fileType={cert.file_type} class="w-full h-full object-cover" />
+                    </Show>
+                    <input
+                      type="checkbox"
+                      class="absolute top-1.5 left-3 w-4 h-4 accent-primary-600 cursor-pointer z-10"
+                      checked={selectedPaths().includes(cert.path)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleSelection(cert.path)}
+                    />
+                    <span class="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-surface-900/70 text-[10px] font-medium text-white leading-none">
+                      {extBadge(cert.name)}
+                    </span>
+                    <Show when={exp()}>
+                      {(info) => (
+                        <span
+                          class={`absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium leading-none ${
+                            info().urgent ? "bg-danger-500 text-white" : "bg-warning-100 text-warning-700"
+                          }`}
+                          title={`到期日 ${info().label}`}
+                        >
+                          {info().urgent ? "⚠ " : ""}
+                          {info().label}
+                        </span>
+                      )}
+                    </Show>
+                  </div>
+                  <div class="px-0.5">
+                    <div class="text-sm font-medium leading-snug line-clamp-2 break-all">{cert.name}</div>
+                  </div>
+                  <div class="px-0.5 text-[11px] text-surface-400 truncate">
+                    {cert.productSet} / {cert.subFolder}
+                  </div>
+                  <div class="px-0.5 text-[11px] text-surface-400 tabular-nums truncate">
+                    {formatBytes(cert.size)} · {fmtLocalTime(cert.modified)}
+                  </div>
+                  <div class="px-0.5 mt-auto">
+                    <TagChips tags={cert.tags} max={2} />
+                  </div>
                 </div>
-                <div class="flex-1 min-w-0">
-                  <div class="font-medium truncate">{cert.name}</div>
-                  <div class="text-xs text-surface-400 mt-1">{cert.productSet} / {cert.subFolder}</div>
-                  <div class="text-xs text-surface-400">{formatBytes(cert.size)} · {cert.modified}</div>
-                  <Show when={expiryInfo(cert.path)}>
-                    {(info) => (
-                      <div class={`text-xs mt-1 ${info().urgent ? "text-danger-600 font-medium" : "text-warning-600"}`}>
-                        ⚠️ {info().label}
-                      </div>
-                    )}
-                  </Show>
-                  <TagChips tags={cert.tags} />
-                </div>
-                <input
-                  type="checkbox"
-                  class="w-4 h-4 accent-primary-600 cursor-pointer shrink-0"
-                  checked={selectedPaths().includes(cert.path)}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={() => toggleSelection(cert.path)}
-                />
-              </div>
-            )}
+              );
+            }}
           />
         </div>
       </Show>

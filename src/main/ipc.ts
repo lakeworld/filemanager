@@ -850,7 +850,9 @@ export function registerIpc(
   ipcMain.handle('qihebox:app:setAutoLaunch', (_e, enabled: boolean) =>
     handle(() => {
       setAutoLaunch(!!enabled)
-      return true
+      // 回读真实状态而非恒真：未打包实例「关」到一条不属于本实例的安装版条目时会 no-op，
+      // 返回实况可让设置页按 r.data 回正，不留下「UI 说关了、系统还开着」的假象
+      return isAutoLaunch()
     }),
   )
   ipcMain.handle('qihebox:app:isAutoLaunch', () => handle(() => isAutoLaunch()))

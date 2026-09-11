@@ -535,6 +535,8 @@ export default function ProductSets() {
           {/* v2.4.9（打磨）：详情页概览条——标签 + 备注（从列表卡迁移到详情头部，与入口卡/关系区同屏） */}
           <Show when={(() => productSets().find((p) => p.name === psName()))()}>
             {(detailPs) => (
+              // v2.5.8 精致化 D6：元信息卡在「无标签且无备注」时不再占一张空卡（改前截图实录一条空白横条）
+              <Show when={(detailPs()?.tags?.length ?? 0) > 0 || !!detailPs()?.notes}>
               <div class="card p-4 mb-6 flex flex-wrap items-center gap-x-6 gap-y-2">
                 <Show when={detailPs().tags && detailPs().tags.length > 0}>
                   <div class="flex items-center flex-wrap gap-2">
@@ -558,13 +560,15 @@ export default function ProductSets() {
                   </div>
                 </Show>
               </div>
+              </Show>
             )}
           </Show>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* v2.5.8 精致化 D7：三域卡是固定 3 张的低基数网格 → 挂 .stagger 入场（高基数列表禁用，PLAN §四） */}
+          <div class="grid stagger grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Image entry card */}
             <div
-              class="card p-8 cursor-pointer hover:shadow-card-hover bg-gradient-to-br from-info-50 to-white"
+              class="card p-8 cursor-pointer bg-gradient-to-br from-info-50 to-white"
               onClick={() => {
                 const folders = imageFolders();
                 navigate(`/files/image/${encodeURIComponent(psName())}/${folders[0]}`);
@@ -588,7 +592,7 @@ export default function ProductSets() {
 
             {/* Cert entry card */}
             <div
-              class="card p-8 cursor-pointer hover:shadow-card-hover bg-gradient-to-br from-cert-50 to-white"
+              class="card p-8 cursor-pointer bg-gradient-to-br from-cert-50 to-white"
               onClick={() => {
                 const folders = certFolders();
                 navigate(`/files/cert/${encodeURIComponent(psName())}/${folders[0]}`);
@@ -611,7 +615,7 @@ export default function ProductSets() {
             </div>
             {/* v2.5.1（F2）：文档入口卡——中性色（文档域无专属色族，D17）；点击进 文档/<首个子文件夹> */}
             <div
-              class="card p-8 cursor-pointer hover:shadow-card-hover bg-gradient-to-br from-surface-100 to-white"
+              class="card p-8 cursor-pointer bg-gradient-to-br from-surface-100 to-white"
               onClick={() => {
                 const folders = docFolders();
                 navigate(`/files/doc/${encodeURIComponent(psName())}/${defaultSubFolder(folders)}`);
@@ -635,15 +639,16 @@ export default function ProductSets() {
           </div>
 
           {/* v2.4.9（打磨）：关系区并排——关联客户 / 关联供应商（只读反查，写操作在客户/供应商侧） */}
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+          <div class="grid stagger grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
           {/* v2.4.7（§5.2）：关联客户只读区块（customers.json 反查 related_product_sets；写操作只在客户侧） */}
-          <div class="card p-5">
+          {/* v2.5.8 精致化 D6：关系区两张骨架卡玻璃化（每页各 1 张，非列表项）；空态改虚线描边（EmptyState boxed） */}
+          <div class="card card-glass p-5">
             <div class="flex items-center justify-between mb-3">
               <h2 class="text-lg font-semibold">关联客户</h2>
               <span class="text-sm text-surface-400">在客户详情页维护关联</span>
             </div>
             <Show when={relatedCustomers().length > 0} fallback={
-              <EmptyState icon="🤝" title="暂无关联客户" desc="可在客户详情页的关联产品集区域添加" />
+              <EmptyState boxed icon="🤝" title="暂无关联客户" desc="可在客户详情页的关联产品集区域添加" />
             }>
               <div class="flex flex-wrap gap-2">
                 <For each={relatedCustomers()}>
@@ -666,13 +671,13 @@ export default function ProductSets() {
           </div>
 
           {/* v2.4.9（打磨）：关联供应商只读区块（suppliers.json 反查 related_product_sets；写操作只在供应商侧） */}
-          <div class="card p-5">
+          <div class="card card-glass p-5">
             <div class="flex items-center justify-between mb-3">
               <h2 class="text-lg font-semibold">关联供应商</h2>
               <span class="text-sm text-surface-400">在供应商详情页维护关联</span>
             </div>
             <Show when={relatedSuppliers().length > 0} fallback={
-              <EmptyState icon="🏭" title="暂无关联供应商" desc="可在供应商详情页的关联产品集区域添加" />
+              <EmptyState boxed icon="🏭" title="暂无关联供应商" desc="可在供应商详情页的关联产品集区域添加" />
             }>
               <div class="flex flex-wrap gap-2">
                 <For each={relatedSuppliers()}>

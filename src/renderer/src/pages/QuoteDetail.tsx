@@ -296,7 +296,7 @@ export default function QuoteDetail() {
                     <For each={docs()}>
                       {(d) => (
                         <div
-                          class="card p-2 cursor-pointer select-none hover:shadow-card-hover"
+                          class="card p-2 cursor-pointer select-none"
                           onClick={() => openPreview(d, { onDelete: () => void loadDocs() })}
                           onContextMenu={(e) => {
                             e.preventDefault();

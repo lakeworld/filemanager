@@ -151,7 +151,7 @@ describe('仪表盘（DashboardService）', () => {
     }
   })
 
-  it('M5 统计：供应商目录扫描口径（回收站中供应商不计）+ 报价.json 缺失按 0', async () => {
+  it('M5 统计：供应商目录扫描口径（回收站中供应商不计）+ 笔记三域聚合按 0 容错', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -170,32 +170,29 @@ describe('仪表盘（DashboardService）', () => {
 
     const stats = await box.dashboard.dashboardStats()
     expect(stats.total_suppliers).toBe(1)
-    // 未建报价 → 报价.json 缺失按 0（仿 invoiceTodos 容错）
-    expect(stats.total_quotes).toBe(0)
-    expect(stats.draft_quotes).toBe(0)
+    // 未建笔记 → 三域聚合按 0（目录缺失容错，v2.5.8 用户拍板：统计卡「报价」→「笔记」）
+    expect(stats.total_notes).toBe(0)
   })
 
-  it('M5 统计：报价数与草稿报价数（报价.json 台账 status 计数）', async () => {
+  it('M5 统计：笔记数（三域「笔记」子文件夹 .md 聚合计数，非 .md 不计）', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
     await box.workspace.create(ws)
 
-    await box.quotes.create({
-      quotation_no: 'QT-M5-001',
-      date: '2026-08-01',
-      lines: [{ product: '品1', qty: 1, unit_price: 10, amount: 10 }],
-    })
-    await box.quotes.create({
-      quotation_no: 'QT-M5-002',
-      date: '2026-08-02',
-      lines: [{ product: '品2', qty: 2, unit_price: 5, amount: 10 }],
-    })
-    await box.quotes.setStatus('QT-M5-002', '已确认')
+    // 三域各落 1 篇笔记（core/notes 三域口径：产品集/<名>/文档/笔记、客户/<名>/笔记、供应商/<名>/笔记）
+    const psNote = path.join(ws, '产品集', '系列A', '文档', '笔记')
+    const custNote = path.join(ws, '客户', '张三', '笔记')
+    const supNote = path.join(ws, '供应商', '李四', '笔记')
+    for (const d of [psNote, custNote, supNote]) await fsp.mkdir(d, { recursive: true })
+    await fsp.writeFile(path.join(psNote, '产品修订.md'), '# 产品修订')
+    await fsp.writeFile(path.join(custNote, '拜访纪要.md'), '# 拜访纪要')
+    await fsp.writeFile(path.join(supNote, '打样记录.md'), '# 打样记录')
+    // 干扰：非 .md 文件不计数
+    await fsp.writeFile(path.join(supNote, '不是笔记.txt'), 'x')
 
     const stats = await box.dashboard.dashboardStats()
-    expect(stats.total_quotes).toBe(2)
-    expect(stats.draft_quotes).toBe(1)
+    expect(stats.total_notes).toBe(3)
   })
 
   it('P1-4 dashboardStats：集间 8 并发统计与串行旧行为一致；expiring_certs 恒 0（独立 IPC 通道承担）', async () => {

@@ -312,6 +312,18 @@ for (let i = 1; i <= CDP_CONNECT_ATTEMPTS && !browser; i++) {
   }
 }
 if (!browser) {
+  // 假绿守卫（v2.5.8 实测暴露，2026-09-08）：起包步骤成功（stdout 有 ws 端点）但 CDP 一条都没连上时，
+  // 下面整条 Windows 使用链根本没执行过，而旧写法直接 finishAndExit() ⇒ 报告里 failed=0 → 打印「结论：绿 · 退出 0」。
+  // Docker 形态（DevTools 在容器命名空间里不回包）每次都走这条路径，等于门禁长期假装在测。
+  // 这里显式记一条硬失败：验不到 = 红，不是绿。
+  failed++
+  report.push({
+    name: '连上 DevTools（CDP）',
+    ok: false,
+    kind: 'hard',
+    ms: 0,
+    note: `connectOverCDP ${CDP_CONNECT_ATTEMPTS} 次均失败（末次：${connErr}）——Windows 使用链一项未验`,
+  })
   console.error(`\n[win-smoke] CDP 连不上（末次错误：${connErr}）`)
   killApp()
   finishAndExit()

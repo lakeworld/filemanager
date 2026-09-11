@@ -6,6 +6,7 @@
  *
  * 用法：node scripts/ui-preview/shot.mjs [输出目录]
  *   输出目录缺省 docs/INTERNAL/assets/v2.5.8/D4-壳层对比/after
+ *   QIHE_SHOT_BASELINE=1 → 只抓路由态，跳过改造后才存在的交互点位（抓「改前」基线用）
  * 前置：先 npm run build（out/renderer）；node_modules 含 @playwright/test（e2e 环境自带）。
  * 退出码：0 全部截图完成；1 有失败；2 前置缺失。
  */
@@ -41,7 +42,17 @@ const ROUTES = [
   ['clients', '/clients'],
   ['invoices', '/invoices'],
   ['certs', '/certs'],
+  ['notes', '/notes'], // v2.5.8 W5：笔记库库页化（对标图包/证书）
   ['settings', '/settings'],
+  // v2.5.8 精致化 D6：把批 2 / 批 3 改到的页面全部纳入同机位走查（此前只 7 页，改完看不见全貌）
+  ['quotes', '/quotes'], // 台账骨架卡玻璃 + .chip 药丸 + 金额 tabular-nums
+  ['product-set-detail', '/product-sets/' + encodeURIComponent('走查系列1')], // 三域卡 + 关联空态虚线
+  ['images', '/images'], // 高基数豁免面：应无玻璃且 hover 保内亮边
+  ['search', '/search'], // 结果卡实底（基数不可控）
+  ['exports', '/exports'], // 小列表玻璃卡（≥200 条分支走实底，此处为小列表态）
+  ['trash', '/trash'],
+  ['profile', '/profile'], // 未走 .card 体系（D6 登记为 D9 债，此处留基线照）
+  ['help', '/help'],
 ]
 
 const app = await electron.launch({
@@ -58,24 +69,63 @@ await page.setViewportSize(VIEWPORT)
 await page.waitForLoadState('domcontentloaded')
 await page.waitForFunction(() => !!window.qihebox, null, { timeout: 10000 })
 
-// 种最小数据：工作区 + 产品集 + 客户（壳层对比只看材质，不追基线的数据量）
+// —— 种数据：工作区 + 8 产品集（凑够 >5 让搜索下拉出搜索框）+ 客户/供应商 + 证书 PDF + 三域笔记 ——
 const wsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qihebox-ui-ws-'))
 await page.evaluate(async (dir) => window.qihebox.workspace.create(dir), wsDir)
 await page.evaluate(async () => {
-  await window.qihebox.productSets.create({ name: '走查系列' })
+  for (let i = 1; i <= 8; i++) await window.qihebox.productSets.create({ name: `走查系列${i}` })
   await window.qihebox.clients.create({ name: '走查客户' })
+  await window.qihebox.suppliers.create({ name: '走查供应商' })
 })
 
-// 与 probe-render-shots 同款导航：goto 后 pushState + popstate（zoom 不重放——本脚本固定 1 倍）
+const put = async (rel, content) => {
+  const abs = path.join(wsDir, rel)
+  fs.mkdirSync(path.dirname(abs), { recursive: true })
+  fs.writeFileSync(abs, content)
+  return abs
+}
+// 证书：3 份 PDF（信息封面档 → 扩展名字标 + 到期徽标），其中一份临期
+const pdf = (t) => `%PDF-1.4\n% ${t}\n`
+const c1 = await put('产品集/走查系列1/证书/3C/强制认证.pdf', pdf('cert'))
+await put('产品集/走查系列1/证书/质检/出厂检验报告.pdf', pdf('cert'))
+// 注意：证书库只聚合 `workspaceConfig().cert_subfolders`（默认 3C/质检/专利）里配置的子目录，
+// 放进未配置的目录（如「跨境」）不会出现在本页——样本必须落在配置内的目录。
+const c2 = await put('产品集/走查系列2/证书/专利/外观专利证书.pdf', pdf('cert'))
+// 三域笔记各一篇（笔记库对标的核心场景）
+await put('产品集/走查系列1/文档/笔记/产品纪事.md', '# 产品纪事\n\n系列1 的认证与打样记录。\n')
+await put('客户/走查客户/笔记/拜访纪要.md', '# 拜访纪要\n\n客户沟通结论与后续动作。\n')
+await put('供应商/走查供应商/笔记/采购备忘.md', '# 采购备忘\n\n交期与来料检验口径。\n')
+const plus = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10)
+// 元数据 update 是**全量覆盖**（契约见 shared/types.ts 注释）：四字段必须一次传齐，
+// 分两次打会让后一次把前一次的到期日清空——样本一开始就这么写，徽标莫名消失，实为调用姿势错。
+await page.evaluate(async (a) => {
+  await window.qihebox.metadata.update({
+    file_path: a.p, cert_type: '强制认证', expiry_date: a.d, tags: ['走查', '认证'], notes: '',
+  })
+  await window.qihebox.metadata.update({
+    file_path: a.q, cert_type: '', expiry_date: a.d2, tags: [], notes: '',
+  })
+}, { p: c1, q: c2, d: plus(9), d2: plus(120) })
+
+// 导航：合入 hotfix/2.5.8-file-routing 后 file:// 走 HashRouter，路由值住 `#/…`。
+// 原脚本的 pushState + popstate 在 HashRouter 下不再改变路由（且 file:// 上换 path 会被拒），
+// 一律改走 hash——顺带覆盖「深链冷启动」这条真实路径。
 const goto = async (url) => {
-  await page.goto(INDEX_URL)
+  await page.goto(`${INDEX_URL}#${url}`)
   await page.waitForLoadState('domcontentloaded')
   await page.waitForFunction(() => !!window.qihebox, null, { timeout: 10000 })
-  await page.evaluate((u) => {
-    window.history.pushState({}, '', u)
-    window.dispatchEvent(new PopStateEvent('popstate'))
-  }, url)
-  await page.waitForTimeout(700)
+  await page.waitForTimeout(900)
+}
+/**
+ * 关掉当前叠在页面上的弹窗/菜单。
+ * 必要性：hash 路由下 goto() 只是同文档片段跳转、**不重载文档**，上一张截图留下的弹窗会一直开着，
+ * 把下一个场景的目标挡住（实测 dlg-rename-supplier 因此 30s 等不到右键目标）。
+ */
+const closeAnyDialog = async () => {
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(200)
+  }
 }
 
 let failures = 0
@@ -102,6 +152,75 @@ try {
 } catch (err) {
   failures++
   console.log(`✗ modal-create: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`)
+}
+
+// v2.5.8（W4/W5 本批）：SearchSelect 弹层、笔记库网格与多选浮条、筛选无结果空态。
+// QIHE_SHOT_BASELINE=1 时整段跳过——用于抓「改造前」基线，那些点位改造前根本不存在。
+if (!process.env.QIHE_SHOT_BASELINE) {
+  const shots = [
+    ['searchselect-open', async () => {
+      await goto('/certs')
+      await page.getByLabel('产品集筛选').click()
+      await page.waitForTimeout(400)
+    }],
+    ['notes-grid', async () => {
+      await goto('/notes')
+    }],
+    ['notes-filter-open', async () => {
+      await goto('/notes')
+      // 筛选行的下拉（「归属实体」是新建弹窗里那个的标签，此处要用筛选口径）
+      await page.getByLabel('归属实体筛选').click()
+      await page.waitForTimeout(400)
+    }],
+    ['notes-selected', async () => {
+      await goto('/notes')
+      await page.locator('[data-note-card]').first().click()
+      await page.waitForTimeout(400)
+    }],
+    ['notes-nomatch', async () => {
+      await goto('/notes')
+      await page.getByPlaceholder('搜索标题或归属…').fill('zzz不存在')
+      await page.waitForTimeout(400)
+    }],
+    // —— v2.5.8 弹窗专项：逐个改版弹窗的 framed 形态取证（Modal 头部/页脚 + .dlg-field 排版）——
+    ['dlg-create-ps', async () => {
+      await goto('/product-sets')
+      await closeAnyDialog()
+      await page.getByRole('button', { name: /新建产品集/ }).first().click()
+      await page.waitForTimeout(400)
+    }],
+    ['dlg-create-supplier', async () => {
+      await goto('/suppliers')
+      await closeAnyDialog()
+      await page.getByRole('button', { name: /新建供应商/ }).first().click()
+      await page.waitForTimeout(400)
+    }],
+    ['dlg-rename-supplier', async () => {
+      await goto('/suppliers')
+      await closeAnyDialog()
+      // 重命名入口在卡片右键菜单（副标题那句「关联入库单引用同步更新」是本次要留证的重点提示）
+      // 右键目标取卡片内的名称文本（照 suppliers.spec.ts:161 已验证口径；点 .card 容器实测不弹菜单）
+      await page.getByText('走查供应商', { exact: true }).click({ button: 'right' })
+      await page.getByRole('button', { name: /重命名/ }).click()
+      await page.waitForTimeout(400)
+    }],
+    ['dlg-create-note', async () => {
+      await goto('/notes')
+      await closeAnyDialog()
+      await page.getByRole('button', { name: /新建笔记/ }).first().click()
+      await page.waitForTimeout(400)
+    }],
+  ]
+  for (const [key, act] of shots) {
+    try {
+      await act()
+      await page.screenshot({ path: path.join(OUT, `${key}.png`), timeout: 12000 })
+      console.log(`✓ ${key}`)
+    } catch (err) {
+      failures++
+      console.log(`✗ ${key}: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`)
+    }
+  }
 }
 
 console.log(`截图输出：${OUT}`)

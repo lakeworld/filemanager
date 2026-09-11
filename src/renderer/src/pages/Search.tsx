@@ -236,7 +236,7 @@ export default function Search() {
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
             <For each={results().product_sets}>
               {(ps: ProductSetInfo) => (
-                <div class="card p-4 cursor-pointer hover:shadow-card-hover" onClick={() => navigate(`/product-sets/${ps.name}`)}>
+                <div class="card p-4 cursor-pointer" onClick={() => navigate(`/product-sets/${ps.name}`)}>
                   <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center text-lg">📦</div>
                     <div>
@@ -261,7 +261,7 @@ export default function Search() {
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
             <For each={results().customers ?? []}>
               {(c: CustomerInfo) => (
-                <div class="card p-4 cursor-pointer hover:shadow-card-hover" onClick={() => navigate(`/clients/${encodeURIComponent(c.name)}`)}>
+                <div class="card p-4 cursor-pointer" onClick={() => navigate(`/clients/${encodeURIComponent(c.name)}`)}>
                   <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center text-lg">🤝</div>
                     <div>
@@ -293,8 +293,8 @@ export default function Search() {
               scrollResetKey={results().files}
               renderItem={(file: FileEntry) => (
                 <div
-                  class={`card p-3 cursor-pointer hover:shadow-card-hover select-none ${
-                    selectedPaths().includes(file.path) ? "border-primary-500 bg-primary-50" : ""
+                  class={`card p-3 cursor-pointer select-none ${
+                    selectedPaths().includes(file.path) ? "card-selected" : ""
                   }`}
                   onClick={() => {
                     window.clearTimeout(clickTimer);

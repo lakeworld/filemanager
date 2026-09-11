@@ -86,6 +86,10 @@ export default function InvoiceCards(props: {
     <>
       <Show when={props.rows.length === 0} fallback={
         <div class="flex-1 min-h-0">
+          {/* v2.5.8 精致化 D6 批 2 定性说明：台账行走 VirtualGrid = 高基数面，卡片**保持实底 .card**
+              （PLAN §四 豁免：逐卡 backdrop-filter 是滚动卡顿与内存来源，09-08 用户真机反馈同因）。
+              PLAN §三 批 2 原句「台账卡基数低 → 玻璃化」的前提在此二组件已不成立（v2.5.5 卡片化后走
+              VirtualGrid），故玻璃化只落在页面骨架卡（Invoices.tsx / Quotes.tsx 容器），本处不做。 */}
           <VirtualGrid
             items={props.rows}
             itemHeight={150}
@@ -98,7 +102,7 @@ export default function InvoiceCards(props: {
               const isSel = () => props.selectedIds.includes(rec.number);
               return (
                 <div
-                  class={`card p-3 flex flex-col h-full relative select-none group transition-colors hover:shadow-card-hover cursor-pointer ${isSel() ? "border-primary-500 bg-primary-50" : ""} ${props.missing[rec.file_path] ? "opacity-70" : ""}`}
+                  class={`card p-3 flex flex-col h-full relative select-none group transition-colors cursor-pointer ${isSel() ? "card-selected" : ""} ${props.missing[rec.file_path] ? "opacity-70" : ""}`}
                   onDblClick={() => props.onPreview(rec)}
                   onClick={(e) => {
                     // 单击卡片空白区域 = 切换选中（避开状态徽章/客户chip/悬停按钮/复选框等交互元素）
@@ -149,7 +153,7 @@ export default function InvoiceCards(props: {
                   {/* 状态徽章（点击弹改状态）+ 客户 chip + 悬停操作 */}
                   <div class="flex items-center gap-1.5 mt-2 shrink-0 min-w-0">
                     <button
-                      class={`text-xs px-2 py-0.5 rounded-full shrink-0 transition-colors hover:ring-2 hover:ring-primary-300 ${statusChipClass(rec.status)}`}
+                      class={`chip shrink-0 transition-colors hover:ring-2 hover:ring-primary-300 ${statusChipClass(rec.status)}`}
                       title="点击修改状态"
                       onClick={(e) => openStatusMenu(e, rec.number)}
                     >
@@ -158,7 +162,7 @@ export default function InvoiceCards(props: {
                     <Show when={rec.customer} fallback={<span class="text-surface-300 text-xs shrink-0">无客户</span>}>
                       {(name) => (
                         <button
-                          class={`text-xs px-2 py-0.5 rounded-full transition-colors shrink-0 ${
+                          class={`chip transition-colors shrink-0 ${
                             props.customerExists(name())
                               ? "bg-surface-100 text-surface-700 hover:bg-primary-50 hover:text-primary-700"
                               : "bg-surface-50 text-surface-400"
@@ -175,7 +179,7 @@ export default function InvoiceCards(props: {
                     <Show when={rec.supplier} fallback={<span class="text-surface-300 text-xs shrink-0">无供应商</span>}>
                       {(name) => (
                         <button
-                          class={`text-xs px-2 py-0.5 rounded-full transition-colors shrink-0 ${
+                          class={`chip transition-colors shrink-0 ${
                             props.supplierExists(name())
                               ? "bg-surface-100 text-surface-700 hover:bg-primary-50 hover:text-primary-700"
                               : "bg-surface-50 text-surface-400"
@@ -233,7 +237,7 @@ export default function InvoiceCards(props: {
                   setStatusMenu(null);
                 }}
               >
-                <span class={`text-xs px-2 py-0.5 rounded-full ${statusChipClass(s)}`}>{s}</span>
+                <span class={`chip ${statusChipClass(s)}`}>{s}</span>
                 <Show when={menuRec()?.status === s}>
                   <span class="text-primary-600 text-xs">✓</span>
                 </Show>

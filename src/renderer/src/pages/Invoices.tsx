@@ -1273,7 +1273,7 @@ export default function Invoices() {
               />
             </Show>
           <div class="flex-1 min-h-0 flex flex-col">
-            <div class="card p-3 flex flex-col flex-1 min-h-0">
+            <div class="card card-glass fade-rise p-3 flex flex-col flex-1 min-h-0">
               <div class="flex items-center justify-between px-3 py-2 shrink-0">
                 <span class="text-sm text-surface-500">
                   未建档文件（{invoiceOrphans().length}）——归档目录有文件但台账无记录，可补建或删除
@@ -1305,7 +1305,7 @@ export default function Invoices() {
           </Show>
           <Show when={invoices().length === 0} fallback={
             <div class="flex-1 min-h-0 flex flex-col">
-              <div class="card p-2 flex flex-col flex-1 min-h-0">
+              <div class="card card-glass fade-rise p-2 flex flex-col flex-1 min-h-0">
                 <div class="flex items-center justify-between px-3 py-2 shrink-0">
                   <span class="text-sm text-surface-500">
                     共 {filteredInvoices().length} 条 · 金额合计
@@ -1420,7 +1420,7 @@ export default function Invoices() {
         {/* v2.5.5（B3 任务 D）：入库未建档文件视图 */}
         <Show when={viewMode() === "orphans"}>
           <div class="flex-1 min-h-0 flex flex-col">
-            <div class="card p-3 flex flex-col flex-1 min-h-0">
+            <div class="card card-glass fade-rise p-3 flex flex-col flex-1 min-h-0">
               <div class="flex items-center justify-between px-3 py-2 shrink-0">
                 <span class="text-sm text-surface-500">
                   未建档文件（{inboundOrphans().length}）——归档目录有文件但台账无记录，可补建或删除
@@ -1440,7 +1440,7 @@ export default function Invoices() {
         <Show when={viewMode() === "records"}>
           <Show when={inboundRecords().length === 0} fallback={
             <div class="flex-1 min-h-0 flex flex-col">
-              <div class="card p-2 flex flex-col flex-1 min-h-0">
+              <div class="card card-glass fade-rise p-2 flex flex-col flex-1 min-h-0">
                 <div class="flex items-center justify-between px-3 py-2 shrink-0">
                   <span class="text-sm text-surface-500">
                     共 {filteredInbound().length} 条 · 金额合计

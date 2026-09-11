@@ -67,7 +67,10 @@ test.describe('S4 开机自启：设置页开关', () => {
     app = await electron.launch({
       args: ['.', '--no-sandbox'],
       cwd: ROOT,
-      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('autostart'), XDG_CONFIG_HOME: XDG_DIR },
+      // QIHEBOX_AUTOSTART_FORCE：e2e 跑的是未打包实例（`electron .`），v2.5.8 起未打包实例**拒绝**
+      // 写自启项（写了就是「登录弹 Electron 空窗」那个缺陷）。本 spec 要验的是「设置页开关 → IPC →
+      // .desktop 内容」这条链，故显式旁路放行；拒写行为本身由 tests/unit/autoLaunch.test.ts 负例覆盖。
+      env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('autostart'), QIHEBOX_AUTOSTART_FORCE: '1', XDG_CONFIG_HOME: XDG_DIR },
     })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')

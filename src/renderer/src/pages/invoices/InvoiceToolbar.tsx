@@ -1,5 +1,6 @@
 import { For } from "solid-js";
 import DatePicker from "~/components/DatePicker";
+import MoneyInput from "~/components/MoneyInput";
 import { STATUSES } from "./utils";
 import type { CustomerBrief } from "./types";
 
@@ -84,23 +85,10 @@ export default function InvoiceToolbar(props: {
         <DatePicker compact ariaLabel="结束日期" value={props.dateTo} onChange={props.onDateTo} />
         <span class="w-px h-6 bg-surface-200 shrink-0" />
         <label class="text-xs text-surface-400 shrink-0">金额</label>
-        <input
-          type="number"
-          class="w-28 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
-          aria-label="金额下限"
-          placeholder="下限"
-          value={props.amountMin}
-          onInput={(e) => props.onAmountMin(e.currentTarget.value)}
-        />
+        {/* v2.5.8 精致化 W4/D8：金额筛选 → MoneyInput compact（口径同 Quotes 工具栏） */}
+        <MoneyInput compact ariaLabel="金额下限" placeholder="下限" value={props.amountMin} onChange={props.onAmountMin} />
         <span class="text-surface-400 text-sm">至</span>
-        <input
-          type="number"
-          class="w-28 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
-          aria-label="金额上限"
-          placeholder="上限"
-          value={props.amountMax}
-          onInput={(e) => props.onAmountMax(e.currentTarget.value)}
-        />
+        <MoneyInput compact ariaLabel="金额上限" placeholder="上限" value={props.amountMax} onChange={props.onAmountMax} />
         <span class="w-px h-6 bg-surface-200 shrink-0" />
         <select
           class="select"

@@ -3,7 +3,7 @@ import Modal from "~/components/ui/Modal";
 import ConfirmDialog from "~/components/ConfirmDialog"; // v2.5.5（B1-B）：脏守卫二次确认
 import Input from "~/components/ui/Input";
 import Textarea from "~/components/ui/Textarea";
-import Select from "~/components/ui/Select";
+import SearchSelect from "~/components/ui/SearchSelect";
 import TagInput from "~/components/TagInput";
 import { api } from "~/wails/api";
 import { showToast } from "~/stores/notifyBanner";
@@ -17,6 +17,13 @@ import type { CustomerPrefill } from "~/stores/createPrefillNormalize";
  * v2.5.4 预填（PLAN-v2.5.4 §3.4）：可选 initial（打开时 seed 全字段；不传 = 空表，照旧）+
  * 可选 onCancel（批量预填取消语义 P1-1：取消/X 走 onCancel；不传退回 onClose，行为零变化）。
  */
+/** 客户类型选项（v2.5.8 弹窗专项：空值 = 未分类，与客户列表筛选口径一致） */
+const TYPE_OPTIONS = [
+  { value: "", label: "未分类" },
+  { value: "企业", label: "企业" },
+  { value: "个人", label: "个人" },
+] as const;
+
 export default function CreateClientModal(props: {
   open: boolean;
   onClose: () => void;
@@ -152,77 +159,77 @@ export default function CreateClientModal(props: {
         <Modal
           open
           title="新建客户"
-          size="xl"
+          subtitle="名称即客户文件夹名；带 * 为必填，其余可留空后补"
+          size="2xl"
           onClose={realClose}
           // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc 走 onCloseRequest（二次确认）
           dirty={dirty()}
           onCloseRequest={requestClose}
+          framed
+          footer={
+            <>
+              {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestClose（二次确认） */}
+              <button class="btn-secondary" onClick={requestClose}>取消</button>
+              <button class="btn-primary" disabled={saving()} onClick={() => void handleCreate()}>
+                {saving() ? "创建中..." : "确认创建"}
+              </button>
+            </>
+          }
         >
-        <div class="p-6">
-          <h2 class="text-xl font-bold mb-4">新建客户</h2>
-          <div class="mb-4">
-            <label class="block text-sm font-medium text-surface-700 mb-1">客户名称</label>
-            <Input value={newName()} placeholder="如：张三" onInput={(e) => setNewName(e.currentTarget.value)} class="w-full" />
+        <div class="dlg-field">
+          <label class="dlg-label dlg-required">客户名称</label>
+          <Input value={newName()} placeholder="如：张三" onInput={(e) => setNewName(e.currentTarget.value)} class="w-full" />
+        </div>
+        <div class="dlg-grid">
+          <div class="dlg-field">
+            <label class="dlg-label">别名</label>
+            <Input value={newAlias()} placeholder="如：三哥" onInput={(e) => setNewAlias(e.currentTarget.value)} class="w-full" />
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">别名</label>
-              <Input value={newAlias()} placeholder="如：三哥" onInput={(e) => setNewAlias(e.currentTarget.value)} class="w-full" />
-            </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">国家</label>
-              <Input value={newCountry()} placeholder="如：中国" onInput={(e) => setNewCountry(e.currentTarget.value)} class="w-full" />
-            </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">联系方式</label>
-              <Input value={newContact()} placeholder="如：展会、老客户" onInput={(e) => setNewContact(e.currentTarget.value)} class="w-full" />
-            </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">客户来源</label>
-              <Input value={newSource()} placeholder="如：展会、老客户" onInput={(e) => setNewSource(e.currentTarget.value)} class="w-full" />
-            </div>
-            {/* v2.4.9 打磨 M2：新建弹窗补 type/电话/邮箱/地址（对齐编辑弹窗；type 默认空=未分类） */}
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">客户类型</label>
-              <Select
-                ariaLabel="客户类型"
-                value={newType()}
-                onChange={(e) => setNewType(e.currentTarget.value as "" | "企业" | "个人")}
-                class="w-full"
-              >
-                <option value="">未分类</option>
-                <option value="企业">企业</option>
-                <option value="个人">个人</option>
-              </Select>
-            </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">电话</label>
-              <Input value={newPhone()} placeholder="如：13800138000" onInput={(e) => setNewPhone(e.currentTarget.value)} class="w-full" />
-            </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">邮箱</label>
-              <Input value={newEmail()} placeholder="如：name@example.com" onInput={(e) => setNewEmail(e.currentTarget.value)} class="w-full" />
-            </div>
-            <div class="mb-4">
-              <label class="block text-sm font-medium text-surface-700 mb-1">地址</label>
-              <Input value={newAddress()} placeholder="如：浙江省义乌市…" onInput={(e) => setNewAddress(e.currentTarget.value)} class="w-full" />
-            </div>
+          <div class="dlg-field">
+            <label class="dlg-label">国家</label>
+            <Input value={newCountry()} placeholder="如：中国" onInput={(e) => setNewCountry(e.currentTarget.value)} class="w-full" />
           </div>
-          <div class="mb-4">
-            <label class="block text-sm font-medium text-surface-700 mb-1">标签</label>
-            <TagInput value={newTags()} onChange={setNewTags} options={tagList()} placeholder="输入标签按回车" scope="client" />
+          <div class="dlg-field">
+            <label class="dlg-label">联系方式</label>
+            {/* 原 placeholder 误抄「客户来源」的文案（展会、老客户），改回本字段语义 */}
+            <Input value={newContact()} placeholder="如：王经理 / 微信" onInput={(e) => setNewContact(e.currentTarget.value)} class="w-full" />
           </div>
-          <div class="mb-4">
-            <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>
-            <Textarea value={newNotes()} rows={2} placeholder="添加备注..." onInput={(e) => setNewNotes(e.currentTarget.value)} class="w-full" />
+          <div class="dlg-field">
+            <label class="dlg-label">获客来源</label>
+            <Input value={newSource()} placeholder="如：展会、老客户" onInput={(e) => setNewSource(e.currentTarget.value)} class="w-full" />
           </div>
-          <div class="flex gap-3 justify-end">
-            {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestClose（二次确认） */}
-            <button class="btn-secondary" onClick={requestClose}>取消</button>
-            <button class="btn-primary" disabled={saving()} onClick={() => void handleCreate()}>
-              {saving() ? "创建中..." : "确认创建"}
-            </button>
+          {/* v2.4.9 打磨 M2：新建弹窗补 type/电话/邮箱/地址（对齐编辑弹窗；type 默认空=未分类） */}
+          <div class="dlg-field">
+            <label class="dlg-label">客户类型</label>
+            {/* v2.5.8 弹窗专项：原生 select → 搜索下拉（3 项按 ≤5 档自动不出搜索框） */}
+            <SearchSelect
+              ariaLabel="客户类型"
+              options={TYPE_OPTIONS}
+              value={newType()}
+              placeholder="未分类"
+              onChange={(v) => setNewType(v as "" | "企业" | "个人")}
+            />
           </div>
+          <div class="dlg-field">
+            <label class="dlg-label">电话</label>
+            <Input value={newPhone()} placeholder="如：13800138000" onInput={(e) => setNewPhone(e.currentTarget.value)} class="w-full" />
+          </div>
+          <div class="dlg-field">
+            <label class="dlg-label">邮箱</label>
+            <Input value={newEmail()} placeholder="如：name@example.com" onInput={(e) => setNewEmail(e.currentTarget.value)} class="w-full" />
+          </div>
+          <div class="dlg-field">
+            <label class="dlg-label">地址</label>
+            <Input value={newAddress()} placeholder="如：浙江省义乌市…" onInput={(e) => setNewAddress(e.currentTarget.value)} class="w-full" />
+          </div>
+        </div>
+        <div class="dlg-field">
+          <label class="dlg-label">标签</label>
+          <TagInput value={newTags()} onChange={setNewTags} options={tagList()} placeholder="输入标签按回车" scope="client" />
+        </div>
+        <div class="dlg-field">
+          <label class="dlg-label">备注</label>
+          <Textarea value={newNotes()} rows={2} placeholder="添加备注..." onInput={(e) => setNewNotes(e.currentTarget.value)} class="w-full" />
         </div>
         </Modal>
         {/* v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认（独立 Modal 叠层） */}

@@ -70,6 +70,7 @@ test.describe('UI 一致性（v2.5.1 T4/T5）', () => {
     '/suppliers',
     '/quotes',
     '/invoices',
+    '/notes', // v2.5.8 W5 新增库页：漏收本条时，筛选行撑出横向滚动条无人拦截（实测踩过）
     '/files/doc/一致性系列/说明书',
   ]
 

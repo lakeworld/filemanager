@@ -89,8 +89,10 @@ export default function Exports() {
   };
 
   // v2.5.3（P2-15）：条目卡片渲染——小列表 For 与超阈值 VirtualGrid 共用（照 Trash renderEntry 模式，避免两份 JSX 漂移）
-  const renderEntry = (e: ExportEntry) => (
-    <div class="card p-4 flex items-center gap-4 hover:shadow-card-hover">
+  // v2.5.8 精致化 D6 批 3：glass 由调用方按量级给——小列表 For 走玻璃卡，≥阈值 VirtualGrid 一律实底
+  // （PLAN §四 高基数豁免；口径同 Clients.tsx:216 / Suppliers.tsx:226 先例，导出不设上限故必须分支）
+  const renderEntry = (e: ExportEntry, glass: boolean) => (
+    <div class={`card ${glass ? "card-glass " : ""}p-4 flex items-center gap-4`}>
       <div class="w-14 h-14 rounded-lg bg-surface-100 flex items-center justify-center overflow-hidden shrink-0">
         <span class="text-2xl">🗜️</span>
       </div>
@@ -151,7 +153,7 @@ export default function Exports() {
           when={entries().length >= EXPORT_VIRTUAL_THRESHOLD}
           fallback={
             <div class="space-y-2">
-              <For each={entries()}>{(e) => renderEntry(e)}</For>
+              <For each={entries()}>{(e) => renderEntry(e, true)}</For>
             </div>
           }
         >
@@ -162,7 +164,7 @@ export default function Exports() {
               itemHeight={EXPORT_ROW_HEIGHT}
               columns={1}
               gap={8}
-              renderItem={(e) => renderEntry(e)}
+              renderItem={(e) => renderEntry(e, false)}
             />
           </div>
         </Show>

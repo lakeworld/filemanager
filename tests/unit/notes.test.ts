@@ -43,6 +43,25 @@ describe('notes.listRecentNotes（v2.5.7 A2 笔记聚合）', () => {
     expect(notes.some((n) => n.relPath === '客户/张三/笔记/拜访纪要.md')).toBe(true)
   })
 
+  it('path = 绝对路径（v2.5.8 笔记库对标：渲染层预览/重命名/删除/打标一律吃绝对路径）', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    await writeNote(ws, '产品集/系列A/文档/笔记/纪事.md')
+    await writeNote(ws, '客户/张三/笔记/拜访.md')
+
+    const notes = await listRecentNotes(ws)
+    expect(notes).toHaveLength(2)
+    for (const n of notes) {
+      expect(path.isAbsolute(n.path)).toBe(true)
+      // 绝对路径必须与 relPath 同指一文件（relPath 是 / 分隔的工作区相对路径）
+      expect(n.path).toBe(path.join(ws, ...n.relPath.split('/')))
+      // 预览链路前置条件：FilePreviewModal 的 mdSaveRelPath 靠「绝对路径以工作区根为前缀」反推写盘相对路径
+      expect(n.path.startsWith(ws + path.sep)).toBe(true)
+    }
+  })
+
   it('.md 断言（大小写）+ 非 md 排除（.markdown 不是笔记——契约只认 .md）', async () => {
     const home = await tmp()
     const ws = await tmp()

@@ -360,28 +360,19 @@ test.describe('qihe-box e2e', () => {
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
 
-  test('M5 仪表盘：供应商/报价统计卡 + 草稿报价副链接跳转筛选', async () => {
+  test('M5 仪表盘：供应商/笔记统计卡（v2.5.8 用户拍板「报价」→「笔记」；笔记卡跳 /notes 工作台）', async () => {
     const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-e2e-dash-'))
 
-    // 建 1 供应商 + 2 报价（草稿/已确认 各 1：验证 总报价数=2 且 subText 草稿=1；目录扫描口径经 UI 数字断言）
+    // 建 1 供应商 + 三域各 1 篇笔记（core/notes 三域口径；目录扫描/聚合口径经 UI 数字断言）
     const createRes = await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
     expect(createRes.success).toBe(true)
     await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '仪表盘供应商' }))
-    await page.evaluate(async () =>
-      (window as any).qihebox.quotes.create({
-        quotation_no: 'QT-DASH-001',
-        date: '2026-08-01',
-        lines: [{ product: '草稿品', qty: 1, unit_price: 10, amount: 10 }],
-      }),
-    )
-    await page.evaluate(async () =>
-      (window as any).qihebox.quotes.create({
-        quotation_no: 'QT-DASH-002',
-        date: '2026-08-02',
-        lines: [{ product: '确认品', qty: 1, unit_price: 20, amount: 20 }],
-      }),
-    )
-    await page.evaluate(async () => (window as any).qihebox.quotes.setStatus('QT-DASH-002', '已确认'))
+    await fsp.mkdir(path.join(wsDir, '产品集', '仪表盘系列', '文档', '笔记'), { recursive: true })
+    await fsp.writeFile(path.join(wsDir, '产品集', '仪表盘系列', '文档', '笔记', '产品修订.md'), '# 产品修订')
+    await fsp.mkdir(path.join(wsDir, '客户', '仪表盘客户', '笔记'), { recursive: true })
+    await fsp.writeFile(path.join(wsDir, '客户', '仪表盘客户', '笔记', '拜访纪要.md'), '# 拜访纪要')
+    await fsp.mkdir(path.join(wsDir, '供应商', '仪表盘供应商', '笔记'), { recursive: true })
+    await fsp.writeFile(path.join(wsDir, '供应商', '仪表盘供应商', '笔记', '打样记录.md'), '# 打样记录')
 
     // 重载回初始入口同步渲染层工作区（裸 IPC workspace.create 只切主进程 currentWS，渲染层 signal 需整页重载后
     // loadCurrentWorkspace 对齐——既有 gotoRoute 基建同款），再导航到仪表盘（/）触发 stats 拉取
@@ -393,19 +384,16 @@ test.describe('qihe-box e2e', () => {
       window.location.hash = decodeURIComponent('/')
     })
 
-    // 统计卡数字：供应商=1（目录扫描口径）、报价总数=2（卡片容器定位 + 卡内精确值）
+    // 统计卡数字：供应商=1（目录扫描口径）、笔记=3（三域聚合，卡片容器定位 + 卡内精确值）
     const supplierCard = page.getByTitle('查看全部供应商')
     await expect(supplierCard.getByText('1', { exact: true })).toBeVisible({ timeout: 15000 })
-    const quoteCard = page.locator('div.card', { has: page.getByRole('link', { name: '草稿 1 条' }) })
-    await expect(quoteCard.getByText('2', { exact: true })).toBeVisible()
+    const noteCard = page.getByTitle('查看全部笔记')
+    await expect(noteCard.getByText('3', { exact: true })).toBeVisible()
 
-    // 报价卡 subText 独立链接（外层 div 非 A，规避嵌套锚点）→ 点击跳转 /quotes?status=草稿
-    await page.getByRole('link', { name: '草稿 1 条' }).click()
-    await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
-    // 报价页 URL 预选：状态下拉=草稿 + 列表仅草稿（QT-DASH-002 已确认 → 隐藏）
-    await expect(page.getByLabel('状态筛选')).toHaveValue('草稿')
-    await expect(page.getByText('QT-DASH-001', { exact: true })).toBeVisible()
-    await expect(page.getByText('QT-DASH-002', { exact: true })).toHaveCount(0)
+    // 笔记卡整卡 A → 点击跳 /notes 工作台，聚合列表含刚建笔记
+    await noteCard.click()
+    await expect(page.getByRole('heading', { name: '笔记库' })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText('拜访纪要', { exact: true })).toBeVisible()
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })

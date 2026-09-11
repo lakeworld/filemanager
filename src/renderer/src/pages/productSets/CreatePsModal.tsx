@@ -95,34 +95,35 @@ export default function CreatePsModal(props: {
         <Modal
           open
           title="新建产品集"
+          subtitle="名称即产品集文件夹名，图包 / 证书 / 文档都挂在它下面"
           size="lg"
+          framed
           onClose={realClose}
           // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc 走 onCloseRequest（二次确认）
           dirty={dirty()}
           onCloseRequest={requestClose}
+          footer={
+            <>
+              {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestClose（二次确认） */}
+              <button class="btn-secondary" onClick={requestClose}>取消</button>
+              <button class="btn-primary" disabled={saving()} onClick={() => void handleCreate()}>
+                {saving() ? "创建中..." : "确认创建"}
+              </button>
+            </>
+          }
         >
-        <div class="p-6">
-          <h2 class="text-xl font-bold mb-4">新建产品集</h2>
-          <div class="mb-4">
-            <label class="block text-sm font-medium text-surface-700 mb-1">产品集名称</label>
+          <div class="dlg-field">
+            <label class="dlg-label dlg-required" aria-required="true">产品集名称</label>
             <Input value={newPsName()} placeholder="如：夏季T恤系列" onInput={(e) => setNewPsName(e.currentTarget.value)} class="w-full" />
           </div>
-          <div class="mb-4">
-            <label class="block text-sm font-medium text-surface-700 mb-1">标签（建议从已定义标签中选择）</label>
+          <div class="dlg-field">
+            <label class="dlg-label">标签<span class="dlg-hint">（建议从已定义标签中选择）</span></label>
             <TagInput value={newPsTags()} onChange={setNewPsTags} options={tagList()} placeholder="如：客户、重点" scope="product_set" />
           </div>
-          <div class="mb-4">
-            <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>
+          <div class="dlg-field">
+            <label class="dlg-label">备注</label>
             <Textarea value={newPsNotes()} rows={3} placeholder="添加备注..." onInput={(e) => setNewPsNotes(e.currentTarget.value)} class="w-full" />
           </div>
-          <div class="flex gap-3 justify-end">
-            {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestClose（二次确认） */}
-            <button class="btn-secondary" onClick={requestClose}>取消</button>
-            <button class="btn-primary" disabled={saving()} onClick={() => void handleCreate()}>
-              {saving() ? "创建中..." : "确认创建"}
-            </button>
-          </div>
-        </div>
         </Modal>
         {/* v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认（独立 Modal 叠层） */}
         <Show when={discardOpen()}>

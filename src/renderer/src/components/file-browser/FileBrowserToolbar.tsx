@@ -24,11 +24,12 @@ export default function FileBrowserToolbar(props: {
 }) {
   return (
     <div class="flex items-center justify-between mb-6">
-      <div class="flex bg-surface-100 rounded-lg p-1">
+      {/* v2.5.8 精致化 D6 批 2：分段切换器收进 .seg-* 单点口径（材质见 index.css，刻意不用玻璃） */}
+      <div class="seg-track">
         <For each={props.subFolders}>
           {(sub) => (
             <button
-              class={`px-4 py-2 text-sm rounded-md transition-colors ${props.currentSub === sub ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500 hover:text-surface-700"}`}
+              class={`seg-item ${props.currentSub === sub ? "seg-item-on" : "text-surface-500 hover:text-surface-700"}`}
               onClick={() => props.onNavigate(sub)}
             >
               {sub}

@@ -95,10 +95,12 @@ test.describe('v2.5.7 渲染守卫（异常零容忍 + 新面回归）', () => {
     await navigateTo('/clients/守卫客户')
     await expect(page.getByRole('button', { name: '笔记', exact: true })).toBeVisible({ timeout: 15000 })
     // 子文件夹 tab 条：首个应为内建「笔记」（用户拍板 2026-08-30 显示顺序）
-    const tabs = page.locator('button[class*="py-2"][class*="rounded-md"]')
+    // v2.5.8 精致化 D6：选择器由 `button[class*="py-2"][class*="rounded-md"]`（碰运气的内边距子串）
+    // 改为分段切换器语义类 `.seg-track` / `.seg-item-on`——材质收进单点类名后，子串匹配已失效。
+    const tabs = page.locator('.seg-track button')
     await expect(tabs.first()).toHaveText('笔记')
-    // 选中态（bg-white shadow-sm）必须落在「报价」——发布日缺陷正是默认落点沿用首位而落到笔记
-    const active = page.locator('button[class*="shadow-sm"][class*="rounded-md"]')
+    // 选中态必须落在「报价」——发布日缺陷正是默认落点沿用首位而落到笔记
+    const active = page.locator('.seg-track button.seg-item-on')
     await expect(active).toHaveText('报价', { timeout: 15000 })
     // 内建笔记不写进 config（渲染层并集显示，配置文件零污染）
     const folders = await page.evaluate(async () => {
