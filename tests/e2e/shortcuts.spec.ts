@@ -187,4 +187,36 @@ test.describe('快捷键单注册点（v2.5.8 D11 / W6）', () => {
       await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
     }
   })
+
+  // 2026-09-12 复审 P0：既有那条只在 Files 路由跑，而 Files 页的 onDelete 回调**自带**空守卫
+  // ——真正没守卫的是报价页（`onDelete={() => setBatchDeleteConfirm(true)}` 直接置位），
+  // 于是「零选中按 Delete」在报价页会弹「确定删除已选的 0 条报价记录吗？」。
+  //
+  // **必须先种至少一条报价**：`Quotes.tsx:460` 那个 `<Show when={viewMode()==="records" && quotes().length===0}
+  // fallback={…}>` 在无数据时走空态分支，而 `SelectionBar`（:481）挂在 fallback 里——空库时组件根本不挂载，
+  // 键也就没被注册，用例会在「旧代码上也绿」的假象里通过（本轮第一版就踩了这个坑，实测旧版 6 例全绿）。
+  // 用 `qihebox.quotes.create` 直种一行明细，比走「新建报价」弹窗 UI 少十几步交互，且 core 校验一字不绕。
+  test('零选中时 Delete 不劫持——回调不带守卫的报价页同样不得弹「删 0 条」', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-shortcut-zero-'))
+    try {
+      await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+      const created = await page.evaluate(async () =>
+        (window as any).qihebox.quotes.create({
+          date: '2026-09-12',
+          // core 双保险：行必须自带 amount，且要等于 round2(qty × unit_price)，否则整单被拒
+          lines: [{ product: '复审种子件', sku: 'SEED-1', qty: 1, unit_price: 10, amount: 10 }],
+        }),
+      )
+      expect(created.success, `种报价失败：${JSON.stringify(created)}`).toBe(true)
+      await gotoRoute('/quotes')
+      // 「共 1 条报价 · 金额合计」只在有数据的 records 分支里出现 = SelectionBar 确实挂载了的证据
+      await expect(page.getByText('共 1 条报价').first()).toBeVisible({ timeout: 10000 })
+      await page.keyboard.press('Delete')
+      await page.waitForTimeout(500)
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      await expect(page.getByText('批量删除报价记录')).toHaveCount(0)
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+    }
+  })
 })

@@ -50,13 +50,17 @@ const onKeydown = (e: KeyboardEvent): void => {
   }
 };
 
-// 模块级单监听（随应用生命周期常驻，无泄漏）
-window.addEventListener("keydown", onKeydown);
+// 模块级单监听（随应用生命周期常驻，无泄漏）。
+// typeof 守卫只为让纯 node 环境（vitest）能 import 本模块钉住入栈顺序与 Esc 派发的单测——
+// 渲染进程里 window 恒存在，浏览器行为零变化。
+if (typeof window !== "undefined") window.addEventListener("keydown", onKeydown);
 
 /** 入栈；返回 { id, remove }（组件 onCleanup / 关闭时调用 remove） */
 export function pushLayer(layer: Omit<Layer, "id">): { id: number; remove: () => void } {
   const id = nextId++;
-  stack.push({ ...layer, id });
+  // 必须走 insertLayer 而不是 stack.push：直接 push 会让 lowest 参数成为死代码——
+  // 常驻浮条照样压在刚开的弹窗/右键菜单上面，抢走第一次 Esc，并让弹窗丢了 isTop 焦点困守。
+  insertLayer({ ...layer, id });
   return {
     id,
     remove: () => {
@@ -78,4 +82,15 @@ export function isTop(id: number): boolean {
 /** 测试辅助：清空栈 */
 export function clearStackForTest(): void {
   stack = [];
+}
+
+/**
+ * 测试辅助：直接跑一次 Esc 派发（等价于 window 上那次 keydown）。
+ * 纯 node 环境下模块级监听未挂（见上方 typeof window 守卫），故用它来钉
+ * 「Esc 只派栈顶 + 消费后 defaultPrevented」这两条不变式。
+ */
+export function dispatchEscapeForTest(): { prevented: boolean } {
+  let prevented = false;
+  onKeydown({ key: "Escape", preventDefault: () => { prevented = true; } } as unknown as KeyboardEvent);
+  return { prevented };
 }

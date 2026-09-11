@@ -21,7 +21,8 @@ import {
  * 只在没改过的页面上存在（`Notes.tsx:492` 注释里 e2e 事件轨迹抓实的那一条）。
  * 收成一处后这类位移缺陷不可能再在新页面复活。
  *
- * **形态 = 底部悬浮、不进文档流**：照 Notes 已上线的口径（`fixed bottom-6 left-1/2 z-30`），
+ * **形态 = 底部悬浮、不进文档流**：`fixed bottom-6` + 水平居中（居中写法见下方 JSX 注释——
+ * 与 D10 初版用的 `left-1/2` + `-translate-x-1/2` 不同，那种写法和 `.fade-rise` 关键帧打架），
  * 各长列表页为滚动区预留底部 padding 防遮最后一行（出处 = 精致化 PLAN 的 W5 一节）。
  *
  * **材质 = 浮层，允许玻璃**：`.glass-panel` + 双层影 + 内亮边属 §四「一眼掠过的面」，
@@ -42,7 +43,10 @@ export interface SelectionAction {
 }
 
 export interface SelectionBarProps {
-  /** 选中数；0 时整条不渲染（连层栈都不挂，不会白占 Esc） */
+  /**
+   * 选中数；0 时整条不渲染，且**层栈与 Ctrl+A / Delete 注册都不挂**
+   * （不会白占 Esc，更不会在无选中时把 Delete 吞成「删 0 条」确认框）。
+   */
   count: number;
   /** 量词：个文件 / 张发票 / 条入库单 / 条报价 / 篇笔记 */
   noun: string;
@@ -63,10 +67,17 @@ export interface SelectionBarProps {
 
 export default function SelectionBar(props: SelectionBarProps): JSX.Element {
   /**
-   * Ctrl+A / Delete 也走 `shortcuts.ts` 单注册点（组件挂载期间才接管，卸载即注销）。
-   * 未传对应回调 = 该页没有这个动作 = 不注册，键自然原样放行给浏览器。
+   * Ctrl+A / Delete 也走 `shortcuts.ts` 单注册点（**有选中期间**才接管，清零或卸载即注销）。
+   * 两道不注册的闸门：① 未传对应回调 = 该页没有这个动作；② `count` 为 0 = 没有可操作的对象。
+   * 闸门②是 2026-09-12 复审补的：早先只看①，而 Quotes / Invoices（发票与入库两处）的
+   * `onDelete` 回调本身不带空守卫（`onDelete={() => setBatchDeleteConfirm(true)}` 这类），
+   * 于是零选中时按 Delete 会弹「确定删除已选的 0 条报价记录吗？」——与 `shortcuts.ts` 里
+   * 这两条 desc 的口径、以及 CHANGELOG「无选中时不消费」的承诺同时相反。
+   * count 读在 effect 内 → 选中清零时自动注销，键原样放行给浏览器（Files 页靠的是页面侧
+   * 回调自带守卫，所以 e2e `shortcuts.spec` 那条「未注册即原样放行」一直是假绿）。
    */
   createEffect(() => {
+    if (props.count <= 0) return;
     const offs: (() => void)[] = [];
     if (props.onSelectAll) {
       const fn = props.onSelectAll;
@@ -111,10 +122,14 @@ export default function SelectionBar(props: SelectionBarProps): JSX.Element {
     // 上面的 Ctrl+A / Delete 注册与 Esc 入层栈**照旧生效**（选择态与键盘语义不随显隐变化，
     // 关掉的只是画面占用）。待拍板 #7「关闭后的内嵌双形态回退」今晚未拍板 → 按既定规则不做回退形态。
     <Show when={props.count > 0 && selectionBarVisible()}>
-      {/* w-max 必需：fixed + left-1/2 且未给 right，可用宽度只剩半屏，
-          不显式按内容取宽则每个按钮被挤成两行（Notes 实测口径）；max-w 兜窄窗口换行。 */}
+      {/* 居中用 left-0/right-0 + mx-auto，**不用** left-1/2 + -translate-x-1/2：
+          Tailwind 3.4 的 translate-x 编译成 `transform: translate(var(--tw-translate-x), …)`，
+          而本元素挂着 `.fade-rise`，其关键帧写了 `transform: translateY(8px→0)`——入场 300ms 内
+          关键帧整体覆盖该类 transform，横向 -50% 丢失，浮条先贴左再在动画结束那帧跳回中间
+          （2026-09-12 复审 P0 抓到的形态，`index.css` 的 fadeRise 定义在此）。
+          w-max 让条按内容取宽（固定 + 左右都定值时 auto 外边距才居中得起来）；max-w 兜窄窗口换行。 */}
       <div
-        class="fixed bottom-6 left-1/2 z-30 -translate-x-1/2 w-max max-w-[92vw] flex items-center justify-between gap-4 p-3 glass-panel rounded-xl shadow-card-hover border border-primary-100 fade-rise"
+        class="fixed bottom-6 left-0 right-0 mx-auto z-30 w-max max-w-[92vw] flex items-center justify-between gap-4 p-3 glass-panel rounded-xl shadow-card-hover border border-primary-100 fade-rise"
         role="toolbar"
         aria-label="批量操作"
       >
