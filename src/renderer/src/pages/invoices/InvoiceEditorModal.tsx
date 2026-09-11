@@ -1,8 +1,10 @@
-import { Show, For, createEffect } from "solid-js";
+import { Show, For, createMemo } from "solid-js";
 import Modal from "~/components/ui/Modal";
 import DatePicker from "~/components/DatePicker";
 import TagInput from "~/components/TagInput";
 import MoneyInput from "~/components/MoneyInput"; // v2.5.5（B2）：金额输入统一
+import SearchSelect from "~/components/ui/SearchSelect";
+import type { SearchSelectOption } from "~/components/ui/SearchSelect";
 import ArchiveField from "./ArchiveField";
 import { STATUSES } from "./utils";
 import type { InvoiceFormState, InvoiceStatus, InvoiceRecord, CustomerBrief, SupplierBrief } from "./types";
@@ -12,8 +14,13 @@ import type { PluginFileCommand } from "~/plugins/registry";
  * 发票新建/编辑弹窗（v2.5.1 T3 波1 拆分 + overlay→Modal 迁移）：
  * 信号与保存逻辑保留在主文件（Invoices.tsx），本组件只做展示与字段编辑（props 显式化，D11）。
  * 逻辑零改动：字段校验/归档/保存均在主文件 saveInvoice 等 handler。
- * v2.5.4：客户下拉 options 随 customers store 异步刷新重建时浏览器丢选中——变化后补应用 value（预填依赖）。
+ * v2.5.4 曾为「客户下拉 options 异步重建丢选中」加过 ref 兜底；v2.5.8 D9 三个下拉换
+ * `SearchSelect`（纯受控，显示文案由 value 反查）后该兜底整块作废，已删（见下方注释）。
+ * 弹窗内控件按 §四「读字表面实底」红线：只换控件，不给面板加 blur/分隔线。
  */
+
+const STATUS_OPTIONS: readonly SearchSelectOption[] = STATUSES.map((s) => ({ value: s, label: s }));
+
 export default function InvoiceEditorModal(props: {
   editor: { mode: "create" } | { mode: "edit"; record: InvoiceRecord } | null;
   form: InvoiceFormState;
@@ -40,20 +47,18 @@ export default function InvoiceEditorModal(props: {
   stagedIdentifyName?: string;
   onIdentify: (cmd: PluginFileCommand) => void;
 }) {
-  // 客户下拉：options 重建后补应用选中值（v2.5.4 预填）
-  let customerSelectRef: HTMLSelectElement | undefined;
-  createEffect(() => {
-    props.customers;
-    const v = props.form.customer;
-    if (customerSelectRef && customerSelectRef.value !== v) customerSelectRef.value = v;
-  });
-  // 供应商下拉：同款补应用机制（v2.5.7 补丁线，镜像客户）
-  let supplierSelectRef: HTMLSelectElement | undefined;
-  createEffect(() => {
-    props.suppliers;
-    const v = props.form.supplier;
-    if (supplierSelectRef && supplierSelectRef.value !== v) supplierSelectRef.value = v;
-  });
+  // v2.5.8 D9（W4 控件统一 II）：客户/供应商下拉换 SearchSelect 后，v2.5.4 起那套
+  // 「options 重建后用 ref 补应用 value」的兜底**整块作废**——原生 `<select>` 会在 options
+  // 异步重建时丢选中，而 SearchSelect 的显示文案由 `value` 反查 options 得出（纯受控），
+  // 列表刷新不丢选中，也不需要 DOM 引用。值口径一字未动（空串 = 不关联）。
+  const customerOptions = createMemo<readonly SearchSelectOption[]>(() => [
+    { value: "", label: "不关联客户" },
+    ...props.customers.map((c) => ({ value: c.name, label: c.name })),
+  ]);
+  const supplierOptions = createMemo<readonly SearchSelectOption[]>(() => [
+    { value: "", label: "不关联供应商" },
+    ...props.suppliers.map((s) => ({ value: s.name, label: s.name })),
+  ]);
   return (
     <Show when={props.editor}>
       <Modal
@@ -160,46 +165,38 @@ export default function InvoiceEditorModal(props: {
             </div>
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">状态</label>
-              <select
-                class="select w-full"
-                aria-label="发票状态"
+              <SearchSelect
+                class="w-full"
+                ariaLabel="发票状态"
+                options={STATUS_OPTIONS}
                 value={props.form.status}
-                onChange={(e) => props.setField("status", e.currentTarget.value as InvoiceStatus)}
-              >
-                <For each={STATUSES}>
-                  {(s) => <option value={s}>{s}</option>}
-                </For>
-              </select>
+                searchable={false}
+                onChange={(v) => props.setField("status", v as InvoiceStatus)}
+              />
             </div>
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">关联客户</label>
-              <select
-                ref={(el) => { customerSelectRef = el; }}
-                class="select w-full"
-                aria-label="关联客户"
+              <SearchSelect
+                class="w-full"
+                ariaLabel="关联客户"
+                options={customerOptions()}
                 value={props.form.customer}
-                onChange={(e) => props.setField("customer", e.currentTarget.value)}
-              >
-                <option value="">不关联客户</option>
-                <For each={props.customers}>
-                  {(c) => <option value={c.name}>{c.name}</option>}
-                </For>
-              </select>
+                placeholder="不关联客户"
+                matchTriggerWidth={false}
+                onChange={(v) => props.setField("customer", v)}
+              />
             </div>
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">关联供应商</label>
-              <select
-                ref={(el) => { supplierSelectRef = el; }}
-                class="select w-full"
-                aria-label="关联供应商"
+              <SearchSelect
+                class="w-full"
+                ariaLabel="关联供应商"
+                options={supplierOptions()}
                 value={props.form.supplier}
-                onChange={(e) => props.setField("supplier", e.currentTarget.value)}
-              >
-                <option value="">不关联供应商</option>
-                <For each={props.suppliers}>
-                  {(s) => <option value={s.name}>{s.name}</option>}
-                </For>
-              </select>
+                placeholder="不关联供应商"
+                matchTriggerWidth={false}
+                onChange={(v) => props.setField("supplier", v)}
+              />
             </div>
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">待办日期</label>

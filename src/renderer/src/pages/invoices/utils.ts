@@ -6,6 +6,23 @@ import type { InvoiceRecord, InvoiceStatus } from "../../types";
 
 export const STATUSES: InvoiceStatus[] = ["待报销", "已报销", "已入账"];
 
+/**
+ * 台账两工具栏共用的筛选档（v2.5.8 D9 控件统一 II：原生 select → SearchSelect 时上提）。
+ * 原先 `InvoiceToolbar` 与 `InboundToolbar` 各写一份同样的 `<option>` 字面量，
+ * 换组件后若两处各留一份 options，"归档/视图"口径就会漂——故集中一处。
+ * 结构即 `SearchSelect` 的 `options`（`{ value, label }`），空串 = 「全部」的既有语义一字不动。
+ */
+export const HAS_FILE_OPTIONS = [
+  { value: "", label: "全部归档" },
+  { value: "yes", label: "有归档文件" },
+  { value: "no", label: "无归档文件" },
+];
+
+export const VIEW_OPTIONS = [
+  { value: "records", label: "台账视图" },
+  { value: "orphans", label: "未建档文件" },
+];
+
 /** 待办窗口 = 距今 30 天（含已过期 30 天内），与 core isDueSoon / 证书到期提醒窗口同口径 */
 export const DUE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 

@@ -3,7 +3,7 @@ import { Portal } from "solid-js/web";
 import { pushLayer } from "~/components/ui/layerStack";
 import {
   filterOptions,
-  moveHighlight,
+  moveHighlightSkipped,
   autoSearchable,
   panelPosition,
   type SearchSelectOption,
@@ -21,12 +21,19 @@ import {
  *   （越界翻转，宿主弹窗 `overflow-auto` 不裁剪）——同 `DatePicker.tsx`；
  * - Esc/点外/滚动（仅触发器所在滚动链，见 onScroll 注释）/窗口变化 关闭；
  *   Esc 语义入全局层栈 `ui/layerStack`（弹出层 > 弹窗 > 页面）；
- * - 过滤与键盘推进的逻辑在 `~/lib/searchSelect`（纯函数，单测直测 13 例）。
+ * - 过滤与键盘推进的逻辑在 `~/lib/searchSelect`（纯函数，单测直测）。
  * - 材质 `.glass-panel` + 双层影 + 内亮边；入场复用 W3 的 `.fade-rise`（300ms outExpo，只动
  *   transform/opacity，减弱动效偏好已在 index.css 单点坍缩）——Portal 挂载即是新节点，挂过渡类
  *   不会播放（没有类名变化可言），入场动画必须走 animation 工具类。
  *   （注：类核查脚本连注释一起扫，这里刻意不写通配过渡与媒体查询的英文字面量。）
  *   弹层面积 ≪30% 视口，不触精致化 PLAN §四 的高基数 blur 豁免线。
+ *
+ * **本文件与 `ui/Select.tsx` 是站内原生 `<select>` 的唯一合法持有者**（v2.5.8 D9 定的 grep
+ * 口径：`grep '<select' src/renderer | grep -v 'components/ui/'` 必须为空）；页面/弹窗一律用本组件。
+ *
+ * 能力：v2.5.8 D9 起支持选项级 `disabled`（占位项灰显、↑↓ 跳过、点击与 Enter 不提交）。
+ * 已知与原生的一处差异：鼠标悬停可让高亮**停在**占位项上（原生是整项不参与高亮），
+ * 但提交口全部封死，不影响正确性；如将来要逐像素对齐，改 `onMouseEnter` 为跳过即可。
  *
  * 纪律：禁解构 props（D11）；动态属性一律响应式读取；不使用整属性通配 transition（W0 清零项）。
  */
@@ -74,7 +81,8 @@ export default function SearchSelect(props: SearchSelectProps) {
   const openPanel = () => {
     setTerm("");
     const idx = props.options.findIndex((o) => o.value === props.value);
-    setHighlight(idx >= 0 ? idx : -1);
+    // 当前值落在占位项（disabled）时不高亮它——否则 Enter 会"看起来能选其实不提交"
+    setHighlight(idx >= 0 && !props.options[idx].disabled ? idx : -1);
     const rect = triggerEl?.getBoundingClientRect();
     if (rect) {
       setPos(panelPosition(rect, PANEL_W, PANEL_H, { w: window.innerWidth, h: window.innerHeight }));
@@ -87,15 +95,17 @@ export default function SearchSelect(props: SearchSelectProps) {
   const close = () => setOpen(false);
 
   const pick = (opt: SearchSelectOption) => {
+    if (opt.disabled) return; // 占位项只展示不提交（与原生 <option disabled> 同语义）
     props.onChange(opt.value);
     close();
   };
 
-  /** 面板内按键：↑↓ 推进、Enter 选中高亮、其余交全局（Esc 由层栈/兜底监听处理） */
+  /** 面板内按键：↑↓ 推进高亮（跳过占位项）、Enter 选中高亮、其余交全局（Esc 由层栈/兜底监听处理） */
   const onPanelKeyDown = (e: KeyboardEvent) => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      setHighlight((h) => moveHighlight(filtered().length, h, e.key === "ArrowDown" ? 1 : -1));
+      const next = moveHighlightSkipped(filtered(), highlight(), e.key === "ArrowDown" ? 1 : -1);
+      if (next >= 0) setHighlight(next);
       return;
     }
     if (e.key === "Enter") {
@@ -111,14 +121,17 @@ export default function SearchSelect(props: SearchSelectProps) {
     if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       openPanel();
-      if (e.key === "ArrowUp") setHighlight((h) => moveHighlight(props.options.length, h, -1));
+      if (e.key === "ArrowUp") {
+        const idx = moveHighlightSkipped(props.options, -1, -1);
+        if (idx >= 0) setHighlight(idx);
+      }
     }
   };
 
-  // 过滤词变化 → 高亮回到首项（旧高亮序号在新列表里没有意义）
+  // 过滤词变化 → 高亮回到**首个可选项**（旧高亮序号在新列表里没有意义）
   createEffect(() => {
     term();
-    setHighlight(filtered().length > 0 ? 0 : -1);
+    setHighlight(moveHighlightSkipped(filtered(), -1, 1));
   });
 
   /**
@@ -242,13 +255,18 @@ export default function SearchSelect(props: SearchSelectProps) {
                       type="button"
                       role="option"
                       aria-selected={opt.value === props.value}
+                      aria-disabled={opt.disabled || undefined}
                       data-option={opt.value}
                       class={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-lg text-left transition-colors ${
-                        highlight() === i()
-                          ? "bg-primary-500/10 text-surface-900"
-                          : "text-surface-700 hover:bg-surface-100"
+                        opt.disabled
+                          ? "text-surface-400 cursor-default"
+                          : highlight() === i()
+                            ? "bg-primary-500/10 text-surface-900"
+                            : "text-surface-700 hover:bg-surface-100"
                       }`}
-                      onMouseEnter={() => setHighlight(i())}
+                      onMouseEnter={() => {
+                        if (!opt.disabled) setHighlight(i());
+                      }}
                       onClick={() => pick(opt)}
                     >
                       <span class="flex-1 truncate">{opt.label ?? opt.value}</span>
