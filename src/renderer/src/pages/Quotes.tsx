@@ -39,6 +39,7 @@ import OrphanList from "./invoices/OrphanList";
 import { HAS_FILE_OPTIONS, VIEW_OPTIONS } from "./invoices/utils";
 import type { QuoteRecord, CustomerInfo, FileEntry, OrphanReport } from "~/types";
 import Input from "~/components/ui/Input";
+import SelectionBar from "~/components/ui/SelectionBar";
 
 /** 台账列模板（与表头/行一致；minmax 保证窄窗口下可截断） */
 const QUOTE_COL_TEMPLATE =
@@ -475,29 +476,22 @@ export default function Quotes() {
             </div>
 
             {/* v2.5.5 打磨 2：报价批量工具条（选中 ≥1 浮现，对齐发票/入库） */}
-            <Show when={effectiveSelectedQuotes().length > 0}>
-              <div class="flex items-center justify-between mb-2 mx-1 px-3 py-2 bg-primary-50 border border-primary-100 rounded-xl shrink-0">
-                <span class="text-sm text-primary-700">已选择 {effectiveSelectedQuotes().length} 条报价</span>
-                <div class="flex gap-2">
-                  <button class="px-3 py-1.5 text-sm text-primary-700 hover:bg-white rounded-lg" onClick={selectAllVisibleQuotes}>
-                    全选可见
-                  </button>
-                  <button
-                    class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg"
-                    onClick={() => void batchSetQuoteStatus()}
-                    title="选中报价批量流转为「已确认」（草稿/修订中）"
-                  >
-                    批量改状态（已确认）
-                  </button>
-                  <button
-                    class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg"
-                    onClick={() => setBatchDeleteConfirm(true)}
-                  >
-                    🗑️ 批量删除
-                  </button>
-                </div>
-              </div>
-            </Show>
+            {/* v2.5.8 D10（W5）：收进 ui/SelectionBar。原条无「取消选择」，收口后与其余六处同架
+                （多一个清空位 + Esc 取消选择）；既有按钮文案一字未改。 */}
+            <SelectionBar
+              count={effectiveSelectedQuotes().length}
+              noun="条报价"
+              onClear={() => setSelectedQuoteIds([])}
+              actions={[
+                { label: "全选可见", onClick: selectAllVisibleQuotes },
+                {
+                  label: "批量改状态（已确认）",
+                  title: "选中报价批量流转为「已确认」（草稿/修订中）",
+                  onClick: () => void batchSetQuoteStatus(),
+                },
+                { label: "🗑️ 批量删除", tone: "danger", onClick: () => setBatchDeleteConfirm(true) },
+              ]}
+            />
 
             <Show when={filteredQuotes().length === 0} fallback={
               <>
@@ -513,7 +507,10 @@ export default function Quotes() {
                   <span class="text-right">金额</span>
                   <span class="text-right">操作</span>
                 </div>
-                <div class="flex-1 min-h-0">
+                <div
+          data-selection-bar-pad
+          class={`flex-1 min-h-0 ${effectiveSelectedQuotes().length > 0 ? "pb-24" : ""}`}
+        >
                   <VirtualGrid
                     items={filteredQuotes()}
                     itemHeight={48}

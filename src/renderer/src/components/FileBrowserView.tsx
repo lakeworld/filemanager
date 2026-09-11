@@ -26,6 +26,7 @@ import { useContextMenu } from "~/hooks/useContextMenu";
 import type { FileEntry } from "~/types";
 import { withBuiltinNotes, BUILTIN_NOTES_FOLDER, defaultSubFolder } from "~/constants/notes";
 import Input from "~/components/ui/Input";
+import SelectionBar from "~/components/ui/SelectionBar";
 
 /** v2.4.7（PLAN §4.6）：文件区作用域——productSet = 产品集文件区；customer = 客户文件区；v2.4.9 S2：supplier = 供应商文件区 */
 export type FileBrowserScope = "productSet" | "customer" | "supplier";
@@ -596,54 +597,23 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       />
 
 
-      <Show when={selectedFilePaths().length > 0}>
-        <div class="flex items-center justify-between mb-4 p-3 bg-primary-50 border border-primary-100 rounded-xl">
-          <div class="flex flex-col gap-1">
-            <span class="text-sm text-primary-700">已选择 {selectedFilePaths().length} 个文件</span>
-            <Show when={actionMessage()}>
-              <span class="text-xs text-primary-600">{actionMessage()}</span>
-            </Show>
-          </div>
-          <div class="flex gap-2">
-            <button
-              class="px-3 py-1.5 text-sm text-surface-600 hover:bg-white rounded-lg transition-colors"
-              onClick={clearSelection}
-            >
-              取消选择
-            </button>
-            <button
-              class="px-3 py-1.5 text-sm text-white bg-primary-500 hover:bg-primary-600 rounded-lg transition-colors"
-              onClick={handleCopySelected}
-            >
-              📋 复制选中
-            </button>
-            <button
-              class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg transition-colors"
-              onClick={handleShowSelectedInExplorer}
-            >
-              📂 在文件夹中显示
-            </button>
-            <button
-              class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg transition-colors"
-              onClick={() => handleBatchTag(selectedFilePaths())}
-            >
-              🏷️ 打标
-            </button>
-            <button
-              class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg transition-colors"
-              onClick={() => void handleCompress(selectedFilePaths())}
-            >
-              📦 压缩分享
-            </button>
-            <button
-              class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg transition-colors"
-              onClick={handleBatchDelete}
-            >
-              删除选中
-            </button>
-          </div>
-        </div>
-      </Show>
+      {/* v2.5.8 D10（W5）：本条原为页内手写的内嵌横条，现收进 `ui/SelectionBar`——
+          材质/量词位/Esc 全部单点。动作数组与按钮文案一字未改（既有 e2e 按 text 定位全绿即证）。
+          形态由「内嵌进文档流」换成「底部悬浮」：内嵌条插入会把文件列表整体下移，
+          与 Notes.tsx:492 注释里 e2e 轨迹抓实的那条双击丢失同因。 */}
+      <SelectionBar
+        count={selectedFilePaths().length}
+        noun="个文件"
+        message={actionMessage()}
+        onClear={clearSelection}
+        actions={[
+          { label: "📋 复制选中", tone: "primary", onClick: handleCopySelected },
+          { label: "📂 在文件夹中显示", onClick: handleShowSelectedInExplorer },
+          { label: "🏷️ 打标", onClick: () => handleBatchTag(selectedFilePaths()) },
+          { label: "📦 压缩分享", onClick: () => void handleCompress(selectedFilePaths()) },
+          { label: "删除选中", tone: "danger", onClick: handleBatchDelete },
+        ]}
+      />
 
       <div
         class="border-2 border-dashed rounded-2xl p-8 transition-colors border-surface-200 bg-surface-0 flex-1 min-h-0 flex flex-col"
@@ -693,7 +663,10 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
               全选
             </button>
           </div>
-          <div class="flex-1 min-h-0">
+          <div
+          data-selection-bar-pad
+          class={`flex-1 min-h-0 ${selectedFilePaths().length > 0 ? "pb-24" : ""}`}
+        >
             <VirtualGrid
               items={filteredFiles()}
               itemHeight={252}

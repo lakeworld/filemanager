@@ -85,7 +85,10 @@ export default function InvoiceCards(props: {
   return (
     <>
       <Show when={props.rows.length === 0} fallback={
-        <div class="flex-1 min-h-0">
+        <div
+          data-selection-bar-pad
+          class={`flex-1 min-h-0 ${props.selectedIds.length > 0 ? "pb-24" : ""}`}
+        >
           {/* v2.5.8 精致化 D6 批 2 定性说明：台账行走 VirtualGrid = 高基数面，卡片**保持实底 .card**
               （PLAN §四 豁免：逐卡 backdrop-filter 是滚动卡顿与内存来源，09-08 用户真机反馈同因）。
               PLAN §三 批 2 原句「台账卡基数低 → 玻璃化」的前提在此二组件已不成立（v2.5.5 卡片化后走

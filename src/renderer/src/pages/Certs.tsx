@@ -29,6 +29,7 @@ import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import { useContextMenu } from "~/hooks/useContextMenu";
 import type { FileEntry, ProductSetInfo } from "~/types";
 import Input from "~/components/ui/Input";
+import SelectionBar from "~/components/ui/SelectionBar";
 
 interface CertItem extends FileEntry {
   productSet: string;
@@ -461,36 +462,20 @@ export default function Certs() {
         </button>
       </div>
 
-      <Show when={selectedCount() > 0}>
-        <div class="flex items-center justify-between mb-4 p-3 bg-primary-50 border border-primary-100 rounded-xl">
-          <div class="flex flex-col gap-1">
-            <span class="text-sm text-primary-700">已选择 {selectedCount()} 个文件</span>
-            <Show when={actionMessage()}>
-              <span class="text-xs text-primary-600">{actionMessage()}</span>
-            </Show>
-          </div>
-          <div class="flex gap-2">
-            <button class="px-3 py-1.5 text-sm text-surface-600 hover:bg-white rounded-lg" onClick={clearSelection}>
-              取消选择
-            </button>
-            <button class="px-3 py-1.5 text-sm text-white bg-primary-500 hover:bg-primary-600 rounded-lg" onClick={() => handleCopy(selectedPaths())}>
-              📋 复制
-            </button>
-            <button class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg" onClick={() => handleShowInExplorer(selectedPaths())}>
-              📂 在文件夹中显示
-            </button>
-            <button class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg" onClick={() => handleBatchTag(selectedPaths())}>
-              🏷️ 打标
-            </button>
-            <button class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg" onClick={() => void handleCompress(selectedPaths())}>
-              📦 压缩分享
-            </button>
-            <button class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg" onClick={() => handleDelete(selectedPaths())}>
-              🗑️ 删除
-            </button>
-          </div>
-        </div>
-      </Show>
+      {/* v2.5.8 D10（W5）：收进 ui/SelectionBar，动作与文案一字未改 */}
+      <SelectionBar
+        count={selectedCount()}
+        noun="个文件"
+        message={actionMessage()}
+        onClear={clearSelection}
+        actions={[
+          { label: "📋 复制", tone: "primary", onClick: () => handleCopy(selectedPaths()) },
+          { label: "📂 在文件夹中显示", onClick: () => handleShowInExplorer(selectedPaths()) },
+          { label: "🏷️ 打标", onClick: () => handleBatchTag(selectedPaths()) },
+          { label: "📦 压缩分享", onClick: () => void handleCompress(selectedPaths()) },
+          { label: "🗑️ 删除", tone: "danger", onClick: () => handleDelete(selectedPaths()) },
+        ]}
+      />
 
       <Show when={visibleCount() > 0} fallback={
         // v2.5.2：首载 loading 兜底，空态不闪现
@@ -504,7 +489,10 @@ export default function Certs() {
             全选当前结果
           </button>
         </div>
-        <div class="flex-1 min-h-0">
+        <div
+          data-selection-bar-pad
+          class={`flex-1 min-h-0 ${selectedCount() > 0 ? "pb-24" : ""}`}
+        >
           <VirtualGrid
             items={filteredItems()}
             itemHeight={ITEM_HEIGHT}

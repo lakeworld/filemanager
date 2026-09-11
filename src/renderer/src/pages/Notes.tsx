@@ -28,6 +28,7 @@ import { BUILTIN_NOTES_FOLDER } from "~/constants/notes";
 import type { ContextMenuItem } from "~/components/ContextMenu";
 import type { FileEntry, NoteEntryInfo } from "~/types";
 import Input from "~/components/ui/Input";
+import SelectionBar from "~/components/ui/SelectionBar";
 
 /**
  * 笔记库（v2.5.7 A2 立项，v2.5.8 本批**全量对标图包库/证书库**）。
@@ -493,47 +494,20 @@ export default function Notes() {
           为什么这里不像 Images/Certs 那样内嵌在列表上方——实测内嵌条插入会把网格整体下移 ~68px，
           用户「单击选中 → 再单击/双击」的第二次点击就落到上边的计数行上，双击开编辑直接丢失
           （e2e 事件轨迹抓实）。浮条不改变布局，两条动作互不干扰；D10 全站收口时同形态复用它。 */}
-      <Show when={selectedCount() > 0}>
-        {/* w-max 必需：fixed + left-1/2 且未给 right，可用宽度只剩半屏（1022 视口下 511px），
-            不显式按内容取宽则每个按钮都被挤成两行；再挂 max-w-[92vw] 兜窄窗口的换行。 */}
-        <div class="fixed bottom-6 left-1/2 z-30 -translate-x-1/2 w-max max-w-[92vw] flex items-center justify-between gap-4 p-3 glass-panel rounded-xl shadow-card-hover border border-primary-100">
-          <div class="flex flex-col gap-1">
-            <span class="text-sm text-primary-700 whitespace-nowrap">已选择 {selectedCount()} 篇笔记</span>
-            <Show when={actionMessage()}>
-              <span class="text-xs text-primary-600">{actionMessage()}</span>
-            </Show>
-          </div>
-          <div class="flex gap-2">
-            <button class="px-3 py-1.5 text-sm text-surface-600 hover:bg-white rounded-lg whitespace-nowrap" onClick={clearSelection}>
-              取消选择
-            </button>
-            <button
-              class="px-3 py-1.5 text-sm text-white bg-primary-500 hover:bg-primary-600 rounded-lg whitespace-nowrap"
-              onClick={() => void handleCopy(selectedPaths())}
-            >
-              📋 复制
-            </button>
-            <button
-              class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg whitespace-nowrap"
-              onClick={() => void handleShowInExplorer(selectedPaths())}
-            >
-              📂 在文件夹中显示
-            </button>
-            <button
-              class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg whitespace-nowrap"
-              onClick={() => handleBatchTag(selectedPaths())}
-            >
-              🏷️ 打标
-            </button>
-            <button
-              class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg whitespace-nowrap"
-              onClick={() => handleDelete(selectedPaths())}
-            >
-              🗑️ 删除
-            </button>
-          </div>
-        </div>
-      </Show>
+      {/* v2.5.8 D10（W5）：本条就是浮条悬浮形态的出处（W4/W5 插单时只落了笔记库一页），
+          现收进 `ui/SelectionBar` 全站共用；动作与文案一字未改，`w-max` 等定位口径搬进组件。 */}
+      <SelectionBar
+        count={selectedCount()}
+        noun="篇笔记"
+        message={actionMessage()}
+        onClear={clearSelection}
+        actions={[
+          { label: "📋 复制", tone: "primary", onClick: () => void handleCopy(selectedPaths()) },
+          { label: "📂 在文件夹中显示", onClick: () => void handleShowInExplorer(selectedPaths()) },
+          { label: "🏷️ 打标", onClick: () => handleBatchTag(selectedPaths()) },
+          { label: "🗑️ 删除", tone: "danger", onClick: () => handleDelete(selectedPaths()) },
+        ]}
+      />
 
       <Show when={visibleCount() > 0 || loading()} fallback={
         <Show when={!loading()} fallback={<Loading text="笔记加载中…" />}>
@@ -559,9 +533,12 @@ export default function Notes() {
             全选当前结果
           </button>
         </div>
-        {/* pb-20：VirtualGrid 是 h-full 的独立滚动区，父级扣掉底部一段，
-            最后一行卡片就永远在浮条之上，不会被遮住（浮条高度约 60px + bottom-6）。 */}
-        <div class="flex-1 min-h-0 pb-24">
+        {/* v2.5.8 D10：留白改为**有选中才留**（原先常驻，会在未选中态白扣 96px 视口）。
+            VirtualGrid 是 h-full 的独立滚动区，父级扣掉一个条高，最后一行就永远在浮条之上。 */}
+        <div
+          data-selection-bar-pad
+          class={`flex-1 min-h-0 ${selectedCount() > 0 ? "pb-24" : ""}`}
+        >
           <Show when={!loading()} fallback={<Loading text="笔记加载中…" />}>
             <VirtualGrid
               items={filtered()}
