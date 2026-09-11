@@ -501,6 +501,8 @@ export default function Notes() {
         noun="篇笔记"
         message={actionMessage()}
         onClear={clearSelection}
+        onSelectAll={selectAllVisible}
+        onDelete={() => handleDelete(selectedPaths())}
         actions={[
           { label: "📋 复制", tone: "primary", onClick: () => void handleCopy(selectedPaths()) },
           { label: "📂 在文件夹中显示", onClick: () => void handleShowInExplorer(selectedPaths()) },

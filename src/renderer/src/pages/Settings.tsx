@@ -14,6 +14,7 @@ import SearchSelect from "~/components/ui/SearchSelect";
 import type { ApiResult, NamingField, TagInfo, WorkspaceConfig } from "~/types";
 import { BUILTIN_NOTES_FOLDER } from "~/constants/notes";
 import Input from "~/components/ui/Input";
+import { SHORTCUTS, comboLabel } from "~/shortcuts";
 
 /** 预设色板（标签颜色选择） */
 const PALETTE = [
@@ -640,6 +641,29 @@ export default function Settings() {
                 onChange={(e) => void toggleAutoLaunch(e.currentTarget.checked)}
               />
             </label>
+          </div>
+
+          {/* v2.5.8（D11 / W6）：快捷键速查——**直读 `shortcuts.ts` 的声明表**，
+              不在这里另写一份键位（ PLAN W6「设置页只读展示、不支持改键」的落地形态：
+              表是唯一真相，加了键这条卡自动跟上，删了也不会留下过期文案） */}
+          <div class="card card-glass p-6">
+            <h2 class="text-lg font-semibold mb-2">快捷键</h2>
+            <p class="text-sm text-surface-500 mb-4">应用内快捷键一览（暂不支持自定义改键）</p>
+            <ul class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+              <For each={SHORTCUTS}>
+                {(s) => (
+                  <li class="flex items-baseline gap-2 text-sm">
+                    <kbd class="shrink-0 px-1.5 py-0.5 rounded border border-surface-200 bg-surface-100 text-xs font-mono text-surface-700">
+                      {comboLabel(s)}
+                    </kbd>
+                    <span class="text-surface-600">{s.desc}</span>
+                  </li>
+                )}
+              </For>
+            </ul>
+            <p class="text-xs text-surface-400 mt-3">
+              另：Esc 关闭当前最上层（弹窗 / 菜单 / 下拉 / 浮条清空选择），方向键与 Enter/Tab 在各弹出层内导航。
+            </p>
           </div>
 
           {/* v2.5.8（D3.5）：存储优化——去重巡检（2026-09-06 用户拍板：置于「通用」卡下方） */}

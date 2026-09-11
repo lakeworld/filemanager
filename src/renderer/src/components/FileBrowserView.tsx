@@ -27,6 +27,7 @@ import type { FileEntry } from "~/types";
 import { withBuiltinNotes, BUILTIN_NOTES_FOLDER, defaultSubFolder } from "~/constants/notes";
 import Input from "~/components/ui/Input";
 import SelectionBar from "~/components/ui/SelectionBar";
+import { registerShortcut } from "~/shortcuts";
 
 /** v2.4.7（PLAN §4.6）：文件区作用域——productSet = 产品集文件区；customer = 客户文件区；v2.4.9 S2：supplier = 供应商文件区 */
 export type FileBrowserScope = "productSet" | "customer" | "supplier";
@@ -374,27 +375,22 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   };
 
   onMount(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
-        const target = e.target as HTMLElement | null;
-        // A1 守卫增强（v2.5.7）：输入类元素 / contenteditable（Crepe 编辑区等）/ 非折叠文本选区
-        // 一律放行——否则文件选中时窗口级 Ctrl+C 会把正文选区白拷成文件路径（根因 1「偶尔失效」）
-        const tag = target?.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA") return;
-        if (target?.isContentEditable) return;
-        // 有非折叠文本选区（正文被选中）→ 放行，让浏览器复制选区文本（根因 1 修复核心）；
-        // 折叠（仅光标/无选区）才轮到「文件选中 → 复制文件路径」语义
-        if (!isCollapsedSelection()) return;
-        const paths = selectedFilePaths();
-        if (paths.length > 0) {
-          e.preventDefault();
-          handleCopyPaths(paths);
-        }
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
+    // v2.5.8 D11（W6）：Ctrl+C 收进 `shortcuts.ts` 单注册点。**守卫逐条原样搬**：
+    // ① 输入类元素 / contenteditable（Crepe 编辑区等）放行——否则文件选中时窗口级 Ctrl+C
+    //    会把正文选区白拷成文件路径（v2.5.7 A1 根因 1「偶尔失效」）；
+    // ② 有非折叠文本选区（正文被选中）放行，让浏览器复制选区文本（根因 1 修复核心）；
+    //    折叠（仅光标/无选区）才轮到「文件选中 → 复制文件路径」语义。
+    // 唯一差异：原口径只豁免 INPUT/TEXTAREA，`shortcuts.ts` 的 `isTextTarget` 还豁免 SELECT
+    // （取自 Header 那份、并集更宽）——D9 之后渲染层已无原生 select，两条判定实际等价。
+    const offCopy = registerShortcut("file.copy", () => {
+      if (!isCollapsedSelection()) return false;
+      const paths = selectedFilePaths();
+      if (paths.length === 0) return false;
+      handleCopyPaths(paths);
+      return true; // 交回派发层 preventDefault（与原先在此处 preventDefault 等价）
+    });
     onCleanup(() => {
-      window.removeEventListener("keydown", onKeyDown);
+      offCopy();
       window.clearTimeout(actionMessageTimer);
     });
   });
@@ -606,6 +602,8 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         noun="个文件"
         message={actionMessage()}
         onClear={clearSelection}
+        onSelectAll={selectAllFiles}
+        onDelete={handleBatchDelete}
         actions={[
           { label: "📋 复制选中", tone: "primary", onClick: handleCopySelected },
           { label: "📂 在文件夹中显示", onClick: handleShowSelectedInExplorer },
