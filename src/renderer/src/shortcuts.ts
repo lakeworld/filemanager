@@ -15,8 +15,14 @@
  *   标注 `none` 的条目（Ctrl+S）保持「编辑器里也要能存盘」的原口径；
  * - `when` 只做「本页有没有注册处理器」的门控——不引入路由判断，避免与页面自身条件双源。
  *
- * **豁免清单（PLAN W6 三分法：收编 3 + 保留 1 + 组件内部 12，共 16 处 keydown）**：
- * 以下监听**只处理本组件自身的 Esc/↑↓/Tab/Enter，不含任何 `Ctrl+<字母>`/`Delete` 全局语义**，
+ * **豁免清单（PLAN W6 三分法）**：现存 `keydown` 监听 **14 处** = 本文件单点 1 +
+ * 下列 13 处豁免（`ui/layerStack.ts` 保留 1 + 组件内部 12）。`tests/unit/shortcuts.test.ts`
+ * 把 14 这个数钉死，计数前先剥掉注释，所以这里只数**现存监听**。
+ * 另有 **3 处的组合键语义已收编进本表**，但只有前两处的监听整个消失：
+ * `Header`(Ctrl+K) 与 `FileBrowserView`(Ctrl+C) 不再自己挂监听；
+ * `NoteEditorModal` 的 **Ctrl+S 存盘语义**收进本表，而它自己的 capture 段监听仍在（= 下面第 7 项，
+ * 管的是 Crepe 编辑器内部按键，与快捷键无关，两件事别混）。
+ * 以下 13 处监听**只处理本组件自身的 Esc/↑↓/Tab/Enter，不含任何 `Ctrl+<字母>`/`Delete` 全局语义**，
  * 算组件职责、不算散挂，故不进本表（`tests/unit/shortcuts.test.ts` 按此口径把关）：
  *   1. `ui/layerStack.ts` —— Esc 派栈顶，**全站唯一 Esc 入口**（保留，本就是单注册点）
  *   2. `ui/Modal.tsx` —— 焦点困守 Tab/Shift+Tab
