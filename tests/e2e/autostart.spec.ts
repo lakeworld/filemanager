@@ -81,9 +81,15 @@ test.describe('S4 开机自启：设置页开关', () => {
     await killApp(app)
   })
 
-  /** 设置页「通用」card 内的开机自启 checkbox（按 card 文本定位，避免与其他 checkbox 混淆） */
+  /**
+   * 设置页「通用」卡内的开机自启 checkbox。
+   * v2.5.8 D11（W7）前该卡只有一条开关，按「卡文本含 开机自启」定位即唯一；W7 把这张卡扩成
+   * 6 条开关后同一张卡里有 6 个 checkbox（strict mode 直接歧义）。定位意图未变——仍要那条
+   * 开机自启开关——只是将收窄层级从「卡」下移到「本条目的 label」，与 `app-settings.spec.ts`
+   * 的 `toggleOf()` 同一口径。
+   */
   const autoLaunchCheckbox = () =>
-    page.locator('div.card', { hasText: '开机自启' }).getByRole('checkbox')
+    page.locator('label', { hasText: '开机自启' }).first().getByRole('checkbox')
 
   const isAutoLaunch = () =>
     page.evaluate(

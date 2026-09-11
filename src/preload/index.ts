@@ -12,6 +12,7 @@ import type {
   WindowPrepareHideMessage,
   WindowRestoredMessage,
 } from '../shared/types'
+import type { AppSettings, AppSettingsPatch } from '../shared/appSettings'
 
 const invoke = (channel: string, ...args: unknown[]): Promise<unknown> =>
   ipcRenderer.invoke(channel, ...args)
@@ -303,6 +304,16 @@ const api = {
         new CustomEvent('qihebox:ui:open-entity', { detail: { entity, key } }),
       )
     },
+  },
+  // v2.5.8 D11（W7）：应用级设置（userData/settings.json）的**内部**读写口。
+  // 刻意不挂进 `settings` 命名空间——那个命名空间是**插件可见面**（docs/PLUGIN.md 契约 +
+  // tests/unit/plugins-contract.test.ts 逐字钉死），把全量读写放进去等于给插件开一条
+  // 「改用户应用设置」的能力。本命名空间只服务渲染层，不进插件契约、不在 loader 注入清单里。
+  appSettings: {
+    get: (): Promise<ApiResult<AppSettings>> =>
+      invoke('qihebox:appSettings:get') as Promise<ApiResult<AppSettings>>,
+    set: (patch: AppSettingsPatch): Promise<ApiResult<AppSettings>> =>
+      invoke('qihebox:appSettings:set', patch) as Promise<ApiResult<AppSettings>>,
   },
   events: {
     /** 订阅主进程事件，返回取消订阅函数 */

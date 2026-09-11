@@ -468,6 +468,8 @@ export default function Certs() {
         noun="个文件"
         message={actionMessage()}
         onClear={clearSelection}
+        onSelectAll={selectAllVisible}
+        onDelete={() => handleDelete(selectedPaths())}
         actions={[
           { label: "📋 复制", tone: "primary", onClick: () => handleCopy(selectedPaths()) },
           { label: "📂 在文件夹中显示", onClick: () => handleShowInExplorer(selectedPaths()) },

@@ -1340,6 +1340,8 @@ export default function Invoices() {
                   count={effectiveSelectedInvoices().length}
                   noun="张发票"
                   onClear={() => setSelectedInvoiceIds([])}
+                  onSelectAll={selectAllVisibleInvoices}
+                  onDelete={() => setBatchDeleteTarget("invoice")}
                   actions={[
                     { label: "全选可见", onClick: selectAllVisibleInvoices },
                     {
@@ -1447,6 +1449,8 @@ export default function Invoices() {
                   count={effectiveSelectedInbound().length}
                   noun="条入库单"
                   onClear={() => setSelectedInboundIds([])}
+                  onSelectAll={selectAllVisibleInbound}
+                  onDelete={() => setBatchDeleteTarget("inbound")}
                   actions={[
                     { label: "全选可见", onClick: selectAllVisibleInbound },
                     { label: "🗑️ 批量删除", tone: "danger", onClick: () => setBatchDeleteTarget("inbound") },

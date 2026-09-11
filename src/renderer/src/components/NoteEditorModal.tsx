@@ -1,5 +1,6 @@
 import { Show, createSignal, onMount, onCleanup } from "solid-js";
 import { api } from "~/wails/api";
+import { registerShortcut } from "~/shortcuts";
 
 /**
  * 笔记编辑器（v2.5.7 A2，用户拍板 = Milkdown Crepe 所见即所得）。
@@ -274,16 +275,15 @@ export default function NoteEditorModal(props: {
         })();
       });
     });
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        dirty = true;
-        enqueueSave(true);
-      }
-    };
-    window.addEventListener("keydown", onKey);
+    // v2.5.8 D11（W6）：Ctrl+S 收进 shortcuts.ts 单注册点。守卫档位 = `none`
+    // （编辑器里也要能存盘，与收编前一致：原本就不做任何输入态豁免）
+    const offSave = registerShortcut("note.save", () => {
+      dirty = true;
+      enqueueSave(true);
+      return true;
+    });
     onCleanup(() => {
-      window.removeEventListener("keydown", onKey);
+      offSave();
       uninstallTaskKeys?.();
     });
   };

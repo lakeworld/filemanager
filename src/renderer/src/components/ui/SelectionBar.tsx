@@ -1,6 +1,8 @@
 import { Show, For } from "solid-js";
 import type { JSX } from "solid-js";
 import { createEffect, onCleanup } from "solid-js";
+import { registerShortcut } from "~/shortcuts";
+import { selectionBarVisible } from "~/stores/appSettings";
 import { pushLayer } from "./layerStack";
 import {
   SELECTION_ACTION_CLASS,
@@ -49,9 +51,44 @@ export interface SelectionBarProps {
   actions: SelectionAction[];
   /** 清空选择；同时是 Esc 的落点（入层栈栈顶消费） */
   onClear: () => void;
+  /**
+   * 「全选可见」回调（v2.5.8 D11 / W6）：传了才注册 `Ctrl+A`。
+   * 放在组件里注册而不是各页各挂一个监听——W6 的立身之本就是「全站一个 keydown」，
+   * 且浮条存在 ⟺ 有选中，正是这两个键唯一有意义的时刻。
+   */
+  onSelectAll?: () => void;
+  /** 「删除选中」回调（W6 的 `Delete`）：必须传既有的删除入口，**不得新造删除语义** */
+  onDelete?: () => void;
 }
 
 export default function SelectionBar(props: SelectionBarProps): JSX.Element {
+  /**
+   * Ctrl+A / Delete 也走 `shortcuts.ts` 单注册点（组件挂载期间才接管，卸载即注销）。
+   * 未传对应回调 = 该页没有这个动作 = 不注册，键自然原样放行给浏览器。
+   */
+  createEffect(() => {
+    const offs: (() => void)[] = [];
+    if (props.onSelectAll) {
+      const fn = props.onSelectAll;
+      offs.push(
+        registerShortcut("list.selectAll", () => {
+          fn();
+          return true;
+        }),
+      );
+    }
+    if (props.onDelete) {
+      const fn = props.onDelete;
+      offs.push(
+        registerShortcut("list.delete", () => {
+          fn();
+          return true;
+        }),
+      );
+    }
+    onCleanup(() => offs.forEach((off) => off()));
+  });
+
   /**
    * Esc 入层栈，**但以 `lowest` 置底入栈**。
    * 直觉上「后入栈即在栈顶、自然优先」就够了，实测不够：右键卡片那一刻，卡片同时被选中
@@ -70,7 +107,10 @@ export default function SelectionBar(props: SelectionBarProps): JSX.Element {
   });
 
   return (
-    <Show when={props.count > 0}>
+    // v2.5.8 D11（W7）：`selectionBar` 设置关 → 只隐藏浮条本身。
+    // 上面的 Ctrl+A / Delete 注册与 Esc 入层栈**照旧生效**（选择态与键盘语义不随显隐变化，
+    // 关掉的只是画面占用）。待拍板 #7「关闭后的内嵌双形态回退」今晚未拍板 → 按既定规则不做回退形态。
+    <Show when={props.count > 0 && selectionBarVisible()}>
       {/* w-max 必需：fixed + left-1/2 且未给 right，可用宽度只剩半屏，
           不显式按内容取宽则每个按钮被挤成两行（Notes 实测口径）；max-w 兜窄窗口换行。 */}
       <div

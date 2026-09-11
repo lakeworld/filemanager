@@ -8,7 +8,7 @@
 - pages/Invoices.tsx:4
 - pages/ProductSets.tsx:3
 - pages/Quotes.tsx:1
-- pages/Settings.tsx:10
+- pages/Settings.tsx:11
 - pages/SupplierDetail.tsx:2
 - pages/Suppliers.tsx:1
 - pages/Trash.tsx:1

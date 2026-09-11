@@ -12,6 +12,8 @@ import { closePreview } from "~/stores/preview";
 import { banner, showCertReminder } from "~/stores/notifyBanner";
 import { onMount, createSignal, createEffect, onCleanup, Show } from "solid-js";
 import type { WindowPrepareHideMessage } from "../../shared/types";
+import { installShortcutHost, registerShortcut, SHORTCUTS } from "./shortcuts";
+import { loadAppSettings } from "./stores/appSettings";
 
 function FramelessResizer() {
   const [resizing, setResizing] = createSignal(false);
@@ -182,6 +184,20 @@ export default function App(props: RouteSectionProps) {
   });
 
   onMount(() => {
+    // v2.5.8 D11（W6）：快捷键单注册点在此装载——全站只有这一处 window keydown 负责
+    // `Ctrl+<字母>`；`Ctrl+,` 进设置、`Ctrl+1…6` 直跳侧边栏前六项（路由取自声明表，勿在此重复写死）
+    // v2.5.8 D11（W7）：应用级设置镜像拉取（默认值 = 现行行为，拉取失败不影响任何按键）
+    loadAppSettings();
+    installShortcutHost();
+    for (const s of SHORTCUTS) {
+      if (!s.path) continue;
+      const target = s.path;
+      registerShortcut(s.id, () => {
+        navigate(target);
+        return true;
+      });
+    }
+
     loadCurrentWorkspace();
     loadWorkspaces();
     loadTagDefs(); // 全局加载标签颜色定义

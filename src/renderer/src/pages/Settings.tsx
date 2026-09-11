@@ -14,6 +14,45 @@ import SearchSelect from "~/components/ui/SearchSelect";
 import type { ApiResult, NamingField, TagInfo, WorkspaceConfig } from "~/types";
 import { BUILTIN_NOTES_FOLDER } from "~/constants/notes";
 import Input from "~/components/ui/Input";
+import { SHORTCUTS, comboLabel } from "~/shortcuts";
+import { appSettings, appSettingsReady, reloadAppSettings, setAppSetting } from "~/stores/appSettings";
+import type { AppSettingsPatch } from "../../../shared/appSettings";
+import { CERT_REMINDER_DAY_CHOICES } from "../../../shared/appSettings";
+
+/**
+ * v2.5.8 D11（W7）：通用卡里的一条开关（对齐开机自启既有行式：标题 + 一行说明 + 右侧复选框）。
+ * 抽成小组件是因为本卡从 1 条变 6 条，重复六段同样的 label 结构反而更难核对是否漏了某项。
+ */
+/** 写失败/未就绪时禁用开关（就绪前是默认值镜像，点了会被首拉响应覆盖 → 见 stores/appSettings） */
+function SettingToggle(props: {
+  title: string;
+  desc: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <label
+      class="flex items-center justify-between gap-4 cursor-pointer py-2"
+      classList={{ "opacity-60 cursor-not-allowed": !!props.disabled }}
+    >
+      <div>
+        <div class="text-sm font-medium text-surface-700">{props.title}</div>
+        <div class="text-xs text-surface-400 mt-0.5">{props.desc}</div>
+      </div>
+      <input
+        type="checkbox"
+        class="w-5 h-5 accent-primary-600 cursor-pointer"
+        checked={props.checked}
+        disabled={props.disabled}
+        onChange={(e) => props.onChange(e.currentTarget.checked)}
+      />
+    </label>
+  );
+}
+
+/** 提前提醒天数选项（档位与顺序取自 shared 唯一真相，不在这里另写一份数字） */
+const CERT_DAY_OPTIONS = CERT_REMINDER_DAY_CHOICES.map((d) => ({ value: String(d), label: `${d} 天` }));
 
 /** 预设色板（标签颜色选择） */
 const PALETTE = [
@@ -112,6 +151,20 @@ export default function Settings() {
     }
     // 成功也按主进程回读的真实状态落位（未打包实例的「关」可能是 no-op，恒按 checked 落位会留下假象）
     setAutoLaunchState(r.data === undefined ? checked : !!r.data);
+  };
+
+  // —— v2.5.8 D11（W7）：应用级设置开关（userData/settings.json，与开机自启同一回滚纪律）——
+  // 值来自 `stores/appSettings` 的信号（App 启动时拉一次）；写回以主进程返回的全量值为权威。
+  const pref = appSettings;
+  const prefReady = appSettingsReady;
+  const savePref = async (patch: AppSettingsPatch) => {
+    const ok = await setAppSetting(patch);
+    if (!ok) {
+      // 写失败必须**await 重拉**：复选框是受控的，但 Solid 只在信号变化时才回写 DOM——
+      // 用户刚点过的那一下已经改了 DOM 状态，不重拉就留下「显示已关、其实没落盘」的假象。
+      await reloadAppSettings();
+      showToast("error", "设置失败", "未能保存该设置，已恢复为磁盘上的当前值");
+    }
   };
 
   createEffect(() => {
@@ -624,22 +677,111 @@ export default function Settings() {
         }
       >
         <div class="space-y-6">
-          {/* v2.4.9（S4）：通用——开机自启（应用级设置，Linux .desktop / Win·mac 系统登录项） */}
+          {/* v2.4.9（S4）：通用——开机自启（应用级设置，Linux .desktop / Win·mac 系统登录项）
+              v2.5.8 D11（W7）：本卡从「只有一条开机自启」扩成应用级设置全集。
+              **默认值全部 = 该项开关化之前的现行行为**（老用户升级零行为变更，shared/appSettings.ts 是唯一真相）；
+              每项一行说明文案、同一行式（对齐下方开机自启的既有格式）。
+              减少动画未列：它与 D6 固化的「prefers-reduced-motion 全站单点」门禁语义冲突（加应用级开关 =
+              要动那条门禁的断言），按「改门禁需拍板」留待裁决，见执行卡 §十。 */}
           <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-2">通用</h2>
             <p class="text-sm text-surface-500 mb-4">应用级通用设置</p>
-            <label class="flex items-center justify-between gap-4 cursor-pointer">
-              <div>
-                <div class="text-sm font-medium text-surface-700">开机自启</div>
-                <div class="text-xs text-surface-400 mt-0.5">登录系统后自动启动，驻留托盘后台运行，不弹出主窗口</div>
-              </div>
-              <input
-                type="checkbox"
-                class="w-5 h-5 accent-primary-600 cursor-pointer"
-                checked={autoLaunch()}
-                onChange={(e) => void toggleAutoLaunch(e.currentTarget.checked)}
+            <div class="flex flex-col divide-y divide-surface-100">
+              <label class="flex items-center justify-between gap-4 cursor-pointer py-2 first:pt-0">
+                <div>
+                  <div class="text-sm font-medium text-surface-700">开机自启</div>
+                  <div class="text-xs text-surface-400 mt-0.5">登录系统后自动启动，驻留托盘后台运行，不弹出主窗口</div>
+                </div>
+                <input
+                  type="checkbox"
+                  class="w-5 h-5 accent-primary-600 cursor-pointer"
+                  checked={autoLaunch()}
+                  onChange={(e) => void toggleAutoLaunch(e.currentTarget.checked)}
+                />
+              </label>
+              <SettingToggle
+                title="关闭主窗口时驻留托盘"
+                desc="开：点关闭只隐藏到托盘，后台继续运行（默认）。关：关闭主窗口即退出应用"
+                checked={pref().closeToTray}
+                disabled={!prefReady()}
+                onChange={(v) => void savePref({ closeToTray: v })}
               />
-            </label>
+              <SettingToggle
+                title="自动检查更新"
+                desc="启动时与每天后台检查一次并提醒；关闭后可在「我的 → 检查更新」手动检查"
+                checked={pref().autoUpdateCheck}
+                disabled={!prefReady()}
+                onChange={(v) => void savePref({ autoUpdateCheck: v })}
+              />
+              <SettingToggle
+                title="悬浮多选操作条"
+                desc="选中文件/记录时屏幕底部浮出批量操作条。关闭后不再浮出，批量按钮仍在各页工具栏内"
+                checked={pref().selectionBar}
+                disabled={!prefReady()}
+                onChange={(v) => void savePref({ selectionBar: v })}
+              />
+              <SettingToggle
+                title="剪贴板让位正文选区"
+                desc="复制时若正文里选中了文字，Ctrl+C 复制那段文字而不是文件路径（推荐保持开启）"
+                checked={pref().clipboardGuard}
+                disabled={!prefReady()}
+                onChange={(v) => void savePref({ clipboardGuard: v })}
+              />
+              <SettingToggle
+                title="证书到期与发票待办提醒"
+                desc="每日一次系统通知（当天已提醒过的不重复打扰）；关闭后仪表盘区块照常显示"
+                checked={pref().certReminder}
+                disabled={!prefReady()}
+                onChange={(v) => void savePref({ certReminder: v })}
+              />
+              {/* 提前天数只在提醒开着时可编辑，避免"看着能改其实不生效" */}
+              {/* 未就绪时整行不可点（SearchSelect 无 disabled 能力，用 pointer-events-none 同效门控；
+                  这个 token 全站已有先例，编译 CSS 必然命中） */}
+              <div
+                class="flex items-center justify-between gap-4 py-2"
+                classList={{ "opacity-60": !prefReady(), "pointer-events-none": !prefReady() }}
+              >
+                <div>
+                  <div class={`text-sm font-medium ${pref().certReminder ? "text-surface-700" : "text-surface-400"}`}>
+                    提前提醒天数
+                  </div>
+                  <div class="text-xs text-surface-400 mt-0.5">到期日前多少天开始提醒（已过期未超同样天数内仍提醒）</div>
+                </div>
+                <SearchSelect
+                  class="w-32"
+                  compact
+                  searchable={false}
+                  ariaLabel="提前提醒天数"
+                  options={CERT_DAY_OPTIONS}
+                  value={String(pref().certReminderDays)}
+                  matchTriggerWidth={false}
+                  onChange={(v) => void savePref({ certReminderDays: Number(v) })}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* v2.5.8（D11 / W6）：快捷键速查——**直读 `shortcuts.ts` 的声明表**，
+              不在这里另写一份键位（ PLAN W6「设置页只读展示、不支持改键」的落地形态：
+              表是唯一真相，加了键这条卡自动跟上，删了也不会留下过期文案） */}
+          <div class="card card-glass p-6">
+            <h2 class="text-lg font-semibold mb-2">快捷键</h2>
+            <p class="text-sm text-surface-500 mb-4">应用内快捷键一览（暂不支持自定义改键）</p>
+            <ul class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+              <For each={SHORTCUTS}>
+                {(s) => (
+                  <li class="flex items-baseline gap-2 text-sm">
+                    <kbd class="shrink-0 px-1.5 py-0.5 rounded border border-surface-200 bg-surface-100 text-xs font-mono text-surface-700">
+                      {comboLabel(s)}
+                    </kbd>
+                    <span class="text-surface-600">{s.desc}</span>
+                  </li>
+                )}
+              </For>
+            </ul>
+            <p class="text-xs text-surface-400 mt-3">
+              另：Esc 关闭当前最上层（弹窗 / 菜单 / 下拉 / 浮条清空选择），方向键与 Enter/Tab 在各弹出层内导航。
+            </p>
           </div>
 
           {/* v2.5.8（D3.5）：存储优化——去重巡检（2026-09-06 用户拍板：置于「通用」卡下方） */}

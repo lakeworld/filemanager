@@ -13,7 +13,11 @@
  * - invoiceToNotify 与证书 toNotify 一并返回，供装配层合并为一条系统通知
  * - composeDailyNotification：纯函数拼装合并消息体（证书部分文案与 v2.4.2 完全一致，
  *   发票部分为「N 张发票待办，最近 <日期>」；全部为空返回 null 不发通知）
+ *
+ * v2.5.8 D11（W7）：新增 withinReminderWindow（按用户设定的提前天数收窄清单）与
+ * composeDailyNotification 的 `withinDays` 文案参数（默认 30 = 原文案逐字不变）。
  */
+import { parseExpiryDate } from './core/metadata'
 export interface NotifyState {
   /** 通知日期（本地时区 YYYY-MM-DD） */
   date: string
@@ -46,13 +50,37 @@ export interface NotifiableResult {
 }
 
 /**
+ * v2.5.8 D11（W7）：把「即将到期」清单按用户设定的提前天数收窄（纯函数，供装配层过滤）。
+ *
+ * 为什么不改 `DashboardService.checkExpiringCerts` 的 30 天窗口：那个窗口同时服务仪表盘的到期区块
+ * （页面数据，不是提醒），把它绑到提醒设置上会让一个"通知偏好"改动业务视图的口径。
+ * 本函数只做子集收窄：`checkExpiringCerts` 返回的是 `[-30, +30]` 天内的清单，
+ * 传 30 → 原样返回（默认 = 现行行为）；传 14 / 7 → 窗口对称收窄为 `[-days, +days]`
+ * （**已过期但未超过 days 天的仍提醒**，与 v2.4.2 P2「过期超过 30 天不再提醒」同一口径）。
+ * 日期解析失败的条目按现行宽松策略保留（不误伤：提醒多一条比漏一条好，脏日期由元数据页修）。
+ */
+export function withinReminderWindow(
+  expiring: [string, string, string][],
+  days: number,
+  now: Date = new Date(),
+): [string, string, string][] {
+  if (days >= 30) return expiring
+  const span = days * 24 * 60 * 60 * 1000
+  const t0 = now.getTime()
+  return expiring.filter(([, , expiry]) => {
+    const t = parseExpiryDate(expiry).getTime()
+    if (Number.isNaN(t)) return true
+    return Math.abs(t - t0) <= span
+  })
+}
+
+/**
  * 计算本次可通知列表（纯函数）：
  * - 仅当 state.date 与「今天」一致时，keys 视为当天已通知（去重）；跨天一律重置
  * - 返回 toNotify / invoiceToNotify（各自未通知过的）+ nextState（当天已通知 keys 全量，供落盘）
  * - v2.4.7：invoiceTodos 并入同一每日去重通道（key 前缀 `发票待办/` 防与证书 key 冲突），
  *   输出按 due_date 升序（最近到期在前，装配层消息体取「最近 <日期>」）
- */
-export function computeNotifiable(
+ */export function computeNotifiable(
   expiring: [string, string, string][],
   state: NotifyState | null,
   now: Date = new Date(),
@@ -85,10 +113,14 @@ export function computeNotifiable(
  * - 发票部分为「N 张发票待办，最近 <日期>」（最近 = 到期日最早的一张）
  * - 仅发票时标题为「发票待办提醒」；有证书时标题保持「证书到期提醒」（证书部分不变）
  * - 全部为空返回 null（调用方不发通知）
+ *
+ * v2.5.8 D11（W7）：第三参 `withinDays` = 摘要文案里的「N 天内」口径，**默认 30 = 原文案逐字不变**
+ * （既有测试与老行为零漂移）；调用方按 `certReminderDays` 设置传 14 / 7，避免文案与实际过滤窗口不一致。
  */
 export function composeDailyNotification(
   certToNotify: [string, string, string][],
   invoiceToNotify: InvoiceTodoItem[],
+  withinDays = 30,
 ): { title: string; body: string } | null {
   if (certToNotify.length === 0 && invoiceToNotify.length === 0) return null
   const lines: string[] = []
@@ -97,7 +129,7 @@ export function composeDailyNotification(
     lines.push(
       certToNotify.length === 1
         ? `产品集「${firstPs}」中 ${firstFile} 将于 ${firstExpiry} 到期，请及时处理`
-        : `最早 ${firstPs}/${firstFile} 于 ${firstExpiry} 到期，另有 ${certToNotify.length - 1} 张将在 30 天内到期`,
+        : `最早 ${firstPs}/${firstFile} 于 ${firstExpiry} 到期，另有 ${certToNotify.length - 1} 张将在 ${withinDays} 天内到期`,
     )
   }
   if (invoiceToNotify.length > 0) {

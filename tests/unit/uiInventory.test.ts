@@ -384,6 +384,57 @@ describe('渲染层视觉红线清单（v2.5.8 D6 固化）', () => {
     ).toEqual({ 'lib/selectionBar.ts': 1 })
   })
 
+  /**
+   * v2.5.8 D11（W7）：应用级设置的两条单点红线。
+   *
+   * ① **默认值只准住在 `src/shared/appSettings.ts` 一处**——这些开关的默认值就是「该项开关化之前的
+   *    现行行为」，第二处再写一份 `closeToTray: true` 就会出现「磁盘没落键、UI 显示另一套」的漂移，
+   *    而且老用户升级即刻中招（他们的 json 里根本没有这些键）。
+   * ② **设置键名不得扩散到白名单之外**——新增消费点必须显式登记，防止「第五处开始自己认默认值」。
+   *
+   * 扫描范围是整个 `src/`（本文件其余断言只看渲染层，W7 的双源风险横跨 main/shared/renderer/preload）。
+   */
+  it('控件红线：应用级设置键名与默认值全站单点（W7 防双源）', () => {
+    const PREF_KEYS = ['closeToTray', 'autoUpdateCheck', 'selectionBar', 'clipboardGuard', 'certReminder']
+    const SRC_ALL = path.join(ROOT, 'src')
+    const relAll = (f: string): string => path.relative(ROOT, f).split(path.sep).join('/')
+    const ALLOWED = new Set([
+      'src/shared/appSettings.ts', // 形状 + 默认值表（唯一真相）
+      'src/main/settings.ts', // 落盘读写
+      'src/main/index.ts', // 主进程消费点（关窗/更新/提醒）
+      'src/preload/index.ts', // IPC 桥（内部 appSettings 命名空间，不属插件可见面）
+      'src/renderer/src/qihebox.d.ts', // 渲染层契约声明
+      'src/renderer/src/stores/appSettings.ts', // 渲染层镜像
+      'src/renderer/src/components/ui/SelectionBar.tsx', // 消费：浮条显隐
+      'src/renderer/src/components/FileBrowserView.tsx', // 消费：剪贴板守卫
+      'src/renderer/src/pages/Settings.tsx', // 设置页开关
+    ])
+    const strays: string[] = []
+    const dupDefaults: string[] = []
+    for (const f of walk(SRC_ALL).filter((x) => /\.tsx?$/.test(x))) {
+      const r = relAll(f)
+      const code = stripComments(fs.readFileSync(f, 'utf8'))
+      for (const k of PREF_KEYS) {
+        if (!ALLOWED.has(r) && new RegExp(`\\b${k}\\b`).test(code)) strays.push(`${r}:${k}`)
+      }
+      if (r !== 'src/shared/appSettings.ts') {
+        for (const m of code.matchAll(
+          /\b(closeToTray|autoUpdateCheck|selectionBar|clipboardGuard|certReminder)\s*[:=]\s*(?:true|false)\b/g,
+        )) {
+          dupDefaults.push(`${r}:${m[0]}`)
+        }
+      }
+    }
+    expect(
+      strays,
+      `W7 设置键名出现在白名单之外（新消费点请登记进本表白名单并说明理由）：${strays.join(' | ')}`,
+    ).toEqual([])
+    expect(
+      dupDefaults,
+      `W7 设置默认值被抄到 shared 之外（默认值 = 现行行为，只准一处）：${dupDefaults.join(' | ')}`,
+    ).toEqual([])
+  })
+
   it('弹窗表面必须实底（.modal-panel / .dlg-* 禁透明材质、禁头尾分隔线、禁 ✕ 回潮）', () => {
     // 依据 PLAN §四「读字表面豁免」（2026-09-10 用户实拍裁决）：弹窗叠在 bg-black/50 遮罩上，
     // 任何半透明白底都会算成彩度 0 的灰平板（实测 rgb(245,245,245)），半透白描边则使边缘糊死。

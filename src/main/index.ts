@@ -29,9 +29,11 @@ import {
   computeNotifiable,
   composeDailyNotification,
   localDateString,
+  withinReminderWindow,
   type NotifyState,
   type InvoiceTodoItem,
 } from './notify'
+import type { AppSettings, AppSettingsPatch } from '../shared/appSettings'
 import { readJsonFile, writeJsonAtomic } from './core/paths'
 import {
   createMainWindow,
@@ -105,6 +107,19 @@ Menu.setApplicationMenu(null)
 let tray: Tray | null = null
 /** v2.5：插件宿主装配句柄（registerPluginHost 返回；宿主事件桥与退出清理用） */
 let pluginHost: PluginHostHandle | null = null
+/**
+ * v2.5.8 D11（W7）：userData 级应用设置的**模块级单例**。
+ * 为什么提到模块级而不是沿用 whenReady 里的局部变量：关窗驻留托盘 / 自动检查更新 / 证书提醒这三个
+ * 消费点分别在 `win.on('close')`、`window-all-closed`、启动后台任务里，前两者可能早于 whenReady
+ * 体内的装配代码被引用；`app.getPath('userData')` 在 e2e 覆盖（本文件上方）之后即可读，故安全。
+ * 注：e2e 的 userData 覆盖发生在模块加载期（早于本行），所以 e2e 下这份单例指向 spec 自己的隔离目录。
+ */
+const userSettings = createSettings(app.getPath('userData'))
+
+/** 读单个设置项（同步、开销 = 一次小 json 读；消费点都是低频路径） */
+function appPref<K extends keyof AppSettings>(key: K): AppSettings[K] {
+  return userSettings.getAll()[key]
+}
 /** v2.4.9（S4）：当前实例是否自启态（决定 --autostart 延迟建窗与自启态诊断日志） */
 let autostartMode = false
 /** v2.4.2（R1）：崩溃计数改为时间窗——10 分钟内 ≥3 次才退出；`clean-exit`（休眠销毁窗口）不计 */
@@ -217,6 +232,12 @@ function setupCloseToTray(win: BrowserWindow): void {
   if (process.env.QIHEBOX_E2E === '1') return
   win.on('close', (e) => {
     if (isQuitting()) return
+    // v2.5.8 D11（W7）「关闭主窗口时」开关：默认驻留托盘（= 上面的 v2.5.3 现行行为）。
+    // 关掉 = 关窗即退出：不 preventDefault，窗口正常销毁，随后 window-all-closed 里放行退出。
+    if (!appPref('closeToTray')) {
+      void log('info', '[window] close 事件触发 → 未开驻留托盘，退出应用（W7 设置项）')
+      return
+    }
     e.preventDefault()
     void log('info', '[window] close 事件触发 → 隐藏到托盘（渲染进程常驻）')
     win.hide()
@@ -246,6 +267,15 @@ app.on('window-all-closed', () => {
   const win = getMainWindow()
   if ((win && !win.isDestroyed()) || l4Rebuilding) {
     void log('info', '[window] L4 重建/新窗口存在，阻止退出（ensureMainWindow 立即重建）')
+    return
+  }
+  // v2.5.8 D11（W7）：用户关了「关窗驻留托盘」→ 全窗口关闭就是真退出（上面 close 处理器已放行销毁，
+  // 这里必须放行 Electron 默认退出，否则空监听会让进程无窗口静默常驻——比驻留托盘更糟）。
+  // 默认（驻留托盘开）不进入本分支，v2.5.3 的常驻语义不变。e2e 下 appPref 取默认值 → 不拦截。
+  if (!isQuitting() && !appPref('closeToTray')) {
+    void log('info', '[window] 未开驻留托盘且所有窗口已关闭 → 放行退出')
+    setQuitting(true)
+    app.quit()
     return
   }
   if (process.env.QIHEBOX_E2E !== '1') {
@@ -349,6 +379,12 @@ async function markUpdateNotified(version: string): Promise<void> {
 
 /** 静默更新检查：发现新版推送给所有窗口（无窗口则忽略，下次启动/次日再查）；失败仅 log */
 async function runUpdateCheck(): Promise<void> {
+  // v2.5.8 D11（W7）：后台自动检查可关（默认开 = v2.4.0 现行行为）。
+  // 只关这一条后台路径——「我的 → 检查更新」的手动入口走 ipc.ts 的 updater:check，不受影响。
+  if (!appPref('autoUpdateCheck')) {
+    void log('info', '自动检查更新已关闭（W7 设置项），跳过本次后台检查')
+    return
+  }
   try {
     const info = await checkUpdate(app.getVersion())
     if (!info) return
@@ -402,9 +438,15 @@ function sendSystemNotification(title: string, body: string, onClick?: () => voi
 
 /** 证书到期 + 发票待办通知：合并为一条系统通知，每日去重（userData/notified.json）；失败仅 log */
 async function runCertNotify(box: BoxService): Promise<void> {
+  // v2.5.8 D11（W7）：证书到期提醒可关（默认开 = v2.4.0 现行行为）。
+  // 只关「系统通知」这一条出口——仪表盘的到期/待办区块是页面数据，不受此开关影响。
+  // 发票待办与证书共用本通道（v2.4.7 §6.4），故关的是这一整条每日摘要通知，文案与设置项说明一致。
+  if (!appPref('certReminder')) return
+  const reminderDays = appPref('certReminderDays')
   let expiring: [string, string, string][]
   try {
-    expiring = await box.dashboard.checkExpiringCerts()
+    // 检查窗口仍是 core 的 30 天（页面与提醒共用同一份数据），提醒侧按用户设定的天数收窄
+    expiring = withinReminderWindow(await box.dashboard.checkExpiringCerts(), reminderDays)
   } catch (err) {
     void log('warn', `证书到期检查失败: ${String(err)}`)
     return
@@ -421,7 +463,7 @@ async function runCertNotify(box: BoxService): Promise<void> {
   const notifiedFile = path.join(app.getPath('userData'), 'notified.json')
   const state = await readJsonFile<NotifyState>(notifiedFile)
   const { toNotify, invoiceToNotify, nextState } = computeNotifiable(expiring, state, new Date(), invoiceTodos)
-  const msg = composeDailyNotification(toNotify, invoiceToNotify)
+  const msg = composeDailyNotification(toNotify, invoiceToNotify, reminderDays)
   if (!msg) return
   // v2.4.2（批次二）：聚合为一条摘要通知（证书部分取最早到期一条），发票部分「N 张发票待办，最近 <日期>」
   const sent = sendSystemNotification(msg.title, msg.body)
@@ -663,7 +705,9 @@ app.whenReady().then(() => {
 
     // —— v2.5：插件宿主装配（PLAN §六）——装配期只做已安装包清单登记（同步微秒级），
     // 不加载任何插件代码（惰性加载归 src/main/plugins/loader.ts）；默认未安装任何插件时零开销
-    const settings = createSettings(app.getPath('userData'))
+    // v2.5.8 D11（W7）：改用上方模块级单例（同一 userData 路径，两处各 new 一份会各自读盘、
+    // 未来加缓存就是双源；插件宿主装配与本行共用同一实例）
+    const settings = userSettings
     try {
       // v2.5.7（F4a）：cloudFetch 代签需要云 API 地址——resolveApiBase 私有配置注入，公开仓不写死
       pluginHost = registerPluginHost(svc, account, settings, resolveApiBase())
@@ -679,6 +723,16 @@ app.whenReady().then(() => {
           // 必须先 await 落盘再返回——否则调用方读到旧值（渲染层开关弹回）
           await settings.setDevMode(!!enabled)
           return settings.getDevMode()
+        }),
+      )
+      // v2.5.8 D11（W7）：应用级设置走 `qihebox:appSettings:get / set` 两条**内部**通道——
+      // 新增一个应用级设置项只改 shared/appSettings.ts 的默认值表，不再一键加一对 IPC。
+      // 形状/归一/档位校验全在 shared 与 settings 模块里，本层只做 ApiResult 包装（同一 handle() 纪律）。
+      ipcMain.handle('qihebox:appSettings:get', () => handle(() => settings.getAll()))
+      ipcMain.handle('qihebox:appSettings:set', (_e, patch: AppSettingsPatch) =>
+        handle(async () => {
+          // 同 setDevMode：先落盘再返回全量值，UI 以服务端返回为准（脏值被归一时能立刻看到回落）
+          return await settings.set(patch ?? {})
         }),
       )
     } catch (err) {

@@ -482,6 +482,8 @@ export default function Quotes() {
               count={effectiveSelectedQuotes().length}
               noun="条报价"
               onClear={() => setSelectedQuoteIds([])}
+              onSelectAll={selectAllVisibleQuotes}
+              onDelete={() => setBatchDeleteConfirm(true)}
               actions={[
                 { label: "全选可见", onClick: selectAllVisibleQuotes },
                 {

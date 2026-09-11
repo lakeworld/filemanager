@@ -1,6 +1,7 @@
 import { Show, createSignal, createEffect, For, onMount, onCleanup } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
+import { registerShortcut } from "~/shortcuts";
 import {
   currentWorkspace,
   workspaces,
@@ -27,18 +28,14 @@ export default function Header() {
 
   // P0-1：全局快捷键 Ctrl/Cmd+K 聚焦搜索框（输入框/文本域内不劫持）
   // v2.5.7（A1 同行修正，审：测-P1-8）：contenteditable（Crepe 编辑器）一并豁免——否则编辑中 Ctrl+K 被抢焦点
+  // v2.5.8 D11（W6）：监听与输入态守卫上移到 `shortcuts.ts` 单注册点，本处只留「聚焦」这个动作；
+  // 守卫口径原样未动（`isTextTarget` 就是这里那三行 tag + isContentEditable 判断搬过去的）
   onMount(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "k") return;
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (target?.isContentEditable) return;
-      e.preventDefault();
+    const off = registerShortcut("search.focus", () => {
       document.getElementById("global-search-input")?.focus();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+      return true;
+    });
+    onCleanup(off);
   });
 
   createEffect(() => {
