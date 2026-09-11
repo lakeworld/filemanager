@@ -6,6 +6,7 @@ import CreatePsModal from "./productSets/CreatePsModal";
 import EditInfoPsModal from "./productSets/EditInfoPsModal";
 import { withBuiltinNotes, defaultSubFolder } from "~/constants/notes";
 import { tagList } from "~/stores/tags";
+import SearchSelect from "~/components/ui/SearchSelect";
 import { prefillVersion, currentPrefill, advancePrefill, clearPrefill, currentEditPrefill, clearEditPrefill } from "~/stores/createPrefill";
 import type { ProductSetPrefill } from "~/stores/createPrefillNormalize";
 import TagChip from "~/components/TagChip";
@@ -407,16 +408,21 @@ export default function ProductSets() {
               value={psSearch()}
               onInput={(e) => setPsSearch(e.currentTarget.value)}
             />
-            <select
-              class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+            {/* v2.5.8 D9（W4 控件统一 II）：原生 select → SearchSelect（compact，与同排搜索框等高；
+                本页搜索框走的是手写串，那条在 D9 第二步收进 ui/Input，本处不顺手改版式）。 */}
+            <SearchSelect
+              class="min-w-[112px] md:w-40"
+              compact
+              ariaLabel="标签筛选"
+              options={[
+                { value: "", label: "全部标签" },
+                ...allTags().map((tag) => ({ value: tag, label: tag })),
+              ]}
               value={tagFilter()}
-              onChange={(e) => setTagFilter(e.currentTarget.value)}
-            >
-              <option value="">全部标签</option>
-              <For each={allTags()}>
-                {(tag) => <option value={tag}>{tag}</option>}
-              </For>
-            </select>
+              placeholder="全部标签"
+              matchTriggerWidth={false}
+              onChange={setTagFilter}
+            />
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <For each={filteredProductSets()}>

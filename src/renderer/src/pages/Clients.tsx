@@ -20,6 +20,8 @@ import VirtualGrid from "~/components/VirtualGrid";
 // v2.4.7（§5.2）：客户详情文件区——FileBrowser 抽取的共用组件，自含面包屑/子文件夹 Tab/文件区，
 // 与 /files/customer/:name/:subFolder 路由页共用（tab 点击经组件内 navigate 直达完整文件管理页）
 import FileBrowserView from "~/components/FileBrowserView";
+import SearchSelect from "~/components/ui/SearchSelect";
+import type { SearchSelectOption } from "~/components/ui/SearchSelect";
 // v2.4.9 S3b：客户详情报价联动——报价状态徽标色复用列表页同款
 import { statusChipClass } from "~/components/QuoteStatusActions";
 import { useContextMenu } from "~/hooks/useContextMenu";
@@ -471,28 +473,40 @@ export default function Clients() {
               value={cSearch()}
               onInput={(e) => setCSearch(e.currentTarget.value)}
             />
-            <select
-              class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+            {/* v2.5.8 D9（W4 控件统一 II）：两处原生 select → SearchSelect（compact 筛选行档）。
+                原先「标签筛选」没有 aria-label（e2e 只能按顺序定位），本次一并补上；值口径不变。 */}
+            <SearchSelect
+              class="min-w-[112px] md:w-40"
+              compact
+              ariaLabel="标签筛选"
+              options={[
+                { value: "", label: "全部标签" },
+                ...allTags().map((tag) => ({ value: tag, label: tag })),
+              ]}
               value={tagFilter()}
-              onChange={(e) => setTagFilter(e.currentTarget.value)}
-            >
-              <option value="">全部标签</option>
-              <For each={allTags()}>
-                {(tag) => <option value={tag}>{tag}</option>}
-              </For>
-            </select>
-            {/* v2.4.9 打磨 M3：客户类型筛选（r3 拍板：新 select 必补 aria-label 供 e2e 定位） */}
-            <select
-              aria-label="客户类型"
-              class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+              placeholder="全部标签"
+              matchTriggerWidth={false}
+              onChange={setTagFilter}
+            />
+            {/* v2.4.9 打磨 M3：客户类型筛选（r3 拍板：新控件必补 aria-label 供 e2e 定位） */}
+            <SearchSelect
+              class="min-w-[112px] md:w-36"
+              compact
+              ariaLabel="客户类型"
+              options={
+                [
+                  { value: "", label: "全部类型" },
+                  { value: "__none__", label: "未分类" },
+                  { value: "企业", label: "企业" },
+                  { value: "个人", label: "个人" },
+                ] satisfies readonly SearchSelectOption[]
+              }
               value={typeFilter()}
-              onChange={(e) => setTypeFilter(e.currentTarget.value)}
-            >
-              <option value="">全部类型</option>
-              <option value="__none__">未分类</option>
-              <option value="企业">企业</option>
-              <option value="个人">个人</option>
-            </select>
+              placeholder="全部类型"
+              searchable={false}
+              matchTriggerWidth={false}
+              onChange={setTypeFilter}
+            />
           </div>
           <Show
             when={filteredCustomers().length >= CLIENT_VIRTUAL_THRESHOLD}
@@ -643,16 +657,22 @@ export default function Clients() {
                   </div>
                 </Show>
                 <div class="flex gap-2 mt-4">
-                  <select
-                    class="flex-1 min-w-0 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+                  {/* v2.5.8 D9：原生 select → SearchSelect。保留「选择产品集…」这条空值项
+                      （原来可由用户再选回它来清空待关联），故值口径与「添加」按钮的 disabled 判定都不动。 */}
+                  <SearchSelect
+                    class="flex-1 min-w-0"
+                    compact
+                    ariaLabel="选择要关联的产品集"
+                    options={[
+                      { value: "", label: "选择产品集…" },
+                      ...unlinkedProductSets().map((ps) => ({ value: ps.name, label: ps.name })),
+                    ]}
                     value={linkSelect()}
-                    onChange={(e) => setLinkSelect(e.currentTarget.value)}
-                  >
-                    <option value="">选择产品集…</option>
-                    <For each={unlinkedProductSets()}>
-                      {(ps) => <option value={ps.name}>{ps.name}</option>}
-                    </For>
-                  </select>
+                    placeholder="选择产品集…"
+                    emptyText="暂无可关联的产品集"
+                    matchTriggerWidth={false}
+                    onChange={setLinkSelect}
+                  />
                   <button class="btn-primary text-sm" onClick={handleLink} disabled={!linkSelect()}>添加</button>
                 </div>
               </div>

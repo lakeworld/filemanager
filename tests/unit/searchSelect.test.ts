@@ -9,6 +9,7 @@ import { describe, it, expect } from "vitest";
 import {
   filterOptions,
   moveHighlight,
+  moveHighlightSkipped,
   autoSearchable,
   panelPosition,
   type SearchSelectOption,
@@ -94,5 +95,46 @@ describe("panelPosition（fixed 弹层越界翻转，照 DatePicker 口径）", 
   it("右缘越界 → 面板右对齐触发元素右缘", () => {
     const right = { left: 900, top: 100, bottom: 132, right: 1010 };
     expect(panelPosition(right, 220, 260, vp)).toEqual({ left: 790, top: 138 });
+  });
+});
+
+describe("moveHighlightSkipped（↑↓ 跳过不可选项，v2.5.8 D9 选项级 disabled）", () => {
+  // 唯一使用者 = 入库单弹窗的「供应商已删除」占位项（原生 select 用 <option disabled> 表达）
+  const MIXED: SearchSelectOption[] = [
+    { value: "a", label: "甲" },
+    { value: "gone", label: "乙（已删除）", disabled: true },
+    { value: "c", label: "丙" },
+  ];
+
+  it("向前推进跳过 disabled 项（0 → 2，不停在 1）", () => {
+    expect(moveHighlightSkipped(MIXED, 0, 1)).toBe(2);
+  });
+
+  it("向后推进同样跳过", () => {
+    expect(moveHighlightSkipped(MIXED, 2, -1)).toBe(0);
+  });
+
+  it("尚未高亮时进入：↓ 落首个可选项、↑ 落末个可选项", () => {
+    expect(moveHighlightSkipped(MIXED, -1, 1)).toBe(0);
+    expect(moveHighlightSkipped(MIXED, -1, -1)).toBe(2);
+  });
+
+  it("末尾绕回仍落到可选项", () => {
+    expect(moveHighlightSkipped(MIXED, 2, 1)).toBe(0);
+  });
+
+  it("空列表 / 全部 disabled → -1（与 moveHighlight 一样不给 NaN 高亮）", () => {
+    expect(moveHighlightSkipped([], 0, 1)).toBe(-1);
+    expect(moveHighlightSkipped([{ value: "x", disabled: true }], -1, 1)).toBe(-1);
+    expect(moveHighlightSkipped([{ value: "x", disabled: true }, { value: "y", disabled: true }], 0, 1)).toBe(-1);
+  });
+
+  it("全部可选项时与 moveHighlight 逐点等价（既有语义一字未改）", () => {
+    const all: SearchSelectOption[] = [{ value: "1" }, { value: "2" }, { value: "3" }];
+    for (const cur of [-1, 0, 1, 2]) {
+      for (const d of [1, -1]) {
+        expect(moveHighlightSkipped(all, cur, d)).toBe(moveHighlight(all.length, cur, d));
+      }
+    }
   });
 });

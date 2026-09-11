@@ -10,6 +10,7 @@ import { api } from "~/wails/api";
 import { loadTagDefs, refreshTags } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
 import ConfirmDialog from "~/components/ConfirmDialog";
+import SearchSelect from "~/components/ui/SearchSelect";
 import type { ApiResult, NamingField, TagInfo, WorkspaceConfig } from "~/types";
 import { BUILTIN_NOTES_FOLDER } from "~/constants/notes";
 
@@ -657,28 +658,31 @@ export default function Settings() {
                 onInput={(e) => setNewTagName(e.currentTarget.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleAddTag()}
               />
-              <select
-                class="px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                aria-label="标签父级"
+              {/* v2.5.8 D9（W4 控件统一 II）：新建标签行两处原生 select → SearchSelect（compact，
+                  与同行色板按钮/输入框等高）；值口径不变（父级空串 ↔ null 的转换仍在 onChange 里）。 */}
+              <SearchSelect
+                class="min-w-[132px] md:w-52"
+                compact
+                ariaLabel="标签父级"
+                options={[
+                  { value: "", label: "顶层标签" },
+                  ...topLevelTags().map((t) => ({ value: t.name, label: `作为 ${t.name} 的子标签` })),
+                ]}
                 value={newTagParent() ?? ""}
-                onChange={(e) => setNewTagParent(e.currentTarget.value || null)}
-              >
-                <option value="">顶层标签</option>
-                <For each={topLevelTags()}>
-                  {(t) => <option value={t.name}>作为 {t.name} 的子标签</option>}
-                </For>
-              </select>
+                placeholder="顶层标签"
+                matchTriggerWidth={false}
+                onChange={(v) => setNewTagParent(v || null)}
+              />
               {/* v2.5.7（A3）：新建标签业务域选择（general = 全域） */}
-              <select
-                class="px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                aria-label="标签域"
+              <SearchSelect
+                class="min-w-[112px] md:w-36"
+                compact
+                ariaLabel="标签域"
+                options={SCOPE_OPTIONS}
                 value={newTagScope()}
-                onChange={(e) => setNewTagScope(e.currentTarget.value)}
-              >
-                <For each={SCOPE_OPTIONS}>
-                  {(o) => <option value={o.value}>{o.label}</option>}
-                </For>
-              </select>
+                matchTriggerWidth={false}
+                onChange={setNewTagScope}
+              />
               <div class="flex items-center gap-1">
                 <For each={PALETTE}>
                   {(c) => (
@@ -775,17 +779,20 @@ export default function Settings() {
                           {SCOPE_LABEL[tag.scope ?? "general"] ?? "全域"}
                         </span>
                         <Show when={scopeEditing() === tag.name}>
-                          <select
-                            class="shrink-0 px-1 py-0.5 border border-surface-200 rounded text-xs bg-white"
+                          {/* v2.5.8 D9：原生 `autofocus` + `onBlur` 收起 → SearchSelect 的
+                              autoFocus + onClose（同一语义：挂载即聚焦、收起即退出内联编辑）。
+                              尺寸吃统一档 compact，不再保留 text-xs 第三档（§五 不重新发明档位）。 */}
+                          <SearchSelect
+                            class="shrink-0"
+                            compact
+                            autoFocus
+                            ariaLabel={`设置标签 ${tag.name} 的业务域`}
+                            options={SCOPE_OPTIONS}
                             value={tag.scope ?? "general"}
-                            onChange={(e) => void handleSetScope(tag.name, e.currentTarget.value)}
-                            onBlur={() => setScopeEditing(null)}
-                            autofocus
-                          >
-                            <For each={SCOPE_OPTIONS}>
-                              {(o) => <option value={o.value}>{o.label}</option>}
-                            </For>
-                          </select>
+                            matchTriggerWidth={false}
+                            onChange={(v) => void handleSetScope(tag.name, v)}
+                            onClose={() => setScopeEditing(null)}
+                          />
                         </Show>
                         <span class="text-xs text-surface-400 shrink-0">{tag.count} 处</span>
                         <button

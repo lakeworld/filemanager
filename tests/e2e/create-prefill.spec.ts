@@ -125,7 +125,9 @@ test.describe('全业务新建预填 e2e（v2.5.4）', () => {
     const dlg = page.locator('[role="dialog"][aria-label="新建报价单"]')
     await expect(dlg).toBeVisible({ timeout: 10000 })
     await expect(dlg.locator('input[placeholder="如：QT-20260812-001"]')).toHaveValue('QT-E2E-001')
-    await expect(dlg.locator('select')).toHaveValue('预填客户甲')
+    // v2.5.8 D9：报价弹窗「关联客户」换 SearchSelect ⇒ 断言口径同本文件上方客户类型先例——
+    // 断触发器回显文案（不再是原生 select 的 value），预填是否真落进控件这件事证明力不变
+    await expect(dlg.getByRole('button', { name: '关联客户' })).toContainText('预填客户甲')
     await expect(dlg.locator('input[placeholder="品名"]').first()).toHaveValue('毛巾')
     // 取消：不建档
     await dlg.getByRole('button', { name: '取消' }).click()

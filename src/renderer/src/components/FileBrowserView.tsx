@@ -2,6 +2,7 @@ import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import Modal from "~/components/ui/Modal";
+import SearchSelect from "~/components/ui/SearchSelect";
 import FileBrowserToolbar from "./file-browser/FileBrowserToolbar";
 import { workspaceConfig, loadWorkspaceConfig, currentWorkspace, fileBrowserRefreshTrigger, defaultNamingTemplate } from "~/stores/workspace";
 import { openPreview, openFileSmart } from "~/stores/preview";
@@ -668,17 +669,21 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
           <div class="flex items-center justify-between mb-3 shrink-0">
             <div class="flex items-center gap-3">
               <span class="text-sm text-surface-500">{filteredFiles().length} 个文件</span>
-              <select
-                class="px-2 py-1.5 border border-surface-200 rounded-lg text-sm bg-white text-surface-600"
+              {/* v2.5.8 D9（W4 控件统一 II）：原生 select → SearchSelect。
+                  原先只有 `title`（悬停提示）没有可访问名，e2e 只能按位置定位 ⇒ 改吃 ariaLabel。 */}
+              <SearchSelect
+                class="min-w-[112px] md:w-40"
+                compact
+                ariaLabel="按标签筛选"
+                options={[
+                  { value: "", label: "全部标签" },
+                  ...tagList().map((t) => ({ value: t.name, label: tagLabel(t.name) })),
+                ]}
                 value={tagFilter()}
-                onChange={(e) => setTagFilter(e.currentTarget.value)}
-                title="按标签筛选"
-              >
-                <option value="">全部标签</option>
-                <For each={tagList()}>
-                  {(t) => <option value={t.name}>{tagLabel(t.name)}</option>}
-                </For>
-              </select>
+                placeholder="全部标签"
+                matchTriggerWidth={false}
+                onChange={setTagFilter}
+              />
             </div>
             <button
               class="text-sm text-primary-600 hover:text-primary-700"

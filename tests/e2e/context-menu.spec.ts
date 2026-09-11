@@ -1,5 +1,7 @@
 import { test, expect, _electron as electron } from '@playwright/test'
 import { e2eUserDataDirName } from './helpers/launch'
+// v2.5.8 D9：34 处原生 select → SearchSelect，selectOption 一律走本助手（只换定位，不改断言语义）
+import { pickOption } from './helpers/searchSelect'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -313,7 +315,9 @@ test.describe('右键菜单钳制', () => {
     await confirmBtn.waitFor({ timeout: 5000 })
 
     // 选择目标：移入集 + 主图 → 确认
-    await dialog.locator('select').selectOption({ label: '移入集' })
+    // v2.5.8 D9：MoveDialog 产品集下拉换 SearchSelect ⇒ `dialog.locator('select')` 作废，
+    // 改按触发器 aria-label 定位；旧写法按 `{label}` 选，此处的值与 label 同为产品集名，语义不变
+    await pickOption(page, dialog.getByLabel('移动到哪个产品集'), '移入集')
     await dialog.getByRole('button', { name: '主图' }).click()
     await confirmBtn.click()
     await dialog.waitFor({ state: 'detached', timeout: 5000 })

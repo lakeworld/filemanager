@@ -178,6 +178,24 @@ describe('渲染层视觉红线清单（v2.5.8 D6 固化）', () => {
     expect(Object.entries(hits), `选中态又各写一套：${JSON.stringify(hits)}`).toEqual([])
   })
 
+  /**
+   * v2.5.8 D9（W4 控件统一 II）：渲染层原生 `<select>` 元素清零，唯一合法归宿 = `ui/Select.tsx` 底座。
+   * 依据 = 调研 §五.1「清单内已有同语义组件的一律使用」+ §五.2「缺能力补组件 props，不绕开」。
+   * D9 已把 34 处调用点（含最后一处 `ui/Select` 包装调用点）全量换 `SearchSelect`，
+   * 底座保留但**零调用点**——所以这里把它自己的命中数也钉死为 1：
+   * 谁删了底座、或往页面里塞回原生 select，这条都会红。
+   * 计数走 `countByFile`（已去注释），注释里写「原生 select」不会被误判。
+   */
+  it('控件红线：原生 select 元素清零（只准住在 ui/Select 底座）', () => {
+    const hits = countByFile('<select', codeFiles())
+    const offenders = Object.entries(hits).filter(([f]) => f !== 'components/ui/Select.tsx')
+    expect(
+      offenders,
+      `页面/弹窗里又出现原生 select，请改用 ui/SearchSelect（能力不够就给它补 props）：${JSON.stringify(offenders)}`,
+    ).toEqual([])
+    expect(hits['components/ui/Select.tsx'] ?? 0, 'ui/Select 底座里的原生 select 元素数量变了（连带更新本门禁）').toBe(1)
+  })
+
   it('弹窗表面必须实底（.modal-panel / .dlg-* 禁透明材质、禁头尾分隔线、禁 ✕ 回潮）', () => {
     // 依据 PLAN §四「读字表面豁免」（2026-09-10 用户实拍裁决）：弹窗叠在 bg-black/50 遮罩上，
     // 任何半透明白底都会算成彩度 0 的灰平板（实测 rgb(245,245,245)），半透白描边则使边缘糊死。

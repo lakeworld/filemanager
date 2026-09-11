@@ -1,5 +1,6 @@
 import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import Modal from "~/components/ui/Modal";
+import SearchSelect from "~/components/ui/SearchSelect";
 import { api } from "~/wails/api";
 import {
   currentWorkspace,
@@ -94,16 +95,20 @@ export default function MoveDialog(props: {
         <div class="space-y-4">
           <div>
             <label class="block text-sm font-medium text-surface-700 mb-1">产品集</label>
-            <select
-              class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+            {/* v2.5.8 D9（W4 控件统一 II）：原生 select → SearchSelect（弹窗内走非紧凑 h-9 档）。
+                本批只换控件：进入时子文件夹默认不选中那条（盘点台账 B9）不在本批动。 */}
+            <SearchSelect
+              class="w-full"
+              ariaLabel="移动到哪个产品集"
+              options={[
+                { value: "", label: "选择产品集" },
+                ...productSets().map((ps) => ({ value: ps.name, label: ps.name })),
+              ]}
               value={selectedProductSet()}
-              onChange={(e) => setSelectedProductSet(e.currentTarget.value)}
-            >
-              <option value="">选择产品集</option>
-              <For each={productSets()}>
-                {(ps) => <option value={ps.name}>{ps.name}</option>}
-              </For>
-            </select>
+              placeholder="选择产品集"
+              matchTriggerWidth={false}
+              onChange={setSelectedProductSet}
+            />
           </div>
 
           <div>

@@ -3,9 +3,13 @@
  * 搜索（单据编号/供应商）+ 日期范围 / 金额范围 / 有无归档文件 / 视图（台账 | 未建档文件）。
  * 逻辑零改动（筛选组合在 filterUtils.ts 纯函数，本组件只透传信号）。
  * v2.5.7（D2 表单控件统一）：日期两输入换 DatePicker（compact+ariaLabel），清空原生日期控件。
+ * v2.5.8 D9（W4 控件统一 II）：两个原生 select 元素换 `SearchSelect`（compact，与同排
+ * DatePicker/MoneyInput 等高），options 与发票工具栏共用 `./utils` 一处定义；值口径不动。
  */
 import DatePicker from "~/components/DatePicker";
 import MoneyInput from "~/components/MoneyInput";
+import SearchSelect from "~/components/ui/SearchSelect";
+import { HAS_FILE_OPTIONS, VIEW_OPTIONS } from "./utils";
 
 export default function InboundToolbar(props: {
   query: string;
@@ -54,25 +58,27 @@ export default function InboundToolbar(props: {
         value={props.amountMax}
         onChange={props.onAmountMax}
       />
-      <select
-        class="select"
-        aria-label="归档文件筛选"
+      <SearchSelect
+        class="min-w-[112px] md:w-36"
+        compact
+        ariaLabel="归档文件筛选"
+        options={HAS_FILE_OPTIONS}
         value={props.hasFile}
-        onChange={(e) => props.onHasFile(e.currentTarget.value as "" | "yes" | "no")}
-      >
-        <option value="">全部归档</option>
-        <option value="yes">有归档文件</option>
-        <option value="no">无归档文件</option>
-      </select>
-      <select
-        class="select"
-        aria-label="视图切换"
+        placeholder="全部归档"
+        searchable={false}
+        matchTriggerWidth={false}
+        onChange={(v) => props.onHasFile(v as "" | "yes" | "no")}
+      />
+      <SearchSelect
+        class="min-w-[112px] md:w-32"
+        compact
+        ariaLabel="视图切换"
+        options={VIEW_OPTIONS}
         value={props.viewMode}
-        onChange={(e) => props.onViewMode(e.currentTarget.value as "records" | "orphans")}
-      >
-        <option value="records">台账视图</option>
-        <option value="orphans">未建档文件</option>
-      </select>
+        searchable={false}
+        matchTriggerWidth={false}
+        onChange={(v) => props.onViewMode(v as "records" | "orphans")}
+      />
     </div>
   );
 }

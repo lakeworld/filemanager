@@ -22,6 +22,13 @@ export interface SearchSelectOption {
   label?: string;
   /** 右侧淡灰提示（如条数、父级路径）；不参与匹配 */
   hint?: string;
+  /**
+   * 不可选占位项（v2.5.8 D9 控件统一 II 补的能力，唯一使用者 = 入库单弹窗
+   * 「供应商已删除」灰显占位，此前由原生 option 的 disabled 属性表达）。
+   * 语义：仍出现在列表里且**参与过滤**（要看得到才知道为什么是它），但
+   * ↑↓ 会跳过它（`moveHighlightSkipped`）、点击与 Enter 都不提交（组件侧守卫）。
+   */
+  disabled?: boolean;
 }
 
 /** 输入即过滤：空串全量，否则按 label ?? value 大小写不敏感子串匹配，保持原顺序 */
@@ -45,6 +52,31 @@ export function moveHighlight(len: number, current: number, delta: number): numb
   if (next < 0) return len - 1;
   if (next >= len) return 0;
   return next;
+}
+
+/**
+ * 在**可选项**之间推进高亮序号（`disabled` 项跳过），签名吃列表本身而非长度。
+ *
+ * 为什么不直接改 `moveHighlight` 的签名去吃 options：那函数已有 3 条单测与两处调用点，
+ * 且它的「循环绕回」语义与 disabled 无关；本函数只做一层「按 `moveHighlight` 推进、
+ * 撞上不可选项就继续推进，最多推进 len 步」的包装，既有语义零改动
+ * （全可选项时与 `moveHighlight` 逐点等价，已由单测锁死）。
+ *
+ * 返回 -1 的两种情形：列表为空、或整列表都 disabled（宁可不高亮，也不让 Enter 提交出禁用项）。
+ */
+export function moveHighlightSkipped(
+  options: readonly SearchSelectOption[],
+  current: number,
+  delta: number,
+): number {
+  const len = options.length;
+  let idx = current;
+  for (let step = 0; step < len; step++) {
+    idx = moveHighlight(len, idx, delta);
+    if (idx < 0) return -1;
+    if (!options[idx].disabled) return idx;
+  }
+  return -1;
 }
 
 /** 搜索框是否显示：显式 prop 优先，否则 >5 项才显示 */

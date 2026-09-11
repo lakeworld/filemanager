@@ -1,5 +1,7 @@
 import { test, expect, _electron as electron } from '@playwright/test'
 import { e2eUserDataDirName } from './helpers/launch'
+// v2.5.8 D9：34 处原生 select → SearchSelect，selectOption 一律走本助手（只换定位，不改断言语义）
+import { pickOption } from './helpers/searchSelect'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -179,12 +181,14 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
     }, 'S1编辑客户')
     await expect(page.getByRole('heading', { name: 'S1编辑客户' })).toBeVisible({ timeout: 15000 })
 
-    // 打开编辑档案弹窗（弹窗内唯一 select = 客户类型下拉；placeholder 区分三个输入框）
+    // 打开编辑档案弹窗（弹窗内唯一的下拉 = 客户类型；placeholder 区分三个输入框）
     await page.getByRole('button', { name: /编辑档案/ }).click()
     const modal = page.getByRole('dialog', { name: '编辑客户档案' })
     await expect(modal).toBeVisible()
 
-    await modal.locator('select').selectOption('企业')
+    // v2.5.8 D9：弹窗内客户类型下拉换 SearchSelect ⇒ 旧的 `modal.locator('select')` 定位作废，
+    // 改按 aria-label 取触发器（值仍是中文字面值，选「企业」的语义不变）
+    await pickOption(page, modal.getByLabel('客户类型'), '企业')
     await modal.getByPlaceholder('如：13800138000').fill('13800138000')
     await modal.getByPlaceholder('如：name@example.com').fill('s1@example.com')
     await modal.getByPlaceholder('如：浙江省义乌市…').fill('浙江省义乌市')
@@ -293,27 +297,28 @@ test.describe('客户维度 e2e（v2.4.7）', () => {
       window.location.hash = decodeURIComponent('/clients')
     })
 
-    // 筛选区「客户类型」下拉（aria-label 定位，r3 拍板）；默认「全部类型」三客户全显
-    const typeFilter = page.getByRole('combobox', { name: '客户类型' })
+    // 筛选区「客户类型」下拉。v2.5.8 D9 换 SearchSelect 后触发器是 `button[aria-haspopup=listbox]`
+    // （不再是原生 select，`getByRole('combobox')` 已不适用）⇒ 按 aria-label 定位（r3 拍板口径不变）
+    const typeFilter = page.getByLabel('客户类型')
     await expect(typeFilter).toBeVisible({ timeout: 15000 })
     await expect(page.getByText('类型企业客户', { exact: true })).toBeVisible()
     await expect(page.getByText('类型个人客户', { exact: true })).toBeVisible()
     await expect(page.getByText('类型未分类客户', { exact: true })).toBeVisible()
 
     // 筛「企业」：只显企业
-    await typeFilter.selectOption('企业')
+    await pickOption(page, typeFilter, '企业')
     await expect(page.getByText('类型企业客户', { exact: true })).toBeVisible()
     await expect(page.getByText('类型个人客户', { exact: true })).not.toBeVisible()
     await expect(page.getByText('类型未分类客户', { exact: true })).not.toBeVisible()
 
     // 筛「未分类」（哨兵 __none__ 映射 c.type === undefined）：只显未分类
-    await typeFilter.selectOption('__none__')
+    await pickOption(page, typeFilter, '__none__')
     await expect(page.getByText('类型未分类客户', { exact: true })).toBeVisible()
     await expect(page.getByText('类型企业客户', { exact: true })).not.toBeVisible()
     await expect(page.getByText('类型个人客户', { exact: true })).not.toBeVisible()
 
     // 回「全部类型」：三客户恢复全显
-    await typeFilter.selectOption('')
+    await pickOption(page, typeFilter, '')
     await expect(page.getByText('类型企业客户', { exact: true })).toBeVisible()
     await expect(page.getByText('类型个人客户', { exact: true })).toBeVisible()
     await expect(page.getByText('类型未分类客户', { exact: true })).toBeVisible()

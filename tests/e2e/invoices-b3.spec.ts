@@ -1,5 +1,7 @@
 import { test, expect, _electron as electron } from '@playwright/test'
 import { e2eUserDataDirName } from './helpers/launch'
+// v2.5.8 D9：34 处原生 select → SearchSelect，selectOption 一律走本助手（只换定位，不改断言语义）
+import { pickOption } from './helpers/searchSelect'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -102,7 +104,7 @@ test.describe('发票/入库卡片化 + 批量 + 孤儿（B3）', () => {
       expect(rep.data.invoice).toContain('发票/2026/orphan-b3.pdf')
 
       // —— 未建档视图：切视图 → 孤儿列表可见 ——
-      await page.getByLabel('视图切换').selectOption('orphans')
+      await pickOption(page, page.getByLabel('视图切换'), 'orphans') // v2.5.8 D9：select → SearchSelect，只换定位
       await expect(page.getByText('orphan-b3.pdf', { exact: true })).toBeVisible({ timeout: 10000 })
 
       // —— 孤儿补建：带 file_path 预填打开新建弹窗（预填触发脏守卫 → 确认放弃关闭）——
@@ -145,7 +147,7 @@ test.describe('发票/入库卡片化 + 批量 + 孤儿（B3）', () => {
       await expect(page.getByText('B3-RK-1', { exact: true })).toBeVisible()
 
       // 入库未建档视图：孤儿可见 → 删除 → 回收站有记录
-      await page.getByLabel('视图切换').selectOption('orphans')
+      await pickOption(page, page.getByLabel('视图切换'), 'orphans') // v2.5.8 D9：select → SearchSelect，只换定位
       await expect(page.getByText('orphan-inb.pdf', { exact: true })).toBeVisible({ timeout: 10000 })
       await page.getByRole('button', { name: '删除' }).first().click()
       await expect(page.getByText('orphan-inb.pdf', { exact: true })).toHaveCount(0, { timeout: 10000 })

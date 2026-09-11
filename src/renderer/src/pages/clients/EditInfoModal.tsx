@@ -3,7 +3,7 @@ import Modal from "~/components/ui/Modal";
 import ConfirmDialog from "~/components/ConfirmDialog"; // v2.5.5（B1-B）：脏守卫二次确认
 import Input from "~/components/ui/Input";
 import Textarea from "~/components/ui/Textarea";
-import Select from "~/components/ui/Select";
+import SearchSelect from "~/components/ui/SearchSelect";
 import TagInput from "~/components/TagInput";
 import { api } from "~/wails/api";
 import { showToast } from "~/stores/notifyBanner";
@@ -156,16 +156,22 @@ export default function EditInfoModal(props: {
             </div>
             <div class="mb-4">
               <label class="block text-sm font-medium text-surface-700 mb-1">客户类型</label>
-              <Select
-                ariaLabel="客户类型"
-                value={editType()}
-                onChange={(e) => setEditType(e.currentTarget.value as "" | "企业" | "个人")}
+              {/* v2.5.8 D9（W4 控件统一 II）：这是站内最后一处旧 ui/Select 包装调用点
+                  （它渲染的仍是原生 select 元素）。同一个「客户类型」枚举在 /clients
+                  页筛选已是 SearchSelect，留两处两种控件正是本批要消灭的分裂，故一并并掉。 */}
+              <SearchSelect
                 class="w-full"
-              >
-                <option value="">未分类</option>
-                <option value="企业">企业</option>
-                <option value="个人">个人</option>
-              </Select>
+                ariaLabel="客户类型"
+                options={[
+                  { value: "", label: "未分类" },
+                  { value: "企业", label: "企业" },
+                  { value: "个人", label: "个人" },
+                ]}
+                value={editType()}
+                searchable={false}
+                matchTriggerWidth={false}
+                onChange={(v) => setEditType(v as "" | "企业" | "个人")}
+              />
             </div>
             <div class="mb-4">
               <label class="block text-sm font-medium text-surface-700 mb-1">电话</label>
