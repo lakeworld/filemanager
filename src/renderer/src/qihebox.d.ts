@@ -225,9 +225,15 @@ interface QiheboxApi {
     on: (channel: string, cb: (data: unknown) => void) => () => void
   }
   // v2.5：开发者模式设置（侧载收紧，PLAN §3.5；返回 ApiResult<boolean> 包装）
+  // 注：本命名空间属**插件可见面**（docs/PLUGIN.md 契约），应用级设置请用下方 appSettings
   settings: {
     getDevMode: () => Promise<ApiResult<boolean>>
     setDevMode: (enabled: boolean) => Promise<ApiResult<boolean>>
+  }
+  // v2.5.8 D11（W7）：应用级设置的内部读写口（全量读 / 局部写；不进插件契约，形状见 shared/appSettings）
+  appSettings: {
+    get: () => Promise<ApiResult<AppSettings>>
+    set: (patch: AppSettingsPatch) => Promise<ApiResult<AppSettings>>
   }
   events: {
     on: (channel: string, callback: (data: unknown) => void) => () => void

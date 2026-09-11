@@ -2,6 +2,7 @@ import { Show, For } from "solid-js";
 import type { JSX } from "solid-js";
 import { createEffect, onCleanup } from "solid-js";
 import { registerShortcut } from "~/shortcuts";
+import { selectionBarVisible } from "~/stores/appSettings";
 import { pushLayer } from "./layerStack";
 import {
   SELECTION_ACTION_CLASS,
@@ -106,7 +107,10 @@ export default function SelectionBar(props: SelectionBarProps): JSX.Element {
   });
 
   return (
-    <Show when={props.count > 0}>
+    // v2.5.8 D11（W7）：`selectionBar` 设置关 → 只隐藏浮条本身。
+    // 上面的 Ctrl+A / Delete 注册与 Esc 入层栈**照旧生效**（选择态与键盘语义不随显隐变化，
+    // 关掉的只是画面占用）。待拍板 #7「关闭后的内嵌双形态回退」今晚未拍板 → 按既定规则不做回退形态。
+    <Show when={props.count > 0 && selectionBarVisible()}>
       {/* w-max 必需：fixed + left-1/2 且未给 right，可用宽度只剩半屏，
           不显式按内容取宽则每个按钮被挤成两行（Notes 实测口径）；max-w 兜窄窗口换行。 */}
       <div

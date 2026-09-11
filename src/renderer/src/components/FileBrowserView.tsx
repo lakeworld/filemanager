@@ -28,6 +28,7 @@ import { withBuiltinNotes, BUILTIN_NOTES_FOLDER, defaultSubFolder } from "~/cons
 import Input from "~/components/ui/Input";
 import SelectionBar from "~/components/ui/SelectionBar";
 import { registerShortcut } from "~/shortcuts";
+import { clipboardGuardOn } from "~/stores/appSettings";
 
 /** v2.4.7（PLAN §4.6）：文件区作用域——productSet = 产品集文件区；customer = 客户文件区；v2.4.9 S2：supplier = 供应商文件区 */
 export type FileBrowserScope = "productSet" | "customer" | "supplier";
@@ -383,7 +384,10 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     // 唯一差异：原口径只豁免 INPUT/TEXTAREA，`shortcuts.ts` 的 `isTextTarget` 还豁免 SELECT
     // （取自 Header 那份、并集更宽）——D9 之后渲染层已无原生 select，两条判定实际等价。
     const offCopy = registerShortcut("file.copy", () => {
-      if (!isCollapsedSelection()) return false;
+      // v2.5.8 D11（W7）：守卫可关。开（默认）= 正文有非折叠选区时让位给浏览器复制正文；
+      // 关 = 文件选中优先，直接走「复制文件路径」（回到 v2.5.7 A1 之前的口径，故 A1 的两条注释
+      // 只在开的时候成立）。路径为空时仍返回 false 放行，不给 Ctrl+C 抢一个本来无事的按键。
+      if (clipboardGuardOn() && !isCollapsedSelection()) return false;
       const paths = selectedFilePaths();
       if (paths.length === 0) return false;
       handleCopyPaths(paths);
