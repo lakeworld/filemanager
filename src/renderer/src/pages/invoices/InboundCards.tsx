@@ -72,7 +72,10 @@ export default function InboundCards(props: {
 
   return (
     <Show when={props.rows.length === 0} fallback={
-      <div class="flex-1 min-h-0">
+      <div
+          data-selection-bar-pad
+          class={`flex-1 min-h-0 ${props.selectedIds.length > 0 ? "pb-24" : ""}`}
+        >
         <VirtualGrid
           items={props.rows}
           itemHeight={150}

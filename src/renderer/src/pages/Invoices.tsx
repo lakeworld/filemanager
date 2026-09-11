@@ -73,6 +73,7 @@ import EmptyState from "~/components/EmptyState";
 import Loading from "~/components/Loading";
 import type { InvoiceRecord, InboundRecord, FileEntry, OrphanReport } from "~/types";
 import type { InvoiceFormState, InboundFormState } from "./invoices/types";
+import SelectionBar from "~/components/ui/SelectionBar";
 
 // —— 本地类型（镜像 core 请求类型；wails/api.ts 门面类型落位后可由 ~/types 导入替代）——
 
@@ -1333,36 +1334,23 @@ export default function Invoices() {
                   </div>
                 </div>
 
-                {/* v2.5.5（B3 任务 B）：批量工具条（选中 ≥1 浮现） */}
-                <Show when={effectiveSelectedInvoices().length > 0}>
-                  <div class="flex items-center justify-between mb-2 mx-1 px-3 py-2 bg-primary-50 border border-primary-100 rounded-xl shrink-0">
-                    <span class="text-sm text-primary-700">已选择 {effectiveSelectedInvoices().length} 张发票</span>
-                    <div class="flex gap-2">
-                      <button class="px-3 py-1.5 text-sm text-primary-700 hover:bg-white rounded-lg" onClick={selectAllVisibleInvoices}>
-                        全选可见
-                      </button>
-                      <button
-                        class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg"
-                        onClick={() => void batchSetStatus()}
-                        title="待报销 ↔ 已报销"
-                      >
-                        批量改状态（{batchTargetStatus()}）
-                      </button>
-                      <button
-                        class="px-3 py-1.5 text-sm text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg"
-                        onClick={() => void handleBatchExport()}
-                      >
-                        批量导出 Excel
-                      </button>
-                      <button
-                        class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg"
-                        onClick={() => setBatchDeleteTarget("invoice")}
-                      >
-                        🗑️ 批量删除
-                      </button>
-                    </div>
-                  </div>
-                </Show>
+                {/* v2.5.8 D10（W5）：收进 ui/SelectionBar；既有按钮文案一字未改，
+                    新增的「取消选择」与其余六处同架（原条无清空位，只能靠再次点选逐个取消）。 */}
+                <SelectionBar
+                  count={effectiveSelectedInvoices().length}
+                  noun="张发票"
+                  onClear={() => setSelectedInvoiceIds([])}
+                  actions={[
+                    { label: "全选可见", onClick: selectAllVisibleInvoices },
+                    {
+                      label: `批量改状态（${batchTargetStatus()}）`,
+                      title: "待报销 ↔ 已报销",
+                      onClick: () => void batchSetStatus(),
+                    },
+                    { label: "批量导出 Excel", onClick: () => void handleBatchExport() },
+                    { label: "🗑️ 批量删除", tone: "danger", onClick: () => setBatchDeleteTarget("invoice") },
+                  ]}
+                />
 
                 <InvoiceCards
                   rows={filteredInvoices()}
@@ -1454,23 +1442,16 @@ export default function Invoices() {
                   </button>
                 </div>
 
-                {/* v2.5.5（B3 任务 B）：入库批量工具条 */}
-                <Show when={effectiveSelectedInbound().length > 0}>
-                  <div class="flex items-center justify-between mb-2 mx-1 px-3 py-2 bg-primary-50 border border-primary-100 rounded-xl shrink-0">
-                    <span class="text-sm text-primary-700">已选择 {effectiveSelectedInbound().length} 条入库单</span>
-                    <div class="flex gap-2">
-                      <button class="px-3 py-1.5 text-sm text-primary-700 hover:bg-white rounded-lg" onClick={selectAllVisibleInbound}>
-                        全选可见
-                      </button>
-                      <button
-                        class="px-3 py-1.5 text-sm text-white bg-danger-500 hover:bg-danger-600 rounded-lg"
-                        onClick={() => setBatchDeleteTarget("inbound")}
-                      >
-                        🗑️ 批量删除
-                      </button>
-                    </div>
-                  </div>
-                </Show>
+                {/* v2.5.8 D10（W5）：收进 ui/SelectionBar；按钮文案一字未改 */}
+                <SelectionBar
+                  count={effectiveSelectedInbound().length}
+                  noun="条入库单"
+                  onClear={() => setSelectedInboundIds([])}
+                  actions={[
+                    { label: "全选可见", onClick: selectAllVisibleInbound },
+                    { label: "🗑️ 批量删除", tone: "danger", onClick: () => setBatchDeleteTarget("inbound") },
+                  ]}
+                />
 
                 <InboundCards
                   rows={filteredInbound()}

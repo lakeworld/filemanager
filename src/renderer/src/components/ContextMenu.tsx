@@ -48,6 +48,18 @@ export default function ContextMenu(props: {
   };
 
   onMount(() => {
+    /**
+     * 右键菜单入层栈（此前只靠自己的 window keydown 加「事件未被消费才关」这一条件让位，
+     * **并没有入栈**——文件顶部那句 `import { pushLayer }` 一直是死引用）。
+     * 让位写法在「栈里没有任何层」时是对的，但 v2.5.8 D10 给多选浮条入了一个 `lowest` 层之后，
+     * 栈不再为空：Esc 被层栈单监听消费并标记为已消费，这里就看到该标记而放弃关闭，
+     * 结果是「右键出菜单 + 顺带选中卡片」后按 Esc，只清了选中、菜单还挂着
+     * （D10 e2e `context-menu:182` 实测：菜单挡住后续 dblclick，30s 超时）。
+     * 入栈后次序与 Modal / DatePicker / SearchSelect 完全一致：后开先关。
+     */
+    const layer = pushLayer({ onEscape: close });
+    onCleanup(() => layer.remove());
+
     if (rootEl) {
       const ro = new ResizeObserver(() => {
         if (!rootEl) return;

@@ -367,6 +367,23 @@ describe('渲染层视觉红线清单（v2.5.8 D6 固化）', () => {
     ).toEqual([])
   })
 
+  /**
+   * v2.5.8 D10（精致化 W5）：多选浮条全站单点。
+   * 收口前「已选择 …」这条横条在 7 个地方各写一份（FileBrowserView / Images / Certs /
+   * Notes / Invoices 发票与入库 / Quotes），材质与量词各自漂移；Notes 那份先改成底部悬浮后，
+   * 「内嵌条插入把列表整体下移 → 第二次点击落到计数行 → 双击开编辑丢失」这个坑
+   * 只在其余六页存在（Notes.tsx 原注释里 e2e 事件轨迹抓实的那一条）。
+   * 断言口径 = **代码**（去注释）里「已选择」只准出现在 `lib/selectionBar.ts` 的文案组法一处；
+   * 组件与页面上的提法都活在注释里，不参与计数。
+   */
+  it('控件红线：多选浮条全站单点（"已选择" 只准住在 lib/selectionBar 一处）', () => {
+    const hits = countByFile('已选择', codeFiles())
+    expect(
+      hits,
+      `多选条又被手写了一份，请改用 ui/SelectionBar（加动作传 actions 数组即可）：${JSON.stringify(hits)}`,
+    ).toEqual({ 'lib/selectionBar.ts': 1 })
+  })
+
   it('弹窗表面必须实底（.modal-panel / .dlg-* 禁透明材质、禁头尾分隔线、禁 ✕ 回潮）', () => {
     // 依据 PLAN §四「读字表面豁免」（2026-09-10 用户实拍裁决）：弹窗叠在 bg-black/50 遮罩上，
     // 任何半透明白底都会算成彩度 0 的灰平板（实测 rgb(245,245,245)），半透白描边则使边缘糊死。
