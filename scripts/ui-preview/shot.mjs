@@ -53,6 +53,9 @@ const ROUTES = [
   ['trash', '/trash'],
   ['profile', '/profile'], // 未走 .card 体系（D6 登记为 D9 债，此处留基线照）
   ['help', '/help'],
+  // v2.5.8 D12：插件管理页（素材库 8 张基线里第 6 张拍的是插件 LAN 聊天内页，
+  // 现行同侧栏入口落在插件管理页——补这条场景才凑得齐「8 组同机位对比」，配对关系在对比档里注明）
+  ['plugins', '/settings/plugins'],
 ]
 
 const app = await electron.launch({
@@ -222,6 +225,73 @@ if (!process.env.QIHE_SHOT_BASELINE) {
     }
   }
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// v2.5.8 D12（执行卡 §七.2）：三类补齐 —— ① 第 5 个 framed 弹窗 ② 空态 ③ 窄窗三档 + 高基数滚动中态
+// 场景清单从 25 条扩到 40 条（实跑产物 40 张全 png，逐张点数核过）。窄窗与空态是「精致化改造后有没有把非默认窗口尺寸/无数据形态
+// 改崩」的唯一图证来源（e2e 只跑 1280/1920 两档，且不核看空态排版）。
+// ══════════════════════════════════════════════════════════════════════════
+const extraShots = [
+  // ① framed 弹窗第 5 个：文件区内建「笔记」视图的新建笔记（其余 4 个已在 dlg-* / modal-create）
+  ['dlg-create-note-fb', async () => {
+    await goto('/files/doc/' + encodeURIComponent('走查系列1') + '/' + encodeURIComponent('笔记'))
+    await closeAnyDialog()
+    await page.getByRole('button', { name: /新建笔记/ }).first().click()
+    await page.waitForTimeout(400)
+  }],
+  // ② 空态三处：空子文件夹 / 搜索无结果 / 回收站（无数据形态的卡壳与文案重叠都在这里露）
+  ['empty-folder', async () => {
+    await goto('/files/doc/' + encodeURIComponent('走查系列1') + '/' + encodeURIComponent('空文件夹没有'))
+    await page.waitForTimeout(400)
+  }],
+  ['empty-search', async () => {
+    await goto('/search')
+    await page.getByPlaceholder(/搜索/).first().fill('zzz一定不存在的东西')
+    await page.waitForTimeout(700)
+  }],
+  ['empty-trash', async () => {
+    await goto('/trash')
+  }],
+  // ③ 高基数页滚动中态（VirtualGrid 面：滚动中不应出现玻璃/白块/空栅格）
+  ['images-scrolling', async () => {
+    await goto('/images')
+    await page.mouse.wheel(0, 1200)
+    await page.waitForTimeout(600)
+  }],
+]
+for (const [key, act] of extraShots) {
+  try {
+    await act()
+    await page.screenshot({ path: path.join(OUT, `${key}.png`), timeout: 12000 })
+    console.log(`✓ ${key}`)
+  } catch (err) {
+    failures++
+    console.log(`✗ ${key}: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`)
+  }
+}
+
+// ④ 窄窗三档（1024 / 900 / 768）× 三个代表页：筛选行最密的证书库、卡片+表单混排的设置页、
+//    带浮条与网格的笔记库。取这三页的理由：各自的横向挤压模式不同，一页能代表一类。
+const NARROW_PAGES = [
+  ['certs', '/certs'],
+  ['settings', '/settings'],
+  ['notes', '/notes'],
+]
+for (const w of [1024, 900, 768]) {
+  for (const [key, route] of NARROW_PAGES) {
+    try {
+      await page.setViewportSize({ width: w, height: 900 })
+      await goto(route)
+      await page.screenshot({ path: path.join(OUT, `narrow-${w}-${key}.png`), timeout: 12000 })
+      console.log(`✓ narrow-${w}-${key}`)
+    } catch (err) {
+      failures++
+      console.log(`✗ narrow-${w}-${key}: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`)
+    }
+  }
+}
+// 复位到素材库同机位，保证后面的产物与前序场景口径一致
+await page.setViewportSize(VIEWPORT)
 
 console.log(`截图输出：${OUT}`)
 await Promise.race([app.close(), new Promise((r) => setTimeout(r, 4000))]).catch(() => {})
