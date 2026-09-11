@@ -129,9 +129,10 @@ describe('InboundService（v2.4.7 §7 入库归档）', () => {
     const rel2 = await inbound.archiveFile(src, '2026-08-11')
     expect(rel2).toBe('入库/2026/入库单_A_001_1.pdf')
 
-    // 冲突序号在「当前 candidate」上追加（与 naming.ts resolveConflictName 有意保持的累积行为一致：base_1_2）
+    // v2.5.x 修：冲突序号基数永远是原始候选名（旧实现会在上一轮产物上继续叠 → _1_2，
+    // 那是从原 Go 平移进来的缺陷，见 naming.ts resolveConflictName 注释）
     const rel3 = await inbound.archiveFile(src, '2026-08-11')
-    expect(rel3).toBe('入库/2026/入库单_A_001_1_2.pdf')
+    expect(rel3).toBe('入库/2026/入库单_A_001_2.pdf')
 
     // 不同年份分目录
     const rel4 = await inbound.archiveFile(src, '2027-01-02')

@@ -9,6 +9,8 @@ import { defineConfig } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './tests/e2e',
+  // 记开跑时刻 + 整套跑完清扫本仓 e2e 临时产物
+  globalSetup: './tests/e2e/helpers/tmpCleanup.ts',
   timeout: 25 * 60 * 1000,
   workers: 1,
   reporter: [['list']],

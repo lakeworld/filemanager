@@ -2,6 +2,8 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './tests/e2e',
+  // 记开跑时刻 + 整套跑完清扫本仓 e2e 撒在 tmpdir 的临时产物（userData 目录与散文件都算）
+  globalSetup: './tests/e2e/helpers/tmpCleanup.ts',
   // CI（软件渲染首次启动较慢）放宽到 90s；本地不受影响
   timeout: 90000,
   workers: 1,
