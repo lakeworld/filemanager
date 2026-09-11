@@ -88,8 +88,8 @@ export default function InboundEditorModal(props: {
               <label class="block text-sm font-medium text-surface-700 mb-1">供应商 *</label>
               {/* v2.4.9 S2：供应商下拉（选项来自 suppliers store；选择时填 supplier 为名 + supplier_id 为名）。
                   兼容手输：下方自由文本输入保留；手输时清空 supplier_id 关联。
-                  v2.5.8 D9：原生 `<select>` → `SearchSelect`；「供应商已删除」的灰显不可选占位
-                  由 supplierOptions() 里的 disabled 项承担（原来是一条 <option disabled>）。 */}
+                  v2.5.8 D9：原生 select 控件 → SearchSelect；「供应商已删除」的灰显不可选占位
+                  由 supplierOptions() 里的 disabled 项承担（原来是一条 disabled 的 option）。 */}
               <SearchSelect
                 class="w-full mb-2"
                 ariaLabel="供应商"

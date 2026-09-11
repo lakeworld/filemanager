@@ -18,6 +18,7 @@ import { openPreview } from "~/stores/preview";
 import DatePicker from "~/components/DatePicker";
 import MoneyInput from "~/components/MoneyInput"; // v2.5.5（B2）：数量/单价输入统一
 import Modal from "~/components/ui/Modal";
+import SearchSelect from "~/components/ui/SearchSelect";
 import ConfirmDialog from "~/components/ConfirmDialog"; // v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认
 import type { QuoteRecord, CustomerInfo, FileEntry } from "~/types";
 import type { QuotePrefill } from "~/stores/createPrefillNormalize";
@@ -128,14 +129,9 @@ export default function QuoteFormModal(props: {
   const setLine = (i: number, patch: Partial<LineForm>) =>
     setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
-  // v2.5.4（预填 e2e 抓出）：客户下拉 options 随 customers store 异步刷新重建时浏览器丢选中，
-  // Solid 不会在子节点变化时重设 value——customers 变化后补应用一次（预填/编辑初始选中依赖此）
-  let customerSelectRef: HTMLSelectElement | undefined;
-  createEffect(() => {
-    props.customers;
-    const v = customer();
-    if (customerSelectRef && customerSelectRef.value !== v) customerSelectRef.value = v;
-  });
+  // v2.5.8 D9（W4 控件统一 II）：客户下拉换 SearchSelect（纯受控，显示文案由 value 反查 options），
+  // 故 v2.5.4 为「options 异步重建丢选中」加的 ref 补应用兜底整块作废——留着的后果是
+  // 每次 customers 变化都会向一个已不存在的 select 元素写 value，且掩盖「预填是否真生效」这件事。
 
   const addLine = () => setLines((prev) => [...prev, blankLine()]);
   const removeLine = (i: number) => setLines((prev) => (prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)));
@@ -314,17 +310,21 @@ export default function QuoteFormModal(props: {
           </div>
           <div>
             <label class={labelCls}>关联客户</label>
-            <select
-              ref={(el) => { customerSelectRef = el; }}
-              class="w-full px-3 py-2 border border-surface-200 rounded-lg bg-white text-sm"
+            {/* v2.5.8 D9（W4 控件统一 II）：原生 select → SearchSelect（弹窗内走非紧凑 h-9 档，
+                与同排 DatePicker 等高）。v2.5.4 那套「options 重建后用 ref 补 value」的兜底随之作废
+                （见本文件上方 createEffect 已删）。值口径不变：空串 = 不关联客户。 */}
+            <SearchSelect
+              class="w-full"
+              ariaLabel="关联客户"
+              options={[
+                { value: "", label: "不关联客户" },
+                ...props.customers.map((c) => ({ value: c.name, label: c.name })),
+              ]}
               value={customer()}
-              onChange={(e) => setCustomer(e.currentTarget.value)}
-            >
-              <option value="">不关联客户</option>
-              <For each={props.customers}>
-                {(c) => <option value={c.name}>{c.name}</option>}
-              </For>
-            </select>
+              placeholder="不关联客户"
+              matchTriggerWidth={false}
+              onChange={setCustomer}
+            />
           </div>
           <div>
             <label class={labelCls}>报价单号 {!isEdit && <span class="text-surface-400 font-normal">（留空自动生成）</span>}</label>

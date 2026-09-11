@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { fmtLocalTime } from "~/utils/datetime";
 import Modal from "~/components/ui/Modal";
+import SearchSelect from "~/components/ui/SearchSelect";
 import { tagList, loadTagDefs } from "~/stores/tags";
 import { currentWorkspace, productSets, loadProductSets } from "~/stores/workspace";
 import { suppliers, loadSuppliers } from "~/stores/suppliers";
@@ -316,16 +317,23 @@ export default function SupplierDetail() {
               </div>
             </Show>
             <div class="flex gap-2 mt-4">
-              <select
-                class="flex-1 min-w-0 px-2 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+              {/* v2.5.8 D9（W4 控件统一 II）：原生 select → SearchSelect。
+                  与客户详情页「选择产品集」同形同口径（保留可再选回空值以清空待关联），
+                  09-06 修过的 `flex-1 min-w-0` 收缩下限继续吃同一个 class。 */}
+              <SearchSelect
+                class="flex-1 min-w-0"
+                compact
+                ariaLabel="选择要关联的产品集"
+                options={[
+                  { value: "", label: "选择产品集…" },
+                  ...unlinkedProductSets().map((ps) => ({ value: ps.name, label: ps.name })),
+                ]}
                 value={linkSelect()}
-                onChange={(e) => setLinkSelect(e.currentTarget.value)}
-              >
-                <option value="">选择产品集…</option>
-                <For each={unlinkedProductSets()}>
-                  {(ps) => <option value={ps.name}>{ps.name}</option>}
-                </For>
-              </select>
+                placeholder="选择产品集…"
+                emptyText="暂无可关联的产品集"
+                matchTriggerWidth={false}
+                onChange={setLinkSelect}
+              />
               <button class="btn-primary text-sm" onClick={handleLink} disabled={!linkSelect()}>添加</button>
             </div>
           </div>

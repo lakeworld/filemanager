@@ -1,5 +1,7 @@
 import { test, expect, _electron as electron } from '@playwright/test'
 import { e2eUserDataDirName } from './helpers/launch'
+// v2.5.8 D9：34 处原生 select → SearchSelect，selectOption 一律走本助手（只换定位，不改断言语义）
+import { pickOption } from './helpers/searchSelect'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -472,26 +474,29 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible({ timeout: 15000 })
     const statusSelect = page.getByLabel('状态筛选')
     const customerSelect = page.getByLabel('客户筛选')
+    // v2.5.8 D9：本页两个筛选下拉换 SearchSelect ⇒ selectOption 改走 helpers/searchSelect.pickOption。
+    // 原来按 `{label}` 选，现在按**值**选——状态档的值就是中文字面值（草稿/已确认/…），
+    // 「全部状态 / 全部客户」两档的值是空串（哨兵），语义与改造前一致。
 
     // —— 状态筛选 ——
-    await statusSelect.selectOption({ label: '草稿' })
+    await pickOption(page, statusSelect, '草稿')
     await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
     await expect(page.getByText('QT-FLT-002', { exact: true })).toHaveCount(0)
-    await statusSelect.selectOption({ label: '已确认' })
+    await pickOption(page, statusSelect, '已确认')
     await expect(page.getByText('QT-FLT-002', { exact: true })).toBeVisible()
     await expect(page.getByText('QT-FLT-001', { exact: true })).toHaveCount(0)
-    await statusSelect.selectOption({ label: '全部状态' })
+    await pickOption(page, statusSelect, '')
     await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
     await expect(page.getByText('QT-FLT-002', { exact: true })).toBeVisible()
 
     // —— 客户筛选（下拉只列现存客户）——
-    await customerSelect.selectOption({ label: '筛选客户' })
+    await pickOption(page, customerSelect, '筛选客户')
     await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
     await expect(page.getByText('QT-FLT-002', { exact: true })).toHaveCount(0)
-    await customerSelect.selectOption({ label: '筛选客户乙' })
+    await pickOption(page, customerSelect, '筛选客户乙')
     await expect(page.getByText('QT-FLT-002', { exact: true })).toBeVisible()
     await expect(page.getByText('QT-FLT-001', { exact: true })).toHaveCount(0)
-    await customerSelect.selectOption({ label: '全部客户' })
+    await pickOption(page, customerSelect, '')
 
     // —— 日期范围（v2.5.7 D2：原生 date input 换 DatePicker——点触发按钮 → 点面板格选值）——
     // 起始=2026-08-05 → 只有 002（08-10）落在区间
@@ -513,14 +518,16 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     // —— URL 预选：?status=草稿 → select 显示草稿 + 列表仅草稿（单向，筛选不回写 URL）——
     await gotoRoute(`/quotes?status=${encodeURIComponent('草稿')}`)
     await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
-    await expect(page.getByLabel('状态筛选')).toHaveValue('草稿')
+    // v2.5.8 D9：状态筛选换 SearchSelect 后触发器是 button（无 value），断言改为读显示文本；
+    // 语义不变——仍在验「URL 预选生效且选中项是草稿」这一点
+    await expect(page.getByLabel('状态筛选')).toContainText('草稿')
     await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
     await expect(page.getByText('QT-FLT-002', { exact: true })).toHaveCount(0)
 
     // —— 非法 status → 回退「全部」+ 列表全显（必选断言，r3）——
     await gotoRoute('/quotes?status=xxx')
     await expect(page.getByRole('heading', { name: '报价管理' })).toBeVisible({ timeout: 15000 })
-    await expect(page.getByLabel('状态筛选')).toHaveValue('')
+    await expect(page.getByLabel('状态筛选')).toContainText('全部状态')
     await expect(page.getByText('QT-FLT-001', { exact: true })).toBeVisible()
     await expect(page.getByText('QT-FLT-002', { exact: true })).toBeVisible()
 

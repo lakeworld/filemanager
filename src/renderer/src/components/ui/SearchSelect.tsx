@@ -56,6 +56,16 @@ interface SearchSelectProps {
   matchTriggerWidth?: boolean;
   /** 空态文案（无匹配 vs 列表本身为空自动区分） */
   emptyText?: string;
+  /**
+   * 挂载即聚焦触发器（v2.5.8 D9，为设置页「标签域内联编辑」补的能力——原生那侧写的是
+   * `autofocus`）。聚焦≠展开：与原生 `<select autofocus>` 一致，要展开仍需 Enter/空格/点击。
+   */
+  autoFocus?: boolean;
+  /**
+   * 面板关闭时回调（v2.5.8 D9 同批补）。用于「选中或放弃都要收起内联编辑器」这类需求，
+   * 替代原生 `<select onBlur>` 的收起语义：点选项提交后、按 Esc、点外、窗口 resize 皆会触发一次。
+   */
+  onClose?: () => void;
   class?: string;
 }
 
@@ -92,7 +102,11 @@ export default function SearchSelect(props: SearchSelectProps) {
     queueMicrotask(() => searchEl?.focus());
   };
 
-  const close = () => setOpen(false);
+  const close = () => {
+    if (!open()) return;
+    setOpen(false);
+    props.onClose?.(); // 收起内联编辑器的口径统一走这里（替代原生 select 的 onBlur）
+  };
 
   const pick = (opt: SearchSelectOption) => {
     if (opt.disabled) return; // 占位项只展示不提交（与原生 <option disabled> 同语义）
@@ -195,7 +209,12 @@ export default function SearchSelect(props: SearchSelectProps) {
   return (
     <>
       <button
-        ref={triggerEl}
+        ref={(el) => {
+          triggerEl = el;
+          // v2.5.8 D9：内联编辑场景（设置页标签域）要求挂载即聚焦，等价原生 `autofocus`；
+          // 用微任务而非直接 focus——ref 执行时该节点尚未插入文档，直接 focus 会被浏览器忽略。
+          if (el && props.autoFocus) queueMicrotask(() => el.focus());
+        }}
         type="button"
         aria-label={props.ariaLabel}
         aria-haspopup="listbox"

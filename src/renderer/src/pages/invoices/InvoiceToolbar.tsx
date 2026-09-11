@@ -13,10 +13,10 @@ import type { CustomerBrief } from "./types";
  * 未建档文件 = 孤儿视图（扫出「目录有文件但台账无记录」，见 B3 任务 D），不是记录筛选。
  * 逻辑零改动（筛选组合在 filterUtils.ts 纯函数，本组件只透传信号）。
  *
- * v2.5.8 D9（W4 控件统一 II）：五个原生 `<select>` 全量换 `SearchSelect`（compact 档，
+ * v2.5.8 D9（W4 控件统一 II）：五个原生 select 元素全量换 `SearchSelect`（compact 档，
  * 与同排 DatePicker/MoneyInput 等高），**值口径一字未动**（空串 = 「全部」的语义、
  * `hasFile` / `viewMode` 的联合类型都在 onChange 里原样收回）；响应式宽度照 Certs 首批
- * 使用者先例（`min-w-[112px] md:w-NN` + `matchTriggerWidth={false}`），不重开窄窗挤压旧坑。
+ * 使用者先例（响应式断点宽 + `matchTriggerWidth={false}`），不重开窄窗挤压旧坑。
  * 「归档/视图」两档与入库工具栏同源，住 `./utils`（两处各写一份必漂）。
  */
 

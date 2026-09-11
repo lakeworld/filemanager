@@ -3,7 +3,7 @@
  * 搜索（单据编号/供应商）+ 日期范围 / 金额范围 / 有无归档文件 / 视图（台账 | 未建档文件）。
  * 逻辑零改动（筛选组合在 filterUtils.ts 纯函数，本组件只透传信号）。
  * v2.5.7（D2 表单控件统一）：日期两输入换 DatePicker（compact+ariaLabel），清空原生日期控件。
- * v2.5.8 D9（W4 控件统一 II）：两个原生 `<select>` 换 `SearchSelect`（compact，与同排
+ * v2.5.8 D9（W4 控件统一 II）：两个原生 select 元素换 `SearchSelect`（compact，与同排
  * DatePicker/MoneyInput 等高），options 与发票工具栏共用 `./utils` 一处定义；值口径不动。
  */
 import DatePicker from "~/components/DatePicker";

@@ -24,7 +24,7 @@ export interface SearchSelectOption {
   hint?: string;
   /**
    * 不可选占位项（v2.5.8 D9 控件统一 II 补的能力，唯一使用者 = 入库单弹窗
-   * 「供应商已删除」灰显占位，此前由原生 `<option disabled>` 表达）。
+   * 「供应商已删除」灰显占位，此前由原生 option 的 disabled 属性表达）。
    * 语义：仍出现在列表里且**参与过滤**（要看得到才知道为什么是它），但
    * ↑↓ 会跳过它（`moveHighlightSkipped`）、点击与 Enter 都不提交（组件侧守卫）。
    */

@@ -48,7 +48,7 @@ export default function InvoiceEditorModal(props: {
   onIdentify: (cmd: PluginFileCommand) => void;
 }) {
   // v2.5.8 D9（W4 控件统一 II）：客户/供应商下拉换 SearchSelect 后，v2.5.4 起那套
-  // 「options 重建后用 ref 补应用 value」的兜底**整块作废**——原生 `<select>` 会在 options
+  // 「options 重建后用 ref 补应用 value」的兜底**整块作废**——原生 select 会在 options
   // 异步重建时丢选中，而 SearchSelect 的显示文案由 `value` 反查 options 得出（纯受控），
   // 列表刷新不丢选中，也不需要 DOM 引用。值口径一字未动（空串 = 不关联）。
   const customerOptions = createMemo<readonly SearchSelectOption[]>(() => [

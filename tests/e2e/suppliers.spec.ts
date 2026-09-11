@@ -1,5 +1,7 @@
 import { test, expect, _electron as electron } from '@playwright/test'
 import { e2eUserDataDirName } from './helpers/launch'
+// v2.5.8 D9：34 处原生 select → SearchSelect，selectOption 一律走本助手（只换定位，不改断言语义）
+import { expectOptionExists, expectOptionMissing, pickOption } from './helpers/searchSelect'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -175,10 +177,12 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     await page.getByRole('button', { name: /新建入库单/ }).click()
     const ibModal = page.getByRole('dialog', { name: '新建入库单' })
     await expect(ibModal).toBeVisible()
-    const supplierSelect = ibModal.locator('select').first()
-    // option 在收起 select 内为 hidden，用存在性断言（toHaveCount）代替可见性
-    await expect(supplierSelect.locator('option', { hasText: '新名供应商' })).toHaveCount(1)
-    await expect(supplierSelect.locator('option', { hasText: '旧名供应商' })).toHaveCount(0)
+    // v2.5.8 D9：入库弹窗供应商下拉换 SearchSelect ⇒ 「收起态 option 常驻 hidden」的前提不成立
+    // （弹层是 Portal，收起时整层不在 DOM）⇒ 存在/不存在两条断言改走开面板核对，语义一字未动：
+    // 改名后的新名在列表里、旧名不在。
+    const supplierSelect = ibModal.getByLabel('供应商', { exact: true })
+    await expectOptionExists(page, supplierSelect, '新名供应商')
+    await expectOptionMissing(page, supplierSelect, '旧名供应商')
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
@@ -203,10 +207,15 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     const modal = page.getByRole('dialog', { name: '新建入库单' })
     await expect(modal).toBeVisible()
 
-    // 下拉含供应商名 → 选择 → 供应商自由文本联动填入（option 收起态 hidden，用存在性断言）
-    const supplierSelect = modal.locator('select').first()
-    await expect(supplierSelect.locator('option', { hasText: '入库供应商' })).toHaveCount(1)
-    await supplierSelect.selectOption('入库供应商')
+    // 下拉含供应商名 → 选择 → 供应商自由文本联动填入
+    // v2.5.8 D9：入库弹窗供应商下拉换 SearchSelect。两处定位都要改：
+    // ① 旧的「收起态 option 存在」断言不再成立（弹层是 Portal，收起时整层不在 DOM）
+    //    ⇒ 改「打开面板断言该值在列表里 → Esc 收起」（expectOptionExists 内部完成）；
+    // ② `getByLabel('供应商')` 必须 exact——否则会把同弹窗里 placeholder=「供应商名称」的
+    //    自由文本框一起命中（Playwright 的 getByLabel 也认 placeholder），触发严格模式报错。
+    const supplierSelect = modal.getByLabel('供应商', { exact: true })
+    await expectOptionExists(page, supplierSelect, '入库供应商')
+    await pickOption(page, supplierSelect, '入库供应商')
     await expect(modal.getByPlaceholder('供应商名称')).toHaveValue('入库供应商')
 
     // 其余必填：单据编号 + 归档文件（打桩对话框 → 选文件只暂存，B1 P0 归档后移：保存时才落盘）
@@ -284,10 +293,13 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     // 初始「暂未关联」
     await expect(card.getByText('暂未关联产品集')).toBeVisible()
 
-    // 下拉选产品集 → 添加 → chip 可见（option 收起态 hidden，先做存在性断言；
-    // chip span 内含 ✕ 按钮致文本非纯「M8关联集」，用 title 定位）
-    await expect(card.locator('option', { hasText: 'M8关联集' })).toHaveCount(1)
-    await card.locator('select').selectOption('M8关联集')
+    // 下拉选产品集 → 添加 → chip 可见
+    // v2.5.8 D9：客户/供应商详情页「选择要关联的产品集」换 SearchSelect ⇒ 旧的收起态 option
+    // 存在性断言（原生 option 常驻 hidden）改「开面板断言在列 → Esc 收起」，再走同一选项提交。
+    // 下方 chip 仍用 title 定位（span 内含 ✕ 按钮致文本非纯「M8关联集」），该口径不变。
+    const linkSelect = card.getByLabel('选择要关联的产品集')
+    await expectOptionExists(page, linkSelect, 'M8关联集')
+    await pickOption(page, linkSelect, 'M8关联集')
     await card.getByRole('button', { name: '添加' }).click()
     await expect(card.getByTitle('打开产品集 M8关联集')).toBeVisible()
 

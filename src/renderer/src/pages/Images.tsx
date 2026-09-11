@@ -13,6 +13,8 @@ import { tagLabel } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
 import FileThumbnail from "~/components/FileThumbnail";
 import TagChips from "~/components/TagChips";
+import SearchSelect from "~/components/ui/SearchSelect";
+import type { SearchSelectOption } from "~/components/ui/SearchSelect";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
 import ConfirmDialog from "~/components/ConfirmDialog";
@@ -348,57 +350,78 @@ export default function Images() {
           value={search()}
           onInput={(e) => setSearch(e.currentTarget.value)}
         />
-        <select
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+        <SearchSelect
+          class="min-w-[112px] md:w-32"
+          compact
+          ariaLabel="类型筛选"
+          options={
+            [
+              { value: "image", label: "图片" },
+              { value: "video", label: "视频" },
+            ] satisfies readonly SearchSelectOption[]
+          }
           value={typeFilter()}
-          onChange={(e) => {
-            setTypeFilter(e.currentTarget.value as "image" | "video");
+          matchTriggerWidth={false}
+          onChange={(v) => {
+            setTypeFilter(v as "image" | "video");
             // 类型切换会整体重新加载，标签选项随之变化，重置标签筛选避免组合出空结果
             setTagFilter("");
           }}
-        >
-          <option value="image">图片</option>
-          <option value="video">视频</option>
-        </select>
-        <select
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+        />
+        <SearchSelect
+          class="min-w-[112px] md:w-40"
+          compact
+          ariaLabel="标签筛选"
+          options={[
+            { value: "", label: "全部标签" },
+            ...allTags().map((tag) => ({ value: tag, label: tagLabel(tag) })),
+          ]}
           value={tagFilter()}
-          onChange={(e) => setTagFilter(e.currentTarget.value)}
-        >
-          <option value="">全部标签</option>
-          <For each={allTags()}>
-            {(tag) => <option value={tag}>{tagLabel(tag)}</option>}
-          </For>
-        </select>
-        <select
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+          placeholder="全部标签"
+          matchTriggerWidth={false}
+          onChange={setTagFilter}
+        />
+        <SearchSelect
+          class="min-w-[112px] md:w-44"
+          compact
+          ariaLabel="产品集筛选"
+          options={[
+            { value: "", label: "全部产品集" },
+            ...productSets().map((ps: ProductSetInfo) => ({ value: ps.name, label: ps.name })),
+          ]}
           value={productSetFilter()}
-          onChange={(e) => setProductSetFilter(e.currentTarget.value)}
-        >
-          <option value="">全部产品集</option>
-          <For each={productSets()}>
-            {(ps: ProductSetInfo) => <option value={ps.name}>{ps.name}</option>}
-          </For>
-        </select>
-        <select
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+          placeholder="全部产品集"
+          matchTriggerWidth={false}
+          onChange={setProductSetFilter}
+        />
+        <SearchSelect
+          class="min-w-[112px] md:w-40"
+          compact
+          ariaLabel="子文件夹筛选"
+          options={[
+            { value: "", label: "全部子文件夹" },
+            ...imageFolders().map((folder) => ({ value: folder, label: folder })),
+          ]}
           value={subFolderFilter()}
-          onChange={(e) => setSubFolderFilter(e.currentTarget.value)}
-        >
-          <option value="">全部子文件夹</option>
-          <For each={imageFolders()}>
-            {(folder) => <option value={folder}>{folder}</option>}
-          </For>
-        </select>
-        <select
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white"
+          placeholder="全部子文件夹"
+          matchTriggerWidth={false}
+          onChange={setSubFolderFilter}
+        />
+        <SearchSelect
+          class="min-w-[112px] md:w-36"
+          compact
+          ariaLabel="排序方式"
+          options={
+            [
+              { value: "modified", label: "按修改时间" },
+              { value: "name", label: "按文件名" },
+              { value: "size", label: "按文件大小" },
+            ] satisfies readonly SearchSelectOption[]
+          }
           value={sortBy()}
-          onChange={(e) => setSortBy(e.currentTarget.value as "modified" | "name" | "size")}
-        >
-          <option value="modified">按修改时间</option>
-          <option value="name">按文件名</option>
-          <option value="size">按文件大小</option>
-        </select>
+          matchTriggerWidth={false}
+          onChange={(v) => setSortBy(v as "modified" | "name" | "size")}
+        />
       </div>
 
       <Show when={selectedCount() > 0}>

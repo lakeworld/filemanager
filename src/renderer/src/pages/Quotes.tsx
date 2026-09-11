@@ -10,6 +10,8 @@
  *   非法值回退「全部」）；筛选变化 scrollResetKey 滚动归零。
  */
 import { Show, For, createSignal, createEffect, onCleanup } from "solid-js";
+import SearchSelect from "~/components/ui/SearchSelect";
+import type { SearchSelectOption } from "~/components/ui/SearchSelect";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { currentWorkspace } from "~/stores/workspace";
@@ -33,6 +35,8 @@ import type { QuotePrefill } from "~/stores/createPrefillNormalize";
 // v2.5.5 打磨：报价筛选对齐发票——filterQuotes / OrphanList 复用
 import { currentOrphans, filterQuotes } from "./invoices/filterUtils";
 import OrphanList from "./invoices/OrphanList";
+// v2.5.8 D9：台账筛选两档（归档/视图）与发票、入库工具栏同源，沿用本页既有的 ./invoices/* 复用先例
+import { HAS_FILE_OPTIONS, VIEW_OPTIONS } from "./invoices/utils";
 import type { QuoteRecord, CustomerInfo, FileEntry, OrphanReport } from "~/types";
 
 /** 台账列模板（与表头/行一致；minmax 保证窄窗口下可截断） */
@@ -367,28 +371,38 @@ export default function Quotes() {
             value={query()}
             onInput={(e) => setQuery(e.currentTarget.value)}
           />
-          <select
-            class="select"
-            aria-label="状态筛选"
+          {/* v2.5.8 D9（W4 控件统一 II）：四个原生 select → SearchSelect（compact，与同排
+              DatePicker/MoneyInput 等高）；值口径一字未动（空串=「全部」）。
+              「归档/视图」两档与发票、入库工具栏同源，住 ./invoices/utils（本页早已引用
+              ./invoices/* 的 filterUtils/OrphanList，沿用同一先例，不再各抄一份）。 */}
+          <SearchSelect
+            class="min-w-[112px] md:w-36"
+            compact
+            ariaLabel="状态筛选"
+            options={
+              [
+                { value: "", label: "全部状态" },
+                ...QUOTE_STATUSES.map((s) => ({ value: s, label: s })),
+              ] satisfies readonly SearchSelectOption[]
+            }
             value={statusFilter()}
-            onChange={(e) => setStatusFilter(e.currentTarget.value)}
-          >
-            <option value="">全部状态</option>
-            <For each={QUOTE_STATUSES}>
-              {(s) => <option value={s}>{s}</option>}
-            </For>
-          </select>
-          <select
-            class="select"
-            aria-label="客户筛选"
+            placeholder="全部状态"
+            matchTriggerWidth={false}
+            onChange={setStatusFilter}
+          />
+          <SearchSelect
+            class="min-w-[112px] md:w-40"
+            compact
+            ariaLabel="客户筛选"
+            options={[
+              { value: "", label: "全部客户" },
+              ...customers().map((c) => ({ value: c.name, label: c.name })),
+            ]}
             value={customerFilter()}
-            onChange={(e) => setCustomerFilter(e.currentTarget.value)}
-          >
-            <option value="">全部客户</option>
-            <For each={customers()}>
-              {(c) => <option value={c.name}>{c.name}</option>}
-            </For>
-          </select>
+            placeholder="全部客户"
+            matchTriggerWidth={false}
+            onChange={setCustomerFilter}
+          />
         </div>
         {/* v2.5.5 打磨：第二行对齐发票——日期/金额/有无归档/视图 */}
         <div class="flex flex-wrap items-center gap-2">
@@ -405,25 +419,27 @@ export default function Quotes() {
           <span class="text-surface-400 text-sm">至</span>
           <MoneyInput compact ariaLabel="金额上限" placeholder="上限" value={amountMax()} onChange={setAmountMax} />
           <span class="w-px h-6 bg-surface-200 shrink-0" />
-          <select
-            class="select"
-            aria-label="归档文件筛选"
+          <SearchSelect
+            class="min-w-[112px] md:w-36"
+            compact
+            ariaLabel="归档文件筛选"
+            options={HAS_FILE_OPTIONS}
             value={hasFile()}
-            onChange={(e) => setHasFile(e.currentTarget.value as "" | "yes" | "no")}
-          >
-            <option value="">全部归档</option>
-            <option value="yes">有归档文件</option>
-            <option value="no">无归档文件</option>
-          </select>
-          <select
-            class="select"
-            aria-label="视图切换"
+            placeholder="全部归档"
+            searchable={false}
+            matchTriggerWidth={false}
+            onChange={(v) => setHasFile(v as "" | "yes" | "no")}
+          />
+          <SearchSelect
+            class="min-w-[112px] md:w-32"
+            compact
+            ariaLabel="视图切换"
+            options={VIEW_OPTIONS}
             value={viewMode()}
-            onChange={(e) => setViewMode(e.currentTarget.value as "records" | "orphans")}
-          >
-            <option value="records">台账视图</option>
-            <option value="orphans">未建档文件</option>
-          </select>
+            searchable={false}
+            matchTriggerWidth={false}
+            onChange={(v) => setViewMode(v as "records" | "orphans")}
+          />
         </div>
       </div>
 

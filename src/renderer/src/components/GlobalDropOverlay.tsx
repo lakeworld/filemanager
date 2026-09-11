@@ -2,6 +2,7 @@ import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid
 import { useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { showToast } from "~/stores/notifyBanner";
+import SearchSelect from "~/components/ui/SearchSelect";
 import { isInternalDragActive, clearInternalDrag, getInternalDragPaths } from "~/utils/dragout";
 import { currentWorkspace, productSets, loadProductSets, workspaceConfig, setFileBrowserRefreshTrigger } from "~/stores/workspace";
 import type { ApiResult, CustomerInfo, SupplierInfo, FileEntry, DedupItem } from "~/types";
@@ -391,33 +392,36 @@ export default function GlobalDropOverlay() {
                 <label class="block text-sm font-medium text-surface-700 mb-1">
                   {targetType() === "customer" ? "客户" : targetType() === "supplier" ? "供应商" : "产品集"}
                 </label>
-                <select
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                {/* v2.5.8 D9（W4 控件统一 II）：三态归属下拉（客户/供应商/产品集随 targetType 变）
+                    换 SearchSelect——原来用嵌套 Show/fallback 在 option 层做三态分支，现折成
+                    一个 options 三元，可读性更好且值口径一字未动（空串 = 未选）。 */}
+                <SearchSelect
+                  class="w-full"
+                  ariaLabel={
+                    targetType() === "customer"
+                      ? "选择客户"
+                      : targetType() === "supplier"
+                        ? "选择供应商"
+                        : "选择产品集"
+                  }
+                  options={
+                    targetType() === "customer"
+                      ? [{ value: "", label: "选择客户" }, ...customers().map((c) => ({ value: c.name, label: c.name }))]
+                      : targetType() === "supplier"
+                        ? [{ value: "", label: "选择供应商" }, ...suppliers().map((s) => ({ value: s.name, label: s.name }))]
+                        : [{ value: "", label: "选择产品集" }, ...productSets().map((ps) => ({ value: ps.name, label: ps.name }))]
+                  }
                   value={selectedProductSet()}
-                  onChange={(e) => {
-                    setSelectedProductSet(e.currentTarget.value);
-                  }}
-                >
-                  <option value="">
-                    {targetType() === "customer" ? "选择客户" : targetType() === "supplier" ? "选择供应商" : "选择产品集"}
-                  </option>
-                  <Show when={targetType() === "customer"} fallback={
-                    <Show when={targetType() === "supplier"} fallback={
-                      <For each={productSets()}>
-                        {(ps) => <option value={ps.name}>{ps.name}</option>}
-                      </For>
-                    }>
-                      {/* v2.4.9 S2：供应商分组（供应商/ 根目录 × suppliers.json 档案） */}
-                      <For each={suppliers()}>
-                        {(s) => <option value={s.name}>{s.name}</option>}
-                      </For>
-                    </Show>
-                  }>
-                    <For each={customers()}>
-                      {(c) => <option value={c.name}>{c.name}</option>}
-                    </For>
-                  </Show>
-                </select>
+                  placeholder={
+                    targetType() === "customer"
+                      ? "选择客户"
+                      : targetType() === "supplier"
+                        ? "选择供应商"
+                        : "选择产品集"
+                  }
+                  matchTriggerWidth={false}
+                  onChange={(v) => setSelectedProductSet(v)}
+                />
               </div>
 
               <div>

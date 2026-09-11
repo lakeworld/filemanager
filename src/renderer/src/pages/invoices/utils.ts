@@ -8,7 +8,7 @@ export const STATUSES: InvoiceStatus[] = ["待报销", "已报销", "已入账"]
 
 /**
  * 台账两工具栏共用的筛选档（v2.5.8 D9 控件统一 II：原生 select → SearchSelect 时上提）。
- * 原先 `InvoiceToolbar` 与 `InboundToolbar` 各写一份同样的 `<option>` 字面量，
+ * 原先 `InvoiceToolbar` 与 `InboundToolbar` 各写一份同样的 option 字面量，
  * 换组件后若两处各留一份 options，"归档/视图"口径就会漂——故集中一处。
  * 结构即 `SearchSelect` 的 `options`（`{ value, label }`），空串 = 「全部」的既有语义一字不动。
  */
