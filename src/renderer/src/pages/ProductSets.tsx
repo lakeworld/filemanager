@@ -26,6 +26,7 @@ import {
   workspaceConfig,
 } from "~/stores/workspace";
 import type { ApiResult, CustomerInfo, ProductSetInfo, ProductSetCreateRequest, SupplierInfo } from "~/types";
+import Input from "~/components/ui/Input";
 
 export default function ProductSets() {
   const navigate = useNavigate();
@@ -401,9 +402,9 @@ export default function ProductSets() {
       }>
         <Show when={!params.name}>
           <div class="flex flex-col md:flex-row gap-3 mb-4">
-            <input
+            <Input
               type="text"
-              class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg text-sm"
+              class="flex-1 min-w-0"
               placeholder="搜索产品集名称..."
               value={psSearch()}
               onInput={(e) => setPsSearch(e.currentTarget.value)}

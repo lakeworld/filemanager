@@ -10,6 +10,8 @@ import { STATUSES } from "./utils";
 import type { InvoiceFormState, InvoiceStatus, InvoiceRecord, CustomerBrief, SupplierBrief } from "./types";
 import type { TagInfo } from "~/types";
 import type { PluginFileCommand } from "~/plugins/registry";
+import Textarea from "~/components/ui/Textarea";
+import Input from "~/components/ui/Input";
 /**
  * 发票新建/编辑弹窗（v2.5.1 T3 波1 拆分 + overlay→Modal 迁移）：
  * 信号与保存逻辑保留在主文件（Invoices.tsx），本组件只做展示与字段编辑（props 显式化，D11）。
@@ -108,9 +110,8 @@ export default function InvoiceEditorModal(props: {
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">发票号码 *</label>
-              <input
-                type="text"
-                class="input w-full"
+              <Input
+              class="w-full"
                 placeholder="如：25312000000012345678"
                 value={props.form.number}
                 onInput={(e) => props.setField("number", e.currentTarget.value)}
@@ -118,9 +119,8 @@ export default function InvoiceEditorModal(props: {
             </div>
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">发票代码</label>
-              <input
-                type="text"
-                class="input w-full"
+              <Input
+              class="w-full"
                 placeholder="数电票可留空"
                 value={props.form.code}
                 onInput={(e) => props.setField("code", e.currentTarget.value)}
@@ -145,9 +145,8 @@ export default function InvoiceEditorModal(props: {
             </div>
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">开票方 *</label>
-              <input
-                type="text"
-                class="input w-full"
+              <Input
+              class="w-full"
                 placeholder="销售方名称"
                 value={props.form.seller}
                 onInput={(e) => props.setField("seller", e.currentTarget.value)}
@@ -155,9 +154,8 @@ export default function InvoiceEditorModal(props: {
             </div>
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">购买方抬头 *</label>
-              <input
-                type="text"
-                class="input w-full"
+              <Input
+              class="w-full"
                 placeholder="购买方名称"
                 value={props.form.buyer}
                 onInput={(e) => props.setField("buyer", e.currentTarget.value)}
@@ -219,8 +217,8 @@ export default function InvoiceEditorModal(props: {
           </div>
           <div class="mt-4">
             <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>
-            <textarea
-              class="input w-full h-auto py-2 resize-none"
+            <Textarea
+            class="w-full"
               rows={2}
               placeholder="添加备注..."
               value={props.form.notes}

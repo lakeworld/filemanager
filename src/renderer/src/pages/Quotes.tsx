@@ -38,6 +38,7 @@ import OrphanList from "./invoices/OrphanList";
 // v2.5.8 D9：台账筛选两档（归档/视图）与发票、入库工具栏同源，沿用本页既有的 ./invoices/* 复用先例
 import { HAS_FILE_OPTIONS, VIEW_OPTIONS } from "./invoices/utils";
 import type { QuoteRecord, CustomerInfo, FileEntry, OrphanReport } from "~/types";
+import Input from "~/components/ui/Input";
 
 /** 台账列模板（与表头/行一致；minmax 保证窄窗口下可截断） */
 const QUOTE_COL_TEMPLATE =
@@ -364,9 +365,8 @@ export default function Quotes() {
       {/* 筛选区（v2.5.5 打磨：对齐发票——搜索/状态/客户 + 日期/金额/有无归档/视图；下单只列现存 customers()） */}
       <div class="flex flex-col gap-2 mb-4 shrink-0">
         <div class="flex flex-col md:flex-row gap-3">
-          <input
-            type="text"
-            class="input flex-1"
+          <Input
+          class="flex-1"
             placeholder="搜索报价单号 / 客户..."
             value={query()}
             onInput={(e) => setQuery(e.currentTarget.value)}

@@ -26,6 +26,7 @@ import type { SearchSelectOption } from "~/components/ui/SearchSelect";
 import { statusChipClass } from "~/components/QuoteStatusActions";
 import { useContextMenu } from "~/hooks/useContextMenu";
 import type { CustomerInfo, CustomerCreateRequest, CustomerUpdateRequest, QuoteRecord } from "~/types";
+import Input from "~/components/ui/Input";
 
 // v2.5.2：客户列表渲染口径——<200 条 For 全量、≥200 条 VirtualGrid 虚拟滚动（照 Suppliers/回收站先例，阈值统一 200）
 const CLIENT_VIRTUAL_THRESHOLD = 200;
@@ -466,9 +467,9 @@ export default function Clients() {
         }>
         <Show when={!params.name}>
           <div class="flex flex-col md:flex-row gap-3 mb-4">
-            <input
+            <Input
               type="text"
-              class="flex-1 min-w-0 px-3 py-2 border border-surface-200 rounded-lg text-sm"
+              class="flex-1 min-w-0"
               placeholder="搜索客户名称或别名..."
               value={cSearch()}
               onInput={(e) => setCSearch(e.currentTarget.value)}

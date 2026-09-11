@@ -3,6 +3,7 @@ import Modal from "~/components/ui/Modal";
 import { api } from "~/wails/api";
 import { batchRenameTargets } from "~/utils/batchRename";
 import type { FileEntry, NamingTemplate } from "~/types";
+import Input from "~/components/ui/Input";
 
 /**
  * 「批量重命名」对话框（v2.3.3 P2 引入，v2.4.9 S5 复用命名模板）。
@@ -84,10 +85,10 @@ export default function BatchRenameDialog(props: {
         <div class="space-y-4">
           <div>
             <label class="block text-sm font-medium text-surface-700 mb-1">起始序号</label>
-            <input
+            <Input
               type="number"
               min={0}
-              class="w-32 px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              class="w-32"
               value={startStr()}
               onInput={(e) => setStartStr(e.currentTarget.value)}
             />

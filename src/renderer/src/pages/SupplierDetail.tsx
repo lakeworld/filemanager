@@ -16,6 +16,8 @@ import ConfirmDialog from "~/components/ConfirmDialog";
 // v2.4.9 S2：供应商详情文件区——FileBrowserView scope="supplier"（固定子文件夹集，core create 已建齐）
 import FileBrowserView from "~/components/FileBrowserView";
 import type { SupplierInfo, SupplierUpdateRequest } from "~/types";
+import Input from "~/components/ui/Input";
+import Textarea from "~/components/ui/Textarea";
 
 /** 供应商固定子文件夹集首项（core SUPPLIER_SUBFOLDERS 镜像；决策 1：固定集不做 config 键） */
 const SUPPLIER_FIRST_SUBFOLDER = "合同";
@@ -362,18 +364,18 @@ export default function SupplierDetail() {
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div class="mb-4">
                 <label class="block text-sm font-medium text-surface-700 mb-1">联系人</label>
-                <input
+                <Input
                   type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  class="w-full"
                   value={editContact()}
                   onInput={(e) => setEditContact(e.currentTarget.value)}
                 />
               </div>
               <div class="mb-4">
                 <label class="block text-sm font-medium text-surface-700 mb-1">电话</label>
-                <input
+                <Input
                   type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  class="w-full"
                   placeholder="如：13800138000"
                   value={editPhone()}
                   onInput={(e) => setEditPhone(e.currentTarget.value)}
@@ -381,9 +383,9 @@ export default function SupplierDetail() {
               </div>
               <div class="mb-4">
                 <label class="block text-sm font-medium text-surface-700 mb-1">邮箱</label>
-                <input
+                <Input
                   type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  class="w-full"
                   placeholder="如：supplier@example.com"
                   value={editEmail()}
                   onInput={(e) => setEditEmail(e.currentTarget.value)}
@@ -391,9 +393,9 @@ export default function SupplierDetail() {
               </div>
               <div class="mb-4">
                 <label class="block text-sm font-medium text-surface-700 mb-1">地址</label>
-                <input
+                <Input
                   type="text"
-                  class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  class="w-full"
                   placeholder="如：浙江省义乌市…"
                   value={editAddress()}
                   onInput={(e) => setEditAddress(e.currentTarget.value)}
@@ -412,8 +414,8 @@ export default function SupplierDetail() {
             </div>
             <div class="mb-4">
               <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>
-              <textarea
-                class="w-full px-3 py-2 border border-surface-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+              <Textarea
+              class="w-full"
                 rows={3}
                 placeholder="添加备注..."
                 value={editNotes()}

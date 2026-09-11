@@ -5,6 +5,7 @@ import SearchSelect from "~/components/ui/SearchSelect";
 import type { SearchSelectOption } from "~/components/ui/SearchSelect";
 import { HAS_FILE_OPTIONS, STATUSES, VIEW_OPTIONS } from "./utils";
 import type { CustomerBrief } from "./types";
+import Input from "~/components/ui/Input";
 
 /**
  * 发票台账筛选工具栏（v2.5.1 T3 波1 拆分 + v2.5.5 B3 任务 C 筛选增强）：
@@ -60,9 +61,8 @@ export default function InvoiceToolbar(props: {
   return (
     <div class="flex flex-col gap-2 mb-4 shrink-0">
       <div class="flex flex-col md:flex-row md:flex-wrap gap-3">
-        <input
-          type="text"
-          class="input flex-1"
+        <Input
+        class="flex-1"
           placeholder="搜索发票号码 / 开票方 / 购买方..."
           value={props.query}
           onInput={(e) => props.onQuery(e.currentTarget.value)}

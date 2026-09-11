@@ -12,6 +12,8 @@ import ContextMenu from "~/components/ContextMenu";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import TagInput from "~/components/TagInput";
 import DatePicker from "~/components/DatePicker";
+import Input from "~/components/ui/Input";
+import Textarea from "~/components/ui/Textarea";
 import {
   showPreview,
   previewFile,
@@ -331,9 +333,9 @@ export default function FilePreviewModal() {
 
                 <div>
                   <label class="block text-sm font-medium text-surface-700 mb-1">证书类型</label>
-                  <input
+                  <Input
                     type="text"
-                    class="w-full px-3 py-2 border border-surface-200 rounded-lg text-sm"
+                    class="w-full"
                     value={metadata().cert_type}
                     onInput={(e) => setMetadata((prev) => ({ ...prev, cert_type: e.currentTarget.value }))}
                     placeholder="如：3C"
@@ -360,8 +362,8 @@ export default function FilePreviewModal() {
 
                 <div>
                   <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>
-                  <textarea
-                    class="w-full px-3 py-2 border border-surface-200 rounded-lg text-sm resize-none"
+                  <Textarea
+                  class="w-full"
                     rows={3}
                     value={metadata().notes}
                     onInput={(e) => setMetadata((prev) => ({ ...prev, notes: e.currentTarget.value }))}

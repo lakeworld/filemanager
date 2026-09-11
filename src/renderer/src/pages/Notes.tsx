@@ -27,6 +27,7 @@ import { fmtLocalTime } from "~/utils/datetime";
 import { BUILTIN_NOTES_FOLDER } from "~/constants/notes";
 import type { ContextMenuItem } from "~/components/ContextMenu";
 import type { FileEntry, NoteEntryInfo } from "~/types";
+import Input from "~/components/ui/Input";
 
 /**
  * 笔记库（v2.5.7 A2 立项，v2.5.8 本批**全量对标图包库/证书库**）。
@@ -436,9 +437,8 @@ export default function Notes() {
       {/* 筛选行（SearchSelect：本组件 v2.5.8 W4 提前投产，这两个库页是首批使用者）。
           响应式与 Certs 同口径：flex-wrap + 各控件收缩下限，防窄窗口把搜索框压扁并撑出横向滚动条。 */}
       <div class="flex flex-wrap items-center gap-3 mb-4">
-        <input
-          type="text"
-          class="input w-full min-w-0 md:w-auto md:flex-1 md:min-w-[180px]"
+        <Input
+        class="w-full min-w-0 md:w-auto md:flex-1 md:min-w-[180px]"
           placeholder="搜索标题或归属…"
           value={search()}
           onInput={(e) => setSearch(e.currentTarget.value)}
@@ -730,9 +730,8 @@ export default function Notes() {
           </div>
           <div class="dlg-field">
             <label class="dlg-label dlg-required">笔记标题</label>
-            <input
-              type="text"
-              class="input w-full"
+            <Input
+            class="w-full"
               placeholder="保存为 <标题>.md"
               value={newTitle()}
               disabled={creating()}
