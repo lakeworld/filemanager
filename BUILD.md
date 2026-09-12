@@ -39,6 +39,21 @@ npm run test:e2e    # 端到端测试（Playwright _electron，161 用例，e2e 
 npm run bench       # 性能基准（数据记录在本地内部文档，不进公开仓库）
 ```
 
+### 4.1 公开仓泄漏门禁（克隆后先做一次）
+
+本仓是公开开源仓，源码与提交元数据都会被全世界读到。装一道机器门禁拦住私人标识、
+含用户名的本机路径、私钥、明文凭据、非回环 IP 与不合规的提交身份：
+
+```bash
+npm run hooks:install          # 一次性：git config core.hooksPath scripts/git-hooks
+npm run check:leaks            # 扫当前跟踪文件（CI 每次构建都跑，必须绿）
+npm run check:leaks:history    # 审计口径：连全部历史一起查（人工复核用）
+```
+
+`git push` 时 pre-push 钩子只查**本次新推的提交与对象**（增量口径），把旧分支误推回来会被拦。
+规则与例外见 `scripts/check-no-secrets.mjs` 与 `scripts/leak-allowlist.mjs`；例外必须写明理由。
+命中时门禁只报「位置 + 规则名」，不回显命中值本身——CI 日志同样是公开面。
+
 ## 五、构建与打包
 
 ```bash

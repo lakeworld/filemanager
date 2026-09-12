@@ -1,0 +1,11 @@
+#!/bin/sh
+# 公开仓泄漏门禁（pre-push）—— 2026-09-12 隐私清洗事故固化
+#
+# 安装（一次性，克隆后必做）：
+#   git config core.hooksPath scripts/git-hooks
+# 跳过一次（不推荐，仅紧急救援）：git push --no-verify
+#
+# 规则与例外见 scripts/check-no-secrets.mjs / scripts/leak-allowlist.mjs。
+set -e
+root=$(git rev-parse --show-toplevel)
+exec node "$root/scripts/check-no-secrets.mjs" --pre-push
