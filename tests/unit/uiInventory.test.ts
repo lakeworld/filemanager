@@ -1,7 +1,7 @@
 /**
  * 渲染层视觉红线清单门禁（v2.5.8 精致化 D6 固化，2026-09-10）
  *
- * 守五件事（都是本轮读码/改码时真实踩到或差点踩到的坑，写成常驻断言而不是一次性 grep 取证）：
+ * 守六件事（都是本轮读码/改码时真实踩到或差点踩到的坑，写成常驻断言而不是一次性 grep 取证）：
  *   1. **玻璃卡点位**：`card-glass` 出现的文件与次数 === 基线（PLAN §四「高基数 × blur = 内存/滚动炸弹」
  *      只有显式更新基线才能扩散，防「顺手给列表卡加个玻璃」）。
  *   2. **高基数硬白名单**：Images / FileBrowserView / Search / InvoiceCards / InboundCards 玻璃计数**必须为 0**。
@@ -10,6 +10,12 @@
  *      `type="number"` 只允许在非金额语义的白名单文件里（金额一律走 MoneyInput，D8 收 6 处）。
  *   5. **读字表面豁免**：`.modal-panel` / `.dlg-*` 必须实底——禁 `backdrop-filter`、禁半透明白底/白描边、
  *      禁头尾分隔线与 ✕ 关闭钮回潮（2026-09-10 弹窗材质回退，PLAN §四；变异验证已确认本条能抓）。
+ *   6. **按钮面棘轮（v2.5.8 D13 新增，2026-09-12）**：裸 `<button>` 的材质口径三条——
+ *      贴组件档底色却不**裸挂** `.btn-*` 五档 = 单向向下棘轮（现 34 处 / 12 文件，D14 压到 0）、
+ *      手写串逐文件基线（现 147 处 / 38 文件，两张表同存 `__baselines__/ui-button-material.md`）、
+ *      「整条抄 `.btn-primary`」复刻点位只准缩短（现 3——卡上假设的 0 不成立，见 BTN_PRIMARY_CLONE_EXEMPT 注释）。
+ *      判据口径 = `scripts/scan-ui-inventory.mjs` 的标签体解析（本文件不自写第二套扫描），
+ *      推理与边界见下文「按钮面棘轮」段注释。
  *
  * 机制与 tests/unit/winBranchInventory.test.ts 同构（同一套 UPDATE / BREAK 环境变量约定）。
  * 背景：PLAN §三 批 2 原句「台账卡基数低 → 玻璃化」的前提已被 v2.5.5 卡片化推翻（现走 VirtualGrid），
@@ -18,7 +24,7 @@
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const SRC = path.join(ROOT, 'src', 'renderer', 'src')
@@ -29,8 +35,17 @@ const UIINV_BREAK = process.env.UIINV_BREAK === '1'
 const UIINV_BREAK_REASON = process.env.UIINV_BREAK_REASON || ''
 
 /** 高基数面（VirtualGrid 逐行渲染 / 结果数无上限）：玻璃计数必须恒为 0 */
+/** 高基数面（VirtualGrid 逐行渲染）：`.card-glass` 计数必须恒为 0。
+ *  ⚠ 复审 r2 补两条：`pages/Certs.tsx` 早在 `AGENTS.md` §一.7 就被列为高基数五面之一，
+ *  但**本表一直没有它** ⇒ 谁给证书卡加 blur 不会被拦（又一例"文档声称有、机器没钉"）；
+ *  `pages/Notes.tsx` 同形（也用 VirtualGrid，页内注释自禁 blur）。两处的 `card-glass` 字样
+ *  都只出现在注释里，而 `countByFile` 先去注释再计数 ⇒ 入册零成本。
+ *  反例提醒：`Clients`/`Invoices`/`Quotes`/`Suppliers`/`Trash`/`Exports` 计数 >0 且都在**页面骨架**
+ *  （非行卡）上，按 09-10「台账行保持实底、骨架卡可上玻璃」的拍板口径**不能**照抄入册，会立刻红。 */
 const ZERO_GLASS_FILES = [
   'pages/Images.tsx',
+  'pages/Certs.tsx',
+  'pages/Notes.tsx',
   'pages/Search.tsx',
   'components/FileBrowserView.tsx',
   'pages/invoices/InvoiceCards.tsx',
@@ -173,6 +188,182 @@ function writeBaseline(map: Record<string, number>): void {
       serialize(map) +
       `\n`,
   )
+}
+
+/* ===================================================================== *
+ * 按钮面棘轮（v2.5.8 D13，2026-09-12）
+ * ===================================================================== */
+
+/**
+ * 「挂组件档底色却不走 `.btn-*`」为什么是可机检的**可见缺陷**，而不是结构洁癖：
+ *
+ * `.btn-primary / .btn-secondary / .btn-danger / .btn-ghost / .btn-ghost-danger` 五档
+ * **类定义自带 `active:scale-95`**（`index.css:78-83` + `:184-191`，v2.5.8 W4/D8 那次统一按压节奏，
+ * 原注释「原本挂 `active:scale-95` 却只 transition-colors，按压是瞬移」）。于是：
+ *  - 走 `btn-*` 的 123 处按钮 **100% 有按压缩放反馈**（反馈住在类定义里，不在调用点 class 上，
+ *    所以清点器的 `hasPress` 对这一档取 0 是预期的，别误读成「统一档也没反馈」）；
+ *  - 手写串的 147 处 **0 处**有 `active:scale`，其中 79 处连 `transition` 都没挂。
+ * 即同一应用里近一半按钮按下去毫无反应。「贴了组件档底色 = 作者想让它长得像主/次/危险按钮」
+ * 这个意图，恰好就把缺失的按压反馈一起暴露出来 ⇒ 「底色 ⇒ 必须走 `btn-*`」是一条精准拦真缺陷的判据。
+ */
+
+/** 按钮面棘轮基线（与玻璃点位分开一份文件：语义不同、下调节奏也不同） */
+const BTN_BASELINE_PATH = path.join(ROOT, 'tests', 'unit', '__baselines__', 'ui-button-material.md')
+
+/**
+ * 主判据的**唯一显式豁免**：下拉底座自己。
+ * `components/ui/SearchSelect.tsx:273` 那个 `<button role="option">` 是选项行本体
+ * （高亮态就是 `bg-surface-100`），同文件 `:211` 的触发器也住在底座里——底座内部不算页面欠账。
+ * 口径照「原生 `<select>` 只准住在 `ui/Select.tsx`、计数钉死 1」那条：**点名文件 + 钉死计数**，
+ * 不写 `components/ui/**` 这种通配（通配等于给整个底座目录开了张空白支票）。
+ */
+const BTN_TINT_BASE_EXEMPT: Record<string, number> = {
+  'components/ui/SearchSelect.tsx': 1,
+}
+
+/**
+ * 「把 `.btn-primary` 整条抄进页面」的判据 = 同一条 class 里同时出现
+ * 组件档底色 `bg-primary-600` + 尺寸档 `px-4` + `py-2`（`index.css:78-79` 的 md 档规格）。
+ * 卡上「现在就为 0」的前提**不成立**：立项实测 3 处，全在 `pages/Profile.tsx`
+ * （`:186` / `:290` / `:375`——`bg-primary-600 px-4 py-2 … hover:bg-primary-700` 且只挂
+ * `transition-colors`，正是「按下去没反应」那一类）。硬零判据一旦被「按现状钉成 3」就失去意义，
+ * 所以这里登记成**只准缩短的显式债务表**（同一处多一个 = 红；修掉不清表 = 红；换文件 = 红），
+ * 目标仍是 0：D14 收完这 3 处后把本表清空，判据即回到硬零。
+ */
+const BTN_PRIMARY_CLONE_EXEMPT: Record<string, number> = {
+  'pages/Profile.tsx': 3,
+}
+
+/**
+ * 债务表总量上限。**只准缩向 0，禁止调大**——把 `BTN_PRIMARY_CLONE_EXEMPT` 改大到 4 来「凑现值」
+ * 是唯一还能绕过①的方式，这里一并红掉（要调大需主线程拍板并在此行上方留理由）。
+ * 清空 `BTN_PRIMARY_CLONE_EXEMPT` 后本条即回到卡上原本要求的**真·硬零**。
+ */
+const BTN_PRIMARY_CLONE_TOTAL_CAP = 3
+
+/** 棘轮方向提示的收集器：数变小 = 改进，但基线**不自动跟码漂移**，最后一条用例据此要求显式落账 */
+const RATCHET_STALE: string[] = []
+
+/** 清点器返回值的类型面（与 tests/unit/uiScan.test.ts 同一份，那边钉的是计数、这边钉的是点位） */
+interface BtnHit {
+  file: string
+  line: number
+  classText: string | null
+  category: 'unified' | 'handwritten' | 'noclass' | 'other'
+  hasComponentTint: boolean
+  tintTokens: string[]
+  hasPress: boolean
+  hasTransition: boolean
+}
+interface BtnScan {
+  buttons: BtnHit[]
+  summary: { buttons: { total: number; unified: number; handwritten: number; noclass: number } }
+}
+
+/**
+ * 口径唯一来源 = `scripts/scan-ui-inventory.mjs` 的 `collectUiInventory`（解析 JSX 标签体：
+ * 跨行、引号与花括号感知、先原位剥注释）。本文件**不再自写一套 `<button` 截断扫描**——
+ * 按行/在第一个 `>` 处收口的扫描会把 `components/ui/SearchSelect.tsx:211`（class 写在
+ * `ref={(el) => { … }}` 的 `>` 之后）误读成「没有 class」，实测正是 146/1 与 147/0 两个口径的唯一差。
+ * 非字面量 specifier 的写法同 uiScan.test.ts（清点器是 .mjs，避免 tsc 报 TS7016）。
+ */
+const scannerUrl = pathToFileURL(path.join(ROOT, 'scripts', 'scan-ui-inventory.mjs')).href
+const { collectUiInventory } = (await import(scannerUrl)) as {
+  collectUiInventory: (opt?: { root?: string }) => BtnScan
+}
+const BTN_SRC_PREFIX = 'src/renderer/src/'
+const btnHits: BtnHit[] = collectUiInventory({ root: ROOT }).buttons
+/** 基线里的路径口径与本文件其余断言一致（相对 `src/renderer/src`） */
+const btnFile = (b: BtnHit): string => (b.file.startsWith(BTN_SRC_PREFIX) ? b.file.slice(BTN_SRC_PREFIX.length) : b.file)
+/** 报错要能直接指到 file:line 与那一处 class 片段——「expected 34 <= 33」这种没有信息量 */
+const btnWhere = (b: BtnHit): string =>
+  `${btnFile(b)}:${b.line} 「${(b.classText ?? '（无 class）').replace(/\s+/g, ' ').trim().slice(0, 110)}」`
+/** 违规清单只列前若干处：超基线时全量倒 35 行会把人淹死，但一条都不能少地可追（完整清单跑清点脚本） */
+const head = (list: string[], n = 12): string =>
+  list.slice(0, n).join('\n') + (list.length > n ? `\n  …另有 ${list.length - n} 处（完整清单：node scripts/scan-ui-inventory.mjs）` : '')
+
+/**
+ * class 里有没有**裸** `btn-*` token。
+ * 清点器判 `unified` 用的是 `\bbtn-…`，`hover:btn-primary` 这种「变体前缀后」也算命中——
+ * 那等于「只在悬停时套统一档」，照常可以顺手贴一份 `bg-primary-600`，绕过主判据。
+ * 本站现在这类写法 0 处（`uiScan.test.ts` 钉的是清点器口径，不改它），但本门禁按**裸 token**收紧：
+ * 只有真正挂了五档之一才算统一档。
+ */
+const BARE_BTN_CLASS = /(^|[\s"'`{])btn-(?:primary|secondary|danger|ghost|ghost-danger)([\s"'`}]|$)/
+/** 主判据的违规位 = 贴了组件档底色、又没裸挂五档（比清点器的 hasComponentTint 更严一格） */
+const isTintViolation = (b: BtnHit): boolean => b.tintTokens.length > 0 && !BARE_BTN_CLASS.test(b.classText ?? '')
+const tintHits: BtnHit[] = btnHits.filter(isTintViolation)
+const handHits = btnHits.filter((b) => b.category === 'handwritten')
+const handwrittenByFile: Record<string, number> = {}
+for (const b of handHits) handwrittenByFile[btnFile(b)] = (handwrittenByFile[btnFile(b)] ?? 0) + 1
+
+/** class 里同时出现 `bg-primary-600` 与 `px-4` 与 `py-2` = `.btn-primary` 被整条抄了一份 */
+function isBtnPrimaryClone(b: BtnHit): boolean {
+  const c = b.classText ?? ''
+  return b.tintTokens.includes('bg-primary-600') && /(^|[\s"'`{])px-4([\s"'`}]|$)/.test(c) && /(^|[\s"'`{])py-2([\s"'`}]|$)/.test(c)
+}
+const cloneHits = btnHits.filter(isBtnPrimaryClone)
+
+interface BtnBaseline {
+  tint: number
+  hand: Record<string, number>
+  tintByFile: Record<string, number>
+}
+function readBtnBaseline(): BtnBaseline | null {
+  if (!fs.existsSync(BTN_BASELINE_PATH)) return null
+  let section = ''
+  let tint = -1
+  const hand: Record<string, number> = {}
+  const tintByFile: Record<string, number> = {}
+  for (const line of fs.readFileSync(BTN_BASELINE_PATH, 'utf8').split('\n')) {
+    const t = line.trim()
+    if (/^\[\w+\]$/.test(t)) {
+      section = t.slice(1, -1)
+      continue
+    }
+    if (!t || t.startsWith('#') || t.startsWith('<!--')) continue
+    const c = /^count:\s*(\d+)$/.exec(t)
+    if (c && section === 'tint') {
+      tint = Number(c[1])
+      continue
+    }
+    if (section !== 'handwritten') continue
+    // 一行一文件两列：`- 文件 | 手写裸 button 数 | 其中贴档底色数`（第三列缺省读 0）
+    const m = /^- (.+?)\s*\|\s*(\d+)\s*(?:\|\s*(\d+)\s*)?$/.exec(t)
+    if (!m) continue
+    hand[m[1]] = Number(m[2])
+    tintByFile[m[1]] = Number(m[3] ?? 0)
+  }
+  return tint < 0 ? null : { tint, hand, tintByFile }
+}
+
+/** 落盘：一行一文件、路径升序（明天 D14 逐档下调时 diff 只碰真正变了的那几行） */
+function writeBtnBaseline(hand: Record<string, number>, tint: Record<string, number>): void {
+  const files = Array.from(new Set([...Object.keys(hand), ...Object.keys(tint)])).sort((a, b) => a.localeCompare(b))
+  const body = files.map((f) => `- ${f} | ${hand[f] ?? 0} | ${tint[f] ?? 0}`).join('\n')
+  const tintTotal = Object.values(tint).reduce((n, c) => n + c, 0)
+  fs.writeFileSync(
+    BTN_BASELINE_PATH,
+    `<!-- 渲染层按钮面材质棘轮基线（v2.5.8 D13，2026-09-12） -->\n` +
+      `<!-- tests/unit/uiInventory.test.ts 读取；更新：UIINV_UPDATE=1 npx vitest run tests/unit/uiInventory.test.ts -->\n` +
+      `<!-- 棘轮单向向下：任一文件任一列超基线即红；数变小**不**自动跟码漂移，必须跑上面那条显式落账。终值 = 0 / 空表（D14 逐档收 .btn-*）。 -->\n` +
+      `\n[tint]\n` +
+      `# 全站：裸 <button> 贴组件档底色（bg-primary-600 / bg-surface-100 / bg-danger-600）却不属五档 .btn-* 的处数\n` +
+      `# 不含 BTN_TINT_BASE_EXEMPT 点名的底座豁免（现 1 处：components/ui/SearchSelect.tsx 的选项行）；= 下表第三列之和\n` +
+      `count: ${tintTotal}\n` +
+      `\n[handwritten]\n` +
+      `# 列 = 文件 | 手写裸 <button>（不走 .btn-*）处数 | 其中贴组件档底色处数\n` +
+      `# 口径 = scripts/scan-ui-inventory.mjs 标签体解析；路径相对 src/renderer/src；清零的文件由 UPDATE 时自动摘掉\n` +
+      body +
+      `\n`,
+  )
+}
+
+/** 逐文件贴档底色计数（= 基线第三列；底座豁免位不计入） */
+const tintByFile: Record<string, number> = {}
+for (const b of tintHits) {
+  if (btnFile(b) in BTN_TINT_BASE_EXEMPT) continue
+  tintByFile[btnFile(b)] = (tintByFile[btnFile(b)] ?? 0) + 1
 }
 
 describe('渲染层视觉红线清单（v2.5.8 D6 固化）', () => {
@@ -459,5 +650,133 @@ describe('渲染层视觉红线清单（v2.5.8 D6 固化）', () => {
     const css = stripComments(fs.readFileSync(path.join(SRC, 'index.css'), 'utf8'))
     const n = css.match(/prefers-reduced-motion/g)?.length ?? 0
     expect(n, '减少动画偏好必须集中在一处 media query').toBe(1)
+  })
+
+  /* ------------------------------------------------------------------ *
+   * 按钮面棘轮（v2.5.8 D13，2026-09-12）——判据设计见上方「按钮面棘轮」段注释
+   * ------------------------------------------------------------------ */
+
+  /**
+   * 主判据。为什么钉的是「底色」而**不是**「必须用 `ui/Button` 组件」：
+   * `ui/Button` 只有 5 个 variant + sm/md 两档尺寸，而站里客观存在**四种本就不该套它的形状**——
+   * tab / 侧栏整行 / 图标钮 / chip（强行统一会逼出一次性 props，见调研 §五.2 的反面）。
+   * 但「按压反馈缺失」这个真缺陷恰好只发生在**贴了组件档底色**的那批手写按钮上
+   * （底色 = 作者想让它长得像主/次/危险按钮），所以「底色 ⇒ 必须走 `.btn-*` 五档」
+   * 既拦得住真缺陷、又放过上面那四种形状——这就是判据的边界，收窄一分则漏、放宽一分则误伤。
+   * `.btn-*` 是 CSS 类不是组件，所以本条不禁止 `<button class="btn-primary …">` 这种
+   * 「裸元素 + 统一档」写法（站里 123 处即此），明天 D14 若换 `ui/Button` 也不与本条冲突。
+   */
+  it('按钮面棘轮：裸 <button> 贴组件档底色必须走 .btn-* 五档（单向向下，终值 0）', () => {
+    if (UIINV_UPDATE) {
+      writeBtnBaseline(handwrittenByFile, tintByFile)
+      return
+    }
+    const base = readBtnBaseline()
+    expect(base, `按钮面基线缺失或损坏——先跑 UIINV_UPDATE=1 生成 ${path.relative(ROOT, BTN_BASELINE_PATH)}`).not.toBeNull()
+    // 底座豁免**显式点名 + 计数钉死**（同「原生 select 只准住在 ui/Select」那条）：
+    // 往底座里再加一档底色、或把底座这处底色改掉，都会红在这里，而不是悄悄扩了豁免面。
+    for (const [f, c] of Object.entries(BTN_TINT_BASE_EXEMPT)) {
+      const n = tintHits.filter((b) => btnFile(b) === f).length
+      expect(n, `底座豁免点位 ${f} 的贴档底色数变了（现 ${n}，基线 ${c}）——改底座材质请连带审视本门禁，别把豁免当通行证`).toBe(c)
+    }
+    // 基线自身一致性：count 行必须等于逐文件表第三列之和（防手改基线只改了一处 → 两张皮）
+    const baseTotal = Object.values(base!.tintByFile).reduce((n, c) => n + c, 0)
+    expect(base!.tint, `基线文件自相矛盾：[tint] count=${base!.tint} 而逐文件第三列之和=${baseTotal}——跑 UIINV_UPDATE=1 重生成`).toBe(baseTotal)
+    // 逐文件棘轮（不只钉总数：否则「A 页新增一处 + B 页顺手删一处」总数不动就能蒙过去）
+    const over = Object.entries(tintByFile).filter(([f, c]) => c > (base!.tintByFile[f] ?? 0))
+    const lines: string[] = []
+    if (over.length > 0) {
+      const curTotal = Object.values(tintByFile).reduce((n, c) => n + c, 0)
+      lines.push(
+        `贴档底色的裸 <button> 超基线：${over.length} 个文件越线，全站现 ${curTotal} 处 / 基线 ${base!.tint} 处`,
+        `请改用 .btn-primary / .btn-secondary / .btn-danger / .btn-ghost / .btn-ghost-danger 之一——五档类定义自带 active:scale-95，手写串按下去没有缩放反馈：`,
+      )
+      for (const [f, c] of over) {
+        lines.push(`  ${f}：${c} 处 > 基线 ${base!.tintByFile[f] ?? 0} 处`)
+        lines.push(head(tintHits.filter((b) => btnFile(b) === f).map((b) => '    ' + btnWhere(b))))
+      }
+    }
+    expect(lines.join('\n'), '新增按钮材质违规').toBe('')
+    if (over.length === 0) {
+      const curTotal = Object.values(tintByFile).reduce((n, c) => n + c, 0)
+      if (curTotal < base!.tint) RATCHET_STALE.push(`[tint] 贴档底色已降到 ${curTotal}（基线 ${base!.tint}）——跑 UIINV_UPDATE=1 下调`)
+      for (const [f, c] of Object.entries(base!.tintByFile)) {
+        if (c > 0 && (tintByFile[f] ?? 0) === 0) RATCHET_STALE.push(`[tint] ${f} 的贴档底色已清零，基线第三列还留着 ${c}——跑 UIINV_UPDATE=1 下调`)
+      }
+    }
+  })
+
+  /**
+   * 手写串逐文件基线（D14 逐档下调的工作清单）。
+   * 逐文件而不只看全站总数：总数棘轮可以「在 A 页补一个、在 B 页删一个」蒙过去，
+   * 按文件钉死后**任何页面新增一个不走五档的裸 `<button>` 都会红**——这才堵住「新页面手搓按钮」。
+   * 注：`components/ui/` 下的手写位一并入表（底座本体也要数），只有**底色判据**豁免底座。
+   */
+  it('按钮面棘轮：手写 .btn-* 之外的裸 button 逐文件不得超基线（D14 工作清单）', () => {
+    if (UIINV_UPDATE) {
+      writeBtnBaseline(handwrittenByFile, tintByFile)
+      return
+    }
+    const base = readBtnBaseline()
+    expect(base, '按钮面基线缺失——先跑 UIINV_UPDATE=1 生成').not.toBeNull()
+    const lines: string[] = []
+    for (const [f, c] of Object.entries(handwrittenByFile)) {
+      const limit = base!.hand[f] ?? 0
+      if (c > limit) {
+        lines.push(`  ${f}：手写裸 button ${c} 处 > 基线 ${limit} 处`)
+        lines.push(head(handHits.filter((b) => btnFile(b) === f).map((b) => '    ' + btnWhere(b))))
+      }
+    }
+    expect(
+      lines.join('\n'),
+      '新增手写按钮材质（该页请走 .btn-* 五档或 ui/Button；tab / 侧栏整行 / 图标钮 / chip 四种异形状不在本条禁止面内——但贴了组件档底色就被上一条拦住）',
+    ).toBe('')
+    const curTotal = Object.values(handwrittenByFile).reduce((n, c) => n + c, 0)
+    const baseTotal = Object.values(base!.hand).reduce((n, c) => n + c, 0)
+    if (curTotal < baseTotal) RATCHET_STALE.push(`[handwritten] 手写按钮已降到 ${curTotal}（基线 ${baseTotal}）——跑 UIINV_UPDATE=1 下调`)
+    for (const [f, c] of Object.entries(base!.hand)) {
+      if (c > 0 && (handwrittenByFile[f] ?? 0) === 0) {
+        RATCHET_STALE.push(`[handwritten] ${f} 已清零，基线表里还留着 ${c}——跑 UIINV_UPDATE=1 摘掉条目`)
+      }
+    }
+  })
+
+  /**
+   * 材质复刻判据：`bg-primary-600` + `px-4` + `py-2` 同串 = `.btn-primary` 被整条抄进页面。
+   * 见上方 `BTN_PRIMARY_CLONE_EXEMPT` 注释——**立项实测不为 0（3 处，全在 Profile.tsx），已停下上报**。
+   */
+  it('材质复刻：抄 .btn-primary 整条（bg-primary-600 + px-4 + py-2）只准缩短（现 3 → 0）', () => {
+    const byFile: Record<string, number> = {}
+    for (const b of cloneHits) byFile[btnFile(b)] = (byFile[btnFile(b)] ?? 0) + 1
+    // ① 判据可机检：命中集合必须**恰好**等于登记表，多一个（新页抄了一份）、少一个（修掉了没清表）都红
+    expect(
+      Object.entries(byFile).filter(([f]) => !(f in BTN_PRIMARY_CLONE_EXEMPT)),
+      `又抄了一份 .btn-primary（走 .btn-primary 即可，五档自带 active:scale-95 按压）：${cloneHits
+        .filter((b) => !(btnFile(b) in BTN_PRIMARY_CLONE_EXEMPT))
+        .map((b) => btnWhere(b))
+        .join(' | ')}`,
+    ).toEqual([])
+    for (const [f, c] of Object.entries(BTN_PRIMARY_CLONE_EXEMPT)) {
+      expect(
+        byFile[f] ?? 0,
+        `复刻点位 ${f} 现 ${byFile[f] ?? 0} 处，登记表 ${c} 处——同文件里再多抄一处即绕过本门禁，只准改小并同步此表`,
+      ).toBe(c)
+    }
+    // ② 登记表**只准缩短**：把 BTN_PRIMARY_CLONE_EXEMPT 改大来凑现值 = 绕过，红在这里
+    const curTotal = Object.values(byFile).reduce((n, c) => n + c, 0)
+    const regTotal = Object.values(BTN_PRIMARY_CLONE_EXEMPT).reduce((n, c) => n + c, 0)
+    expect(
+      curTotal <= BTN_PRIMARY_CLONE_TOTAL_CAP && regTotal <= BTN_PRIMARY_CLONE_TOTAL_CAP,
+      `复刻债务表上限 ${BTN_PRIMARY_CLONE_TOTAL_CAP} 处（现 命中 ${curTotal} / 登记 ${regTotal}）——本表只准缩向 0，调上限需主线程拍板并在卡上记一笔`,
+    ).toBe(true)
+  })
+
+  /**
+   * 棘轮只准**显式**下调。上面任何一条发现「数变小了 / 条目清零了 / 债务表该缩了」都不直接把基线改掉，
+   * 而是攒到这里红一次：基线跟着代码静默漂移 = 门禁形同虚设（本仓 `UIINV_UPDATE=1` 的一贯口径）。
+   */
+  it('棘轮卫生：基线只准显式下调（上面出现「请跑 UIINV_UPDATE=1」的提示，本条即红）', () => {
+    if (UIINV_UPDATE) return
+    expect(RATCHET_STALE.join('\n'), '基线已可下调，请显式落账后再提交').toBe('')
   })
 })
