@@ -301,8 +301,15 @@ export default function GlobalDropOverlay() {
     window.addEventListener("drop", onDrop);
 
     // 收尾轮：Esc 关闭导入目标选择弹窗（选择阶段，导入开始即关闭弹窗，无进行中冲突）
+    // v2.5.8 复审 r2 A-6：本弹窗是**手搓 fixed 遮罩、没进层栈**，所以它必须认层栈的
+    //   `defaultPrevented`——否则「拖进来 → 目标选择弹窗开着 → 其上再开右键菜单/下拉」时，
+    //   一次 Esc 会被菜单与本监听各吃一次，两层同帧齐关。
+    //   ⚠ 正解是这个弹窗本身入栈（连 :386-511 那个「选择导入目标」伪弹窗一起），但那属改版式范围，
+    //   本轮按卡面只做「不再双消费」，入栈另立一批（PLAN D15）。
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowDialog(false);
+      if (e.key !== "Escape") return;
+      if (e.defaultPrevented) return; // 层栈里的弹窗/菜单/浮层已消费这次 Esc，让位
+      setShowDialog(false);
     };
     window.addEventListener("keydown", onKey);
 
@@ -353,7 +360,7 @@ export default function GlobalDropOverlay() {
             />
           </div>
           <button
-            class="text-xs text-surface-300 hover:text-white self-end"
+            class="link-btn self-end text-xs text-surface-300 hover:text-white"
             onClick={handleCancelImport}
           >
             取消导入
@@ -425,10 +432,13 @@ export default function GlobalDropOverlay() {
               </div>
 
               <div>
+                {/* v2.5.8 D14（样式统一收口）：两组分段/药丸选择器收进 `.seg-item` / `.seg-item-on`
+                    单点档（与文件区工具栏同一套材质，见 index.css；容器保留原样，不套 .seg-track——
+                    档内多出的 1px 描边会把选择条整体撑高 2px，属尺寸变化）。 */}
                 <label class="block text-sm font-medium text-surface-700 mb-1">目标类型</label>
                 <div class="flex bg-surface-100 rounded-lg p-1">
                   <button
-                    class={`flex-1 py-2 text-sm rounded-md transition-colors ${targetType() === "image" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}
+                    class={`seg-item flex-1 ${targetType() === "image" ? "seg-item-on" : "text-surface-500"}`}
                     onClick={() => {
                       setTargetType("image");
                       // v2.4.7：切回图包/证书时清空残留的客户选择，避免导入到 产品集/<客户名>/ 幽灵目录
@@ -439,7 +449,7 @@ export default function GlobalDropOverlay() {
                     🖼️ 图包
                   </button>
                   <button
-                    class={`flex-1 py-2 text-sm rounded-md transition-colors ${targetType() === "cert" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}
+                    class={`seg-item flex-1 ${targetType() === "cert" ? "seg-item-on" : "text-surface-500"}`}
                     onClick={() => {
                       setTargetType("cert");
                       // v2.4.7：切回图包/证书时清空残留的客户选择，避免导入到 产品集/<客户名>/ 幽灵目录
@@ -451,7 +461,7 @@ export default function GlobalDropOverlay() {
                   </button>
                   {/* v2.4.7：客户导入分组（客户 → 子文件夹两级） */}
                   <button
-                    class={`flex-1 py-2 text-sm rounded-md transition-colors ${targetType() === "customer" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}
+                    class={`seg-item flex-1 ${targetType() === "customer" ? "seg-item-on" : "text-surface-500"}`}
                     onClick={() => {
                       setTargetType("customer");
                       setSelectedProductSet("");
@@ -462,7 +472,7 @@ export default function GlobalDropOverlay() {
                   </button>
                   {/* v2.4.9 S2：供应商导入分组（固定子文件夹集） */}
                   <button
-                    class={`flex-1 py-2 text-sm rounded-md transition-colors ${targetType() === "supplier" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}
+                    class={`seg-item flex-1 ${targetType() === "supplier" ? "seg-item-on" : "text-surface-500"}`}
                     onClick={() => {
                       setTargetType("supplier");
                       setSelectedProductSet("");
@@ -485,7 +495,7 @@ export default function GlobalDropOverlay() {
                   }>
                     {(folder) => (
                       <button
-                        class={`px-4 py-2 text-sm rounded-md transition-colors ${subFolder() === folder ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}
+                        class={`seg-item ${subFolder() === folder ? "seg-item-on" : "text-surface-500"}`}
                         onClick={() => setSubFolder(folder)}
                       >
                         {folder}

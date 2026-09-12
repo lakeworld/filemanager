@@ -247,6 +247,27 @@
     @apply bg-white text-surface-900 font-medium;
     box-shadow: 0 1px 2px rgb(15 23 42 / 0.06), inset 0 0 0 1px rgb(15 23 42 / 0.04);
   }
+  /* v2.5.8 D14（样式统一收口）：按钮形状三档。
+     为什么要有这三档：`ui/Button` 只有 5 个 variant + sm/md 两档，**装不下**文字链接式按钮、
+     纯图标紧凑钮、整行可点项这三种形状——硬塞进组件只会逼出一次性 props（PLAN §二 的判断）。
+     这三档**只统一"节奏"**（过渡属性、按压反馈、禁用态、可点区域语义），**刻意不统一尺寸与颜色**：
+     字号/内边距随容器变（侧栏行 h-7 与表格行 h-6 本就该不同），颜色随语义变（危险=红、次要=灰、
+     主操作=主色）——统一它们是"看起来一致其实不对"。真正的收益是把 79 处「连 transition 都没有、
+     hover 瞬变」与「禁用无反馈」收进同一节奏，且让门禁能识别"这一处已走统一档"。
+     禁 transition-all（v2.5.1 T1 纪律：全属性通配过渡会连 layout/paint 一起动）。 */
+  .link-btn {
+    @apply inline-flex items-center transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .icon-btn {
+    /* opacity 必须在过渡清单里：卡片角标普遍是 `opacity-0 group-hover:opacity-100` 的淡入式显形，
+       少了这一项，调用点想保淡入只能自己写 `transition-opacity`——而 utilities 层压过 components 层，
+       那一条会把整份过渡清单顶成只剩 opacity（颜色与按压反而瞬变），正是本批要消灭的状态。
+       opacity 是"什么时候变、变多快"= 节奏，不是颜色，所以住骨架。 */
+    @apply inline-flex items-center justify-center rounded-md transition-[background-color,color,transform,opacity] duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .row-btn {
+    @apply flex w-full items-center gap-3 px-4 py-2.5 text-left transition-[background-color,box-shadow] duration-200 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
   .modal-overlay {
     @apply fixed inset-0 bg-black/50 flex items-center justify-center z-modal p-4;
   }
@@ -288,9 +309,12 @@
   .dlg-body {
     @apply px-6 py-5 flex flex-col gap-4 overflow-y-auto;
   }
-  /* 页脚与面板同白、无分隔线（弹窗材质回退，同上） */
+  /* 页脚与面板同白、无分隔线（弹窗材质回退，同上）。
+     flex-wrap 是 D16 推平 21 个时补的：`ArchiveProgressDialog` 完成态三枚按钮实测约 404px，
+     md 档页脚内容宽 400px——不换行的话 CJK 会在按钮内部断行（文字挤成两行），比换行难看得多。
+     其余 20 个页脚都不满宽，本条对它们零视觉影响；面板 `overflow-hidden` 也不会被撑破。 */
   .dlg-footer {
-    @apply px-6 py-4 flex items-center justify-end gap-3;
+    @apply px-6 py-4 flex flex-wrap items-center justify-end gap-3;
   }
   .dlg-field {
     @apply flex flex-col gap-1.5;

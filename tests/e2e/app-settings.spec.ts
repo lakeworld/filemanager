@@ -17,6 +17,15 @@ const readSettingsFile = async (label: string): Promise<Record<string, unknown>>
   return JSON.parse(await fsp.readFile(p, 'utf-8')) as Record<string, unknown>
 }
 
+/** 从未改过任何开关时磁盘上**可能根本没有 settings.json**（默认值不落盘），所以要一份「读不到 = 空」的口径 */
+const readSettingsFileOrEmpty = async (label: string): Promise<Record<string, unknown>> => {
+  try {
+    return await readSettingsFile(label)
+  } catch {
+    return {}
+  }
+}
+
 /**
  * 应用级设置开关（v2.5.8 D11 / W7）端到端。
  *
@@ -33,7 +42,8 @@ const readSettingsFile = async (label: string): Promise<Record<string, unknown>>
  * 系统通知在容器/CI 不受支持），本 spec 只验到「写入 + 重启读回」，其真实行为归 W2 真机手动项。
  */
 test.describe('应用级设置开关（v2.5.8 D11 / W7）', () => {
-  const launch = async (label: string): Promise<{ app: ElectronApplication; page: Page }> => {
+  /** `extraEnv` 只给个别用例开主进程侧的 e2e 探针开关（如 `QIHEBOX_E2E_SETTINGS_DELAY_MS`），默认不传 = 与既有全部用例一字同。 */
+  const launch = async (label: string, extraEnv: Record<string, string> = {}): Promise<{ app: ElectronApplication; page: Page }> => {
     const app = await electron.launch({
       args: ['.', '--no-sandbox'],
       cwd: ROOT,
@@ -41,6 +51,7 @@ test.describe('应用级设置开关（v2.5.8 D11 / W7）', () => {
         ...process.env,
         QIHEBOX_E2E: '1',
         QIHEBOX_E2E_USERDATA: e2eUserDataDirName(label),
+        ...extraEnv,
       },
     })
     const page = await app.firstWindow()
@@ -232,6 +243,75 @@ test.describe('应用级设置开关（v2.5.8 D11 / W7）', () => {
     } finally {
       await kill(second.app)
       await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+      await fsp.rm(userDataDir(label), { recursive: true, force: true }).catch(() => {})
+    }
+  })
+
+  /**
+   * 复审 r2 A-1 + A-2 的**真链路**验收（`tests/unit/searchSelect.test.ts` 末尾那份交接清单在此落地）。
+   *
+   * 为什么非走 e2e 不可：单测只验到 `pick()` 的判定与触发器 class，验不到
+   * 「键盘能不能改到本该锁住的值」与「选同值到底落不落盘」——那两条都得穿过 IPC 与磁盘才算数。
+   * 而「镜像未就绪」这个窗口在真机上只有几十毫秒，靠主进程侧的 `QIHEBOX_E2E_SETTINGS_DELAY_MS`
+   * 探针把 `getAll` 回包延后才能稳定抓住（延时的唯一作用就是这个，非 e2e 模式一行都不多走）。
+   *
+   * 三条各守一面，缺一条就等于原缺陷换个形态复发：
+   *  ① 鼠标：触发器 `disabled`——旧的 `pointer-events-none` 糊法里 button 并不禁用，Playwright 照常点得到；
+   *  ② 键盘：`.focus()` 进不去，再把 Enter/方向键/空格**钉在触发器身上**派发一轮 + 一次 click()，
+   *     磁盘没动（读文件不读 DOM，本仓明令；不盲敲页面的理由见下面 ② 段的实测教训）；
+   *  ③ 就绪后选**同值**不落盘 = A-2「同值早退」在真链路上的证据（单测那五条只验到判定本身）。
+   */
+  test('未就绪时下拉真改不动（鼠标 + 键盘），就绪后选同值不落盘（复审 r2 A-1/A-2）', async () => {
+    const label = 'a1-disabled'
+    const first = await launch(label, { QIHEBOX_E2E_SETTINGS_DELAY_MS: '3500' })
+    try {
+      await gotoSettings(first.page)
+      const trigger = first.page.getByRole('button', { name: '提前提醒天数' })
+      // ① 只断 disabled，**不去 click**：Playwright 在 disabled 元素上会一路等「可点」直到超时
+      await expect(trigger).toBeDisabled()
+
+      // ② 先证明焦点进不去（真 disabled 的 button 不在 Tab 序列里）
+      const focusable = await first.page.evaluate(() => {
+        const els = Array.from(document.querySelectorAll('button[aria-label="提前提醒天数"]'))
+        if (els.length !== 1) return `触发器数量 ${els.length}（用例前提：全站恰好一只）`
+        const el = els[0] as HTMLButtonElement
+        el.focus()
+        return document.activeElement === el
+      })
+      expect(focusable, '未就绪态下触发器仍可被 focus = 键盘路径还开着（A-1 的原缺陷形态）').toBe(false)
+      /**
+       * 按键派发**钉在触发器自己身上**（bubbles 到窗口，与真实键盘路径同一条 onKeyDown→pick），
+       * 而不是 `page.keyboard.press` 盲敲。
+       * 实测教训（本轮踩过）：`press('Tab')` 的第一跳落在标题栏「最小化」上，紧接着的 Enter
+       * 真的把窗口最小化了 ⇒ `main` 空、后续定位全部"element not found"，红得完全指不到问题上。
+       * 盲敲等于把断言交给"当前焦点恰好是谁"，那是环境细节不是被测语义。
+       */
+      const fired = await first.page.evaluate(() => {
+        const el = document.querySelector('button[aria-label="提前提醒天数"]') as HTMLButtonElement | null
+        if (!el) return '触发器不在 DOM 里（用例前提不成立）'
+        for (const key of ['Enter', 'ArrowDown', 'ArrowUp', ' ']) {
+          el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+          el.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true, cancelable: true }))
+        }
+        el.click() // 鼠标路径同轮验证：disabled 的 button 上 click() 不产生 onClick 语义
+        return ''
+      })
+      expect(fired, '按键派发的前提就不成立').toBe('')
+      const afterKeys = await readSettingsFileOrEmpty(label)
+      expect(afterKeys, `未就绪时按键一轮就落盘了：${JSON.stringify(afterKeys)}`).not.toHaveProperty('certReminderDays')
+
+      // ③ 等镜像拉回（探针延后 3.5s，这里给足余量）→ 同一只下拉可点 → 点它的**当前值**
+      await expect(trigger).toBeEnabled({ timeout: 20000 })
+      await trigger.click()
+      await first.page.getByRole('option', { name: '30 天' }).click()
+      await expect(trigger).toHaveText(/30 天/)
+      const afterSamePick = await readSettingsFileOrEmpty(label)
+      expect(
+        afterSamePick,
+        `再选一次当前值仍落盘 = pick() 没有同值早退（A-2）：${JSON.stringify(afterSamePick)}`,
+      ).not.toHaveProperty('certReminderDays')
+    } finally {
+      await kill(first.app)
       await fsp.rm(userDataDir(label), { recursive: true, force: true }).catch(() => {})
     }
   })

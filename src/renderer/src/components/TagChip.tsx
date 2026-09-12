@@ -42,7 +42,7 @@ export default function TagChip(props: {
       <span class="truncate">{tagLabel(props.name)}</span>
       <Show when={props.onRemove}>
         <button
-          class="ml-0.5 opacity-60 hover:opacity-100 text-current"
+          class="icon-btn ml-0.5 opacity-60 hover:opacity-100 text-current"
           onClick={props.onRemove}
           aria-label={`移除标签 ${props.name}`}
         >

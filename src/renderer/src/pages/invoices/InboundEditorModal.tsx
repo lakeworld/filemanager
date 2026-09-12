@@ -64,9 +64,22 @@ export default function InboundEditorModal(props: {
         // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc 走 onCloseRequest（二次确认）
         dirty={props.dirty}
         onCloseRequest={props.onCloseRequest}
+        // v2.5.8 D16（弹窗骨架收口）：迁 framed——头部标题与页脚动作改由 Modal 骨架渲染；
+        // 调用方原手写 <h2> 与底部按钮行随之删除（标题文案 = title 属性，一字未动，
+        // e2e 仍按 role=dialog + name「新建入库单」/「编辑入库单」命中）
+        framed
+        footer={
+          <>
+            {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 onCloseRequest（二次确认） */}
+            <button class="btn-secondary" onClick={() => (props.onCloseRequest ? props.onCloseRequest() : props.onClose())}>取消</button>
+            <button class="btn-primary" onClick={() => void props.onSave()} disabled={props.saving}>
+              {props.editor?.mode === "edit" ? "保存" : "确认登记"}
+            </button>
+          </>
+        }
       >
-        <div class="p-6">
-          <h2 class="text-xl font-bold mb-4">{props.editor?.mode === "edit" ? "编辑入库单" : "新建入库单"}</h2>
+        {/* framed 下 .dlg-body 自带 px-6 py-5，原 p-6 内边距交回骨架（留着就是双重留白） */}
+        <div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="block text-sm font-medium text-surface-700 mb-1">单据编号 *</label>
@@ -152,13 +165,6 @@ export default function InboundEditorModal(props: {
               onPick={() => void props.onPickFile()}
               onPreview={() => props.form.file_path && props.onPreviewFile()}
             />
-          </div>
-          <div class="flex gap-3 justify-end mt-6">
-            {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 onCloseRequest（二次确认） */}
-            <button class="btn-secondary" onClick={() => (props.onCloseRequest ? props.onCloseRequest() : props.onClose())}>取消</button>
-            <button class="btn-primary" onClick={() => void props.onSave()} disabled={props.saving}>
-              {props.editor?.mode === "edit" ? "保存" : "确认登记"}
-            </button>
           </div>
         </div>
       </Modal>

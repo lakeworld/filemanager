@@ -452,8 +452,10 @@ export default function Certs() {
           onChange={(v) => setSortBy(v as "modified" | "name" | "size")}
         />
         {/* v2.4.7（F9）：一键打包当前筛选结果（无需先全选）——产物落 工作区/导出/，完成弹窗可见 */}
+        {/* v2.5.8 D14（样式统一收口）：收进 .btn-secondary——删掉档已覆盖的底色/描边/文字色/圆角/过渡，
+            尺寸按原样保留（档给 px-4 py-2，此处仍用 px-3 与同排筛选器对齐）；禁用态档里没有，原样留 */}
         <button
-          class="px-3 py-2 border border-surface-200 rounded-lg text-sm bg-white text-surface-700 hover:bg-surface-50 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+          class="btn-secondary px-3 text-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
           disabled={visibleCount() === 0}
           title="将当前筛选出的全部证书压缩为一个 zip"
           onClick={() => void handleCompress(filteredItems().map((it) => it.path))}
@@ -487,7 +489,7 @@ export default function Certs() {
       }>
         <div class="flex items-center justify-between mb-3 shrink-0">
           <span class="text-sm text-surface-500">{visibleCount()} 个文件</span>
-          <button class="text-sm text-primary-600 hover:text-primary-700" onClick={selectAllVisible}>
+          <button class="link-btn text-sm text-primary-600 hover:text-primary-700" onClick={selectAllVisible}>
             全选当前结果
           </button>
         </div>

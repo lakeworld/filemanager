@@ -235,8 +235,12 @@ export default function Suppliers() {
           <span class="text-xs px-2 py-1 rounded-full bg-surface-100 text-surface-500">
             {s.file_count} 文件
           </span>
+          {/* v2.5.8 D14（样式统一收口）：卡片角标删除钮收进 `.icon-btn` 节奏档，与 `Clients.tsx:238` /
+              `ProductSets.tsx:450,461` 同一写法——语义色（灰→危险红）与 group-hover 显隐原样留在调用方；
+              原 `transition-opacity` 交回档：档的过渡清单不含 opacity，留着它（utilities 层压过 components 层）
+              会把整条 transition 顶掉，反而退回「hover 瞬变」。 */}
           <button
-            class="text-surface-400 hover:text-danger-500 opacity-0 group-hover:opacity-100 transition-opacity"
+            class="icon-btn text-surface-400 hover:text-danger-500 opacity-0 group-hover:opacity-100"
             onClick={(e) => handleCardDelete(s, e)}
             title="删除供应商"
           >

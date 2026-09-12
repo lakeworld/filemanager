@@ -88,10 +88,40 @@ export default function MoveDialog(props: {
 
   return (
     // v2.5.3（P2-7）：移动进行中 lockOpen——Esc/遮罩均不触发 onClose（照 ArchiveProgressDialog 先例）
-    <Modal open title="移动到…" size="md" lockOpen={status() === "moving"} onClose={props.onClose}>
-      <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h2 class="text-xl font-bold mb-4">移动到…</h2>
-
+    <Modal
+      open
+      title="移动到…"
+      size="md"
+      // v2.5.8 D14（framed 收口）：`size`/`lockOpen` 一字未动。迁移前是 448px 面板里再套一张 `max-w-lg`
+      // 同色白卡（卡宽被面板顶住 ⇒ 正文实宽 400px）；套 framed 后手搓卡作废、正文改由 `.dlg-body` 的
+      // px-6 承担 ⇒ 448 − 48 = 400px，正文宽度零变化（此处与 BatchRenameDialog 的 +64px 不同，无需裁决）。
+      framed
+      lockOpen={status() === "moving"}
+      onClose={props.onClose}
+      // 动作按钮整行进页脚槽（`.dlg-footer` 自带 justify-end + gap-3，原来那层 `flex gap-3 justify-end mt-6` 作废）；
+      // 两个按钮的 class、文案、onClick、disabled 表达式逐字未动，只是换个位置
+      footer={
+        <>
+          <button class="btn-secondary" onClick={props.onClose}>
+            取消
+          </button>
+          <button
+            class="btn-primary"
+            onClick={() => void handleMove()}
+            disabled={!selectedProductSet() || !subFolder() || status() === "moving"}
+          >
+            {status() === "moving" ? "移动中..." : `移动 ${props.paths.length} 个文件`}
+          </button>
+        </>
+      }
+    >
+      {/* v2.5.8 D14：手写 `<h2>` 与手搓白卡外壳材质（`bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl`）已删
+          ——framed 下面板本体 `.modal-panel` 就是实底白卡、`.dlg-header` 显示 title、`.dlg-body` 给 px-6 py-5，
+          留着就是双卡 + 双内边距 + 双标题（title 文案「移动到…」原样住在 title 属性里，一字未动）。
+          外壳 div 与它的 onClick 一字未动（Modal 面板自己已 stop 冒泡，这处冗余但不属本轮可删项）。
+          仍包一层 div，使 `.dlg-body` 的 `flex flex-col gap-4` 只作用在这一个子节点上，
+          内层 `space-y-4` / `mt-4` 的原有节奏保持不变（不趁迁移改版式）。 */}
+      <div onClick={(e) => e.stopPropagation()}>
         <div class="space-y-4">
           <div>
             <label class="block text-sm font-medium text-surface-700 mb-1">产品集</label>
@@ -113,9 +143,15 @@ export default function MoveDialog(props: {
 
           <div>
             <label class="block text-sm font-medium text-surface-700 mb-1">目标类型</label>
+            {/* v2.5.8 D14（样式统一收口）：这对 toggle 与「拖拽入区」选择条同形同料，
+                照 `GlobalDropOverlay.tsx:434/445` 的既有写法收进 `.seg-item` / `.seg-item-on` 单点档
+                （档给 px-4 py-2 text-sm rounded-md + 精确属性过渡，与原内联串逐项等值 ⇒ 删掉重复的四项）；
+                `flex-1` 是布局尺寸、选中/未选中的颜色随语义 ⇒ 原样留在调用点。
+                外层 `flex bg-surface-100 rounded-lg p-1` 是手搓 seg-track，改它 = 动容器版式（档多 1px 描边会撑高 2px），
+                与 GlobalDropOverlay/Invoices 同一口径：留待主线程拍板。 */}
             <div class="flex bg-surface-100 rounded-lg p-1">
               <button
-                class={`flex-1 py-2 text-sm rounded-md transition-colors ${targetType() === "image" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}
+                class={`seg-item flex-1 ${targetType() === "image" ? "seg-item-on" : "text-surface-500"}`}
                 onClick={() => {
                   setTargetType("image");
                   setSubFolder(imageFolders()[0]);
@@ -124,7 +160,7 @@ export default function MoveDialog(props: {
                 🖼️ 图包
               </button>
               <button
-                class={`flex-1 py-2 text-sm rounded-md transition-colors ${targetType() === "cert" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}
+                class={`seg-item flex-1 ${targetType() === "cert" ? "seg-item-on" : "text-surface-500"}`}
                 onClick={() => {
                   setTargetType("cert");
                   setSubFolder(certFolders()[0]);
@@ -137,11 +173,13 @@ export default function MoveDialog(props: {
 
           <div>
             <label class="block text-sm font-medium text-surface-700 mb-1">子文件夹</label>
+            {/* v2.5.8 D14（样式统一收口）：同上收进 `.seg-item` / `.seg-item-on`（原串 `px-4 py-2 text-sm rounded-md transition-colors`
+                与档逐项等值，故整串删掉）；选中底色/未选中文字色留在调用点（形状档刻意不管颜色）。 */}
             <div class="flex bg-surface-100 rounded-lg p-1 flex-wrap gap-1">
               <For each={targetType() === "image" ? imageFolders() : certFolders()}>
                 {(folder) => (
                   <button
-                    class={`px-4 py-2 text-sm rounded-md transition-colors ${subFolder() === folder ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500"}`}
+                    class={`seg-item ${subFolder() === folder ? "seg-item-on" : "text-surface-500"}`}
                     onClick={() => setSubFolder(folder)}
                   >
                     {folder}
@@ -157,19 +195,6 @@ export default function MoveDialog(props: {
             {errorMsg()}
           </div>
         </Show>
-
-        <div class="flex gap-3 justify-end mt-6">
-          <button class="btn-secondary" onClick={props.onClose}>
-            取消
-          </button>
-          <button
-            class="btn-primary"
-            onClick={() => void handleMove()}
-            disabled={!selectedProductSet() || !subFolder() || status() === "moving"}
-          >
-            {status() === "moving" ? "移动中..." : `移动 ${props.paths.length} 个文件`}
-          </button>
-        </div>
       </div>
     </Modal>
   );

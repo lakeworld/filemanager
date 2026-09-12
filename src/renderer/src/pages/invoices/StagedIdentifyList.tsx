@@ -83,9 +83,11 @@ export default function StagedIdentifyList(props: {
                   </div>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
+                  {/* v2.5.8 D14（样式统一收口）：行内三枚图标钮（预览 👁 / 移出 ✕）收进 `.icon-btn`
+                      档，颜色按语义保留（预览=主色、移出=危险红），`text-sm` / `px-1` 尺寸保留。 */}
                   <Show when={props.onPreview}>
                     <button
-                      class="text-surface-400 hover:text-primary-600 text-sm"
+                      class="icon-btn text-sm text-surface-400 hover:text-primary-600"
                       title="预览源文件"
                       onClick={() => props.onPreview?.(d.sourcePath)}
                     >
@@ -100,7 +102,7 @@ export default function StagedIdentifyList(props: {
                     登记…
                   </button>
                   <button
-                    class="text-surface-400 hover:text-danger-500 px-1"
+                    class="icon-btn px-1 text-surface-400 hover:text-danger-500"
                     title="移出待确认（源文件原地保留）"
                     onClick={() => props.onRemoveDraft(d.sourcePath)}
                   >
@@ -124,7 +126,7 @@ export default function StagedIdentifyList(props: {
                 </div>
               </div>
               <button
-                class="text-surface-400 hover:text-danger-500 px-1 shrink-0"
+                class="icon-btn px-1 shrink-0 text-surface-400 hover:text-danger-500"
                 title="移出待确认（源文件原地保留）"
                 onClick={() => props.onDismissFailed(f.sourcePath)}
               >

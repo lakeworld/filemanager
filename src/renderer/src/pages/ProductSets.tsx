@@ -442,8 +442,12 @@ export default function ProductSets() {
                         {ps.image_count} 图 / {ps.cert_count} 证 / {ps.doc_count ?? 0} 文
                       </span>
                       {/* v2.4.7（F9）：打包整个产品集目录 */}
+                      {/* v2.5.8 D14（样式统一收口）：卡片角标两钮收进 `.icon-btn` 节奏档（居中 + 圆角 +
+                          精确属性过渡 + active 按压 + 禁用态），语义色（打包=主色 / 删除=危险红）与
+                          group-hover 显隐原样留在调用方；原 `transition-opacity` 交回档——留着它
+                          （utilities 层压过 components 层）会把整条 transition 顶掉，退回「hover 瞬变」。 */}
                       <button
-                        class="text-surface-400 hover:text-primary-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                        class="icon-btn text-surface-400 hover:text-primary-600 opacity-0 group-hover:opacity-100"
                         onClick={(e) => {
                           e.stopPropagation();
                           contextMenu.close();
@@ -454,7 +458,7 @@ export default function ProductSets() {
                         📦
                       </button>
                       <button
-                        class="text-surface-400 hover:text-danger-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                        class="icon-btn text-surface-400 hover:text-danger-500 opacity-0 group-hover:opacity-100"
                         onClick={(e) => handleCardDelete(ps, e)}
                         title="删除产品集"
                       >
@@ -499,17 +503,16 @@ export default function ProductSets() {
           }
         >
           <div class="flex items-center gap-2 mb-2 text-sm text-surface-500">
-            <button class="hover:text-primary-600" onClick={() => navigate("/product-sets")}>产品集</button>
+            <button class="link-btn hover:text-primary-600" onClick={() => navigate("/product-sets")}>产品集</button>
             <span>/</span>
             <Show when={!editingPs()} fallback={
-              <input
-                type="text"
-                class="px-2 py-1 border border-surface-200 rounded text-sm"
+              <Input
+                compact
                 value={editingPsName()}
                 onInput={(e) => setEditingPsName(e.currentTarget.value)}
                 onBlur={handleRenameProductSet}
                 onKeyDown={(e) => e.key === "Enter" && handleRenameProductSet()}
-                autofocus
+                autoFocus
               />
             }>
               <span
@@ -660,8 +663,11 @@ export default function ProductSets() {
               <div class="flex flex-wrap gap-2">
                 <For each={relatedCustomers()}>
                   {(c) => (
+                    // v2.5.8 D14（样式统一收口）：关系区跳转 pill 收进 `.link-btn`（内联盒 + 精确颜色过渡 + 禁用态），
+                    // 它是「点文字跳转」不是「图标钮」也不是「整行」，故取 link 档；
+                    // 圆角与语义色（客户=success 绿 / 供应商=warning 琥珀）、尺寸一律留在调用方——档刻意不管颜色。
                     <button
-                      class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-success-50 text-success-700 hover:bg-success-100 transition-colors text-sm"
+                      class="link-btn gap-2 px-3 py-1.5 rounded-full bg-success-50 text-success-700 hover:bg-success-100 text-sm"
                       onClick={() => navigate(`/clients/${encodeURIComponent(c.name)}`)}
                       title={`查看客户「${c.name}」`}
                     >
@@ -689,8 +695,9 @@ export default function ProductSets() {
               <div class="flex flex-wrap gap-2">
                 <For each={relatedSuppliers()}>
                   {(s) => (
+                    // v2.5.8 D14：同上方客户 pill——收进 `.link-btn`，颜色/圆角/尺寸留调用方（镜像改法，两侧对称）
                     <button
-                      class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-warning-50 text-warning-700 hover:bg-warning-100 transition-colors text-sm"
+                      class="link-btn gap-2 px-3 py-1.5 rounded-full bg-warning-50 text-warning-700 hover:bg-warning-100 text-sm"
                       onClick={() => navigate(`/suppliers/${encodeURIComponent(s.name)}`)}
                       title={`查看供应商「${s.name}」`}
                     >

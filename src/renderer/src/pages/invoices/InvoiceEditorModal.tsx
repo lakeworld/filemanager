@@ -71,9 +71,22 @@ export default function InvoiceEditorModal(props: {
         // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc 走 onCloseRequest（二次确认）
         dirty={props.dirty}
         onCloseRequest={props.onCloseRequest}
+        // v2.5.8 D16（弹窗骨架收口）：迁 framed——头部标题与页脚动作改由 Modal 骨架渲染；
+        // 调用方原手写 <h2> 与底部按钮行随之删除（标题文案 = title 属性，一字未动，
+        // e2e 仍按 role=dialog + 可及名「编辑发票 / 新建发票」命中）
+        framed
+        footer={
+          <>
+            {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 onCloseRequest（二次确认） */}
+            <button class="btn-secondary" onClick={() => (props.onCloseRequest ? props.onCloseRequest() : props.onClose())}>取消</button>
+            <button class="btn-primary" onClick={() => void props.onSave()} disabled={props.saving}>
+              {props.editor?.mode === "edit" ? "保存" : "确认登记"}
+            </button>
+          </>
+        }
       >
-        <div class="p-6">
-          <h2 class="text-xl font-bold mb-4">{props.editor?.mode === "edit" ? "编辑发票" : "新建发票"}</h2>
+        {/* framed 下 .dlg-body 自带 px-6 py-5，原 p-6 内边距交回骨架（留着就是双重留白） */}
+        <div>
           {/* v2.5.5（修正轮）：global 命令槽——仅 create 模式渲染「从文件识别」按钮（单文件，识别成功暂存待归档）；批量识别走发票页「批量 AI 识别」面板 */}
           <Show when={props.editor?.mode === "create" && props.identifyCommands.length > 0}>
             <div class="mb-4">
@@ -233,13 +246,6 @@ export default function InvoiceEditorModal(props: {
               onPick={() => void props.onPickFile()}
               onPreview={() => props.form.file_path && props.onPreviewFile()}
             />
-          </div>
-          <div class="flex gap-3 justify-end mt-6">
-            {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 onCloseRequest（二次确认） */}
-            <button class="btn-secondary" onClick={() => (props.onCloseRequest ? props.onCloseRequest() : props.onClose())}>取消</button>
-            <button class="btn-primary" onClick={() => void props.onSave()} disabled={props.saving}>
-              {props.editor?.mode === "edit" ? "保存" : "确认登记"}
-            </button>
           </div>
         </div>
       </Modal>

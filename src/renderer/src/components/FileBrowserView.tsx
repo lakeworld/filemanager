@@ -559,24 +559,24 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         <Show when={isCustomer()} fallback={
           <Show when={isSupplier()} fallback={
             <>
-              <button class="hover:text-primary-600" onClick={() => navigate("/product-sets")}>产品集</button>
+              <button class="link-btn hover:text-primary-600" onClick={() => navigate("/product-sets")}>产品集</button>
               <span>/</span>
-              <button class="hover:text-primary-600" onClick={() => navigate(`/product-sets/${encodeURIComponent(props.entity)}`)}>{props.entity}</button>
+              <button class="link-btn hover:text-primary-600" onClick={() => navigate(`/product-sets/${encodeURIComponent(props.entity)}`)}>{props.entity}</button>
               <span>/</span>
               <span class="text-surface-900 font-medium">{typeLabel()} - {props.subFolder}</span>
             </>
           }>
             {/* v2.4.9 S2：供应商文件区面包屑（供应商 → 供应商详情） */}
-            <button class="hover:text-primary-600" onClick={() => navigate("/suppliers")}>供应商</button>
+            <button class="link-btn hover:text-primary-600" onClick={() => navigate("/suppliers")}>供应商</button>
             <span>/</span>
-            <button class="hover:text-primary-600" onClick={() => navigate(`/suppliers/${encodeURIComponent(props.entity)}`)}>{props.entity}</button>
+            <button class="link-btn hover:text-primary-600" onClick={() => navigate(`/suppliers/${encodeURIComponent(props.entity)}`)}>{props.entity}</button>
             <span>/</span>
             <span class="text-surface-900 font-medium">{props.subFolder}</span>
           </Show>
         }>
-          <button class="hover:text-primary-600" onClick={() => navigate("/clients")}>客户</button>
+          <button class="link-btn hover:text-primary-600" onClick={() => navigate("/clients")}>客户</button>
           <span>/</span>
-          <button class="hover:text-primary-600" onClick={() => navigate(`/clients/${encodeURIComponent(props.entity)}`)}>{props.entity}</button>
+          <button class="link-btn hover:text-primary-600" onClick={() => navigate(`/clients/${encodeURIComponent(props.entity)}`)}>{props.entity}</button>
           <span>/</span>
           <span class="text-surface-900 font-medium">{props.subFolder}</span>
         </Show>
@@ -623,7 +623,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         <Show when={loadError()}>
           <div class="mb-3 px-3 py-2 rounded-xl bg-danger-50 border border-danger-200 text-sm text-danger-600 flex items-center justify-between shrink-0">
             <span>文件列表加载失败：{loadError()}</span>
-            <button class="text-primary-600 hover:text-primary-700 whitespace-nowrap" onClick={() => void loadFiles()}>重试</button>
+            <button class="link-btn text-primary-600 hover:text-primary-700 whitespace-nowrap" onClick={() => void loadFiles()}>重试</button>
           </div>
         </Show>
         <Show when={filteredFiles().length > 0} fallback={
@@ -659,7 +659,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
               />
             </div>
             <button
-              class="text-sm text-primary-600 hover:text-primary-700"
+              class="link-btn text-sm text-primary-600 hover:text-primary-700"
               onClick={selectAllFiles}
             >
               全选
@@ -712,23 +712,32 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         </Show>
       </div>
 
-      {/* New Folder Modal（v2.5.1 T3 波2：overlay→Modal 底座） */}
+      {/* New Folder Modal（v2.5.1 T3 波2：overlay→Modal 底座；v2.5.8 D14：套 framed 统一骨架——
+          手搓的 `p-6` 排版与 `flex gap-3 justify-end` 按钮行撤进 .dlg-body / .dlg-footer 槽，
+          标题此前只落在底座的可访问名上、界面上不可见，开 framed 后由骨架自己显示出来
+          ⇒ 此处不得再补手写标题（Modal.tsx:51） */}
       <Show when={showNewFolder()}>
-        <Modal open title={`新建${isCustomer() || isSupplier() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : fileType() === "cert" ? "证书类型" : "文档类型"}`} size="md" onClose={() => setShowNewFolder(false)}>
-          <div class="p-6">
-            <Input
-            class="w-full mb-4"
-              placeholder={isCustomer() || isSupplier() ? "如：报价" : fileType() === "image" ? "如：场景图" : fileType() === "cert" ? "如：FDA认证" : "如：使用说明"}
-              value={newFolderName()}
-              disabled={creatingFolder()}
-              onInput={(e) => setNewFolderName(e.currentTarget.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
-            />
-            <div class="flex gap-3 justify-end">
+        <Modal
+          open
+          title={`新建${isCustomer() || isSupplier() ? "子文件夹" : fileType() === "image" ? "图包子文件夹" : fileType() === "cert" ? "证书类型" : "文档类型"}`}
+          size="md"
+          framed
+          onClose={() => setShowNewFolder(false)}
+          footer={
+            <>
               <button class="btn-secondary" onClick={() => setShowNewFolder(false)}>取消</button>
               <button class="btn-primary" onClick={handleCreateFolder} disabled={creatingFolder()}>创建</button>
-            </div>
-          </div>
+            </>
+          }
+        >
+          <Input
+            class="w-full"
+            placeholder={isCustomer() || isSupplier() ? "如：报价" : fileType() === "image" ? "如：场景图" : fileType() === "cert" ? "如：FDA认证" : "如：使用说明"}
+            value={newFolderName()}
+            disabled={creatingFolder()}
+            onInput={(e) => setNewFolderName(e.currentTarget.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
+          />
         </Modal>
       </Show>
 

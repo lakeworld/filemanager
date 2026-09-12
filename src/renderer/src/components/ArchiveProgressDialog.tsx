@@ -139,9 +139,56 @@ export default function ArchiveProgressDialog(props: { token: string; onClose: (
   };
 
   return (
-    <Modal open title={phase() === "extract" ? "解压" : "压缩分享"} lockOpen onClose={props.onClose}>
-      <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h2 class="text-xl font-bold">{phase() === "extract" ? "解压" : "压缩分享"}</h2>
+    // v2.5.8 D16（framed 收口）：加 framed 走统一骨架——标题改由 `.dlg-header` 显示 title（文案与原手写
+    // `<h2>` 一字未动，e2e 仍按 role=dialog + name「压缩分享」/「解压」命中），两态底部动作行整体搬进 footer。
+    // 本弹窗未写 size ⇒ 沿用底座默认 md（max-w-md），迁移前后正文实宽不变。
+    <Modal
+      open
+      title={phase() === "extract" ? "解压" : "压缩分享"}
+      lockOpen
+      onClose={props.onClose}
+      framed
+      // 取消钮（running）与「复制到剪贴板 / 打开所在文件夹 / 关闭」（success）连同各自的条件一起原样搬来
+      // （动作不回流正文、正文的非页脚内容不下页脚）。`.dlg-footer` 自带 justify-end + gap-3 ⇒ 原来两层外壳
+      // （`flex justify-end mt-5` 与 `flex flex-wrap gap-3 justify-end mt-5`）作废；按钮的 class、文案、
+      // onClick、disabled 表达式逐字未动。唯一口径差：档内不换行，而原成功态那行带 flex-wrap
+      // ⇒ 三个按钮的宽度逼近 md 档页脚内容宽（400px），走查若见挤行属本组待裁决（本轮不改 size、不补换行）。
+      footer={
+        <>
+          <Show when={status() === "running"}>
+            <button
+              class="btn-secondary"
+              disabled={cancelling()}
+              onClick={() => void handleCancel()}
+            >
+              {cancelling() ? "取消中…" : "取消"}
+            </button>
+          </Show>
+          <Show when={status() === "success"}>
+            <Show when={result() && isCompressResult()}>
+              <button class="btn-secondary" onClick={() => void handleCopy()}>
+                📋 复制到剪贴板
+              </button>
+            </Show>
+            <Show when={result()}>
+              <button class="btn-secondary" onClick={() => void handleOpenFolder()}>
+                📂 打开所在文件夹
+              </button>
+            </Show>
+            <button class="btn-primary" onClick={props.onClose}>
+              关闭
+            </button>
+          </Show>
+        </>
+      }
+    >
+      {/* v2.5.8 D16：手写 `<h2>` 与手搓白卡外壳材质（`bg-white rounded-2xl w-full max-w-md p-6 shadow-xl`）已删
+          ——framed 下面板本体 `.modal-panel` 就是实底白卡、`.dlg-header` 显示 title、`.dlg-body` 给 px-6 py-5，
+          留着就是双卡 + 双内边距 + 双标题。外壳 div 与它的 onClick 一字未动（Modal 面板自己已 stop 冒泡，
+          这处冗余但不属本轮可删项）；仍包一层 div，使 `.dlg-body` 的 `flex flex-col gap-4` 只作用在这一个
+          子节点上，正文原有的 mt-1 / mb-4 / mt-1.5 节奏保持不变（不趁迁移改版式）。
+          阶段提示行 `phaseText()` 原样留在正文：它随进度事件变文案，不是标题副句 ⇒ 本轮不折进 subtitle。 */}
+      <div onClick={(e) => e.stopPropagation()}>
         <p class="text-sm text-surface-500 mt-1 mb-4">{phaseText()}</p>
 
         <Show when={status() === "running"}>
@@ -154,15 +201,6 @@ export default function ArchiveProgressDialog(props: { token: string; onClose: (
           <div class="flex items-center justify-between gap-3 mt-1.5 text-xs text-surface-400">
             <span class="truncate">{progress()?.current ?? ""}</span>
             <span class="shrink-0">{progress() ? `${progress()!.done}/${progress()!.total}` : ""}</span>
-          </div>
-          <div class="flex justify-end mt-5">
-            <button
-              class="btn-secondary"
-              disabled={cancelling()}
-              onClick={() => void handleCancel()}
-            >
-              {cancelling() ? "取消中…" : "取消"}
-            </button>
           </div>
         </Show>
 
@@ -179,21 +217,6 @@ export default function ArchiveProgressDialog(props: { token: string; onClose: (
               </div>
             )}
           </Show>
-          <div class="flex flex-wrap gap-3 justify-end mt-5">
-            <Show when={result() && isCompressResult()}>
-              <button class="btn-secondary" onClick={() => void handleCopy()}>
-                📋 复制到剪贴板
-              </button>
-            </Show>
-            <Show when={result()}>
-              <button class="btn-secondary" onClick={() => void handleOpenFolder()}>
-                📂 打开所在文件夹
-              </button>
-            </Show>
-            <button class="btn-primary" onClick={props.onClose}>
-              关闭
-            </button>
-          </div>
         </Show>
       </div>
     </Modal>

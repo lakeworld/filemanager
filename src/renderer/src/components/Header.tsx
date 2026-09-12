@@ -99,8 +99,10 @@ export default function Header() {
       </Show>
 
       <div class="relative" style={{ "-webkit-app-region": "no-drag" }}>
+        {/* v2.5.8 D14（样式统一）：下拉触发钮挂 .link-btn 走统一节奏（过渡/禁用态），
+            尺寸与描边材质（px-3 py-2 rounded-lg border）按「不改观感」原样留在调用点 */}
         <button
-          class="flex items-center gap-2 px-3 py-2 rounded-lg border border-surface-200 hover:bg-surface-100 transition-colors"
+          class="link-btn gap-2 px-3 py-2 rounded-lg border border-surface-200 hover:bg-surface-100"
           onClick={() => setShowWorkspaceMenu(!showWorkspaceMenu())}
           style={{ "-webkit-app-region": "no-drag" }}
         >
@@ -113,10 +115,12 @@ export default function Header() {
 
         <Show when={showWorkspaceMenu()}>
           <div class="absolute right-0 top-full mt-1 w-72 bg-surface-0 rounded-xl border border-surface-200 shadow-lg z-50 py-1" style={{ "-webkit-app-region": "no-drag" }}>
-            <button class="w-full text-left px-4 py-2.5 text-sm hover:bg-surface-100 transition-colors" onClick={handleNewWorkspace}>
+            {/* v2.5.8 D14（样式统一）：两个菜单项收进 .row-btn（整行可点档：w-full/text-left/px-4/过渡/按压）；
+                `gap-0` 沿用 ContextMenu 口径——图标与文字的间距由子元素 mr-2 提供，不让档的 gap-3 叠加上去 */}
+            <button class="row-btn gap-0 text-sm hover:bg-surface-100" onClick={handleNewWorkspace}>
               <span class="mr-2">➕</span> 新建工作区
             </button>
-            <button class="w-full text-left px-4 py-2.5 text-sm hover:bg-surface-100 transition-colors" onClick={handleOpenWorkspace}>
+            <button class="row-btn gap-0 text-sm hover:bg-surface-100" onClick={handleOpenWorkspace}>
               <span class="mr-2">📂</span> 打开工作区
             </button>
 
@@ -126,7 +130,7 @@ export default function Header() {
               <For each={workspaces()}>
                 {(ws) => (
                   <button
-                    class={`w-full text-left px-4 py-2 text-sm hover:bg-surface-100 transition-colors ${currentWorkspace()?.path === ws.path ? "text-primary-700 bg-primary-50" : "text-surface-700"}`}
+                    class={`row-btn py-2 text-sm hover:bg-surface-100 ${currentWorkspace()?.path === ws.path ? "text-primary-700 bg-primary-50" : "text-surface-700"}`}
                     onClick={() => handleSwitchWorkspace(ws.path)}
                   >
                     <div class="flex items-center gap-2">

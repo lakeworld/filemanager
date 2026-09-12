@@ -195,7 +195,7 @@ export default function DatePicker(props: {
           {/* v2.5.7（D2 表单控件统一）：清空由 span[role=button] 改为真实 button（嵌套交互语义修正） */}
           <button
             type="button"
-            class="text-surface-400 hover:text-danger-600 shrink-0 px-1"
+            class="icon-btn text-surface-400 hover:text-danger-600 shrink-0 px-1"
             aria-label="清空日期"
             onClick={(e) => {
               e.stopPropagation();
@@ -221,7 +221,7 @@ export default function DatePicker(props: {
               <div class="flex gap-0.5">
                 <button
                   type="button"
-                  class="w-7 h-7 flex items-center justify-center rounded-md text-surface-500 hover:bg-surface-100 hover:text-primary-600 transition-colors"
+                  class="icon-btn w-7 h-7 text-surface-500 hover:bg-surface-100 hover:text-primary-600"
                   aria-label="上一年"
                   onClick={() => changeYear(-1)}
                 >
@@ -229,7 +229,7 @@ export default function DatePicker(props: {
                 </button>
                 <button
                   type="button"
-                  class="w-7 h-7 flex items-center justify-center rounded-md text-surface-500 hover:bg-surface-100 hover:text-primary-600 transition-colors"
+                  class="icon-btn w-7 h-7 text-surface-500 hover:bg-surface-100 hover:text-primary-600"
                   aria-label="上个月"
                   onClick={() => changeMonth(-1)}
                 >
@@ -242,7 +242,7 @@ export default function DatePicker(props: {
               <div class="flex gap-0.5">
                 <button
                   type="button"
-                  class="w-7 h-7 flex items-center justify-center rounded-md text-surface-500 hover:bg-surface-100 hover:text-primary-600 transition-colors"
+                  class="icon-btn w-7 h-7 text-surface-500 hover:bg-surface-100 hover:text-primary-600"
                   aria-label="下个月"
                   onClick={() => changeMonth(1)}
                 >
@@ -250,7 +250,7 @@ export default function DatePicker(props: {
                 </button>
                 <button
                   type="button"
-                  class="w-7 h-7 flex items-center justify-center rounded-md text-surface-500 hover:bg-surface-100 hover:text-primary-600 transition-colors"
+                  class="icon-btn w-7 h-7 text-surface-500 hover:bg-surface-100 hover:text-primary-600"
                   aria-label="下一年"
                   onClick={() => changeYear(1)}
                 >
@@ -274,7 +274,7 @@ export default function DatePicker(props: {
                     type="button"
                     data-month={`${c.date.getFullYear()}-${c.date.getMonth() + 1}`}
                     data-day={c.day}
-                    class={`h-8 text-xs rounded-md transition-colors ${
+                    class={`icon-btn h-8 w-full text-xs ${
                       c.selected
                         ? "bg-primary-500 text-white font-bold hover:bg-primary-600"
                         : c.currentMonth
@@ -294,7 +294,7 @@ export default function DatePicker(props: {
               <div class="flex gap-1">
                 <button
                   type="button"
-                  class="text-xs text-primary-600 px-2 py-1 rounded-md hover:bg-primary-50 transition-colors"
+                  class="link-btn rounded-md px-2 py-1 text-xs text-primary-600 hover:bg-primary-50"
                   aria-label="快捷：今天"
                   onClick={() => quickPick("today")}
                 >
@@ -302,7 +302,7 @@ export default function DatePicker(props: {
                 </button>
                 <button
                   type="button"
-                  class="text-xs text-primary-600 px-2 py-1 rounded-md hover:bg-primary-50 transition-colors"
+                  class="link-btn rounded-md px-2 py-1 text-xs text-primary-600 hover:bg-primary-50"
                   aria-label="快捷：月初"
                   onClick={() => quickPick("monthStart")}
                 >
@@ -310,7 +310,7 @@ export default function DatePicker(props: {
                 </button>
                 <button
                   type="button"
-                  class="text-xs text-primary-600 px-2 py-1 rounded-md hover:bg-primary-50 transition-colors"
+                  class="link-btn rounded-md px-2 py-1 text-xs text-primary-600 hover:bg-primary-50"
                   aria-label="快捷：月末"
                   onClick={() => quickPick("monthEnd")}
                 >
@@ -318,7 +318,7 @@ export default function DatePicker(props: {
                 </button>
                 <button
                   type="button"
-                  class="text-xs text-primary-600 px-2 py-1 rounded-md hover:bg-primary-50 transition-colors"
+                  class="link-btn rounded-md px-2 py-1 text-xs text-primary-600 hover:bg-primary-50"
                   aria-label="快捷：年初"
                   onClick={() => quickPick("yearStart")}
                 >
@@ -327,7 +327,7 @@ export default function DatePicker(props: {
               </div>
               <button
                 type="button"
-                class="text-xs text-surface-400 px-2 py-1 rounded-md hover:bg-danger-50 hover:text-danger-600 transition-colors"
+                class="link-btn rounded-md px-2 py-1 text-xs text-surface-400 hover:bg-danger-50 hover:text-danger-600"
                 onClick={clearDate}
               >
                 清空日期

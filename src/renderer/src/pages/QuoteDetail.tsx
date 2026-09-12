@@ -177,7 +177,7 @@ export default function QuoteDetail() {
   return (
     <div class="p-6 max-w-7xl mx-auto flex flex-col h-full">
       <div class="flex items-center gap-2 mb-2 text-sm text-surface-500 shrink-0">
-        <button class="hover:text-primary-600" onClick={() => navigate("/quotes")}>报价</button>
+        <button class="link-btn hover:text-primary-600" onClick={() => navigate("/quotes")}>报价</button>
         <span>/</span>
         <span class="text-surface-900 font-medium">{quotationNo()}</span>
       </div>
@@ -230,7 +230,7 @@ export default function QuoteDetail() {
                 <div class="flex items-center gap-2 text-sm mt-4">
                   <span class="truncate text-surface-600" title={rec().file_path}>📎 {rec().file_path}</span>
                   <button
-                    class="text-primary-600 hover:text-primary-700 text-xs shrink-0"
+                    class="link-btn text-primary-600 hover:text-primary-700 text-xs shrink-0"
                     onClick={() => {
                       const entry = fileEntryOf(rec().file_path);
                       if (entry) openPreview(entry, { onDelete: () => void loadQuote(quotationNo()) });

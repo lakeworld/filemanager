@@ -78,10 +78,38 @@ export default function BatchRenameDialog(props: {
   };
 
   return (
-    <Modal open title={`批量重命名 ${props.files.length} 个文件`} size="xl" onClose={props.onClose}>
-      <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h2 class="text-xl font-bold mb-4">批量重命名 {props.files.length} 个文件</h2>
-
+    // v2.5.8 D14（framed 收口）：`size` 一字未动（仍 xl）。迁移前它是 576px 白面板里再套一张 512px 同色白卡，
+    // 卡片内距 p-6 后正文实宽 464px；套 framed 后手搓卡作废、正文改由 `.dlg-body` 的 px-6 承担 ⇒ 正文宽 +64px。
+    // 逐像素保住旧正文宽度要动 `size` 或补 max-w（都超出「只改 class 与注释」）⇒ 已列进本组「待裁决」。
+    <Modal
+      open
+      title={`批量重命名 ${props.files.length} 个文件`}
+      size="xl"
+      framed
+      onClose={props.onClose}
+      // 动作按钮进页脚槽（`.dlg-footer` 自带 justify-end + gap-3，原来那层 `flex gap-3 justify-end mt-6` 作废）；
+      // 两个按钮的 class 逐字未动（`btn-secondary`/`btn-primary` 本就已在统一档上，无被覆盖项可删）
+      footer={
+        <>
+          <button class="btn-secondary" onClick={props.onClose} disabled={status() === "renaming"}>
+            取消
+          </button>
+          <button
+            class="btn-primary"
+            onClick={() => void handleApply()}
+            disabled={status() === "renaming"}
+          >
+            {status() === "renaming" ? "重命名中..." : `重命名 ${props.files.length} 个`}
+          </button>
+        </>
+      }
+    >
+      {/* v2.5.8 D14：手写 `<h2>` 与手搓白卡外壳材质（`bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl`）已删
+          ——framed 下面板本体就是实底白卡、`.dlg-header` 显示 title、`.dlg-body` 给 px-6 py-5，留着就是双卡双距双标题。
+          外壳 div 与它的 onClick 一字未动（Modal 面板自己已 stop 冒泡，这处冗余但不属本轮可删项）。
+          仍包一层 div，使 `.dlg-body` 的 `flex flex-col gap-4` 只作用在这一个子节点上，
+          内层 `space-y-4` / `mt-4` 的原有节奏保持不变（不趁迁移改版式）。 */}
+      <div onClick={(e) => e.stopPropagation()}>
         <div class="space-y-4">
           <div>
             <label class="block text-sm font-medium text-surface-700 mb-1">起始序号</label>
@@ -118,19 +146,6 @@ export default function BatchRenameDialog(props: {
             {errorMsg()}
           </div>
         </Show>
-
-        <div class="flex gap-3 justify-end mt-6">
-          <button class="btn-secondary" onClick={props.onClose} disabled={status() === "renaming"}>
-            取消
-          </button>
-          <button
-            class="btn-primary"
-            onClick={() => void handleApply()}
-            disabled={status() === "renaming"}
-          >
-            {status() === "renaming" ? "重命名中..." : `重命名 ${props.files.length} 个`}
-          </button>
-        </div>
       </div>
     </Modal>
   );

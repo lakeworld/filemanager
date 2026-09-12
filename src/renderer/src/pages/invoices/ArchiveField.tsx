@@ -33,10 +33,13 @@ export default function ArchiveField(props: {
           <Show when={props.missing}>
             <span class="text-danger-600 text-xs shrink-0">文件缺失</span>
           </Show>
-          <button type="button" class="text-primary-600 hover:text-primary-700 text-xs shrink-0" onClick={props.onPreview}>
+          {/* v2.5.8 D14（样式统一收口）：两处收进 `.link-btn` 节奏档——档只给
+              inline-flex/items-center/transition-colors/禁用态，颜色与 `text-xs` 字号原样保留
+              （预览=主色、换绑=灰起主色落），不趁机改语义配色。 */}
+          <button type="button" class="link-btn text-primary-600 hover:text-primary-700 text-xs shrink-0" onClick={props.onPreview}>
             预览
           </button>
-          <button type="button" class="text-surface-500 hover:text-primary-600 text-xs shrink-0" onClick={props.onPick}>
+          <button type="button" class="link-btn text-surface-500 hover:text-primary-600 text-xs shrink-0" onClick={props.onPick}>
             换绑
           </button>
         </div>

@@ -277,8 +277,12 @@ export default function TagInput(props: {
             <For each={items()}>
               {(item, index) =>
                 item.kind === "new" ? (
+                  // v2.5.8 D14（样式统一收口）：下拉候选行是「整行可点项」→ 收进 `.row-btn` 节奏档
+                  // （块级满行 + 精确属性过渡 + active 按压 + 禁用态，此前完全没有过渡）。
+                  // `gap-2 px-3 py-1.5` 把档内尺寸钉回迁移前实测值（档默认 gap-3 px-4 py-2.5），
+                  // 高亮/悬停底色（bg-surface-100）与首项分隔线属语义色与版式，一律留调用方。
                   <button
-                    class={`w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 border-b border-surface-100 ${activeIndex() === index() ? "bg-surface-100" : "hover:bg-surface-100"}`}
+                    class={`row-btn gap-2 px-3 py-1.5 text-sm border-b border-surface-100 ${activeIndex() === index() ? "bg-surface-100" : "hover:bg-surface-100"}`}
                     onMouseEnter={() => setActiveIndex(index())}
                     onClick={() => void createTag(item.term)}
                   >
@@ -288,8 +292,10 @@ export default function TagInput(props: {
                     </span>
                   </button>
                 ) : (
+                  // v2.5.8 D14：同「新建标签」行——收进 `.row-btn`，尺寸钉回实测值；
+                  // 子标签缩进 `pl-7` 与高亮底色留调用方（pl-* 在 utilities 层，仍压得过档的 px-*）
                   <button
-                    class={`w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 ${item.tag.parent ? "pl-7" : ""} ${activeIndex() === index() ? "bg-surface-100" : "hover:bg-surface-100"}`}
+                    class={`row-btn gap-2 px-3 py-1.5 text-sm ${item.tag.parent ? "pl-7" : ""} ${activeIndex() === index() ? "bg-surface-100" : "hover:bg-surface-100"}`}
                     onMouseEnter={() => setActiveIndex(index())}
                     onClick={() => addTag(item.tag.name)}
                   >

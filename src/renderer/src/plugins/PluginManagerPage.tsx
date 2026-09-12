@@ -363,13 +363,13 @@ export default function PluginManagerPage(): JSX.Element {
                       </button>
                     </Show>
                     <button
-                      class="text-xs text-danger-500 hover:text-danger-600"
+                      class="link-btn text-xs text-danger-500 hover:text-danger-600"
                       onClick={() => setUninstallTarget(p)}
                     >
                       卸载
                     </button>
                     <button
-                      class="text-xs text-surface-500 hover:text-primary-600"
+                      class="link-btn text-xs text-surface-500 hover:text-primary-600"
                       onClick={() => setExpanded(expanded() === p.id ? null : p.id)}
                     >
                       {expanded() === p.id ? '收起 ▴' : '详情 ▾'}

@@ -17,6 +17,9 @@ import Loading from "~/components/Loading";
 import { useContextMenu } from "~/hooks/useContextMenu";
 import type { SearchResult, FileEntry, ProductSetInfo, CustomerInfo } from "~/types";
 import { buildFileContextMenuItems, productSetFromFilePath } from "~/utils/fileContextMenu";
+// v2.5.8 D14：搜索页大框收进底座（`h-auto`/`py-3`/`rounded-xl`/`text-lg` 是它的大字档排布，
+// 正解住 D15 的 `size="lg"` + `iconLeft` 槽；今天先让材质只有一处，`pl-10` 继续给放大镜让位）
+import Input from "~/components/ui/Input";
 
 /** 解析 core formatTime 输出的 "YYYY-MM-DD HH:mm:ss"（本地时间），失败返回 NaN */
 function parseModified(s: string): number {
@@ -208,9 +211,8 @@ export default function Search() {
           <div class="absolute inset-y-0 left-3 flex items-center pointer-events-none">
             <span class="text-surface-400">🔍</span>
           </div>
-          <input
-            type="text"
-            class="w-full pl-10 pr-4 py-3 bg-surface-0 border border-surface-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors shadow-sm"
+          <Input
+            class="h-auto w-full pl-10 pr-4 py-3 rounded-xl text-lg shadow-sm"
             placeholder="输入关键词搜索..."
             value={query()}
             onInput={(e) => setQuery(e.currentTarget.value)}

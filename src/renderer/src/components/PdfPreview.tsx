@@ -11,6 +11,7 @@ import "pdfjs-dist/web/pdf_viewer.css";
 // ?raw 分支被死代码消除（不内联进主包），worker 仍走 ?url 独立资产（打包体积不变）。
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import pdfWorkerRaw from "pdfjs-dist/build/pdf.worker.min.mjs?raw";
+import Input from "~/components/ui/Input";
 
 /**
  * PDF 预览（v2.2.1 终版）：基于 pdfjs-dist 官方 PDFViewer 组件
@@ -207,9 +208,9 @@ export default function PdfPreview(props: PdfPreviewProps) {
         </button>
         <Show when={searchOpen()}>
           <div class="flex items-center gap-1">
-            <input
-              type="text"
-              class="w-36 px-2 py-1 border border-surface-200 rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary-400"
+            <Input
+              compact
+              class="w-36 text-xs"
               placeholder="输入查找内容..."
               value={searchText()}
               onInput={(e) => {

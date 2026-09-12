@@ -111,7 +111,7 @@ export default function Sidebar() {
           </div>
         </Show>
         <button
-          class="ml-auto p-1.5 rounded-lg hover:bg-surface-100 transition-colors"
+          class="icon-btn ml-auto p-1.5 rounded-lg hover:bg-surface-100"
           onClick={() => setExpanded(!expanded())}
         >
           {expanded() ? "◀" : "▶"}
@@ -127,7 +127,7 @@ export default function Sidebar() {
                   {/* v2.4.9 M7：组标题可折叠（title 供 e2e 定位；折叠后整组隐藏、标题保留） */}
                   <button
                     type="button"
-                    class="w-full flex items-center justify-between gap-1 text-xs font-medium text-surface-400 uppercase tracking-wider px-2 py-1 rounded-lg hover:bg-surface-100 hover:text-surface-600 transition-colors cursor-pointer"
+                    class="link-btn w-full flex items-center justify-between gap-1 text-xs font-medium text-surface-400 uppercase tracking-wider px-2 py-1 rounded-lg hover:bg-surface-100 hover:text-surface-600 cursor-pointer"
                     title={`展开/收起${group.title}`}
                     onClick={() => toggleGroup(group.title)}
                   >
@@ -146,7 +146,7 @@ export default function Sidebar() {
                 <For each={group.items}>
                   {(item) => (
                     <button
-                      class="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-surface-100"
+                      class="row-btn text-sm hover:bg-surface-100"
                       classList={{
                         "text-primary-700 bg-primary-600/[0.12]": isActive(item.path),
                         "text-surface-600": !isActive(item.path),
@@ -175,7 +175,7 @@ export default function Sidebar() {
                 <div class="px-3 mb-2 mt-4">
                   <button
                     type="button"
-                    class="w-full flex items-center justify-between gap-1 text-xs font-medium text-surface-400 uppercase tracking-wider px-2 py-1 rounded-lg hover:bg-surface-100 hover:text-surface-600 transition-colors cursor-pointer"
+                    class="link-btn w-full flex items-center justify-between gap-1 text-xs font-medium text-surface-400 uppercase tracking-wider px-2 py-1 rounded-lg hover:bg-surface-100 hover:text-surface-600 cursor-pointer"
                     title={`展开/收起${group.title}`}
                     onClick={() => toggleGroup(group.title)}
                   >
@@ -193,7 +193,7 @@ export default function Sidebar() {
                 <For each={group.items}>
                   {(item) => (
                     <button
-                      class="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-surface-100"
+                      class="row-btn text-sm hover:bg-surface-100"
                       classList={{
                         "text-primary-700 bg-primary-600/[0.12]": isActive(item.path),
                         "text-surface-600": !isActive(item.path),

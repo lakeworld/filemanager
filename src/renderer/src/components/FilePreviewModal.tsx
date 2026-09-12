@@ -14,6 +14,7 @@ import TagInput from "~/components/TagInput";
 import DatePicker from "~/components/DatePicker";
 import Input from "~/components/ui/Input";
 import Textarea from "~/components/ui/Textarea";
+import { pushLayer } from "~/components/ui/layerStack";
 import {
   showPreview,
   previewFile,
@@ -72,8 +73,29 @@ export default function FilePreviewModal() {
   const closeContextMenu = () => setContextMenu((prev) => ({ ...prev, show: false }));
 
   // 收尾轮：Esc 关闭预览（右键菜单打开时由 ContextMenu 自身的 Esc 监听先关菜单，不抢关）
-  // v2.5.1（T2，D2）：层栈让位——预览内弹 Modal（如删除确认）时，layerStack 已消费 Esc（defaultPrevented），预览不抢关；
-  // 完整迁移（预览 Esc 注册进层栈）随 T3 波3（弹出层 Esc 归栈）进行
+  // v2.5.1（T2，D2）：层栈让位——预览内弹 Modal（如删除确认）时，layerStack 已消费 Esc（defaultPrevented），预览不抢关。
+  //   当时只做了「让位」半边，「预览自己入栈」那半边记给 T3 波3——
+  //   v2.5.8 复审 r2 A-6 把欠的这半补完，见下面 createEffect 段的注释。
+  // v2.5.8 复审 r2 A-6（本轮补完 T3 欠的那半）：预览**入栈**，不再只靠「让位」半边。
+  //   现象：背景有选中时按第一次 Esc，清的是选择而不是关预览——预览根本不在栈里，栈顶就成了
+  //   D10 的常驻浮条（`lowest` 层），而用户看到的「最上面那层」明明是预览。
+  //   普通层（非 lowest）：预览是用户刚打开的东西，按后开先关的常规次序排；预览内再开的
+  //   Modal / 右键菜单 / DatePicker 入栈更晚 ⇒ 仍先关它们，那部分语义一字未动。
+  //   ⚠ 必须用 createEffect 而不是 onMount：本组件在 `App.tsx:319` **常驻挂载**（不是 Show 包住
+  //   的按需挂载），onMount 入栈 = 造出一个永驻栈顶，全站每一次 Esc 都会被它吃掉。
+  //   下面那个 window 监听保留：它是「无桥环境」与「预览内弹层未入栈」两条兜底路径，
+  //   且靠 `defaultPrevented` 与栈互斥，不会双关。
+  createEffect(() => {
+    if (!previewFile()) return;
+    const layer = pushLayer({
+      onEscape: () => {
+        if (contextMenu().show) return; // 与旧监听同一组前置：菜单开着就先让菜单
+        closePreview();
+      },
+    });
+    onCleanup(() => layer.remove());
+  });
+
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -174,7 +196,9 @@ export default function FilePreviewModal() {
               <button class="btn-secondary text-sm" onClick={handleDeleteFile}>
                 🗑️ 删除
               </button>
-              <button class="text-surface-400 hover:text-surface-600 text-xl" onClick={closePreview}>
+              {/* v2.5.8 D14（样式统一）：预览头部的 ✕ 收进 .icon-btn（统一过渡/按压/圆角），
+                  文字色与 text-xl 字号按「保留颜色与尺寸」原样留在调用点 */}
+              <button class="icon-btn text-surface-400 hover:text-surface-600 text-xl" onClick={closePreview}>
                 ✕
               </button>
             </div>

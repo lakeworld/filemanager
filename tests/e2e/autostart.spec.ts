@@ -27,6 +27,18 @@ const DESKTOP_ENTRY = path.join(XDG_DIR, 'autostart', '启禾文件管理.deskto
 const EXPECTED_EXEC_ARGS =
   '--no-zygote --no-sandbox --disable-gpu --in-process-gpu --js-flags=--max-old-space-size=768 --autostart'
 
+/**
+ * 启动期「文件索引就绪」信号文案。
+ * 出处 `src/main/index.ts` `setupWorkspaceIndex()`：build 分支打「文件索引已构建：N 个目录」、
+ * load 分支打「文件索引已加载（N 个目录已重建）」，两条分支在候选会话 commit 后都固定打这一条
+ * （`:612`，常量串、不含可变的目录数）⇒ 只锚它，不锚带数字的那两句。
+ */
+const INDEX_READY_LOG = '文件索引已就绪（候选提交）'
+/** 上述文案在已落盘日志里出现的次数（本 spec 两个 describe 共用一个日志目录，故按次数比对基线） */
+async function countIndexReadyLogs(): Promise<number> {
+  return (await readAllLogs()).split(INDEX_READY_LOG).length - 1
+}
+
 /** 读取 logs 目录全部 main-YYYY-MM-DD.log 拼接文本（与 core FileLogger 同口径） */
 async function readAllLogs(): Promise<string> {
   let names: string[]
@@ -128,8 +140,15 @@ test.describe('S4 开机自启：设置页开关', () => {
 
 test.describe('S4 开机自启：--autostart 启动分支（QIHEBOX_AUTOSTART=1）', () => {
   let app: ElectronApplication
+  /**
+   * 开跑前已在盘上的「文件索引已就绪」条数。必须先记基线再 launch：本 describe 与上一个 describe
+   * 共用 `LOGS_DIR`（同名 `e2eUserDataDirName('autostart')`），上个实例启动时打过的那条还在文件里，
+   * 直接 `includes` 会被旧日志瞬间满足 ⇒ 前置等待形同虚设、竞态照旧。
+   */
+  let indexReadyBaseline = 0
 
   test.beforeAll(async () => {
+    indexReadyBaseline = await countIndexReadyLogs()
     app = await electron.launch({
       args: ['.', '--no-sandbox'],
       cwd: ROOT,
@@ -148,6 +167,16 @@ test.describe('S4 开机自启：--autostart 启动分支（QIHEBOX_AUTOSTART=1�
         timeout: 20000,
       })
       .toBe(true)
+
+    // 【前置等待·非编号步骤】启动期文件索引让出主线程后，才允许本 describe 第一次打主进程的
+    // app.evaluate。缺陷（v2.5.8 D13，待拍板卡 2026-09-12 方案 A）：上面第 1 步的托盘日志在
+    // whenReady 同步段即落盘，而索引 build 在其后才完成（本机实测 02:24:03.492 托盘 →
+    // 02:24:04.101 就绪，差 ~0.6s）；在这个窗口里打 evaluate 会撞上主进程繁忙，Playwright 报
+    // 「electronApplication.evaluate: Resulting promise was garbage collected.」。
+    // 只加前置等待，以下各断言的结论一字未动。
+    await expect
+      .poll(countIndexReadyLogs, { timeout: 20000 })
+      .toBeGreaterThan(indexReadyBaseline)
 
     // 2) 自启态不建窗（延迟建窗——本任务新稳态：无窗口、托盘常驻）
     const winCount = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)

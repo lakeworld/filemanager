@@ -8,10 +8,17 @@
  * v2.5.8（D11 / W7）设置页扩充：**沿用本模块既有形状扩键，零新存储文件、IPC 只加两条**——
  * 形态 / 默认值 / 归一与合并全在 `src/shared/appSettings.ts`（唯一真相，三端共读），
  * 本文件只做落盘与读取。新增应用级开关只需改 shared 那一处，不再新增一键一对的通道。
+ *
+ * v2.5.8 复审 A-5（D9-D12 r2）：两条写路径（`set` / `setDevMode`）一律走 `core/jsonStore` 的
+ * `mutateJsonFile`——读—改—写整体在**按路径串行锁**内完成，且损坏文件先隔离成
+ * `settings.json.corrupt-<ts>` 留证再抛错。此前直接 `writeJsonAtomic` 有两处后果：
+ * 同文件并发写各自基于「锁外旧快照」合并会丢更新；坏 json 被当空设置整体覆盖、用户偏好无声清零。
+ * 只读路径（`getAll` / `getDevMode`）仍是同步容错：损坏 → 回落默认、**不移动文件**，
+ * 与 `core/paths.ts` `readJsonFile` 的「只读不破坏现场」口径一致（留证由写路径负责）。
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { writeJsonAtomic } from './core/paths'
+import { mutateJsonFile } from './core/jsonStore'
 import {
   type AppSettings,
   type AppSettingsFile,
@@ -34,17 +41,45 @@ export interface SettingsService {
   set(patch: AppSettingsPatch): Promise<AppSettings>
 }
 
+/** 形态闸门：数组 / null / 非对象一律不认（只读侧当空设置，写侧当损坏） */
+function asSettingsFile(value: unknown): AppSettingsFile | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as AppSettingsFile) : null
+}
+
 export function createSettings(userDataDir: string): SettingsService {
   const settingsPath = path.join(userDataDir, 'settings.json')
 
   function read(): AppSettingsFile {
     try {
       const raw = fs.readFileSync(settingsPath, 'utf-8')
-      return resolveRawJson(raw)
+      return asSettingsFile(JSON.parse(raw) as unknown) ?? {}
     } catch {
-      // 缺失/损坏 → 默认（不阻塞启动）
+      // 缺失/损坏 → 默认（不阻塞启动；留证与拒绝覆盖归写路径）
     }
     return {}
+  }
+
+  /**
+   * 唯一写盘入口：读 → 合并 → 落盘整段跑在 `jsonStore.mutateJsonFile` 的按路径串行锁里。
+   * 两件事一次做掉：① 同文件并发写不再各自基于「锁外旧快照」合并（丢更新）；
+   * ② 磁盘上那份不是合法设置形状（坏 json / 数组 / 非对象）时，jsonStore 先把它改名隔离成
+   * `settings.json.corrupt-<ts>` 留证，再抛错**拒绝覆盖**——绝不拿默认值静默清空用户偏好。
+   * 缺文件才按空形状起步（= 读侧的全默认），这与 metadata/customers/invoices 等共享 JSON 同一条纪律。
+   */
+  function mutateFile(merge: (stored: AppSettingsFile) => AppSettingsFile): Promise<AppSettingsFile> {
+    return mutateJsonFile<AppSettingsFile, AppSettingsFile>(settingsPath, {
+      read: async () => ({}),
+      validate: asSettingsFile,
+      mutate: (stored) => {
+        const next = merge(stored)
+        // jsonStore 落盘的是它读到的那个对象，所以原地换键、不能换引用
+        const bag = stored as Record<string, unknown>
+        for (const key of Object.keys(bag)) delete bag[key]
+        Object.assign(bag, next)
+        return stored
+      },
+      save: async () => true,
+    })
   }
 
   return {
@@ -52,28 +87,14 @@ export function createSettings(userDataDir: string): SettingsService {
       return read().devMode === true
     },
     async setDevMode(enabled: boolean): Promise<void> {
-      const settings = read()
-      settings.devMode = !!enabled
-      await writeJsonAtomic(settingsPath, settings)
+      await mutateFile((stored) => ({ ...stored, devMode: !!enabled }))
     },
     getAll(): AppSettings {
       return resolveAppSettings(read())
     },
     async set(patch: AppSettingsPatch): Promise<AppSettings> {
-      const next = mergeAppSettings(read(), patch)
-      await writeJsonAtomic(settingsPath, next)
-      return resolveAppSettings(next)
+      const written = await mutateFile((stored) => mergeAppSettings(stored, patch))
+      return resolveAppSettings(written)
     },
   }
-}
-
-/** JSON.parse 后仍要过一道形态闸门（数组 / null / 非对象一律当空设置，交给 resolve 兜默认） */
-function resolveRawJson(raw: string): AppSettingsFile {
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as AppSettingsFile
-  } catch {
-    // 坏 json → 空设置（resolve 兜默认）
-  }
-  return {}
 }

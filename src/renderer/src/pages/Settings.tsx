@@ -367,18 +367,20 @@ export default function Settings() {
         when={!isRenaming()}
         fallback={
           <span class="inline-flex items-center gap-1 px-3 py-1.5 bg-surface-100 rounded-lg text-sm">
-            <input
-              class="w-32 px-1.5 py-0.5 border border-primary-300 rounded text-sm focus:outline-none"
+            <Input
+              compact
+              autoFocus
+              class="w-32 border-primary-300"
+              ariaLabel="重命名子文件夹"
               value={subfolderRenameValue()}
-              autofocus
               onInput={(e) => setSubfolderRenameValue(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") void confirmRename();
                 if (e.key === "Escape") cancelRename();
               }}
             />
-            <button class="text-primary-600 hover:text-primary-700 text-xs" onClick={() => void confirmRename()}>✓</button>
-            <button class="text-surface-400 hover:text-surface-600 text-xs" onClick={cancelRename}>✕</button>
+            <button class="icon-btn text-primary-600 hover:text-primary-700 text-xs" onClick={() => void confirmRename()}>✓</button>
+            <button class="icon-btn text-surface-400 hover:text-surface-600 text-xs" onClick={cancelRename}>✕</button>
           </span>
         }
       >
@@ -390,10 +392,10 @@ export default function Settings() {
             </span>
           ) : (
             <>
-              <button class="text-surface-400 hover:text-primary-600 ml-0.5" title="重命名（同步所有产品集）" onClick={() => startRename(props.type, props.name)}>
+              <button class="icon-btn text-surface-400 hover:text-primary-600 ml-0.5" title="重命名（同步所有产品集）" onClick={() => startRename(props.type, props.name)}>
                 ✎
               </button>
-              <button class="text-surface-400 hover:text-danger-500 ml-0.5" onClick={() => props.onRemove(props.index)}>
+              <button class="icon-btn text-surface-400 hover:text-danger-500 ml-0.5" onClick={() => props.onRemove(props.index)}>
                 ✕
               </button>
             </>
@@ -735,11 +737,10 @@ export default function Settings() {
                 onChange={(v) => void savePref({ certReminder: v })}
               />
               {/* 提前天数只在提醒开着时可编辑，避免"看着能改其实不生效" */}
-              {/* 未就绪时整行不可点（SearchSelect 无 disabled 能力，用 pointer-events-none 同效门控；
-                  这个 token 全站已有先例，编译 CSS 必然命中） */}
+              {/* 未就绪 = 给组件传 disabled（复审 r2 A-1：原先在页面里糊一层「整行不可点」，鼠标点不动但键盘 Tab+Enter 仍能改值）；整行只留淡出观感 */}
               <div
                 class="flex items-center justify-between gap-4 py-2"
-                classList={{ "opacity-60": !prefReady(), "pointer-events-none": !prefReady() }}
+                classList={{ "opacity-60": !prefReady() }}
               >
                 <div>
                   <div class={`text-sm font-medium ${pref().certReminder ? "text-surface-700" : "text-surface-400"}`}>
@@ -750,6 +751,7 @@ export default function Settings() {
                 <SearchSelect
                   class="w-32"
                   compact
+                  disabled={!prefReady()}
                   searchable={false}
                   ariaLabel="提前提醒天数"
                   options={CERT_DAY_OPTIONS}
@@ -830,7 +832,7 @@ export default function Settings() {
                 <For each={PALETTE}>
                   {(c) => (
                     <button
-                      class={`w-5 h-5 rounded-full transition-transform ${newTagColor() === c ? "ring-2 ring-offset-1 ring-surface-700 scale-110" : ""}`}
+                      class={`icon-btn w-5 h-5 rounded-full ${newTagColor() === c ? "ring-2 ring-offset-1 ring-surface-700 scale-110" : ""}`}
                       style={{ "background-color": c }}
                       onClick={() => setNewTagColor(c)}
                     />
@@ -870,7 +872,7 @@ export default function Settings() {
                                   fallback={<span class="w-4 shrink-0" />}
                                 >
                                   <button
-                                    class="w-4 shrink-0 text-surface-400 hover:text-surface-700 cursor-pointer text-[10px] leading-none"
+                                    class="icon-btn w-4 shrink-0 text-surface-400 hover:text-surface-700 cursor-pointer text-[10px] leading-none"
                                     title={expandedTopTags().includes(tag.name) ? "收起子标签" : "展开子标签"}
                                     onClick={() => toggleTopTag(tag.name)}
                                   >
@@ -878,7 +880,7 @@ export default function Settings() {
                                   </button>
                                 </Show>
                                 <button
-                                  class="w-5 h-5 rounded-full shrink-0 cursor-pointer"
+                                  class="icon-btn w-5 h-5 rounded-full shrink-0 cursor-pointer"
                                   style={{ "background-color": tag.color }}
                                   title="点击改颜色"
                                   onClick={() => setEditingColor(editingColor() === tag.name ? null : tag.name)}
@@ -888,7 +890,7 @@ export default function Settings() {
                             <For each={PALETTE}>
                               {(c) => (
                                 <button
-                                  class={`w-4 h-4 rounded-full ${tag.color === c ? "ring-2 ring-offset-1 ring-surface-700" : ""}`}
+                                  class={`icon-btn w-4 h-4 rounded-full ${tag.color === c ? "ring-2 ring-offset-1 ring-surface-700" : ""}`}
                                   style={{ "background-color": c }}
                                   onClick={() => handleSetColor(tag.name, c)}
                                 />
@@ -904,8 +906,10 @@ export default function Settings() {
                             </span>
                           }
                         >
-                          <input
-                            class="px-2 py-1 border border-surface-200 rounded text-sm flex-1 min-w-0"
+                          <Input
+                            compact
+                            class="flex-1 min-w-0"
+                            ariaLabel="重命名标签"
                             value={renameValue()}
                             onInput={(e) => setRenameValue(e.currentTarget.value)}
                             onKeyDown={(e) => {
@@ -939,7 +943,7 @@ export default function Settings() {
                         </Show>
                         <span class="text-xs text-surface-400 shrink-0">{tag.count} 处</span>
                         <button
-                          class="text-xs text-surface-500 hover:text-primary-600 shrink-0"
+                          class="link-btn text-xs text-surface-500 hover:text-primary-600 shrink-0"
                           onClick={() => {
                             setRenaming(tag.name);
                             setRenameValue(tag.name);
@@ -950,7 +954,7 @@ export default function Settings() {
                         <Show when={topLevelTags().length > 1}>
                           <div data-move-menu class="relative shrink-0">
                             <button
-                              class="text-xs text-surface-500 hover:text-primary-600"
+                              class="link-btn text-xs text-surface-500 hover:text-primary-600"
                               onClick={() => setMovingTag(movingTag() === tag.name ? null : tag.name)}
                             >
                               移至…
@@ -961,7 +965,7 @@ export default function Settings() {
                                 <For each={topLevelTags().filter((t) => t.name !== tag.name)}>
                                   {(target) => (
                                     <button
-                                      class="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-100"
+                                      class="row-btn w-full px-3 py-1.5 text-left text-sm hover:bg-surface-100"
                                       onClick={() => void handleMoveTo(tag.name, target.name)}
                                     >
                                       {target.name}
@@ -973,7 +977,7 @@ export default function Settings() {
                           </div>
                         </Show>
                         <button
-                          class="text-xs text-danger-500 hover:text-danger-600 shrink-0"
+                          class="link-btn text-xs text-danger-500 hover:text-danger-600 shrink-0"
                           onClick={() => handleDeleteTag(tag.name)}
                         >
                           删除
@@ -990,7 +994,7 @@ export default function Settings() {
                               return (
                                 <div class="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-surface-100 transition-colors">
                                   <button
-                                    class="w-4 h-4 rounded-full shrink-0 cursor-pointer"
+                                    class="icon-btn w-4 h-4 rounded-full shrink-0 cursor-pointer"
                                     style={{ "background-color": child.color }}
                                     title="点击改颜色"
                                     onClick={() => setEditingColor(editingColor() === child.name ? null : child.name)}
@@ -1000,7 +1004,7 @@ export default function Settings() {
                                       <For each={PALETTE}>
                                         {(c) => (
                                           <button
-                                            class={`w-4 h-4 rounded-full ${child.color === c ? "ring-2 ring-offset-1 ring-surface-700" : ""}`}
+                                            class={`icon-btn w-4 h-4 rounded-full ${child.color === c ? "ring-2 ring-offset-1 ring-surface-700" : ""}`}
                                             style={{ "background-color": c }}
                                             onClick={() => handleSetColor(child.name, c)}
                                           />
@@ -1017,8 +1021,10 @@ export default function Settings() {
                                       </span>
                                     }
                                   >
-                                    <input
-                                      class="px-2 py-1 border border-surface-200 rounded text-sm flex-1 min-w-0"
+                                    <Input
+                                      compact
+                                      class="flex-1 min-w-0"
+                                      ariaLabel="重命名子标签"
                                       value={renameValue()}
                                       onInput={(e) => setRenameValue(e.currentTarget.value)}
                                       onKeyDown={(e) => {
@@ -1029,14 +1035,14 @@ export default function Settings() {
                                   </Show>
                                   <span class="text-xs text-surface-400 shrink-0">{child.count} 处</span>
                                   <button
-                                    class="text-xs text-surface-500 hover:text-primary-600 shrink-0"
+                                    class="link-btn text-xs text-surface-500 hover:text-primary-600 shrink-0"
                                     title="提升为顶层标签"
                                     onClick={() => handlePromote(child.name)}
                                   >
                                     ⬆ 顶层
                                   </button>
                                   <button
-                                    class="text-xs text-surface-500 hover:text-primary-600 shrink-0"
+                                    class="link-btn text-xs text-surface-500 hover:text-primary-600 shrink-0"
                                     onClick={() => {
                                       setRenaming(child.name);
                                       setRenameValue(child.name);
@@ -1045,7 +1051,7 @@ export default function Settings() {
                                     重命名
                                   </button>
                                   <button
-                                    class="text-xs text-danger-500 hover:text-danger-600 shrink-0"
+                                    class="link-btn text-xs text-danger-500 hover:text-danger-600 shrink-0"
                                     onClick={() => handleDeleteTag(child.name)}
                                   >
                                     删除
@@ -1079,8 +1085,12 @@ export default function Settings() {
                   <For each={orphanTags()}>
                     {(tag) => (
                       <div class="flex items-center gap-3 py-2 px-3 rounded-lg bg-warning-50/60 hover:bg-warning-50 transition-colors">
-                        <button
-                          class="w-5 h-5 rounded-full shrink-0 cursor-default bg-surface-300 border border-dashed border-surface-400"
+                        {/* 孤儿标签的「未定义」色点：**不是按钮**——没有 onClick，也不该有按压反馈。
+                            原写成 button 标签是语义错（D14 清点时全站唯一一个无 onClick 的按钮），改成 span：
+                            全站按钮基数因此 270 → 269，属**口径真实变化**，不是漏扫。
+                            （措辞刻意不写尖括号标签名：JSX 注释里的标签字样会让 `grep -c` 与清点器对不上数。） */}
+                        <span
+                          class="w-5 h-5 rounded-full shrink-0 bg-surface-300 border border-dashed border-surface-400"
                           title="未定义标签"
                         />
                         <span class="text-sm font-medium flex-1 text-warning-800">{tag.name}</span>
@@ -1090,7 +1100,7 @@ export default function Settings() {
                             <For each={PALETTE}>
                               {(c) => (
                                 <button
-                                  class="w-4 h-4 rounded-full"
+                                  class="icon-btn w-4 h-4 rounded-full"
                                   style={{ "background-color": c }}
                                   onClick={() => handleAdopt(tag.name, c)}
                                 />
@@ -1099,13 +1109,13 @@ export default function Settings() {
                           </div>
                         </Show>
                         <button
-                          class="text-xs text-surface-500 hover:text-primary-600 shrink-0"
+                          class="link-btn text-xs text-surface-500 hover:text-primary-600 shrink-0"
                           onClick={() => setAdoptingOrphan(adoptingOrphan() === tag.name ? null : tag.name)}
                         >
                           {adoptingOrphan() === tag.name ? "取消" : "转为正式标签"}
                         </button>
                         <button
-                          class="text-xs text-danger-500 hover:text-danger-600 shrink-0"
+                          class="link-btn text-xs text-danger-500 hover:text-danger-600 shrink-0"
                           onClick={() => handleRemoveOrphan(tag.name)}
                         >
                           清除引用
