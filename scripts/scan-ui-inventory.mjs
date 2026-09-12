@@ -38,8 +38,28 @@ export const SCAN_SUBDIR = 'src/renderer';
  */
 export const UNIFIED_BTN_CLASS = /\bbtn-(?:primary|secondary|danger|ghost|ghost-danger)\b/g;
 
-/** 组件档底色：手写但在贴这三档 = 绕开 .btn-* 自己粘组件色，明天门禁的主判据（同理 \b 边界，变体前缀算命中） */
-export const COMPONENT_TINT_CLASS = /\b(?:bg-primary-600|bg-surface-100|bg-danger-600)\b/g;
+/**
+ * 组件档底色：手写但在贴这三档 = 绕开 .btn-* 自己粘组件色，明天门禁的主判据。
+ *
+ * **只看基态底色**：前置 `(?<![:\w-])` 把 `hover:` / `focus:` / `active:` 等变体前缀挡在外面
+ * （`\b` 在 `:` 与 `b` 之间同样成立，所以旧写法会把 `hover:bg-surface-100` 算成违规）。
+ * 为什么必须排除：形状具名档（下面的 `SHAPE_RECIPE_CLASS`）按设计**只管节奏、颜色留给调用点**，
+ * 而"平时透明、悬停才上色"正是 `.row-btn` / `.link-btn` 唯一合法的贴色方式——挂在形状档上的
+ * `hover:bg-*` 不是绕开统一档，而是在用统一档。两条放宽必须同时生效，缺一条就有约 16 处
+ * 永远洗不干净（D14 实测：ContextMenu:110、Settings:963、DatePicker 5 处、Sidebar 5 处等）。
+ * 漏判会不会变松？不会：这类点位仍被 `isDebt`（未走任何统一档）与逐文件手写基线两处抓住。
+ * 边界用 \b 而不是空格切词：`btn-primary-foo` 这种不存在的档不该算。
+ */
+export const COMPONENT_TINT_CLASS = /(?<![:\w-])(?:bg-primary-600|bg-surface-100|bg-danger-600)\b/g;
+
+/**
+ * 形状具名档：三种**本就不该套 `ui/Button`** 的形状（文字链接式 / 纯图标 / 整行可点）与两个
+ * D6 已有的档（分段项 / 药丸）。挂上它们算「已走统一清单」（`AGENTS.md` §一.8 的两条合法路径之一），
+ * 因此**不计入欠账**。定义见 `index.css` 的 `.link-btn`/`.icon-btn`/`.row-btn` 注释。
+ * 为什么必须让量尺认识这些名字：否则把 142 处收进具名类之后，`handwritten` 计数纹丝不动，
+ * 棘轮看起来"永远做不完"——量尺不认改好的样子，改的人就只能硬塞组件（PLAN §七 列过的风险）。
+ */
+export const SHAPE_RECIPE_CLASS = /\b(?:link-btn|icon-btn|row-btn|seg-item|seg-item-on|chip)\b/g;
 
 /**
  * 「手搓材质」判据 = 同一条 class 里既重述了**描边色**又重述了**圆角**（= `.input` 骨架被手抄一份）。
@@ -55,9 +75,11 @@ const MATERIAL_TOKENS = [/\bborder-(?:surface|primary|danger|warning|success)-\d
 /** 唯一显式豁免：顶栏全局搜索框（`pl-9` 给绝对定位图标让位、底色嵌在顶栏里，换 ui/Input 属改版式） */
 const EXEMPT_HEADER = { file: 'src/renderer/src/components/Header.tsx', id: 'global-search-input' };
 
-/** 底座目录 + 金额底座：它们身上的 <input> 属「实现内部」，不算页面欠账 */
+/** 底座目录 + 金额底座：它们身上的 <input>/<button> 属「实现内部」，不算页面欠账 */
 const BASE_INTERNAL_DIRS = ['src/renderer/src/components/ui/'];
 const BASE_INTERNAL_FILES = ['src/renderer/src/components/MoneyInput.tsx'];
+/** 同一判据供两面共用（按钮面见 classifyButton 的 inBase；口径分两处写必然漂移） */
+const isBaseInternal = (rel) => BASE_INTERNAL_DIRS.some((d) => rel.startsWith(d)) || BASE_INTERNAL_FILES.includes(rel);
 
 /** Modal 底座自身：内部那处 <ModalInner 不算业务调用点 */
 const MODAL_BASE_FILE = 'src/renderer/src/components/ui/Modal.tsx';
@@ -327,6 +349,7 @@ function classifyButton(rel, line, h) {
   const classText = classTextOf(h.attrs);
   const variants = classText === null ? [] : matchesOf(UNIFIED_BTN_CLASS, classText);
   const tints = classText === null ? [] : matchesOf(COMPONENT_TINT_CLASS, classText);
+  const shapes = classText === null ? [] : matchesOf(SHAPE_RECIPE_CLASS, classText);
   const category = classText === null ? 'noclass' : variants.length > 0 ? 'unified' : 'handwritten';
   return {
     file: rel,
@@ -335,8 +358,22 @@ function classifyButton(rel, line, h) {
     classText,
     variants,
     category,
-    /** 手写但在贴组件档底色 —— 明天门禁的主判据 */
-    hasComponentTint: category === 'handwritten' && tints.length > 0,
+    /** 挂上的形状具名档（`.link-btn`/`.icon-btn`/`.row-btn`/`.seg-item`/`.chip`） */
+    shapeRecipes: shapes,
+    /** 住在底座目录里（`components/ui/` + `MoneyInput.tsx`）= 实现内部，与输入框面同一判据、同一目录表 */
+    inBase: isBaseInternal(rel),
+    /** **真欠账** = 页面/业务组件侧手写且没走任何统一档。棘轮基线数的是这个数，不是 `handwritten`——
+     *  收进形状具名类的点位从此不再计入，量尺才认得出"改好了"。
+     *  底座内部一并排除：`ui/Button` 自己就得写材质（`:33` 那处 `${VARIANT_MAP[...]}` 是映射表本体），
+     *  把它算成欠账会让"欠账 0"这个出口永远达不成——与输入框面 `baseInternal` 同一口径。
+     *  ⚠ 放宽的同时门禁那边必须逐文件点名（`BTN_BASE_INTERNAL`），否则整个 `components/ui/` 成了空白支票。 */
+    isDebt: category === 'handwritten' && shapes.length === 0 && !isBaseInternal(rel),
+    /** 手写但在贴组件档底色 —— 明天门禁的主判据。
+     *  挂上形状具名档即豁免：那三档按设计不管颜色，颜色只能在调用点给（见 COMPONENT_TINT_CLASS 注释）。
+     *  底座内部同样不计（与 isDebt 一条口径）：`ui/*` 里那几处底色属实现内部，改由 `BTN_BASE_INTERNAL` 逐文件钉死。 */
+    hasComponentTint: category === 'handwritten' && tints.length > 0 && shapes.length === 0 && !isBaseInternal(rel),
+    /** 已走任一统一档（五档 `btn-*` 或形状具名档）= 节奏由骨架提供，调用点不再重复要求写 transition */
+    usesUnifiedRecipe: variants.length > 0 || shapes.length > 0,
     tintTokens: tints,
     hasPress: classText !== null && /active:scale/.test(classText),
     hasTransition: classText !== null && /transition/.test(classText),
@@ -406,9 +443,15 @@ function summarize(buttons, inputs, modals) {
       noclass: bc.noclass ?? 0,
       other: bc.other ?? 0,
       handwrittenWithTint: buttons.filter((b) => b.hasComponentTint).length,
+      /** 真欠账（页面/业务组件侧手写且未走任何统一档）——棘轮基线与 D14 出口指标都看这一格 */
+      debt: buttons.filter((b) => b.isDebt).length,
+      /** 底座内部（`components/ui/` + `MoneyInput.tsx`）的手写点位：不计欠账，但门禁要逐文件点名 */
+      baseInternal: buttons.filter((b) => b.inBase && b.category === 'handwritten' && b.shapeRecipes.length === 0).length,
       truncationSensitive: buttons.filter((b) => b.truncationSensitive).length,
       handwrittenWithPress: buttons.filter((b) => b.category === 'handwritten' && b.hasPress).length,
-      handwrittenNoTransition: buttons.filter((b) => b.category === 'handwritten' && !b.hasTransition).length,
+      /** 「完全不含过渡」只统计**未走任何统一档**的点位：挂上 `btn-*`/形状档后，过渡住在类定义里，
+       *  读 class 字面的判据会把它算成"没过渡"，于是收口越努力、这个数越红（实测 79→96 的反向告警）。 */
+      handwrittenNoTransition: buttons.filter((b) => b.category === 'handwritten' && !b.usesUnifiedRecipe && !b.hasTransition).length,
     },
     inputs: {
       total: inputs.length,
@@ -463,7 +506,8 @@ export function renderMarkdown(inv) {
   L.push('| └ 无 class 属性（noclass） | ' + s.buttons.noclass + ' |');
   L.push('| 手写中贴组件档底色（' + code('hasComponentTint') + '） | **' + s.buttons.handwrittenWithTint + '** |');
   L.push('| 手写中带 ' + code('active:scale') + '（按压） | ' + s.buttons.handwrittenWithPress + ' |');
-  L.push('| 手写中完全不含 ' + code('transition') + ' | ' + s.buttons.handwrittenNoTransition + ' |');
+  L.push('| 手写中完全不含 ' + code('transition') + '（且未走任何统一档） | ' + s.buttons.handwrittenNoTransition + ' |');
+  L.push('| ├ 其中住在底座目录（' + code('components/ui/') + ' + ' + code('MoneyInput.tsx') + '，不计欠账、门禁逐文件点名） | ' + s.buttons.baseInternal + ' |');
   L.push('| 输入框真控件 | ' + s.inputs.total + ' |');
   L.push('| ├ ' + code('checkbox') + ' | ' + s.inputs.checkbox + ' |');
   L.push('| ├ 底座内部（' + code('components/ui/') + ' + ' + code('MoneyInput.tsx') + '） | ' + s.inputs.baseInternal + ' |');
@@ -478,19 +522,19 @@ export function renderMarkdown(inv) {
   }
   L.push('');
 
-  L.push('## 二、按钮：手写串按文件计数（降序，明天逐档下调棘轮基线用）');
+  L.push('## 二、真欠账按文件计数（降序，未走任何统一档 · 已排除底座内部；逐档下调棘轮基线用）');
   L.push('');
   const byFile = {};
   for (const b of inv.buttons) {
-    if (b.category !== 'handwritten') continue;
+    if (b.category !== 'handwritten' || b.inBase) continue;
     const e = (byFile[b.file] ??= { hand: 0, tint: 0, press: 0, notrans: 0 });
     e.hand++;
     if (b.hasComponentTint) e.tint++;
     if (b.hasPress) e.press++;
-    if (!b.hasTransition) e.notrans++;
+    if (!b.usesUnifiedRecipe && !b.hasTransition) e.notrans++;
   }
   const rows = Object.entries(byFile).sort((a, b) => b[1].hand - a[1].hand || a[0].localeCompare(b[0]));
-  L.push('| 手写数 | 其中贴档底色 | 带按压 | 无过渡 | 文件 |');
+  L.push('| 手写数 | 贴档底色（基态·未走档） | 带按压 | 无过渡（未走档） | 文件 |');
   L.push('|---:|---:|---:|---:|---|');
   for (const [f, e] of rows) L.push('| ' + e.hand + ' | ' + e.tint + ' | ' + e.press + ' | ' + e.notrans + ' | ' + code(short(f)) + ' |');
   const sum = rows.reduce((n, [, e]) => n + e.hand, 0);
@@ -500,7 +544,7 @@ export function renderMarkdown(inv) {
   );
   L.push('');
 
-  L.push('## 三、手写按钮里贴组件档底色的 ' + s.buttons.handwrittenWithTint + ' 处（明天门禁主判据逐处清单）');
+  L.push('## 三、手写按钮里贴组件档**基态**底色的 ' + s.buttons.handwrittenWithTint + ' 处（未走形状档，明天门禁主判据逐处清单）');
   L.push('');
   L.push('| # | 位置 | 命中 token | class 片段 |');
   L.push('|---:|---|---|---|');
@@ -567,7 +611,7 @@ export function renderSummary(inv) {
   return [
     'UI 控件清点（' + inv.files.length + ' 个 .tsx）',
     '  按钮   总 ' + s.buttons.total + ' · unified ' + s.buttons.unified + ' · handwritten ' + s.buttons.handwritten + ' · noclass ' + s.buttons.noclass +
-      ' · 手写贴档底色 ' + s.buttons.handwrittenWithTint + ' · 手写带按压 ' + s.buttons.handwrittenWithPress + ' · 手写无过渡 ' + s.buttons.handwrittenNoTransition,
+      ' · 手写贴档底色 ' + s.buttons.handwrittenWithTint + ' · 真欠账 ' + s.buttons.debt + ' · 底座内 ' + s.buttons.baseInternal + ' · 手写带按压 ' + s.buttons.handwrittenWithPress + ' · 手写无过渡 ' + s.buttons.handwrittenNoTransition,
     '  输入框 真控件 ' + s.inputs.total + ' · checkbox ' + s.inputs.checkbox + ' · baseInternal ' + s.inputs.baseInternal + ' · debt ' + s.inputs.debt + ' · exempt ' + s.inputs.exempt +
       (s.inputs.other ? ' · ⚠ other ' + s.inputs.other : ''),
     '  Modal  业务调用点 ' + s.modals.total + ' · framed ' + s.modals.framed + ' · 未 framed ' + s.modals.unframed,

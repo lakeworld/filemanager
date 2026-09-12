@@ -350,7 +350,7 @@ export default function Quotes() {
                     补建
                   </button>
                   <button
-                    class="text-xs px-3 py-1.5 text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg hover:text-danger-600 shrink-0"
+                    class="btn-secondary text-xs px-3 py-1.5 hover:text-danger-600 shrink-0"
                     title="删除该文件（走回收站，不影响任何台账记录）"
                     onClick={() => void deleteQuoteOrphan(rel)}
                   >
@@ -589,11 +589,11 @@ export default function Quotes() {
                         <span class="text-xs text-danger-600 shrink-0" title="归档文件已缺失（不影响记录）">缺失</span>
                       </Show>
                       <Show when={rec.file_path}>
-                        <button class="text-surface-400 hover:text-primary-600 text-sm shrink-0" title="预览归档文件" onClick={() => previewFile(rec)}>
+                        <button class="icon-btn text-surface-400 hover:text-primary-600 text-sm shrink-0" title="预览归档文件" onClick={() => previewFile(rec)}>
                           👁
                         </button>
                       </Show>
-                      <button class="text-surface-400 hover:text-danger-500 text-sm shrink-0" title="删除" onClick={() => setDeleteTarget({ no: rec.quotation_no })}>
+                      <button class="icon-btn text-surface-400 hover:text-danger-500 text-sm shrink-0" title="删除" onClick={() => setDeleteTarget({ no: rec.quotation_no })}>
                         🗑️
                       </button>
                     </div>

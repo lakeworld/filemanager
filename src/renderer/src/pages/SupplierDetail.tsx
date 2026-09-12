@@ -216,7 +216,7 @@ export default function SupplierDetail() {
   return (
     <div class="p-6 max-w-7xl mx-auto flex flex-col h-full">
       <div class="flex items-center gap-2 mb-2 text-sm text-surface-500 shrink-0">
-        <button class="hover:text-primary-600" onClick={() => navigate("/suppliers")}>供应商</button>
+        <button class="link-btn hover:text-primary-600" onClick={() => navigate("/suppliers")}>供应商</button>
         <span>/</span>
         <span class="text-surface-900 font-medium">{supplierName()}</span>
       </div>
@@ -307,7 +307,7 @@ export default function SupplierDetail() {
                     >
                       {ps}
                       <button
-                        class="text-surface-400 hover:text-danger-500"
+                        class="icon-btn text-surface-400 hover:text-danger-500"
                         title="解除关联"
                         onClick={(e) => { e.stopPropagation(); void handleUnlink(ps); }}
                       >
@@ -358,9 +358,25 @@ export default function SupplierDetail() {
           // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc 走 onCloseRequest（二次确认）
           dirty={editDirty()}
           onCloseRequest={requestCloseEdit}
+          // v2.5.8 D16（弹窗骨架收口）：迁 framed——头部标题与页脚动作改由 Modal 骨架渲染，
+          // 调用方原手写 <h2> 与底部按钮行随之删除（标题文案 = title 属性，一字未动，
+          // e2e 仍按 role=dialog + hasText「编辑供应商档案」命中）
+          framed
+          footer={
+            <>
+              {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestCloseEdit（二次确认） */}
+              <button class="btn-secondary" onClick={requestCloseEdit}>取消</button>
+              <button class="btn-primary" onClick={() => void handleSaveInfo()}>保存</button>
+            </>
+          }
         >
-          <div class="bg-white rounded-2xl w-full max-w-xl p-6 shadow-xl max-h-[90vh] overflow-y-auto overflow-x-hidden" onClick={(e) => e.stopPropagation()}>
-            <h2 class="text-xl font-bold mb-4">编辑供应商档案</h2>
+          {/* v2.5.8 D16：手搓白卡外壳（`bg-white rounded-2xl w-full max-w-xl p-6 shadow-xl
+              max-h-[90vh] overflow-y-auto overflow-x-hidden`）整层作废——framed 下面板本体
+              `.modal-panel` 就是实底白卡、`.dlg-body` 自带 px-6 py-5 与 overflow-y-auto，
+              留着就是双卡 + 双内边距 + 双滚动条。仍包一层 div（含原 onClick，冗余但不属本轮可删项）：
+              让 `.dlg-body` 的 `flex flex-col gap-4` 只作用在这一个子节点上，
+              字段区原有的 mb-4 节奏保持不变（不趁迁移改版式）。 */}
+          <div onClick={(e) => e.stopPropagation()}>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div class="mb-4">
                 <label class="block text-sm font-medium text-surface-700 mb-1">联系人</label>
@@ -421,11 +437,6 @@ export default function SupplierDetail() {
                 value={editNotes()}
                 onInput={(e) => setEditNotes(e.currentTarget.value)}
               />
-            </div>
-            <div class="flex gap-3 justify-end">
-              {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestCloseEdit（二次确认） */}
-              <button class="btn-secondary" onClick={requestCloseEdit}>取消</button>
-              <button class="btn-primary" onClick={() => void handleSaveInfo()}>保存</button>
             </div>
           </div>
         </Modal>

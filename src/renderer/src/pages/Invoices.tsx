@@ -1213,15 +1213,19 @@ export default function Invoices() {
           <h1 class="text-2xl font-bold text-surface-900">发票管理</h1>
           <p class="text-surface-500 mt-1">发票台账与入库归档</p>
         </div>
+        {/* v2.5.8 D14（样式统一收口）：这对 tab 就是分段切换器，节奏收进 .seg-item
+            （档给 px-4 py-2 text-sm rounded-md + 精确属性过渡，与原内联串逐项等值，故删掉重复的四项）；
+            选中/未选中的底色与文字色原样保留——形状档刻意不管颜色。
+            外层 `flex bg-surface-100 rounded-lg p-1` 是手搓 seg-track，改它 = 动容器版式，留待主线程拍板 */}
         <div class="flex bg-surface-100 rounded-lg p-1">
           <button
-            class={`px-4 py-2 text-sm rounded-md transition-colors ${tab() === "invoices" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500 hover:text-surface-700"}`}
+            class={`seg-item ${tab() === "invoices" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500 hover:text-surface-700"}`}
             onClick={() => setTab("invoices")}
           >
             🧾 发票台账
           </button>
           <button
-            class={`px-4 py-2 text-sm rounded-md transition-colors ${tab() === "inbound" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500 hover:text-surface-700"}`}
+            class={`seg-item ${tab() === "inbound" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500 hover:text-surface-700"}`}
             onClick={() => setTab("inbound")}
           >
             📥 入库单

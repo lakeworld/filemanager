@@ -531,7 +531,7 @@ export default function Notes() {
               <span class="text-warning-600"> · 仅显示最近 {NOTE_LOAD_LIMIT} 条</span>
             </Show>
           </span>
-          <button class="text-sm text-primary-600 hover:text-primary-700" onClick={selectAllVisible}>
+          <button class="link-btn text-sm text-primary-600 hover:text-primary-700" onClick={selectAllVisible}>
             全选当前结果
           </button>
         </div>

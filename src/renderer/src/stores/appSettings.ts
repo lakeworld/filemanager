@@ -49,10 +49,18 @@ export function loadAppSettings(): void {
     setAppSettingsReady(true) // 无桥（纯渲染层单测环境）也算就绪，别让开关永远点不动
     return
   }
-  void b.get().then((r) => {
-    if (r.success && r.data) setAppSettings(r.data)
-    setAppSettingsReady(true)
-  })
+  // 就绪标志必须无条件落下：`get()` 被 reject（IPC 通道缺失 / 主进程失联）时 `.then` 的回调根本不执行，
+  // 六开关会永久停在 `disabled={!prefReady()}` 的置灰态，外加一条 unhandled rejection（复审 r2 ⑤-3）。
+  // 读失败按"默认值 = 现行行为"降级并解除置灰，与上面那句注释的口径一致；不静默吞掉 reject 本身。
+  void b
+    .get()
+    .then((r) => {
+      if (r.success && r.data) setAppSettings(r.data)
+    })
+    .catch(() => {
+      /* 读不到设置：保持默认值，不弹错打扰用户 */
+    })
+    .finally(() => setAppSettingsReady(true))
 }
 
 /**
@@ -62,7 +70,14 @@ export function loadAppSettings(): void {
 export async function setAppSetting(patch: AppSettingsPatch): Promise<boolean> {
   const b = bridge()
   if (!b) return false
-  const r = await b.set(patch)
+  // 契约是「返回是否写成功」，调用方（设置页开关）据其回滚 UI 并弹错——所以 reject 也必须收敛成 false，
+  // 不能把异常抛给 `savePref`：它 await 且无 try/catch，一抛就连回滚带 toast 一起丢。
+  let r: Awaited<ReturnType<typeof b.set>>
+  try {
+    r = await b.set(patch)
+  } catch {
+    return false
+  }
   if (r.success && r.data) {
     setAppSettings(r.data)
     setAppSettingsReady(true)
@@ -75,10 +90,18 @@ export async function setAppSetting(patch: AppSettingsPatch): Promise<boolean> {
 export function reloadAppSettings(): Promise<void> {
   const b = bridge()
   if (!b) return Promise.resolve()
-  return b.get().then((r) => {
-    if (r.success && r.data) setAppSettings(r.data)
-    setAppSettingsReady(true)
-  })
+  // 本函数被 `Settings.tsx` 的 `savePref` 直接 await 且**没有 try/catch**：它一 reject，
+  // 后面那句"设置失败"的 toast 就永远不弹（用户只看到复选框自己跳回去，没有任何解释）。
+  // 所以这里把读失败收敛成 resolve——重拉不到就用现有信号值落位，报错仍由 savePref 负责。
+  return b
+    .get()
+    .then((r) => {
+      if (r.success && r.data) setAppSettings(r.data)
+      setAppSettingsReady(true)
+    })
+    .catch(() => {
+      setAppSettingsReady(true)
+    })
 }
 
 /** 悬浮多选条是否显示（W7；默认 true = D10 现行形态） */

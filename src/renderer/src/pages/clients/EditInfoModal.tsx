@@ -134,9 +134,22 @@ export default function EditInfoModal(props: {
           // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc 走 onCloseRequest（二次确认）
           dirty={dirty()}
           onCloseRequest={requestClose}
+          // v2.5.8 D14（样式统一收口）：迁 framed——头部标题与页脚动作改由 Modal 骨架渲染；
+          // 调用方原手写 <h2> 与底部按钮行随之删除（标题文案 = title 属性，一字未动，
+          // e2e 仍按 role=dialog + name「编辑客户档案」/ hasText 命中）
+          framed
+          footer={
+            <>
+              {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestClose（二次确认） */}
+              <button class="btn-secondary" onClick={requestClose}>取消</button>
+              <button class="btn-primary" disabled={saving()} onClick={() => void handleSaveInfo()}>
+                {saving() ? "保存中..." : "保存"}
+              </button>
+            </>
+          }
         >
-        <div class="p-6">
-          <h2 class="text-xl font-bold mb-4">编辑客户档案</h2>
+        {/* framed 下 .dlg-body 自带 px-6 py-5，原 p-6 内边距交回骨架（留着就是双重留白） */}
+        <div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div class="mb-4">
               <label class="block text-sm font-medium text-surface-700 mb-1">别名</label>
@@ -193,13 +206,6 @@ export default function EditInfoModal(props: {
           <div class="mb-4">
             <label class="block text-sm font-medium text-surface-700 mb-1">备注</label>
             <Textarea value={editNotes()} rows={3} placeholder="添加备注..." onInput={(e) => setEditNotes(e.currentTarget.value)} class="w-full" />
-          </div>
-          <div class="flex gap-3 justify-end">
-            {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestClose（二次确认） */}
-            <button class="btn-secondary" onClick={requestClose}>取消</button>
-            <button class="btn-primary" disabled={saving()} onClick={() => void handleSaveInfo()}>
-              {saving() ? "保存中..." : "保存"}
-            </button>
           </div>
         </div>
         </Modal>

@@ -48,8 +48,14 @@ export default function QuoteStatusActions(props: {
     }
   };
 
-  const btnBase =
-    "text-xs px-2 py-0.5 rounded-md transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed";
+  // v2.5.8 D14（样式统一收口）：`.btn-*` 档名一律写在**调用点的 class 字面量**里，只有与语义无关的
+  // 尺寸/禁用档留在这个串里。原因：门禁（`uiInventory.test.ts`）与清点器都是按标签体扫 class 原文，
+  // 类名一旦藏进变量拼接就看不见——改前本文件 5 处就是这样被全部记成「无过渡」的（`transition-colors`
+  // 当时住在这个 const 里，调用点读不到）。
+  // ⚠ 本串禁止再挂 transition 工具类（如 transition-colors）：它是工具类，会盖掉 `.btn-*` 组件档里的
+  // `transition-[background-color,transform]`，把 W4/D8 刚对齐的按压缩放节奏打死。
+  const btnSize =
+    "text-xs px-2 py-0.5 rounded-md shrink-0 disabled:opacity-40 disabled:cursor-not-allowed";
 
   return (
     <div class="flex items-center gap-1.5 min-w-0 flex-wrap">
@@ -57,23 +63,23 @@ export default function QuoteStatusActions(props: {
         {props.status}
       </span>
       <Show when={props.status === "草稿"}>
-        <button class={`${btnBase} bg-primary-50 text-primary-700 hover:bg-primary-100`} disabled={saving()} onClick={() => void go("已确认")}>
+        <button class={`btn-secondary ${btnSize} bg-primary-50 text-primary-700 hover:bg-primary-100`} disabled={saving()} onClick={() => void go("已确认")}>
           确认
         </button>
       </Show>
       <Show when={props.status === "已确认"}>
-        <button class={`${btnBase} bg-surface-100 text-surface-600 hover:bg-primary-50 hover:text-primary-700`} disabled={saving()} onClick={() => void go("修订中")}>
+        <button class={`btn-secondary ${btnSize} text-surface-600 hover:bg-primary-50 hover:text-primary-700`} disabled={saving()} onClick={() => void go("修订中")}>
           转修订中
         </button>
-        <button class={`${btnBase} bg-surface-100 text-surface-400`} disabled title="已确认后须先转修订中，不能直接转回草稿">
+        <button class={`btn-secondary ${btnSize} text-surface-400`} disabled title="已确认后须先转修订中，不能直接转回草稿">
           转草稿
         </button>
       </Show>
       <Show when={props.status === "修订中"}>
-        <button class={`${btnBase} bg-surface-100 text-surface-600 hover:bg-warning-50 hover:text-warning-700`} disabled={saving()} onClick={() => void go("草稿")}>
+        <button class={`btn-secondary ${btnSize} text-surface-600 hover:bg-warning-50 hover:text-warning-700`} disabled={saving()} onClick={() => void go("草稿")}>
           转草稿
         </button>
-        <button class={`${btnBase} bg-primary-50 text-primary-700 hover:bg-primary-100`} disabled={saving()} onClick={() => void go("已确认")}>
+        <button class={`btn-secondary ${btnSize} bg-primary-50 text-primary-700 hover:bg-primary-100`} disabled={saving()} onClick={() => void go("已确认")}>
           确认
         </button>
       </Show>

@@ -114,13 +114,66 @@ describe('createSettings 落盘：改 → 持久化 → 重开实例读到新值
     expect(s.getAll().clipboardGuard).toBe(false)
   })
 
-  it('坏 json 不炸启动路径：读回落默认，写仍可恢复', async () => {
-    fs.writeFileSync(path.join(dir, 'settings.json'), '{ 这不是 json')
+  it('坏 json 不炸启动路径：读回落默认，写拒绝覆盖并备份留证（隔离后重试可恢复）', async () => {
+    const corrupt = '{ 这不是 json'
+    fs.writeFileSync(path.join(dir, 'settings.json'), corrupt)
     const s = createSettings(dir)
+    // —— 读侧：回落默认，且**不动原文件**（只读不破坏现场，与 paths.readJsonFile 同口径）
     expect(s.getAll()).toEqual(APP_SETTINGS_DEFAULTS)
     expect(s.getDevMode()).toBe(false)
+    expect(fs.readFileSync(path.join(dir, 'settings.json'), 'utf-8')).toBe(corrupt)
+    expect(fs.readdirSync(dir).filter((n) => n.startsWith('settings.json.corrupt-'))).toEqual([])
+    // —— 写侧：不再拿默认值静默整体覆盖，而是隔离备份 + 抛错（渲染层经 ApiResult 拿到 error）
+    await expect(s.set({ certReminder: false })).rejects.toThrow(/损坏|覆盖/)
+    const backups = fs.readdirSync(dir).filter((n) => n.startsWith('settings.json.corrupt-'))
+    expect(backups).toHaveLength(1)
+    expect(fs.readFileSync(path.join(dir, backups[0]), 'utf-8')).toBe(corrupt)
+    // —— 恢复路径：损坏文件已被隔离，重试即落新值（用户偏好不再是无声丢失）
     await s.set({ certReminder: false })
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf-8'))).toEqual({ certReminder: false })
     expect(createSettings(dir).getAll().certReminder).toBe(false)
+  })
+})
+
+describe('createSettings 写盘纪律：按路径串行 + 形态闸门（v2.5.8 复审 A-5 修复）', () => {
+  it('并发写不丢更新：同一路径多路 set / setDevMode 各自基于最新落盘值合并', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qh-settings-race-'))
+    const s = createSettings(dir)
+    await Promise.all([
+      s.set({ selectionBar: false }),
+      s.setDevMode(true),
+      s.set({ clipboardGuard: false }),
+      s.set({ certReminderDays: 7 }),
+      s.set({ certReminder: false }),
+    ])
+    // 修复前：五路都在第一个 await 前同步读到同一份旧快照，最终只剩最后一次 rename 的那个键
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf-8'))).toEqual({
+      selectionBar: false,
+      devMode: true,
+      clipboardGuard: false,
+      certReminderDays: 7,
+      certReminder: false,
+    })
+    const after = createSettings(dir).getAll()
+    expect(after).toEqual({
+      ...APP_SETTINGS_DEFAULTS,
+      devMode: true,
+      selectionBar: false,
+      clipboardGuard: false,
+      certReminder: false,
+      certReminderDays: 7,
+    })
+  })
+
+  it('合法 json 但不是设置形状（数组）也按损坏处理：留证 + 拒绝覆盖，不写出半截结构', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qh-settings-array-'))
+    fs.writeFileSync(path.join(dir, 'settings.json'), '["devMode"]')
+    const s = createSettings(dir)
+    expect(s.getAll()).toEqual(APP_SETTINGS_DEFAULTS) // 读侧仍按空设置兜默认
+    await expect(s.set({ certReminder: false })).rejects.toThrow(/结构非法|损坏|覆盖/)
+    const backups = fs.readdirSync(dir).filter((n) => n.startsWith('settings.json.corrupt-'))
+    expect(backups).toHaveLength(1)
+    expect(fs.readFileSync(path.join(dir, backups[0]), 'utf-8')).toBe('["devMode"]')
   })
 })
 

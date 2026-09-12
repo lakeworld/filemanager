@@ -133,10 +133,13 @@ export default function InboundCards(props: {
                   >
                     {rec.supplier}
                   </span>
+                  {/* v2.5.8 D14（样式统一收口）：产品集跳转 chip 补挂 `.link-btn` 档（节奏：过渡 +
+                      禁用态），删掉与之重复的内联 `transition-colors`；`.chip` 与底色/hover 配色
+                      是这个 chip 的语义，原样保留。 */}
                   <Show when={rec.product_set} fallback={<span class="text-surface-300 text-xs shrink-0">无产品集</span>}>
                     {(name) => (
                       <button
-                        class="chip bg-surface-100 text-surface-700 hover:bg-primary-50 hover:text-primary-700 transition-colors shrink-0"
+                        class="chip link-btn bg-surface-100 text-surface-700 hover:bg-primary-50 hover:text-primary-700 shrink-0"
                         title="前往产品集"
                         onClick={() => navigate(`/product-sets/${encodeURIComponent(name())}`)}
                       >
@@ -152,13 +155,15 @@ export default function InboundCards(props: {
                 {/* 悬停操作（查看归档文件 · 编辑 · 删除） */}
                 <div class="mt-2 shrink-0 min-w-0">
                   <div class="ml-auto flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button class="text-surface-400 hover:text-primary-600 text-sm" title="查看归档文件" onClick={() => props.onPreview(rec)}>
+                    {/* v2.5.8 D14（样式统一收口）：与发票卡片同口径——纯图标钮收进 `.icon-btn`，
+                        文字色（预览/编辑=主色、删除=危险红）与 `text-sm` 尺寸原样保留。 */}
+                    <button class="icon-btn text-sm text-surface-400 hover:text-primary-600" title="查看归档文件" onClick={() => props.onPreview(rec)}>
                       👁
                     </button>
-                    <button class="text-surface-400 hover:text-primary-600 text-sm" title="编辑" onClick={() => props.onEdit(rec)}>
+                    <button class="icon-btn text-sm text-surface-400 hover:text-primary-600" title="编辑" onClick={() => props.onEdit(rec)}>
                       ✏️
                     </button>
-                    <button class="text-surface-400 hover:text-danger-500 text-sm" title="删除" onClick={() => props.onDelete(rec)}>
+                    <button class="icon-btn text-sm text-surface-400 hover:text-danger-500" title="删除" onClick={() => props.onDelete(rec)}>
                       🗑️
                     </button>
                   </div>

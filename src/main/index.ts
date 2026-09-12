@@ -728,7 +728,18 @@ app.whenReady().then(() => {
       // v2.5.8 D11（W7）：应用级设置走 `qihebox:appSettings:get / set` 两条**内部**通道——
       // 新增一个应用级设置项只改 shared/appSettings.ts 的默认值表，不再一键加一对 IPC。
       // 形状/归一/档位校验全在 shared 与 settings 模块里，本层只做 ApiResult 包装（同一 handle() 纪律）。
-      ipcMain.handle('qihebox:appSettings:get', () => handle(() => settings.getAll()))
+      /**
+       * e2e 探针（`QIHEBOX_E2E_SETTINGS_DELAY_MS`，门控惯例同 `window.ts:522` 的时钟伪造探针）：
+       * 把 `getAll` 回包延后若干毫秒，让用例能在「镜像还没拉回来」那个窗口里断言开关与下拉的 `disabled` 真值。
+       * 这个窗口在真机上只有几十毫秒，不给 seam 就永远测不到——复审 r2 A-1 那条「键盘能改到本该锁住的值」
+       * 恰恰只在这个窗口里成立。非 e2e 模式或不设变量 ⇒ 一行都不多走。
+       */
+      const settingsGetDelayMs =
+        process.env.QIHEBOX_E2E === '1' ? Number(process.env.QIHEBOX_E2E_SETTINGS_DELAY_MS ?? 0) || 0 : 0
+      ipcMain.handle('qihebox:appSettings:get', async () => {
+        if (settingsGetDelayMs > 0) await new Promise((r) => setTimeout(r, settingsGetDelayMs))
+        return handle(() => settings.getAll())
+      })
       ipcMain.handle('qihebox:appSettings:set', (_e, patch: AppSettingsPatch) =>
         handle(async () => {
           // 同 setDevMode：先落盘再返回全量值，UI 以服务端返回为准（脏值被归一时能立刻看到回落）

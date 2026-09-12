@@ -213,4 +213,77 @@ test.describe('剪贴板劫持守卫（v2.5.7 A1）', () => {
     await page.getByRole('button', { name: '仪表盘' }).click()
     await expect(page.getByRole('heading', { name: '仪表盘', exact: true, level: 1 })).toBeVisible({ timeout: 15000 })
   })
+
+  /**
+   * 守卫**关态**的真链路验收（复审 r2 A-7：关态此前零覆盖）。
+   * `tests/unit/clipboardGuard-off.test.ts` 那 8 例是纯函数级，钉的是「开关关掉后走哪条分支」；
+   * 这一条钉的是「真按一次 Ctrl+C，屏幕上的表现确实翻转」——同一处语义，两个层次都要有人看着。
+   *
+   * 关态语义（`FileBrowserView.tsx:390`）：`clipboardGuardOn()` 为假 ⇒ 不再让位正文选区，
+   * 文件选中优先 → 复制文件路径（回到 v2.5.7 A1 之前的口径）。
+   *
+   * 为什么正反两半必须一起跑（任何一半单独存在都会假绿）：
+   *  - 只跑关态：若「造非折叠选区」那步根本没生效，关态照样出 toast ⇒ 绿得没有意义；
+   *  - 加开态反向半：同一串动作在开态下**不该**出 toast ⇒ 选区没造出来时这一半会红。
+   * 另外选区刻意造在**普通 div** 上而不是输入框里：输入框/contenteditable 走的是豁免①
+   * （`isTextTarget`），与守卫开关无关，拿它测守卫等于什么都没测。
+   */
+  test('剪贴板守卫关态：正文有选区时 Ctrl+C 复制文件；开态让位正文（正反两半，A-7）', async () => {
+    const guardToggle = () =>
+      page.locator('label', { hasText: '剪贴板让位正文选区' }).first().locator('input[type="checkbox"]')
+    const toast = () => page.getByText(/已复制 1 个文件到剪贴板/)
+
+    /** 在普通 div 上造一段非折叠选区，并自证前提成立 */
+    const selectBodyText = async (): Promise<void> => {
+      await page.evaluate(() => {
+        document.getElementById('clip-guard-body')?.remove()
+        const d = document.createElement('div')
+        d.id = 'clip-guard-body'
+        d.textContent = '守卫关态验收用的正文选区'
+        d.style.cssText = 'position:fixed;left:0;top:0;z-index:99998'
+        document.body.appendChild(d)
+        const range = document.createRange()
+        range.selectNodeContents(d)
+        const sel = window.getSelection()
+        sel?.removeAllRanges()
+        sel?.addRange(range)
+      })
+      const collapsed = await page.evaluate(() => window.getSelection()?.isCollapsed ?? true)
+      expect(collapsed, '没造出非折叠选区 = 本用例前提不成立（不是行为变了）').toBe(false)
+    }
+
+    /** 到文件页 → 全选 1 个文件 → 造选区 → Ctrl+C（返回 toast 是否出现） */
+    const copyWithSelection = async (): Promise<boolean> => {
+      await gotoRoute('/files/image/剪贴板测试集/主图')
+      await expect(page.locator('.card', { hasText: 'clip' }).last()).toBeVisible({ timeout: 15000 })
+      await page.getByRole('button', { name: '全选' }).click()
+      await expect(page.getByText(/已选择 1 个文件/)).toBeVisible({ timeout: 5000 })
+      await selectBodyText()
+      await app.evaluate(({ clipboard }) => clipboard.writeText('__CLEAR__'))
+      await page.keyboard.press('Control+c')
+      await page.waitForTimeout(500)
+      const n = await toast().count()
+      await page.evaluate(() => document.getElementById('clip-guard-body')?.remove())
+      return n > 0
+    }
+
+    try {
+      // ① 关态：文件优先 → 出 toast
+      await gotoRoute('/settings')
+      // 先等镜像拉回：未就绪时开关是 disabled 的（默认值也是"开"，所以光 toBeChecked 不足以判定就绪）
+      await expect(guardToggle()).toBeEnabled({ timeout: 15000 })
+      await expect(guardToggle()).toBeChecked()
+      await guardToggle().uncheck()
+      expect(await copyWithSelection(), '关态下 Ctrl+C 仍让位正文 = 开关没接上').toBe(true)
+
+      // ② 开态（默认）：同一串动作 → 让位正文，不出 toast
+      await gotoRoute('/settings')
+      await guardToggle().check()
+      expect(await copyWithSelection(), '开态下仍复制文件 = 守卫失效（A1 根因 1 复发）').toBe(false)
+    } finally {
+      // 复位成默认开态并落盘，别把状态泄漏给共用同一个 app 的其余用例
+      await gotoRoute('/settings').catch(() => {})
+      await guardToggle().check().catch(() => {})
+    }
+  })
 })

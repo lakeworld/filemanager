@@ -455,7 +455,7 @@ export default function Images() {
       }>
         <div class="flex items-center justify-between mb-3 shrink-0">
           <span class="text-sm text-surface-500">{visibleCount()} 个文件</span>
-          <button class="text-sm text-primary-600 hover:text-primary-700" onClick={selectAllVisible}>
+          <button class="link-btn text-sm text-primary-600 hover:text-primary-700" onClick={selectAllVisible}>
             全选当前结果
           </button>
         </div>

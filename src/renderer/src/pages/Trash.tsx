@@ -197,15 +197,21 @@ export default function Trash() {
         </div>
       </div>
       <div class="flex gap-2 shrink-0">
+        {/* v2.5.8 D14（样式统一收口）：卡片行内两个动作钮收进 `.link-btn` 节奏档——档只给
+            inline-flex/items-center/transition-colors duration-200/禁用态（这两个钮原本连禁用反馈都没有，
+            而它们都带 `disabled={busy()}`），颜色与几何是「尺寸随容器变」的那一半 ⇒ `px-3 py-1.5 text-sm
+            rounded-lg` 与语义色（`text-` 类、软底 `bg-primary-50` 及其 hover 档）原样保留，
+            只删档真正覆盖的那一项 `transition-colors`。
+            文案「↺ 恢复」「彻底删除」是 e2e/人工验收的定位锚点，一字未动。 */}
         <button
-          class="px-3 py-1.5 text-sm text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors"
+          class="link-btn px-3 py-1.5 text-sm text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg"
           onClick={() => handleRestore(e.id)}
           disabled={busy()}
         >
           ↺ 恢复
         </button>
         <button
-          class="px-3 py-1.5 text-sm text-danger-600 hover:bg-danger-50 rounded-lg transition-colors"
+          class="link-btn px-3 py-1.5 text-sm text-danger-600 hover:bg-danger-50 rounded-lg"
           onClick={() => handlePurge(e.id)}
           disabled={busy()}
         >

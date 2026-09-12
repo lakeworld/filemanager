@@ -81,9 +81,11 @@ export default function OrphanList(props: {
                 <div class="text-xs text-surface-400 truncate" title={rel}>{rel}</div>
               </div>
               <div class="flex items-center gap-2 shrink-0">
+                {/* v2.5.8 D14（样式统一收口）：预览钮收进 `.icon-btn`（档给居中/圆角/过渡/按压），
+                    文字色与 `text-sm` 按语义与尺寸保留。 */}
                 <Show when={props.onPreview}>
                   <button
-                    class="text-surface-400 hover:text-primary-600 text-sm"
+                    class="icon-btn text-sm text-surface-400 hover:text-primary-600"
                     title="预览文件"
                     onClick={() => props.onPreview?.(rel)}
                   >
@@ -93,8 +95,11 @@ export default function OrphanList(props: {
                 <button class="btn-secondary text-xs" title="带此文件预填新建台账记录" onClick={() => props.onRecover(rel)}>
                   补建
                 </button>
+                {/* v2.5.8 D14（样式统一收口）：行内删除走组件档 `.btn-ghost-danger`（透明底 + 危险色
+                    文字 + 悬停 danger-50），原来那套 `bg-white` + `border-surface-200` 的描边底被档覆盖，
+                    一并删；`text-xs px-3 py-1.5` 是尺寸档，保留与同排「补建」（btn-secondary text-xs）等高。 */}
                 <button
-                  class="text-xs px-3 py-1.5 text-surface-700 bg-white hover:bg-surface-50 border border-surface-200 rounded-lg hover:text-danger-600"
+                  class="btn-ghost-danger text-xs px-3 py-1.5"
                   title="删除该文件（走回收站，不影响任何台账记录）"
                   onClick={() => props.onDelete(rel)}
                 >

@@ -13,7 +13,7 @@ const INDEX_URL = 'file://' + ROOT.replace(/\\/g, '/') + '/out/renderer/index.ht
  * UI 一致性普查 e2e（v2.5.1 T4/T5）：
  * - 静态路由全遍历（15+）：渲染无崩溃、无横向滚动（1024 窗口断言，T5）
  * - 空态不闪现守卫回归（Clients/ProductSets 加载期 Skeleton；时序窗口小 → 断言最终态 + 守卫存在性）
- * - 裸 select 四种 aria 关联抽查（T4 清点：aria-label / aria-labelledby / label[for] / 内联 label）
+ * - 下拉触发器可及名全覆盖（v2.5.8 复审改造：原「裸 select 四种 aria 关联抽查」自 D9 零裸 select 后恒绿，见该用例注释）
  * 说明：参数路由（/product-sets/:name 等）由各域 spec 覆盖，此处只遍历静态路由；
  * 1024 断言 = BrowserWindow setSize(1024, h) + document.scrollWidth <= 1024。
  */
@@ -99,19 +99,69 @@ test.describe('UI 一致性（v2.5.1 T4/T5）', () => {
     await expect(page.getByText('暂无客户')).toBeVisible({ timeout: 15000 })
   })
 
-  test('裸 select aria 关联抽查（T4 清点：select 31 处迁移底座 + ariaLabel）', async () => {
-    await navigateTo('/settings')
-    await page.waitForTimeout(500)
-    const bareSelects = await page.evaluate(() => {
-      const selects = Array.from(document.querySelectorAll('select'))
-      return selects.filter((s) => {
-        const hasAria = s.hasAttribute('aria-label') || s.hasAttribute('aria-labelledby')
-        const hasLabelFor = !!s.id && !!document.querySelector(`label[for="${s.id}"]`)
-        const inLabel = !!s.closest('label')
-        return !hasAria && !hasLabelFor && !inLabel
-      }).length
-    })
-    // 已迁移 Select 底座（ariaLabel 必填 dev 警告）；残余裸 select 允许 0 个（如有新页面积累，T4 清点回归）
-    expect(bareSelects).toBe(0)
+  /**
+   * 下拉触发器可及名全覆盖（v2.5.8 复审改造）。
+   *
+   * **改前的死法**：原用例「裸 select aria 关联抽查」在 `/settings` 上 `querySelectorAll('select')`
+   * 再过滤出「无 aria 关联的那批」，最后 `expect(0).toBe(0)`。v2.5.8 D9 起全站零裸 `<select>`
+   * （下拉一律走 `ui/SearchSelect`），该集合恒空 ⇒ 断言永真、什么都不验，却占一个「通过」名额。
+   *
+   * **改后钉的是活的那一面**：屏幕阅读器读得出「这是哪个字段」，靠的是触发器上的 aria 关联
+   * （不是按钮里的可见值文本——读出「7 天」并不说明这是「提前提醒天数」）。所以逐个看 DOM 里
+   * 真实渲染出来的触发器，要求每一个都有非空的 aria-label / 可解析的 aria-labelledby。
+   *
+   * 读法上刻意**不接受「可见文本」当作可及名**：按钮里的文本是当前值（「7 天」「顶层标签」），
+   * 拿它兜底会让「漏传 ariaLabel」继续静默通过——那正是旧用例恒绿的同一类漏洞。
+   *
+   * **防空转的三道互锁**（任何一环失去被测对象都红，不会静默通过）：
+   *   ① 遍历累计触发器总数 > 0：旧用例的恒绿正来自「空集合 + 只数不判」，这里先钉住有东西可测；
+   *   ② 无 aria 关联的触发器列表 === []：组件不再挂 aria-label、或某页面漏传 ariaLabel ⇒ 红；
+   *   ③ 渲染层 DOM 里原生 `<select>` 计数 === 0：把旧那句「永真的过滤」换成可证伪的计数
+   *     （口径刻意**不再区分有没有 aria**——D9 之后任何原生 select 都不该出现在 DOM 里，
+   *     连带 aria-label 的一起算违规；这正是与旧「过滤后再数」的差别，反向实验 C 已抓实一次）。
+   * 选择器 `button[aria-haspopup="listbox"]` 是触发器指纹（全站唯 SearchSelect 挂它，弹层选项是
+   * `role="option"` 不带 haspopup）；组件若改掉这个属性，① 会当场红，而不是退化成空转。
+   *
+   * **与既有用例的分工**（为什么要在这里再钉一遍，而不是删掉）：
+   *   - `tests/unit/uiInventory.test.ts`「控件红线：原生 select 元素清零」只看**源码文本**，
+   *     且只数 `<select` 出现次数——它管不了组件渲染出来的按钮有没有可及名；
+   *   - `tests/unit/searchSelect.test.ts` 只测抽出的纯函数（过滤/高亮/定位），不渲染组件；
+   *   - `tests/e2e/search-select.spec.ts` 用 `getByLabel('产品集筛选')` **隐式**验证书页一个点位；
+   *   - 「DOM 层逐个触发器的可及名 + 覆盖所有静态路由」此前无人钉 ⇒ 本用例是增量而非重复。
+   */
+  test('下拉触发器可及名全覆盖（v2.5.8 复审：原「裸 select aria 抽查」恒绿改造）', async () => {
+    let total = 0
+    const unnamed: string[] = []
+    let bareSelects = 0
+    for (const route of ROUTES) {
+      await navigateTo(route)
+      await page.waitForTimeout(400)
+      const diag = await page.evaluate(() => {
+        /** 可及名口径：aria-label 优先，其次 aria-labelledby 指向元素的文本（两者都算真实 aria 关联） */
+        const accName = (el: Element): string => {
+          const direct = el.getAttribute('aria-label')?.trim() ?? ''
+          if (direct) return direct
+          return (el.getAttribute('aria-labelledby') ?? '')
+            .split(/\s+/)
+            .filter(Boolean)
+            .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
+            .join(' ')
+            .trim()
+        }
+        const triggers = Array.from(document.querySelectorAll('button[aria-haspopup="listbox"]'))
+        return {
+          items: triggers.map((t) => ({ name: accName(t), text: (t.textContent ?? '').trim() })),
+          bareSelects: document.querySelectorAll('select').length,
+        }
+      })
+      bareSelects += diag.bareSelects
+      for (const it of diag.items) {
+        total++
+        if (!it.name) unnamed.push(`${route} → 可见文本「${it.text}」`)
+      }
+    }
+    expect(total, '全站遍历没找到任何下拉触发器：组件的 aria-haspopup 指纹或路由清单变了，本用例已失去被测对象').toBeGreaterThan(0)
+    expect(unnamed, `无 aria 关联的下拉触发器（屏幕阅读器读不出这是哪个字段）：${unnamed.join(' | ')}`).toEqual([])
+    expect(bareSelects, '渲染层 DOM 里出现原生 <select>：v2.5.8 D9 起下拉一律走 ui/SearchSelect').toBe(0)
   })
 })

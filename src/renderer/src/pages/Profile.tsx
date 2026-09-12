@@ -184,7 +184,7 @@ export default function Profile() {
             </p>
             <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
               <button
-                class="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700"
+                class="btn-primary gap-1.5 px-4 py-2 text-sm font-semibold"
                 onClick={() => window.open("https://www.qihebook.cloud/wechat-group", "_blank")}
               >
                 打开群聊页面
@@ -193,7 +193,7 @@ export default function Profile() {
                 邮箱反馈：
                 <code class="rounded bg-surface-100 px-1.5 py-0.5 text-surface-800">ai_qihe@vip.qq.com</code>
                 <button
-                  class="rounded-lg bg-surface-100 px-2.5 py-1 text-xs font-semibold text-surface-700 transition-colors hover:bg-surface-200"
+                  class="btn-secondary px-2.5 py-1 text-xs font-semibold"
                   onClick={copyEmail}
                 >
                   {emailCopied() ? "已复制 ✓" : "复制"}
@@ -212,7 +212,7 @@ export default function Profile() {
                   const isActive = () => active() === item.key;
                   return (
                     <button
-                      class="group w-full flex items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors"
+                      class="row-btn group rounded-xl px-3 py-3"
                       classList={{
                         "bg-primary-50 shadow-sm": isActive(),
                         "hover:bg-surface-50": !isActive(),
@@ -262,7 +262,7 @@ export default function Profile() {
               <div class="text-xs font-medium uppercase tracking-wider text-surface-400">需要帮助？</div>
               <p class="mt-1 text-sm text-surface-600">遇到问题可先查看「使用帮助」，或前往官网下载最新版。</p>
               <button
-                class="mt-3 inline-flex items-center gap-1 rounded-lg bg-surface-100 px-3 py-1.5 text-xs font-semibold text-surface-700 transition-colors hover:bg-surface-200"
+                class="btn-secondary mt-3 gap-1 px-3 py-1.5 text-xs font-semibold"
                 onClick={openDownloadPage}
               >
                 前往官网
@@ -288,7 +288,7 @@ export default function Profile() {
                     <p class="mt-1 text-xs text-surface-400">启禾文件管理 v{displayVersion()}</p>
                   </div>
                   <button
-                    class="shrink-0 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
+                    class="btn-primary shrink-0 px-4 py-2 text-sm font-semibold disabled:opacity-50"
                     onClick={() => checkUpdate()}
                     disabled={updatePhase() === "checking"}
                   >
@@ -303,7 +303,7 @@ export default function Profile() {
                       自动更新安装通道尚未开放，需要全新安装包请前往官网下载。
                     </p>
                     <button
-                      class="mt-3 inline-flex items-center gap-1 rounded-md bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-700"
+                      class="btn-primary mt-3 gap-1 rounded-md px-3 py-1.5 text-xs font-semibold"
                       onClick={openDownloadPage}
                     >
                       📦 前往官网下载
@@ -319,7 +319,7 @@ export default function Profile() {
                     </Show>
                     {/* v2.4.7（评审 P4）：应用内下载通道未就绪，统一引导前往官网下载全新安装包 */}
                     <button
-                      class="mt-3 inline-flex items-center gap-1 rounded-md bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-700"
+                      class="btn-primary mt-3 gap-1 rounded-md px-3 py-1.5 text-xs font-semibold"
                       onClick={openDownloadPage}
                     >
                       前往官网下载
@@ -332,13 +332,13 @@ export default function Profile() {
                     <div>{updateError() || "检查更新失败，请确认网络连接后重试。"}</div>
                     <div class="mt-3 flex items-center gap-3">
                       <button
-                        class="rounded-md bg-danger-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-danger-700"
+                        class="btn-danger rounded-md px-3 py-1.5 text-xs font-semibold"
                         onClick={() => checkUpdate()}
                       >
                         重试
                       </button>
                       <button
-                        class="rounded-md border border-danger-200 bg-white px-3 py-1.5 text-xs font-semibold text-danger-600 transition-colors hover:bg-danger-50"
+                        class="btn-ghost-danger rounded-md px-3 py-1.5 text-xs font-semibold"
                         onClick={openDownloadPage}
                       >
                         前往官网
@@ -373,7 +373,7 @@ export default function Profile() {
                 </p>
                 <div class="mt-4 flex flex-wrap items-center gap-3">
                   <button
-                    class="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-50"
+                    class="btn-primary gap-1.5 px-4 py-2 text-sm font-semibold disabled:opacity-50"
                     onClick={() => exportLogs()}
                     disabled={logBusy()}
                   >
@@ -481,7 +481,7 @@ function AccountSection() {
                 </Button>
                 <button
                   type="button"
-                  class="text-xs text-primary-600 hover:text-primary-700"
+                  class="link-btn text-xs text-primary-600 hover:text-primary-700"
                   onClick={() => window.open("https://www.qihebook.cloud/", "_blank")}
                 >
                   没有账号？去官网注册 →
@@ -500,7 +500,7 @@ function AccountSection() {
             <div class="truncate text-sm font-semibold text-surface-900">{accountStatus().email}</div>
           </div>
           <button
-            class="shrink-0 rounded-lg border border-surface-200 px-4 py-2 text-sm text-surface-700 transition-colors hover:bg-surface-50"
+            class="btn-secondary shrink-0 text-sm"
             onClick={() => {
               void logoutAccount();
               // v2.5.1 登录增强（D5）：登出 toast 反馈

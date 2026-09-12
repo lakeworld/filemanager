@@ -18,9 +18,11 @@ export interface ContextMenuItem {
  *
  * v2.4.8 打磨轮：渲染后按实测尺寸对视口边缘钳制。
  * v2.4.8 根治（「菜单撑满整个界面」回归）：
- * - 按钮补 `block`（保留 w-full）：inline-block 按钮在父 max-content 计算中会排成一行，
- *   shrink-to-fit 宽度撑成「left 到视口右缘的全部空间」（实测 1208px）；block 按钮
- *   自然撑满父宽且不污染父 max-content 计算，菜单宽度回归内容固有值（≈180px）。
+ * - 菜单行必须走**块级**按钮（当年手写 `block w-full`，v2.5.8 D14 起由 `.row-btn` 档内的
+ *   `flex w-full` 承担——flex 容器同样是块级盒，下面这条结论不变）：inline-block 按钮在父
+ *   max-content 计算中会排成一行，shrink-to-fit 宽度撑成「left 到视口右缘的全部空间」
+ *   （实测 1208px）；块级按钮自然撑满父宽且不污染父 max-content 计算，菜单宽度回归内容
+ *   固有值（≈180px）。
  * - Portal 渲染到 body：脱离页面容器（flex/grid/transform 祖先），fixed 定位恒相对视口。
  * - 钳制抽为纯函数 clampMenuPos（NaN 防御：非法输入回退原坐标/边距，绝不产出 NaN style）。
  * - CSS 物理兜底 max-w/max-h：无论测量如何，菜单尺寸不超过视口。
@@ -101,8 +103,12 @@ export default function ContextMenu(props: {
           <For each={props.items}>
             {(item) => (
               <Show when={item.show !== false}>
+                {/* v2.5.8 D14（样式统一收口）：整行可点收进 `.row-btn` 形状档（节奏单点：
+                    精确属性过渡 + active 按压 + 禁用态），语义色（危险红 / 次要灰）留在调用方。
+                    `py-2` / `gap-0` 是把档内尺寸钉回迁移前实测值（档默认 py-2.5 + gap-3），
+                    菜单行高与图标间距不许动；hover 底色同理仍由调用方按语义给。 */}
                 <button
-                  class={`block w-full px-4 py-2 text-left text-sm hover:bg-surface-100 transition-colors ${
+                  class={`row-btn py-2 gap-0 text-sm hover:bg-surface-100 ${
                     item.danger ? "text-danger-600 hover:bg-danger-50" : "text-surface-700"
                   }`}
                   onClick={() => {

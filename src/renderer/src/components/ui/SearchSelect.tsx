@@ -19,8 +19,7 @@ import {
  * 实现口径（全部沿用仓内已趟平的先例，不另起炉灶）：
  * - 弹层 = `Portal` 到 body + `position:fixed`，坐标由 `panelPosition` 纯函数算
  *   （越界翻转，宿主弹窗 `overflow-auto` 不裁剪）——同 `DatePicker.tsx`；
- * - Esc/点外/滚动（仅触发器所在滚动链，见 onScroll 注释）/窗口变化 关闭；
- *   Esc 语义入全局层栈 `ui/layerStack`（弹出层 > 弹窗 > 页面）；
+ * - Esc/点外/滚动（仅触发器所在滚动链，见 onScroll 注释）/窗口变化 关闭；Esc 语义入全局层栈 ui/layerStack（弹出层 > 弹窗 > 页面）；
  * - 过滤与键盘推进的逻辑在 `~/lib/searchSelect`（纯函数，单测直测）。
  * - 材质 `.glass-panel` + 双层影 + 内亮边；入场复用 W3 的 `.fade-rise`（300ms outExpo，只动
  *   transform/opacity，减弱动效偏好已在 index.css 单点坍缩）——Portal 挂载即是新节点，挂过渡类
@@ -28,12 +27,11 @@ import {
  *   （注：类核查脚本连注释一起扫，这里刻意不写通配过渡与媒体查询的英文字面量。）
  *   弹层面积 ≪30% 视口，不触精致化 PLAN §四 的高基数 blur 豁免线。
  *
- * **本文件与 `ui/Select.tsx` 是站内原生 `<select>` 的唯一合法持有者**（v2.5.8 D9 定的 grep
- * 口径：`grep '<select' src/renderer | grep -v 'components/ui/'` 必须为空）；页面/弹窗一律用本组件。
+ * **本文件与 `ui/Select.tsx` 是站内原生 `<select>` 的唯一合法持有者**（v2.5.8 D9 定的 grep 口径：`grep '<select' src/renderer | grep -v 'components/ui/'` 必须为空）；页面/弹窗一律用本组件。
  *
- * 能力：v2.5.8 D9 起支持选项级 `disabled`（占位项灰显、↑↓ 跳过、点击与 Enter 不提交）。
- * 已知与原生的一处差异：鼠标悬停可让高亮**停在**占位项上（原生是整项不参与高亮），
- * 但提交口全部封死，不影响正确性；如将来要逐像素对齐，改 `onMouseEnter` 为跳过即可。
+ * 能力：**选项级** disabled（D9）= 占位项灰显、↑↓ 跳过、点击与 Enter 不提交；已知与原生的一处差异
+ * 是悬停可让高亮**停在**占位项上（原生整项不参与高亮），但提交口全封死、不影响正确性，要逐像素对齐
+ * 就改 `onMouseEnter` 为跳过。**控件级** disabled（复审 r2 A-1）= 整只禁用，见 props.disabled 一行。
  *
  * 纪律：禁解构 props（D11）；动态属性一律响应式读取；不使用整属性通配 transition（W0 清零项）。
  */
@@ -66,6 +64,8 @@ interface SearchSelectProps {
    * 替代原生 `<select onBlur>` 的收起语义：点选项提交后、按 Esc、点外、窗口 resize 皆会触发一次。
    */
   onClose?: () => void;
+  /** 整只禁用（v2.5.8 复审 r2 A-1，为设置页「偏好未就绪时值仍被键盘改走」补的能力）：触发器是真 disabled 的 button ⇒ 鼠标与键盘（Tab 聚焦 / Enter / ↑↓）一起封死、面板不弹，观感对齐 .input 的禁用档；页面侧从此不准再另写一份门控（AGENTS.md §一.8） */
+  disabled?: boolean;
   class?: string;
 }
 
@@ -109,9 +109,9 @@ export default function SearchSelect(props: SearchSelectProps) {
   };
 
   const pick = (opt: SearchSelectOption) => {
-    if (opt.disabled) return; // 占位项只展示不提交（与原生 <option disabled> 同语义）
-    props.onChange(opt.value);
-    close();
+    if (opt.disabled || props.disabled) return; // 占位项只展示不提交（同原生 option disabled）；整只禁用时任何提交口一并关死
+    if (opt.value !== props.value) props.onChange(opt.value); // 同值不提交：原生 <select> 选回当前项不触发 change（Images:367 / Notes:455 的联动重置因此不再重复跑）
+    close(); // 同值也照样收起面板（与原生一致），收起语义仍走 onClose
   };
 
   /** 面板内按键：↑↓ 推进高亮（跳过占位项）、Enter 选中高亮、其余交全局（Esc 由层栈/兜底监听处理） */
@@ -216,12 +216,13 @@ export default function SearchSelect(props: SearchSelectProps) {
           if (el && props.autoFocus) queueMicrotask(() => el.focus());
         }}
         type="button"
+        disabled={props.disabled}
         aria-label={props.ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open()}
         /* 非紧凑态（表单态）恒 h-9 与 `.input`/`.select` 等高——同排字段一高一矮是"没对齐"的观感来源；
-           紧凑态（筛选行）保持原 py-2 口径不动 */
-        class={`flex items-center gap-2 border border-surface-200 rounded-lg bg-white text-sm hover:border-surface-300 transition-colors ${
+           紧凑态（筛选行）保持原 py-2 口径不动；禁用态与 .input 同一档（半透 + 不允许光标） */
+        class={`flex items-center gap-2 border border-surface-200 rounded-lg bg-white text-sm hover:border-surface-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
           props.compact ? "px-2 py-2" : "px-3 h-9"
         } ${props.class ?? ""}`}
         onClick={() => (open() ? close() : openPanel())}

@@ -155,17 +155,23 @@ export default function InvoiceCards(props: {
                   </div>
                   {/* 状态徽章（点击弹改状态）+ 客户 chip + 悬停操作 */}
                   <div class="flex items-center gap-1.5 mt-2 shrink-0 min-w-0">
+                    {/* 状态徽章：`.chip` 管形状、`.link-btn` 管节奏（原内联 `transition-colors` 已由档提供，删）；
+                        ring 是「可点开菜单」的悬停提示，不属于档提供的项，保留。 */}
                     <button
-                      class={`chip shrink-0 transition-colors hover:ring-2 hover:ring-primary-300 ${statusChipClass(rec.status)}`}
+                      class={`chip link-btn shrink-0 hover:ring-2 hover:ring-primary-300 ${statusChipClass(rec.status)}`}
                       title="点击修改状态"
                       onClick={(e) => openStatusMenu(e, rec.number)}
                     >
                       {rec.status} ▾
                     </button>
+                    {/* v2.5.8 D14（样式统一收口）：客户/供应商两个跳转 chip 原来只挂 `.chip`（管形状：
+                        内距/圆角/字号），节奏（过渡/禁用态）是各点自己粘的 `transition-colors`。现补挂
+                        `.link-btn` 档并删掉那三个字的内联串；两分支的底色与文字色按语义原样保留
+                        （存在=可点前往，已删=灰态）。 */}
                     <Show when={rec.customer} fallback={<span class="text-surface-300 text-xs shrink-0">无客户</span>}>
                       {(name) => (
                         <button
-                          class={`chip transition-colors shrink-0 ${
+                          class={`chip link-btn shrink-0 ${
                             props.customerExists(name())
                               ? "bg-surface-100 text-surface-700 hover:bg-primary-50 hover:text-primary-700"
                               : "bg-surface-50 text-surface-400"
@@ -182,7 +188,7 @@ export default function InvoiceCards(props: {
                     <Show when={rec.supplier} fallback={<span class="text-surface-300 text-xs shrink-0">无供应商</span>}>
                       {(name) => (
                         <button
-                          class={`chip transition-colors shrink-0 ${
+                          class={`chip link-btn shrink-0 ${
                             props.supplierExists(name())
                               ? "bg-surface-100 text-surface-700 hover:bg-primary-50 hover:text-primary-700"
                               : "bg-surface-50 text-surface-400"
@@ -201,13 +207,16 @@ export default function InvoiceCards(props: {
                     </Show>
                     {/* 悬停操作（查看归档文件 · 编辑 · 删除） */}
                     <div class="ml-auto flex items-center gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button class="text-surface-400 hover:text-primary-600 text-sm" title="查看归档文件" onClick={() => props.onPreview(rec)}>
+                      {/* v2.5.8 D14（样式统一收口）：三个纯图标钮收进 `.icon-btn` 档（居中 + 圆角 +
+                          精确属性过渡 + 按压/禁用态）；文字色按语义保留（预览/编辑=主色，删除=危险红），
+                          `text-sm` 是字号尺寸，一并保留。 */}
+                      <button class="icon-btn text-sm text-surface-400 hover:text-primary-600" title="查看归档文件" onClick={() => props.onPreview(rec)}>
                         👁
                       </button>
-                      <button class="text-surface-400 hover:text-primary-600 text-sm" title="编辑" onClick={() => props.onEdit(rec)}>
+                      <button class="icon-btn text-sm text-surface-400 hover:text-primary-600" title="编辑" onClick={() => props.onEdit(rec)}>
                         ✏️
                       </button>
-                      <button class="text-surface-400 hover:text-danger-500 text-sm" title="删除" onClick={() => props.onDelete(rec)}>
+                      <button class="icon-btn text-sm text-surface-400 hover:text-danger-500" title="删除" onClick={() => props.onDelete(rec)}>
                         🗑️
                       </button>
                     </div>
@@ -230,10 +239,14 @@ export default function InvoiceCards(props: {
           class="fixed z-[90] bg-white border border-surface-200 rounded-lg shadow-card-hover py-1 min-w-[130px]"
           style={{ left: `${statusMenu()!.x}px`, top: `${statusMenu()!.y}px` }}
         >
+          {/* v2.5.8 D14（样式统一收口）：状态弹层的选项行收进 `.row-btn` 档（整行可点 + 精确属性
+              过渡 + 按压/禁用态），与 `components/ContextMenu.tsx` 菜单行同一口径。
+              尺寸 `px-3 py-1.5 gap-2 text-sm` 与悬停底色 `hover:bg-surface-50` 按「不改观感」原样保留
+              （工具类在 utilities 层，稳定覆盖档内的 px-4 py-2.5 gap-3）。 */}
           <For each={STATUSES}>
             {(s) => (
               <button
-                class="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-50 flex items-center justify-between gap-2"
+                class="row-btn justify-between px-3 py-1.5 gap-2 text-sm hover:bg-surface-50"
                 onClick={() => {
                   const m = statusMenu();
                   if (m) props.onSetStatus(m.number, s);

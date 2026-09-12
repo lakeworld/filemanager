@@ -29,9 +29,35 @@ export default function RenameDialog(props: {
   };
 
   return (
-    <Modal open title="重命名" size="md" onClose={props.onCancel}>
-      <div class="bg-white rounded-2xl p-6 shadow-xl">
-        <h2 class="text-xl font-bold mb-4">重命名</h2>
+    <Modal
+      open
+      title="重命名"
+      size="md"
+      framed
+      onClose={props.onCancel}
+      // v2.5.8 D14（framed 收口）：动作按钮进页脚槽（`.dlg-footer` 自带 justify-end + gap-3，
+      // 原来那层 `flex justify-end gap-2 mt-5` 随之内距一起作废）；class 逐字未动
+      // （`text-sm` 是尺寸类、`disabled` 变体五档里没有，都不在档覆盖范围内 ⇒ 原样留）
+      footer={
+        <>
+          <button class="btn-secondary text-sm" onClick={props.onCancel}>
+            取消
+          </button>
+          <button
+            class="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={invalid() || props.busy}
+            onClick={confirm}
+          >
+            {props.busy ? "重命名中…" : "确定"}
+          </button>
+        </>
+      }
+    >
+      {/* v2.5.8 D14：手写 `<h2>` 与手搓白卡外壳（`bg-white rounded-2xl p-6 shadow-xl`）已删——
+          framed 下面板本体 `.modal-panel` 就是实底白卡、`.dlg-header` 显示 title、`.dlg-body` 给 px-6 py-5，
+          留着就是双卡 + 双内边距 + 双标题。仍包一层 div：让 `.dlg-body` 的 `flex flex-col gap-4`
+          只作用在这一个子节点上，Input 与错误行原有的 mt-2 节奏保持不变（不趁迁移改版式）。 */}
+      <div>
         <Input
         class="w-full"
           value={value()}
@@ -45,18 +71,6 @@ export default function RenameDialog(props: {
         <Show when={props.error}>
           <p class="mt-2 text-sm text-danger-600">{props.error}</p>
         </Show>
-        <div class="flex justify-end gap-2 mt-5">
-          <button class="btn-secondary text-sm" onClick={props.onCancel}>
-            取消
-          </button>
-          <button
-            class="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            disabled={invalid() || props.busy}
-            onClick={confirm}
-          >
-            {props.busy ? "重命名中…" : "确定"}
-          </button>
-        </div>
       </div>
     </Modal>
   );

@@ -91,10 +91,34 @@ export default function BatchTagDialog(props: {
 
   return (
     // v2.5.3（P2-7）：请求在途时 lockOpen——Esc/遮罩均不触发 onClose（照 ArchiveProgressDialog 先例）
-    <Modal open title={`打标（${props.paths.length} 个文件）`} lockOpen={busy()} onClose={props.onClose}>
-      <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h2 class="text-xl font-bold mb-4">打标（{props.paths.length} 个文件）</h2>
-
+    // v2.5.8 D14（framed 收口）：加 framed 走统一骨架；手写 `<h2>` 与手搓白卡外壳材质作废
+    // （面板本体 `.modal-panel` 已是实底白卡，`.dlg-header` 显示 title，`.dlg-body` 给 px-6 py-5）。
+    // 本弹窗未写 size ⇒ 沿用底座默认 md（max-w-md），迁移前后正文实宽不变。
+    <Modal
+      open
+      title={`打标（${props.paths.length} 个文件）`}
+      framed
+      lockOpen={busy()}
+      onClose={props.onClose}
+      // 「完成」进页脚槽（`.dlg-footer` 自带 justify-end + gap-3，外层 `flex gap-3 justify-end mt-6` 作废）；
+      // class 逐字未动（`btn-primary` 已在统一档上，无被覆盖项可删）
+      footer={
+        <button
+          class="btn-primary"
+          disabled={busy()}
+          onClick={() => {
+            props.onDone();
+            props.onClose();
+          }}
+        >
+          完成
+        </button>
+      }
+    >
+      {/* 外壳 div 与它的 onClick 一字未动（Modal 面板自己已 stop 冒泡，冗余但不属本轮可删项）；
+          仍包一层 div，使 `.dlg-body` 的 `flex flex-col gap-4` 只作用在这一个子节点上，
+          内层 `space-y-5` 的原有节奏保持不变（不趁迁移改版式）。 */}
+      <div onClick={(e) => e.stopPropagation()}>
         <div class="space-y-5">
           {/* 添加区 */}
           <div>
@@ -131,19 +155,6 @@ export default function BatchTagDialog(props: {
               </div>
             </div>
           </Show>
-        </div>
-
-        <div class="flex gap-3 justify-end mt-6">
-          <button
-            class="btn-primary"
-            disabled={busy()}
-            onClick={() => {
-              props.onDone();
-              props.onClose();
-            }}
-          >
-            完成
-          </button>
         </div>
       </div>
     </Modal>

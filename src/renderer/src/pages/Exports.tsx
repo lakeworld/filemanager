@@ -103,20 +103,24 @@ export default function Exports() {
         </div>
       </div>
       <div class="flex gap-2 shrink-0">
+        {/* v2.5.8 D14（样式统一收口）：三个行内动作钮收进 `.link-btn` 节奏档（同 Trash 卡片行同一口径）——
+            只删档已覆盖的 `transition-colors`，`px-3 py-1.5 text-sm rounded-lg` 与语义色
+            （主色软底 / 中性灰 / 危险红）原样留在调用点。文案「打开」「定位」「删除」是 e2e 定位锚点
+            （`exports.spec.ts:111` 按 role+name「删除」点），一字未动。 */}
         <button
-          class="px-3 py-1.5 text-sm text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors"
+          class="link-btn px-3 py-1.5 text-sm text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg"
           onClick={() => handleOpen(e)}
         >
           打开
         </button>
         <button
-          class="px-3 py-1.5 text-sm text-surface-600 hover:bg-surface-100 rounded-lg transition-colors"
+          class="link-btn px-3 py-1.5 text-sm text-surface-600 hover:bg-surface-100 rounded-lg"
           onClick={() => handleReveal(e)}
         >
           定位
         </button>
         <button
-          class="px-3 py-1.5 text-sm text-danger-600 hover:bg-danger-50 rounded-lg transition-colors"
+          class="link-btn px-3 py-1.5 text-sm text-danger-600 hover:bg-danger-50 rounded-lg"
           onClick={() => setConfirmDelete({ entry: e })}
           disabled={busy()}
         >

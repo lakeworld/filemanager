@@ -297,13 +297,27 @@ export default function QuoteFormModal(props: {
         open
         title={isEdit ? "编辑报价单" : "新建报价单"}
         size="3xl"
+        framed
         onClose={close}
         // v2.5.5（B1-B）：脏守卫——dirty 时遮罩/Esc 走 onCloseRequest（二次确认）
         dirty={dirty()}
         onCloseRequest={requestClose}
+        // v2.5.8 D16（framed 收口）：动作按钮进页脚槽（`.dlg-footer` 自带 justify-end + gap-3）
+        footer={
+          <>
+            {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestClose（二次确认） */}
+            <button class="btn-secondary" onClick={requestClose}>取消</button>
+            <button class="btn-primary" onClick={() => void save()} disabled={saving()}>
+              {isEdit ? "保存" : "确认创建"}
+            </button>
+          </>
+        }
       >
-      <div class="p-6">
-        <h2 class="text-xl font-bold mb-4">{isEdit ? "编辑报价单" : "新建报价单"}</h2>
+      {/* v2.5.8 D16：手写 `<h2>` 标题已删（framed 由 `.dlg-header` 显示 title）；
+          外层 `p-6` 一并去掉——`.dlg-body` 已给 px-6 py-5，留着就是双层内边距。
+          内层结构一字未动：仍包一层 div，使 `.dlg-body` 的 `flex flex-col gap-4` 只作用在
+          这一个子节点上，各区块原有的 mt-4 / mb-4 节奏保持不变（不趁迁移改版式）。 */}
+      <div>
         <Show when={locked}>
           <p class="text-sm text-warning-700 bg-warning-50 rounded-lg px-3 py-2 mb-4">
             报价单已确认，明细行已锁定。如需修改明细，请先转「修订中」。
@@ -415,7 +429,7 @@ export default function QuoteFormModal(props: {
                   <Show when={!locked}>
                     <button
                       type="button"
-                      class="text-surface-300 hover:text-danger-500 text-sm disabled:opacity-30"
+                      class="icon-btn text-surface-300 hover:text-danger-500 text-sm disabled:opacity-30"
                       title="删除该行"
                       disabled={lines().length <= 1}
                       onClick={() => removeLine(i())}
@@ -459,7 +473,7 @@ export default function QuoteFormModal(props: {
               </span>
               <button
                 type="button"
-                class="text-primary-600 hover:text-primary-700 text-xs shrink-0"
+                class="link-btn text-primary-600 hover:text-primary-700 text-xs shrink-0"
                 onClick={() => {
                   const entry = fileEntryOf(filePath());
                   if (entry) openPreview(entry, {});
@@ -470,14 +484,6 @@ export default function QuoteFormModal(props: {
             </div>
           </div>
         </Show>
-
-        <div class="flex gap-3 justify-end mt-6">
-          {/* v2.5.5（B1-B）：取消与遮罩/Esc 同路——dirty 时走 requestClose（二次确认） */}
-          <button class="btn-secondary" onClick={requestClose}>取消</button>
-          <button class="btn-primary" onClick={() => void save()} disabled={saving()}>
-            {isEdit ? "保存" : "确认创建"}
-          </button>
-        </div>
       </div>
       </Modal>
       {/* v2.5.5（B1-B）：脏守卫「放弃未保存内容？」二次确认（独立 Modal 叠层，打开期间遮罩/Esc 不叠加触发） */}

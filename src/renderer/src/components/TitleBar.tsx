@@ -44,10 +44,12 @@ export default function TitleBar() {
         </span>
       </div>
 
-      {/* Window controls - no drag */}
+      {/* Window controls - no drag
+          v2.5.8 D14（样式统一）：三枚按钮挂 .icon-btn 走全站节奏（过渡属性/按压/圆角），
+          但 `h-full w-11` 原样保留——窗口控件的宽高是系统观感，不参与统一 */}
       <div class="flex items-center h-full" style={{ "-webkit-app-region": "no-drag" }}>
         <button
-          class="h-full w-11 flex items-center justify-center text-surface-500 hover:bg-surface-200 transition-colors"
+          class="icon-btn h-full w-11 text-surface-500 hover:bg-surface-200"
           onClick={handleMinimize}
           title="最小化"
           style={{ "-webkit-app-region": "no-drag" }}
@@ -57,7 +59,7 @@ export default function TitleBar() {
           </svg>
         </button>
         <button
-          class="h-full w-11 flex items-center justify-center text-surface-500 hover:bg-surface-200 transition-colors"
+          class="icon-btn h-full w-11 text-surface-500 hover:bg-surface-200"
           onClick={handleToggleMaximize}
           title={isMaximized() ? "还原" : "最大化"}
           style={{ "-webkit-app-region": "no-drag" }}
@@ -74,7 +76,7 @@ export default function TitleBar() {
           </svg>
         </button>
         <button
-          class="h-full w-11 flex items-center justify-center text-surface-500 hover:bg-danger-500 hover:text-white transition-colors"
+          class="icon-btn h-full w-11 text-surface-500 hover:bg-danger-500 hover:text-white"
           onClick={handleClose}
           title="关闭到托盘"
           style={{ "-webkit-app-region": "no-drag" }}

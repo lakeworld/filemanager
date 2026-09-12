@@ -78,8 +78,27 @@ export default function BatchIdentifyModal(props: {
   };
 
   return (
-    <Modal open={props.open} title="批量 AI 识别发票" size="2xl" onClose={close}>
-      <div class="p-6">
+    <Modal
+      open={props.open}
+      title="批量 AI 识别发票"
+      size="2xl"
+      framed
+      onClose={close}
+      // v2.5.8 D16（framed 收口）：底部「取消 / 批量识别」进页脚槽（`.dlg-footer` 自带 justify-end + gap-3）
+      footer={
+        <>
+          <button class="btn-secondary" onClick={close}>取消</button>
+          <button class="btn-primary" disabled={selected().length === 0} onClick={confirm}>
+            批量识别 {selected().length > 0 ? `（${selected().length} 张）` : ""}
+          </button>
+        </>
+      }
+    >
+      {/* v2.5.8 D16：本弹窗原先没有可见标题（title 只落在底座的可访问名上），开 framed 属**补齐**
+          ——标题现由 `.dlg-header` 显示出来，此处不得补手写标题（Modal.tsx:51）。
+          外层 `p-6` 一并去掉（`.dlg-body` 已给 px-6 py-5）；内层仍包一层 div，使 `.dlg-body` 的
+          `flex flex-col gap-4` 不改变正文各段原有的 mb-* 节奏（不趁迁移改版式）。 */}
+      <div>
         <div class="flex items-center gap-3 mb-3 flex-wrap">
           <button class="btn-secondary text-sm" onClick={pickFiles}>
             📂 选择文件并添加
@@ -115,9 +134,11 @@ export default function BatchIdentifyModal(props: {
                     {f.name}
                   </span>
                   <span class="text-xs text-surface-400 shrink-0">{f.file_type === "pdf" ? "PDF" : "图片"}</span>
+                  {/* v2.5.8 D14（样式统一收口）：行尾移除钮收进 `.icon-btn`（居中/圆角/过渡/按压/禁用态）；
+                      `cursor-pointer` 档里没有（本行容器写了 cursor-default，必须留着才不丢手型）。 */}
                   <button
                     type="button"
-                    class="text-surface-400 hover:text-danger-500 shrink-0 cursor-pointer"
+                    class="icon-btn text-surface-400 hover:text-danger-500 shrink-0 cursor-pointer"
                     title="移除"
                     onClick={() => remove(f.path)}
                   >
@@ -128,13 +149,6 @@ export default function BatchIdentifyModal(props: {
             </For>
           </div>
         </Show>
-
-        <div class="flex gap-3 justify-end mt-6">
-          <button class="btn-secondary" onClick={close}>取消</button>
-          <button class="btn-primary" disabled={selected().length === 0} onClick={confirm}>
-            批量识别 {selected().length > 0 ? `（${selected().length} 张）` : ""}
-          </button>
-        </div>
       </div>
 
       <Show when={ctxMenu.show()}>

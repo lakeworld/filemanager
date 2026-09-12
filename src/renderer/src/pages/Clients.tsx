@@ -230,8 +230,12 @@ export default function Clients() {
           <span class="text-xs px-2 py-1 rounded-full bg-surface-100 text-surface-500">
             {c.file_count} 文件
           </span>
+          {/* v2.5.8 D14（样式统一收口）：卡片角标删除钮收进 `.icon-btn` 节奏档（居中 + 圆角 + 精确属性
+              过渡 + active 按压 + 禁用态），语义色（灰→危险红）与 group-hover 显隐原样留在调用方。
+              原 `transition-opacity` 交回档：档的过渡清单不含 opacity，留着它（utilities 层压过 components 层）
+              会把整条 transition 顶掉，反而退回「hover 瞬变」——与 `TagChip.tsx` 的 ✕ 同一写法。 */}
           <button
-            class="text-surface-400 hover:text-danger-500 opacity-0 group-hover:opacity-100 transition-opacity"
+            class="icon-btn text-surface-400 hover:text-danger-500 opacity-0 group-hover:opacity-100"
             onClick={(e) => handleCardDelete(c, e)}
             title="删除客户"
           >
@@ -535,17 +539,16 @@ export default function Clients() {
         {/* —— 详情态 —— */}
         <Show when={params.name}>
           <div class="flex items-center gap-2 mb-2 text-sm text-surface-500 shrink-0">
-            <button class="hover:text-primary-600" onClick={() => navigate("/clients")}>客户</button>
+            <button class="link-btn hover:text-primary-600" onClick={() => navigate("/clients")}>客户</button>
             <span>/</span>
             <Show when={!editingName()} fallback={
-              <input
-                type="text"
-                class="px-2 py-1 border border-surface-200 rounded text-sm"
+              <Input
+                compact
                 value={editingNameValue()}
                 onInput={(e) => setEditingNameValue(e.currentTarget.value)}
                 onBlur={handleRenameCustomer}
                 onKeyDown={(e) => e.key === "Enter" && handleRenameCustomer()}
-                autofocus
+                autoFocus
               />
             }>
               <span
@@ -646,7 +649,7 @@ export default function Clients() {
                         >
                           {ps}
                           <button
-                            class="text-surface-400 hover:text-danger-500"
+                            class="icon-btn text-surface-400 hover:text-danger-500"
                             title="解除关联"
                             onClick={(e) => { e.stopPropagation(); void handleUnlink(ps); }}
                           >
@@ -683,7 +686,7 @@ export default function Clients() {
                 <div class="flex items-center justify-between mb-1">
                   <h3 class="text-lg font-semibold text-surface-900">报价单</h3>
                   <button
-                    class="text-xs text-primary-600 hover:text-primary-700 shrink-0"
+                    class="link-btn text-xs text-primary-600 hover:text-primary-700 shrink-0"
                     onClick={() => navigate("/quotes")}
                   >
                     去报价台账 →
@@ -696,6 +699,9 @@ export default function Clients() {
                   <div class="flex flex-col -mx-2">
                     <For each={customerQuotes()}>
                       {(q) => (
+                        // v2.5.8 D14：本行**暂不**收进 `.row-btn`——档给的是 `flex items-center gap-3`（单行横排），
+                        // 这里有两个纵向叠放的行（单号+金额 / 日期+状态药丸），挂档会把它们掰成横排；
+                        // 要收得先动子层级或补 `flex-col items-stretch`，属结构改动，待主线程裁决。
                         <button
                           class="px-2 py-2 rounded-lg hover:bg-surface-50 text-left transition-colors w-full"
                           title="打开报价详情"
