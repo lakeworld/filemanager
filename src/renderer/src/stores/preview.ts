@@ -3,6 +3,13 @@ import { api } from "~/wails/api";
 import { getPreviewKind } from "../../../shared/fileKind";
 import { currentWorkspace } from "~/stores/workspace";
 import type { FileEntry, FileMetadata } from "~/types";
+// v2.5.8 D18：导航判定（算哪一张）住 lib，本文件只做「把那张交给现成的 openPreview」
+import {
+  canPreviewNav,
+  planPreviewNav,
+  previewIndexOf,
+  previewPositionLabel,
+} from "~/lib/previewNav";
 
 const defaultMetadata: FileMetadata = {
   cert_type: "",
@@ -19,6 +26,13 @@ export interface PreviewContext {
   editMetadata?: boolean;
   /** 删除文件后需要刷新列表的回调 */
   onDelete?: () => void;
+  /**
+   * v2.5.8 D18：调用方**打开瞬间的可见列表快照**（顺序 = 界面顺序）。
+   * 传了才有 ◀▶ / ←/→ 与 `i / N` 位置指示；不传 = 单文件场景，行为与改造前逐字一致。
+   * 快照语义：导航期间列表外部增删不重排本会话（关窗重开即新快照）；
+   * 当前项不在快照里（被外部改名/删除）= 过期 → 按钮隐藏、方向键静默，内容照常显示。
+   */
+  list?: FileEntry[];
 }
 
 const [previewFile, setPreviewFile] = createSignal<FileEntry | null>(null);
@@ -189,6 +203,42 @@ export const openFileSmart = async (file: FileEntry, context?: PreviewContext): 
     return;
   }
   await openPreview(file, context);
+};
+
+/**
+ * v2.5.8 D18（预览连续切换）：当前预览项在「打开瞬间的可见列表快照」里的下标。
+ * `-1` = 未传列表（单文件场景）或快照过期（预览期间被外部改名/删除）。
+ * 判据一律走 `lib/previewNav`，本文件不复述循环与守卫算法。
+ */
+export const previewIndex = (): number =>
+  previewIndexOf(previewContext().list, previewFile()?.path ?? "");
+
+/** 弹窗是否显示 ◀▶ 与 `i / N`（与 `navigatePreview` 同一套判据） */
+export const canPreviewNavigate = (): boolean =>
+  canPreviewNav(previewContext().list, previewFile()?.path ?? "");
+
+/** 标题旁的 `1 / 12` 位置指示文案；空串 = 不显示 */
+export const previewPosition = (): string =>
+  previewPositionLabel(previewIndex(), previewContext().list?.length ?? 0);
+
+/**
+ * 切到同一列表快照里的上一张 / 下一张（**循环绕回**，2026-09-13 用户拍板 #1）。
+ *
+ * 不可动（未传列表 / 长度 1 / 快照过期 / 没开预览）时**静默返回**：
+ * 方向键是常驻监听，弹一条错误反而成了新噪声。
+ *
+ * 关键取舍两条（都不是本文件发明，是复用现成机制）：
+ * 1. **走 `openPreview` 而不是 `openFileSmart`**：翻到 docx/zip 时不能拉起外部程序，
+ *    要靠弹窗内 v2.4.7 的 other 占位分支兜底；
+ * 2. context **原样透传**（同一引用）：`productSet` 在 ⇒ 元数据照重载（`openPreview` 内既有逻辑），
+ *    `onDelete` 在 ⇒ 预览里删完仍会刷新来源列表；代际递增与会话复位也一并继承，
+ *    所以连按 ←/→ 不会出现旧图覆盖新图。
+ */
+export const navigatePreview = async (delta: 1 | -1): Promise<void> => {
+  const context = previewContext();
+  const plan = planPreviewNav(context.list, previewFile()?.path ?? "", delta, context);
+  if (!plan) return;
+  await openPreview(plan.file, plan.context);
 };
 
 export {

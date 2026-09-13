@@ -109,7 +109,8 @@ export default function QuoteDetail() {
     if (!d) return [];
     return buildFileContextMenuItems({
       file: d,
-      onPreview: () => openPreview(d, { onDelete: () => void loadDocs() }),
+      // v2.5.8 D18：右键预览带文档网格快照（docs()），可在这张报价的文档间连看
+      onPreview: () => openPreview(d, { onDelete: () => void loadDocs(), list: docs() }),
       onOpenDefault: (f) => void api.files.openWithDefaultApp(f.path),
       onShowInExplorer: (paths) => void api.files.showFilesInExplorer(paths),
       onCopy: (paths) => void api.files.copyFilesToClipboard(paths),
@@ -233,6 +234,7 @@ export default function QuoteDetail() {
                     class="link-btn text-primary-600 hover:text-primary-700 text-xs shrink-0"
                     onClick={() => {
                       const entry = fileEntryOf(rec().file_path);
+                      // 归档文件是单文件入口（不在 docs() 网格里），不传 list = 无 ◀▶，与改造前一致
                       if (entry) openPreview(entry, { onDelete: () => void loadQuote(quotationNo()) });
                     }}
                   >
@@ -297,7 +299,8 @@ export default function QuoteDetail() {
                       {(d) => (
                         <div
                           class="card p-2 cursor-pointer select-none"
-                          onClick={() => openPreview(d, { onDelete: () => void loadDocs() })}
+                          // v2.5.8 D18：卡片网格点击预览，同带 docs() 快照
+                          onClick={() => openPreview(d, { onDelete: () => void loadDocs(), list: docs() })}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             e.stopPropagation();

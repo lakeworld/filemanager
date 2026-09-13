@@ -72,6 +72,17 @@ function fileEntryOf(relPath: string): FileEntry | null {
   };
 }
 
+/**
+ * v2.5.8 D18：台账行集合 → 预览导航的列表快照（有归档文件且能拼出绝对路径的行才进，
+ * 顺序 = 界面顺序；`fileEntryOf` 无工作区时返回 null，一并剔除）。
+ */
+function navList(rows: { file_path?: string }[]): FileEntry[] {
+  return rows
+    .filter((r) => !!r.file_path)
+    .map((r) => fileEntryOf(r.file_path as string))
+    .filter((e): e is FileEntry => e !== null);
+}
+
 // v2.5.3（P2-12）：加载序号模块级（照 Images imageLoadSeq 先例）——卸载清理递增后跨挂载延续计数，
 // 重新挂载不再从 0 计数：旧实例在途链持有的旧值永远不会与新实例的计数撞号，过期结果必被丢弃
 let quoteLoadSeq = 0;
@@ -281,13 +292,23 @@ export default function Quotes() {
   const previewFile = (rec: QuoteRecord) => {
     if (!rec.file_path) return;
     const entry = fileEntryOf(rec.file_path);
-    if (entry) openPreview(entry, { onDelete: () => void loadQuotes() });
+    // v2.5.8 D18：带筛选后的报价台账快照（剔除无归档文件的行）⇒ 台账里可逐张连看
+    if (entry)
+      openPreview(entry, {
+        onDelete: () => void loadQuotes(),
+        list: navList(filteredQuotes()),
+      });
   };
 
   /** v2.5.5 打磨：孤儿视图预览（相对路径 → FileEntry → openPreview，同发票） */
   const previewQuoteRel = (rel: string) => {
     const entry = fileEntryOf(rel);
-    if (entry) openPreview(entry, { onDelete: () => void loadQuotes() });
+    // v2.5.8 D18：带孤儿列表快照（同发票口径），可在这批未建档文件间连看
+    if (entry)
+      openPreview(entry, {
+        onDelete: () => void loadQuotes(),
+        list: navList(quoteOrphans().map((path) => ({ file_path: path }))),
+      });
   };
 
   /** v2.5.5 打磨 2：台账行右键菜单（仅归档文件存在时提供文件操作） */

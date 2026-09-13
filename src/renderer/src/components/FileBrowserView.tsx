@@ -515,15 +515,17 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   const handleOpenPreview = (file: FileEntry) => {
     // v2.4.7：customer/supplier 区不传 productSet（元数据面板为产品集证书字段语义，不适用）
     // v2.5.1（F3）：双击分流——可预览类型进预览，other 类型默认应用打开
+    // v2.5.8 D18：带可见列表快照（filteredFiles = 当前筛选后的文件），预览内可 ←/→ 连看
     openFileSmart(file, isEntityScope()
-      ? { editMetadata: false, onDelete: loadFiles }
-      : { productSet: props.entity, editMetadata: false, onDelete: loadFiles });
+      ? { editMetadata: false, onDelete: loadFiles, list: filteredFiles() }
+      : { productSet: props.entity, editMetadata: false, onDelete: loadFiles, list: filteredFiles() });
   };
 
   const handleEditMetadata = (file: FileEntry) => {
+    // v2.5.8 D18：编辑信息入口与双击同列表（PLAN §三 D3：双击/右键/编辑信息同传）
     openPreview(file, isEntityScope()
-      ? { editMetadata: false, onDelete: loadFiles }
-      : { productSet: props.entity, editMetadata: true, onDelete: loadFiles });
+      ? { editMetadata: false, onDelete: loadFiles, list: filteredFiles() }
+      : { productSet: props.entity, editMetadata: true, onDelete: loadFiles, list: filteredFiles() });
   };
 
   /** 删除确认弹窗（v2.4.7 UI 反馈统一，替代 window.confirm；state 由 Show 保证非空） */

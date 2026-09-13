@@ -631,16 +631,20 @@ export default function Invoices() {
     removeStagedDraft(draft.sourcePath);
   };
 
-  /** v2.5.6：待确认区预览源文件（绝对路径，同 BatchIdentifyModal 的 FileEntry 构造） */
+  /** v2.5.6：待确认区源文件的 FileEntry 构造（绝对路径，同 BatchIdentifyModal 口径） */
+  const stagedEntryOf = (p: string): FileEntry => ({
+    name: baseNameOf(p),
+    path: p,
+    size: 0,
+    modified: "",
+    file_type: /\.pdf$/i.test(p) ? "pdf" : "image",
+    thumbnail_path: null,
+  });
+
+  /** v2.5.6：待确认区预览源文件 */
   const previewStagedSource = (p: string) =>
-    void openPreview({
-      name: baseNameOf(p),
-      path: p,
-      size: 0,
-      modified: "",
-      file_type: /\.pdf$/i.test(p) ? "pdf" : "image",
-      thumbnail_path: null,
-    });
+    // v2.5.8 D18：带待确认区整列快照 ⇒ 识别完一批可逐张翻看核对，不用关掉重开
+    void openPreview(stagedEntryOf(p), { list: stagedDrafts().map((d) => stagedEntryOf(d.sourcePath)) });
 
   /**
    * v2.5.6：「全部登记」——只登记字段齐全的暂存草稿，逐条「保存时才归档」语义：
@@ -741,17 +745,36 @@ export default function Invoices() {
   };
 
   // —— 文件预览（复用 FilePreviewModal；图片走 previewUrl 降采样副本，PDF 走 qihebox:// 协议）——
+  /**
+   * v2.5.8 D18：台账行集合 → 预览可用的 FileEntry 列表快照。
+   * 取**筛选后**的行（`filteredInvoices()` / `filteredInbound()`），顺序 = 界面顺序；
+   * `fileEntryOf` 对「台账有记录但文件已不在盘上」返回 null，这里剔除 ⇒ 列表里全是真能预览的行，
+   * 连看时不会翻到一张空白（PLAN §三 D3：台账类经 fileEntryOf 映射，剔除文件缺失行）。
+   */
+  const navList = (rows: { file_path: string }[]): FileEntry[] =>
+    rows
+      .filter((r) => r.file_path)
+      .map((r) => fileEntryOf(r.file_path))
+      .filter((e): e is FileEntry => e !== null);
+  /** 孤儿视图同理：相对路径列 → FileEntry 列（PLAN §二「孤儿列表同 helper」） */
+  const navListOfRels = (rels: string[]): FileEntry[] =>
+    rels.map(fileEntryOf).filter((e): e is FileEntry => e !== null);
+
   const previewInvoiceFile = (rec: InvoiceRecord) => {
     const entry = fileEntryOf(rec.file_path);
-    if (entry) openPreview(entry, { onDelete: () => void loadInvoices() });
+    if (entry) openPreview(entry, { onDelete: () => void loadInvoices(), list: navList(filteredInvoices()) });
   };
   const previewInboundFile = (rec: InboundRecord) => {
     const entry = fileEntryOf(rec.file_path);
-    if (entry) openPreview(entry, { onDelete: () => void loadInbound() });
+    if (entry) openPreview(entry, { onDelete: () => void loadInbound(), list: navList(filteredInbound()) });
   };
-  const previewRelPath = (relPath: string) => {
+  /**
+   * @param list 该入口所属的可见列表快照（孤儿视图传，编辑器内「附件」单文件不传）
+   *   —— 不传 = 弹窗无 ◀▶ 与位置指示，与改造前逐字一致。
+   */
+  const previewRelPath = (relPath: string, list?: FileEntry[]) => {
     const entry = fileEntryOf(relPath);
-    if (entry) openPreview(entry, {});
+    if (entry) openPreview(entry, { list });
   };
 
   // —— 台账 新建/编辑 ——
@@ -1289,7 +1312,7 @@ export default function Invoices() {
                 kind="invoice"
                 onRecover={recoverInvoiceOrphan}
                 onDelete={(rel) => void deleteOrphanFile(rel)}
-                onPreview={previewRelPath}
+                onPreview={(rel) => previewRelPath(rel, navListOfRels(invoiceOrphans()))}
               />
             </div>
           </div>
@@ -1425,7 +1448,7 @@ export default function Invoices() {
                 kind="inbound"
                 onRecover={recoverInboundOrphan}
                 onDelete={(rel) => void deleteOrphanFile(rel)}
-                onPreview={previewRelPath}
+                onPreview={(rel) => previewRelPath(rel, navListOfRels(inboundOrphans()))}
               />
             </div>
           </div>

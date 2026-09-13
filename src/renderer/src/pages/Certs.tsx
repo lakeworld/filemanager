@@ -521,7 +521,7 @@ export default function Certs() {
                     contextMenu.open(e, cert.path);
                   }}
                   onClick={() => toggleSelection(cert.path)}
-                  onDblClick={() => openFileSmart(cert, { onDelete: loadAllCerts })}
+                  onDblClick={() => openFileSmart(cert, { onDelete: loadAllCerts, list: filteredItems() })}
                 >
                   {/* 信息封面：图片证书走真缩略图；PDF/其它以「类型色带 + 扩展名字标」构成可辨识封面
                       （v2.1.0 起主进程不给 PDF 出缩略图，用户 2026-09-08 拍板本批也不引入 pdfjs 抓帧） */}
@@ -589,9 +589,14 @@ export default function Certs() {
           items={buildFileContextMenuItems({
             file: items().find((c) => c.path === contextMenu.payload()),
             paths: contextMenu.payload() ? [contextMenu.payload()!] : [],
-            onPreview: (cert) => openPreview(cert, { onDelete: loadAllCerts }),
+            onPreview: (cert) => openPreview(cert, { onDelete: loadAllCerts, list: filteredItems() }),
             onEditInfo: (cert) =>
-              openPreview(cert, { productSet: cert.productSet, editMetadata: true, onDelete: loadAllCerts }),
+              openPreview(cert, {
+                productSet: cert.productSet,
+                editMetadata: true,
+                onDelete: loadAllCerts,
+                list: filteredItems(),
+              }),
             onOpenDefault: (cert) => void api.files.openWithDefaultApp(cert.path),
             onCopy: handleCopy,
             onShowInExplorer: handleShowInExplorer,
