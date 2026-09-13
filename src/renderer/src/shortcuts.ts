@@ -78,6 +78,16 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
   { id: "search.focus", key: "k", ctrl: true, guard: "text", desc: "聚焦全局搜索框" },
   { id: "note.save", key: "s", ctrl: true, guard: "none", desc: "保存当前笔记（仅笔记编辑器打开时有效）" },
   { id: "file.copy", key: "c", ctrl: true, guard: "text", desc: "复制选中的文件路径（正文有选区时让位给浏览器）" },
+  // v2.5.8 D19（体验批 B3/B7）：粘贴与应用内剪切。两条都标 `guard: "text"`——
+  // 输入框里的 Ctrl+V / Ctrl+X 是文本编辑，永远归浏览器（派发层拦，页面不重复判）。
+  { id: "file.cut", key: "x", ctrl: true, guard: "text", desc: "剪切选中的文件（应用内 = 移动语义，粘到目标处才落地）" },
+  {
+    id: "file.paste",
+    key: "v",
+    ctrl: true,
+    guard: "text",
+    desc: "粘贴到当前文件夹：应用内剪切 → 移动；否则系统剪贴板里有文件 → 导入",
+  },
   {
     id: "list.selectAll",
     key: "a",

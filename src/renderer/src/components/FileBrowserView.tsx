@@ -7,6 +7,8 @@ import FileBrowserToolbar from "./file-browser/FileBrowserToolbar";
 import { workspaceConfig, loadWorkspaceConfig, currentWorkspace, fileBrowserRefreshTrigger, defaultNamingTemplate } from "~/stores/workspace";
 import { openPreview, openFileSmart } from "~/stores/preview";
 import { showToast } from "~/stores/notifyBanner";
+// v2.5.8 D19（B1）：复制反馈统一（成功/失败都出声）
+import { copyFilesWithFeedback } from "~/utils/copyAction";
 import { loadTagDefs, tagLabel, tagList } from "~/stores/tags";
 import FileThumbnail from "~/components/FileThumbnail";
 import TagChips from "~/components/TagChips";
@@ -27,8 +29,13 @@ import type { FileEntry } from "~/types";
 import { withBuiltinNotes, BUILTIN_NOTES_FOLDER, defaultSubFolder } from "~/constants/notes";
 import Input from "~/components/ui/Input";
 import SelectionBar from "~/components/ui/SelectionBar";
+import { useCopyShortcut } from "~/hooks/useCopyShortcut";
+// v2.5.8 D19（B3/B7）：Ctrl+X / Ctrl+V 走声明表注册（不自己挂 keydown）+ 应用内剪切标记
 import { registerShortcut } from "~/shortcuts";
-import { clipboardGuardOn } from "~/stores/appSettings";
+import { showPreview } from "~/stores/preview";
+import { applyCut, cutPaths, resetCut, syncCutWithSelection } from "~/stores/appClipboard";
+import { pasteIntent } from "~/lib/cutPaste";
+import { pushLayer } from "~/components/ui/layerStack";
 
 /** v2.4.7（PLAN §4.6）：文件区作用域——productSet = 产品集文件区；customer = 客户文件区；v2.4.9 S2：supplier = 供应商文件区 */
 export type FileBrowserScope = "productSet" | "customer" | "supplier";
@@ -78,15 +85,6 @@ function formatBytes(bytes: number): string {
  */
 export default function FileBrowserView(props: FileBrowserViewProps) {
   const navigate = useNavigate();
-  // A1 守卫（v2.5.7）：文本选区非折叠才算「有正文被选择」——折叠（仅光标）不算，
-  // Ctrl+C 劫持只该作用于文件选中语义；选区在输入元素上的情况由 tag/isContentEditable 豁免先行拦截
-  const isCollapsedSelection = () => {
-    const sel = window.getSelection();
-    if (!sel) return true;
-    if (sel.rangeCount === 0) return true;
-    const r = sel.getRangeAt(0);
-    return r.collapsed;
-  };
   const [files, setFiles] = createSignal<FileEntry[]>([]);
   // v2.4.7（评审修复）：列表加载态与失败反馈——加载中显示 Loading 而非空态，失败展示错误横幅
   const [loading, setLoading] = createSignal(false);
@@ -337,14 +335,11 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     }
   };
 
-  const handleCopyPaths = async (paths: string[]) => {
-    if (paths.length === 0) return;
-    const result = await api.files.copyFilesToClipboard(paths);
-    if (result.success) {
-      showActionMessage(`已复制 ${paths.length} 个文件到剪贴板`);
-    } else {
-      showToast("error", "复制失败", result.error ?? undefined);
-    }
+  // v2.5.8 D19（B1）：复制反馈统一走全局 toast。本页其余动作（删除/新建笔记）仍用
+  // `ui/SelectionBar` 上的 2s 内联条——那两处必然发生在有选区/有列表的语境里，内联条存在；
+  // 而右键单选复制时没有选区条，内联条等于不存在，故只有复制换面。
+  const handleCopyPaths = async (paths: string[]): Promise<void> => {
+    await copyFilesWithFeedback(api.files.copyFilesToClipboard, paths);
   };
 
   const handleShowPathsInExplorer = async (paths: string[]) => {
@@ -357,6 +352,101 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
 
   const handleCopySelected = () => handleCopyPaths(selectedFilePaths());
   const handleShowSelectedInExplorer = () => handleShowPathsInExplorer(selectedFilePaths());
+
+  /**
+   * v2.5.8 D19（体验批 B7）：Ctrl+X = **应用内**剪切标记。只打标记、不进系统剪贴板、不动文件；
+   * 真正的移动发生在目标文件夹里按 Ctrl+V 那一刻（见 `handlePaste`）。
+   * 边界（用户拍板）：不做「剪切到外部」——粘进资源管理器/微信会把文件移出工作区，
+   * 元数据/标签/台账引用全断，违反「账物分离」；外发永远走复制。
+   * 转移规则（同批再按一次=取消 / 空选中不改状态）住 `lib/cutPaste.ts`，本处只接线。
+   */
+  const handleCut = (): void => {
+    const next = applyCut(selectedFilePaths());
+    if (next.length === 0) {
+      showToast("info", "已取消剪切标记");
+      return;
+    }
+    showToast("info", `已标记 ${next.length} 个文件为剪切，到目标文件夹按 Ctrl+V 移动`);
+  };
+
+  /**
+   * v2.5.8 D19（体验批 B3 + B7）：Ctrl+V 的两条链路，一个键两个语义，按「有标记先移动」排序。
+   *
+   * 目标位置**一律是当前正在看的这个文件夹**，参数与本页「导入文件」按钮逐字同构
+   * （`target_product_set`/`target_folder`/`sub_folder`/`scope`），命名模板、冲突后缀、元数据、
+   * 缩略图、进度事件全部复用既有导入管道 ⇒ 粘贴进来的文件和拖拽/对话框进来的文件走同一条路。
+   *
+   * 为什么只在这一个组件生效（聚合页不启用）：图包库/证书库/搜索页一个屏幕上混着**多个**
+   * 产品集的文件，「粘贴到这里」的"这里"没有唯一答案，猜一个就是把文件放进别人的文件夹。
+   * 文件浏览器永远对应一个确定的 `(实体, 子文件夹)`，这正是粘贴需要的落点。
+   */
+  const handlePaste = async (): Promise<void> => {
+    const cut = cutPaths();
+    if (pasteIntent(cut) === "move") {
+      const r = await api.files.move({
+        paths: cut,
+        target_product_set: props.entity,
+        target_type: props.fileType ?? "",
+        sub_folder: props.subFolder,
+        scope: props.scope,
+      });
+      if (!r.success) {
+        showToast("error", "移动失败", r.error || "未知错误");
+        return;
+      }
+      // 移动成功即清空标记：留着的话再按一次 Ctrl+V 会拿已经不在原地的路径再搬一遍
+      resetCut();
+      setSelectedFilePaths([]);
+      void loadFiles();
+      showToast("success", `已移动 ${cut.length} 个文件到「${props.subFolder}」`);
+      return;
+    }
+    const res = await api.files.readClipboardFiles();
+    if (!res.success) {
+      showToast("error", "读取剪贴板失败", res.error || "未知错误");
+      return;
+    }
+    const paths = res.data ?? [];
+    if (paths.length === 0) return; // 剪贴板里没有文件 → 静默不动作（不弹「0 个文件」这种噪音）
+    const r = await api.files.import({
+      source_paths: paths,
+      target_product_set: props.entity,
+      target_folder: props.subFolder,
+      target_type: props.fileType ?? "",
+      sub_folder: props.subFolder,
+      scope: props.scope,
+      cancelToken: newArchiveToken(),
+    });
+    if (!r.success) {
+      showToast("error", "粘贴导入失败", r.error || "未知错误");
+      return;
+    }
+    void loadFiles();
+    showToast("success", `已粘贴导入 ${paths.length} 个文件到「${props.subFolder}」`);
+  };
+
+  // 选中集一变就对账剪切标记：用户改去选别的文件，旧标记立刻作废（规则见 `lib/cutPaste.ts`）
+  createEffect(() => {
+    syncCutWithSelection(selectedFilePaths());
+  });
+  /**
+   * 「切页取消标记」的准确口径：**换实体/换域**（产品集↔客户↔供应商、或换一个实体名）即作废，
+   * 同一实体内换子文件夹不作废——后者正是「A 目录 Ctrl+X → B 目录 Ctrl+V」这条主路径。
+   * 不按路由整页销毁来做：子文件夹切换同样是路由变化，那样一刀切会把功能本身切断。
+   */
+  let lastCutScopeKey: string | undefined;
+  createEffect(() => {
+    const key = `${props.scope}/${props.entity}`;
+    if (lastCutScopeKey !== undefined && lastCutScopeKey !== key) resetCut();
+    lastCutScopeKey = key;
+  });
+  // Esc 撤销剪切标记：走 `ui/layerStack` 而不是自己挂 keydown（全站监听数是门禁钉死的），
+  // 且只在有标记时入栈——常驻入栈会吃掉全站每一次 Esc（同 `FilePreviewModal:89` 那条教训）。
+  createEffect(() => {
+    if (cutPaths().length === 0) return;
+    const layer = pushLayer({ onEscape: () => resetCut() });
+    onCleanup(() => layer.remove());
+  });
 
   // v2.5.5（对齐）：客户/供应商文件区按钮导入——多选对话框 → 既有导入管道（importFiles + scope，
   // 命名模板/冲突后缀/元数据/缩略图全复用）；进度 toast 与完成刷新由 GlobalDropOverlay 全局事件接管。
@@ -375,26 +465,31 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     });
   };
 
+  // v2.5.8 D19（B2）：Ctrl+C 的三条让位守卫（预览让位 / 正文选区让位 / 零选中放行）从本组件
+  // 搬进 `hooks/useCopyShortcut.ts` + `lib/copyShortcut.ts`——同一段判据此前只有这一份实现，
+  // B2 要把它铺到七个选中态页面，抄七遍等于把 v2.5.7 A1 的修复再赌一次。语义一字未动。
+  useCopyShortcut(selectedFilePaths, (paths) => void handleCopyPaths(paths));
+
   onMount(() => {
-    // v2.5.8 D11（W6）：Ctrl+C 收进 `shortcuts.ts` 单注册点。**守卫逐条原样搬**：
-    // ① 输入类元素 / contenteditable（Crepe 编辑区等）放行——否则文件选中时窗口级 Ctrl+C
-    //    会把正文选区白拷成文件路径（v2.5.7 A1 根因 1「偶尔失效」）；
-    // ② 有非折叠文本选区（正文被选中）放行，让浏览器复制选区文本（根因 1 修复核心）；
-    //    折叠（仅光标/无选区）才轮到「文件选中 → 复制文件路径」语义。
-    // 唯一差异：原口径只豁免 INPUT/TEXTAREA，`shortcuts.ts` 的 `isTextTarget` 还豁免 SELECT
-    // （取自 Header 那份、并集更宽）——D9 之后渲染层已无原生 select，两条判定实际等价。
-    const offCopy = registerShortcut("file.copy", () => {
-      // v2.5.8 D11（W7）：守卫可关。开（默认）= 正文有非折叠选区时让位给浏览器复制正文；
-      // 关 = 文件选中优先，直接走「复制文件路径」（回到 v2.5.7 A1 之前的口径，故 A1 的两条注释
-      // 只在开的时候成立）。路径为空时仍返回 false 放行，不给 Ctrl+C 抢一个本来无事的按键。
-      if (clipboardGuardOn() && !isCollapsedSelection()) return false;
-      const paths = selectedFilePaths();
-      if (paths.length === 0) return false;
-      handleCopyPaths(paths);
-      return true; // 交回派发层 preventDefault（与原先在此处 preventDefault 等价）
+    // v2.5.8 D19（B3/B7）：粘贴与应用内剪切。**只在这一个组件注册**——两者都需要一个确定的
+    // 落点 (实体, 子文件夹)，聚合页给不出（见 `handlePaste` 注释）。走 `shortcuts.ts` 声明表，
+    // 不自己挂 keydown（全站监听数由 `tests/unit/shortcuts.test.ts` 钉成 14）。
+    const offCut = registerShortcut("file.cut", () => {
+      if (showPreview()) return false; // 预览开着时 Ctrl+X 不动底层列表（与 Ctrl+C 同一条让位规则）
+      if (selectedFilePaths().length === 0) return false;
+      handleCut();
+      return true;
+    });
+    const offPaste = registerShortcut("file.paste", () => {
+      if (showPreview()) return false;
+      void handlePaste();
+      return true;
     });
     onCleanup(() => {
-      offCopy();
+      offCut();
+      offPaste();
+    });
+    onCleanup(() => {
       window.clearTimeout(actionMessageTimer);
     });
   });
@@ -679,7 +774,8 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
               scrollResetKey={`${props.scope}/${props.entity}/${props.subFolder}`}
               renderItem={(file) => (
                 <div
-                  class={`card p-3 cursor-pointer select-none ${selectedFilePaths().includes(file.path) ? "card-selected" : ""}`}
+                  // v2.5.8 D19（B7）：剪切标记中的卡片半透明（选中态是描边高亮，两者可叠加、说的是不同的事）
+                  class={`card p-3 cursor-pointer select-none ${selectedFilePaths().includes(file.path) ? "card-selected" : ""} ${cutPaths().includes(file.path) ? "opacity-50" : ""}`}
                   draggable={true}
                   onDragStart={(e) => handleDragOut(e, file.path, selectedFilePaths())}
                   onContextMenu={(e) => {

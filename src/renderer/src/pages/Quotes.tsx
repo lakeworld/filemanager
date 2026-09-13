@@ -14,6 +14,11 @@ import SearchSelect from "~/components/ui/SearchSelect";
 import type { SearchSelectOption } from "~/components/ui/SearchSelect";
 import { useNavigate, useSearchParams } from "@solidjs/router";
 import { api } from "~/wails/api";
+// v2.5.8 D19（B1）：复制反馈统一（成功/失败都出声）
+// v2.5.8 D19（B1/B2）：复制反馈统一 + 台账复制面（批量条按钮与 Ctrl+C 共用一份「选中行 → 绝对路径」换算）
+import { copyFilesWithFeedback, copyLedgerFiles } from "~/utils/copyAction";
+import { ledgerCopyPaths } from "~/lib/copyShortcut";
+import { useCopyShortcut } from "~/hooks/useCopyShortcut";
 import { currentWorkspace } from "~/stores/workspace";
 import { customers, loadCustomers } from "~/stores/clients";
 import { showToast } from "~/stores/notifyBanner";
@@ -322,9 +327,28 @@ export default function Quotes() {
       onPreview: () => previewFile(rec),
       onOpenDefault: (f) => void api.files.openWithDefaultApp(f.path),
       onShowInExplorer: (paths) => void api.files.showFilesInExplorer(paths),
-      onCopy: (paths) => void api.files.copyFilesToClipboard(paths),
+      // v2.5.8 D19（B1）：右键「复制」原先 `void api.…` 成功失败全静默，改走统一反馈
+      onCopy: (paths) => void copyFilesWithFeedback(api.files.copyFilesToClipboard, paths),
     });
   };
+
+  /**
+   * v2.5.8 D19（体验批 B2）：报价台账的复制面——批量条补「📋 复制」+ 本页接管 Ctrl+C。
+   * 与发票/入库同口径：选中行 → 归档文件绝对路径（`fileEntryOf` 对「有记录但文件不在盘上」
+   * 返回 null ⇒ 剔除），一个都剔不出来时如实说明而不是静默不动。
+   */
+  const quoteCopyRows = () => {
+    const nos = effectiveSelectedQuotes();
+    return quotes().filter((r) => nos.includes(r.quotation_no));
+  };
+  const quoteCopyPath = (r: { file_path: string }): string | undefined => fileEntryOf(r.file_path)?.path ?? undefined;
+  const copySelectedQuoteFiles = (): void => {
+    void copyLedgerFiles(api.files.copyFilesToClipboard, quoteCopyRows(), quoteCopyPath);
+  };
+  useCopyShortcut(
+    () => ledgerCopyPaths(quoteCopyRows(), quoteCopyPath),
+    (paths) => void copyFilesWithFeedback(api.files.copyFilesToClipboard, paths),
+  );
 
   const confirmDelete = async () => {
     const t = deleteTarget();
@@ -507,6 +531,8 @@ export default function Quotes() {
               onDelete={() => setBatchDeleteConfirm(true)}
               actions={[
                 { label: "全选可见", onClick: selectAllVisibleQuotes },
+                // v2.5.8 D19（B2②）：批量条补复制（与发票/入库同口径）
+                { label: "📋 复制", tone: "primary", title: "复制选中报价的归档文件到剪贴板", onClick: copySelectedQuoteFiles },
                 {
                   label: "批量改状态（已确认）",
                   title: "选中报价批量流转为「已确认」（草稿/修订中）",

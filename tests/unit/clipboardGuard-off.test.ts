@@ -126,23 +126,49 @@ describe('clipboardGuard 关态：镜像把「关」送到消费点', () => {
 })
 
 // —— ② 结构钉：消费点真的按开关分支 ——
-const VIEW_PATH = new URL('../../src/renderer/src/components/FileBrowserView.tsx', import.meta.url)
+// v2.5.8 D19（体验批 B2）：这段守卫从 `FileBrowserView.tsx` 搬进了
+// `hooks/useCopyShortcut.ts`（判据本身再下沉一层到 `lib/copyShortcut.ts` 的纯函数），
+// 因为 B2 要把 Ctrl+C 铺到七个选中态页面——守卫留在某一个组件里，其余六页只能各抄一份。
+// 结构钉跟着搬家，**判据一条没减**：开关必须参与、早返回必须排在真的复制之前。
+const VIEW_PATH = new URL('../../src/renderer/src/hooks/useCopyShortcut.ts', import.meta.url)
 
-/** 取 `registerShortcut("file.copy", …)` 那一段回调源码 */
-function copyHandler(src: string): string {
-  const start = src.indexOf('registerShortcut("file.copy"')
-  expect(start, 'Ctrl+C 仍应住在 FileBrowserView 的 shortcuts 单注册点里（W6 收口）').toBeGreaterThanOrEqual(0)
-  const end = src.indexOf('});', start)
-  return src.slice(start, end < 0 ? undefined : end)
+/**
+ * 取 `registerShortcut("file.copy", …)` 那一段回调源码。
+ * 先剥注释再定位：本文件头部那段说明里就出现过 `registerShortcut("file.copy"` 与
+ * `clipboardGuardOn()` 这两个字面量，不剥注释的话锚点会先撞上散文，
+ * 于是「变异」只改到注释、代码原样 ⇒ 判别函数瞎掉（D19 实测踩过一次）。
+ * 剥注释的手法与 `tests/unit/shortcuts.test.ts` 的 `codeOnly` 同一份。
+ */
+function codeOnly(text: string): string {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .map((l) => l.replace(/(^|[^:\\])\/\/.*$/, '$1'))
+    .join('\n')
 }
 
-/** 开态让位、关态放行：守卫的早返回必须存在、被开关短路、且在写剪贴板之前 */
-const GUARD_RE = /if\s*\(\s*clipboardGuardOn\(\)\s*&&\s*!\s*isCollapsedSelection\(\)\s*\)\s*return\s+false\s*;/
+function copyHandler(src: string): string {
+  const code = codeOnly(src)
+  const start = code.indexOf('registerShortcut("file.copy"')
+  expect(start, 'Ctrl+C 仍应住在 shortcuts 单注册点里（W6 收口；D19 起住 hooks/useCopyShortcut.ts）').toBeGreaterThanOrEqual(0)
+  const end = code.indexOf('});', start)
+  return code.slice(start, end < 0 ? undefined : end)
+}
+
+/**
+ * 开态让位、关态放行：守卫的早返回必须存在、被开关短路、且在写剪贴板之前。
+ * 新形态下开关是以 `guardOn: clipboardGuardOn()` 入参的形式参与判定的（判据住在纯函数里），
+ * 所以这里钉三件事：① 开关真的被读；② `shouldTakeFileCopy` 真的被调用；
+ * ③ 判定通过后为 false 的那次 `return false;` 出现在 `onCopy(paths)` 之前。
+ */
+const GUARD_RE = /guardOn:\s*clipboardGuardOn\(\)/
 function guardShortCircuitsBeforeClipboardWrite(handler: string): boolean {
   const g = handler.search(GUARD_RE)
   if (g < 0) return false
-  const w = handler.indexOf('handleCopyPaths(', g) // 从守卫往后找那次「把文件路径写进剪贴板」
-  return w > -1 && g < w
+  if (!handler.slice(0, g).includes('shouldTakeFileCopy(')) return false
+  const earlyReturn = handler.indexOf('return false;', g)
+  const w = handler.indexOf('onCopy(paths)', g)
+  return earlyReturn > -1 && w > -1 && earlyReturn < w
 }
 
 describe('clipboardGuard 关态：消费点按开关分支（开关不是死码）', () => {
@@ -163,20 +189,21 @@ describe('clipboardGuard 关态：消费点按开关分支（开关不是死码�
       }
     }
     walk(root, '')
-    expect(hits).toEqual(['renderer/src/components/FileBrowserView.tsx'])
+    // D19（B2）起这个消费点是 `hooks/useCopyShortcut.ts`（页面版与预览版共用一份守卫读取）；
+    // 判据本身在 `lib/copyShortcut.ts` 的纯函数里，那里不出现 `clipboardGuardOn()` 调用 ⇒ 不进本表
+    expect(hits).toEqual(['renderer/src/hooks/useCopyShortcut.ts'])
   })
 
   it('变异自检：摘掉开关 / 删掉早返回 / 守卫挪到写之后，三种改法都必须被判为失效', () => {
+    const guardStart = handler.indexOf('if (')
+    const guardEnd = handler.indexOf('}', handler.indexOf('return false;')) + 1
+    const guardBlock = handler.slice(guardStart, guardEnd)
+    const withoutGuard = handler.slice(0, guardStart) + handler.slice(guardEnd)
     const mutants: [string, string][] = [
-      ['开关摘掉（守卫变成无条件生效）', handler.replace(/clipboardGuardOn\(\)\s*&&\s*/, '')],
-      ['早返回整条删除（开态也不再让位）', handler.replace(GUARD_RE, '')],
-      [
-        '守卫挪到写剪贴板之后（形同虚设）',
-        handler.replace(GUARD_RE, '').replace(
-          'handleCopyPaths(paths);',
-          'handleCopyPaths(paths);\n      if (clipboardGuardOn() && !isCollapsedSelection()) return false;',
-        ),
-      ],
+      ['开关摘掉（守卫变成无条件生效）', handler.replace('clipboardGuardOn()', 'true')],
+      ['早返回整条删除（开态也不再让位）', handler.replace('return false;', '')],
+      // 把整段判定搬到真的复制之后：形状还在，但剪贴板已经被改写了才让位，形同虚设
+      ['守卫挪到写剪贴板之后（形同虚设）', withoutGuard.replace('onCopy(paths);', `onCopy(paths);\n      ${guardBlock}`)],
     ]
     for (const [why, mutated] of mutants) {
       expect(mutated, `变异未生效（原文没被改到）：${why}`).not.toBe(handler)

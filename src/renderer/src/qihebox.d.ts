@@ -111,6 +111,8 @@ interface QiheboxApi {
     rename: (req: unknown) => Promise<unknown>
     move: (req: unknown) => Promise<unknown>
     copyFilesToClipboard: (paths: string[]) => Promise<unknown>
+    // v2.5.8 D19（B3）：读系统剪贴板里的文件绝对路径（粘贴导入用；无文件回空数组）
+    readClipboardFiles: () => Promise<unknown>
     showFilesInExplorer: (paths: string[]) => Promise<unknown>
     saveTextFile: (filePath: string, content: string) => Promise<unknown>
     // v2.5.7（A2 笔记）：工作区相对路径原子文本写（2MB 上限）

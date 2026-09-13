@@ -1,5 +1,7 @@
 import { Show, For, createSignal, createEffect } from "solid-js";
 import { api } from "~/wails/api";
+// v2.5.8 D19（B1）：复制反馈统一（成功/失败都出声）
+import { copyFilesWithFeedback } from "~/utils/copyAction";
 import { showToast } from "~/stores/notifyBanner";
 import Modal from "~/components/ui/Modal";
 import ContextMenu from "~/components/ContextMenu";
@@ -64,7 +66,8 @@ export default function BatchIdentifyModal(props: {
       onPreview: (file) => void openPreview(file, { list: selected() }),
       onOpenDefault: (file) => void api.files.openWithDefaultApp(file.path),
       onShowInExplorer: (paths) => void api.files.showFilesInExplorer(paths),
-      onCopy: (paths) => void api.files.copyFilesToClipboard(paths),
+      // v2.5.8 D19（B1）：右键「复制」原先 `void api.…` 成功失败全静默，改走统一反馈
+      onCopy: (paths) => void copyFilesWithFeedback(api.files.copyFilesToClipboard, paths),
     });
   };
 
