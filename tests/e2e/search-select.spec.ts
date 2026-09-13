@@ -151,6 +151,46 @@ test.describe('SearchSelect 与证书库筛选（v2.5.8）', () => {
     }
   })
 
+  test('窄面板贴近视口下沿时仍锚在触发器上（回归「下拉飘浮」，v2.5.8 D21b）', async () => {
+    // 由来：定位翻转用固定估算值 256×300，而 matchTriggerWidth={false}（全站 48 处）下面板是
+    // 收缩包裹的。设置页「提前提醒天数」实测只有 77×104，按 256×300 判越界会同时误触发
+    // 左移与上翻 ⇒ 面板落在控件左上方约 130px/300px 的空处（人眼看去就是"飘"着）。
+    // 修法 = 挂载后按面板实测尺寸复算；本用例把它钉死：面板必须与触发器水平重叠且垂直贴合。
+    // 前置要有工作区：设置页在无工作区时是「选择工作区」空态，那条下拉根本不存在
+    // （单独 -g 跑时靠上一个用例留下的工作区侥幸通过，全量并发跑就露馅了）。
+    const wsDir = await setup()
+    try {
+      await navigateTo('/settings')
+      const trigger = page.getByLabel('提前提醒天数')
+      await expect(trigger).toBeVisible({ timeout: 20000 })
+      // 把控件推到视口下沿（这正是误上翻的条件；不推到位就成了空转）
+      await trigger.evaluate((el) => el.scrollIntoView({ block: 'end' }))
+      const tb = await trigger.boundingBox()
+      expect(tb).not.toBeNull()
+      expect(tb!.y + tb!.height).toBeGreaterThan(400) // 确认真的在下半部，否则这条断言没有意义
+
+      await trigger.click()
+      const panel = page.locator('[data-search-select]')
+      await expect(panel).toBeVisible({ timeout: 5000 })
+      // .fade-rise 入场是 translateY(8px)→0 / 300ms，不等它落定就量，间隙会多算 8px（假红）
+      await page.waitForTimeout(420)
+      const pb = await panel.boundingBox()
+      expect(pb).not.toBeNull()
+
+      // ① 水平：面板与触发器投影必须重叠（不许整块跑到控件左边）
+      expect(pb!.x).toBeLessThan(tb!.x + tb!.width)
+      expect(pb!.x + pb!.width).toBeGreaterThan(tb!.x)
+      // ② 垂直：要么紧贴下方（间隙 = 6），要么真放不下而翻到上方贴合；不许悬在中间
+      const below = pb!.y - (tb!.y + tb!.height)
+      const above = tb!.y - (pb!.y + pb!.height)
+      const flush = (v: number): boolean => v >= -1 && v <= 8
+      expect(flush(below) || flush(above)).toBe(true)
+      await page.keyboard.press('Escape')
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true })
+    }
+  })
+
   test('证书库信息封面卡：图片/PDF 分档 + 到期徽标随筛选可见', async () => {
     const wsDir = await setup()
     try {

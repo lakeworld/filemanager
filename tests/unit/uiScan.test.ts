@@ -12,8 +12,8 @@
  *
  * 与卡上基准值的唯一偏差（另有用例专门钉住，交主线程判断，不静默改数）：
  *   卡上写 handwritten 146 / noclass 1，本清点器解析出 **147 / 0**。
- *   差的是 `components/ui/SearchSelect.tsx:211` 那个 `<button>`：它的 `class` 写在
- *   `ref={(el) => { … }}` 的 `>` **之后**（第 224 行），任何在 `>` 处截断标签的扫描都会把它
+ *   差的是 `components/ui/SearchSelect.tsx` 那个触发器 `<button>`（现 :240，D21b 加复算定位后从 211 漂下来）：
+ *   它的 `class` 写在 `ref={(el) => { … }}` 的 `>` **之后**，任何在 `>` 处截断标签的扫描都会把它
  *   读成「没有 class 属性」。它确实有 class（`… border border-surface-200 rounded-lg bg-white …`），
  *   按卡上定义（noclass = 没有 class 属性）应归 **handwritten**。
  *   两口径其余四个数（总 270 / unified 123 / 贴档底色 35 / 无 transition 79）完全一致——
@@ -174,7 +174,9 @@ const DEBT_FILES: ReadonlyArray<string> = [
 /** 底座内部三处：ui/Input + ui/SearchSelect + MoneyInput（点名钉住，防「换个文件名躲门禁」） */
 const BASE_INTERNAL_POINTS: ReadonlyArray<readonly [string, number]> = [
   ['src/renderer/src/components/ui/Input.tsx', 66],
-  ['src/renderer/src/components/ui/SearchSelect.tsx', 251],
+  // SearchSelect 的 input 位点：v2.5.8 D21b 在同文件加了 `reposition()`（复算定位），
+  // 整段 JSX 下移 30 行 ⇒ 251→281。**只是行号漂移**，四个计数一个没动。
+  ['src/renderer/src/components/ui/SearchSelect.tsx', 281],
   ['src/renderer/src/components/MoneyInput.tsx', 30],
 ];
 
@@ -309,9 +311,9 @@ describe('与卡上基准值的差异：147/0 vs 146/1（交主线程拍板，�
     // 那是让测试反过来牺牲可读性。真正的身份判据是 file + classText 内容 + 全站点位唯一性。
     const b = must(
       inv.buttons.find(
-        (x) => x.file === 'src/renderer/src/components/ui/SearchSelect.tsx' && Math.abs(x.line - 211) <= 5,
+        (x) => x.file === 'src/renderer/src/components/ui/SearchSelect.tsx' && Math.abs(x.line - 240) <= 5,
       ),
-      'ui/SearchSelect.tsx 里 ~211 行那个触发器 <button>',
+      'ui/SearchSelect.tsx 里 ~240 行那个触发器 <button>（D21b 前是 211）',
     );
     expect(b.classText, 'class 写在 ref={(el) => …} 的 > 之后，在 > 处截断的扫描会读成 null').toContain('border-surface-200');
     expect(b.category, '按卡上定义（noclass = 没有 class 属性）它不该是 noclass').toBe('handwritten');

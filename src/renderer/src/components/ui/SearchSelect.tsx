@@ -69,7 +69,8 @@ interface SearchSelectProps {
   class?: string;
 }
 
-/** 面板估算尺寸（定位翻转用；列表内部超高走 vscroll 滚动，不随条数撑破视口） */
+/** 面板**首帧**估算尺寸（定位翻转用；列表内部超高走 vscroll 滚动，不随条数撑破视口）。
+ *  挂载后 `reposition()` 会用实测尺寸复算，这两个数只影响第一帧的兜底位置。 */
 const PANEL_W = 256;
 const PANEL_H = 300;
 
@@ -88,6 +89,24 @@ export default function SearchSelect(props: SearchSelectProps) {
     () => props.options.find((o) => o.value === props.value)?.label ?? props.value,
   );
 
+  /**
+   * 按面板**实测尺寸**定位（v2.5.8 D21b 修「下拉飘浮」）。
+   *
+   * `PANEL_W`/`PANEL_H` 只是首帧估算，而 `matchTriggerWidth={false}`（全站 48 处的主流配法）
+   * 下面板是收缩包裹的：设置页「提前提醒天数」实测 77×104，按 256×300 判越界会**同时**误触发
+   * 左移与上翻 ⇒ 面板落在控件左上方约 130px/300px 的空处，看着就是"飘"在那里。复算之后，
+   * 小面板只在真放不下时才翻，常态与触发器左对齐、紧贴其下方。
+   */
+  const reposition = () => {
+    const rect = triggerEl?.getBoundingClientRect();
+    if (!rect || !panelEl) return;
+    const next = panelPosition(rect, panelEl.offsetWidth, panelEl.offsetHeight, {
+      w: window.innerWidth,
+      h: window.innerHeight,
+    });
+    setPos((p) => (p.left === next.left && p.top === next.top ? p : next));
+  };
+
   const openPanel = () => {
     setTerm("");
     const idx = props.options.findIndex((o) => o.value === props.value);
@@ -98,9 +117,19 @@ export default function SearchSelect(props: SearchSelectProps) {
       setPos(panelPosition(rect, PANEL_W, PANEL_H, { w: window.innerWidth, h: window.innerHeight }));
     }
     setOpen(true);
+    // Solid 的 `setOpen(true)` 同步插入 Portal 子树，此刻面板已在 DOM 里，
+    // 立即复算 ⇒ 首帧就是真实尺寸下的位置，不存在"先飘一下再回来"。
+    reposition();
     // 有搜索框时聚焦，输入即过滤（不必先按一次键）
     queueMicrotask(() => searchEl?.focus());
   };
+
+  // 过滤词变化会改变面板高度（列表变短 / 空态），开着时随之复算，否则翻转态下会与触发器脱开
+  createEffect(() => {
+    if (!open()) return;
+    filtered();
+    reposition();
+  });
 
   const close = () => {
     if (!open()) return;
