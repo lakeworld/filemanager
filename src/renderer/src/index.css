@@ -17,8 +17,11 @@
 @layer base {
   html {
     /* v2.5.2（视觉升级，参考仓迹 ERP）：思源黑体（Noto Sans SC）中文字体优先，西文/数字保持 Inter 清晰度；
-       字重映射：正文 400、强调 500-600、标题/数字 700（fontsource 按 unicode-range 分片按需加载） */
-    font-family: "Noto Sans SC", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+       字重映射：正文 400、强调 500-600、标题/数字 700（fontsource 按 unicode-range 分片按需加载）
+       v2.5.8 补丁：队首的 "Qihe Emoji" 接管彩色 emoji 码位（unicode-range 锁死），队尾的
+       "Qihe Emoji Text" 只兜「默认文字呈现」那批（◀ ▶  ⚠  等）——放在 Arial 之后，
+       有系统字体的机器仍画黑色文字字形，一台都没有时才由随包补上，两种情况都不会出现 32768px 空字形 */
+    font-family: "Qihe Emoji", "Noto Sans SC", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Qihe Emoji Text", sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
