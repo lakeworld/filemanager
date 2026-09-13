@@ -16,7 +16,9 @@ function formatBytes(bytes: number): string {
 
 export default function Dashboard() {
   // v2.4.7 修复：统计卡随工作区切换刷新——resource 源键 = 当前工作区路径，切区即重新拉取
-  const [stats] = createResource(
+  // v2.5.8 D18（兼修 B6）：取出 refetch —— 预览里删掉「最近文件」某张后要能把这块刷新掉，
+  //   此前 openPreview 不传 onDelete，删完列表不动（点进去看到的还是那张已删的文件）
+  const [stats, { refetch: refetchStats }] = createResource(
     () => currentWorkspace()?.path,
     () => api.dashboard.stats() as Promise<{ success: boolean; data: DashboardStats | null; error: string }>
   );
@@ -131,7 +133,13 @@ export default function Dashboard() {
                 {(file) => (
                   <div
                     class="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-50 transition-colors cursor-pointer"
-                    onClick={() => void openPreview(file)}
+                    // v2.5.8 D18：带「最近文件」这一列的快照 + onDelete（兼修 B6：删完刷新这块）
+                    onClick={() =>
+                      void openPreview(file, {
+                        list: stats()?.data?.recent_files ?? [],
+                        onDelete: () => void refetchStats(),
+                      })
+                    }
                     title={`点击预览：${file.path}`}
                   >
                     <div class="w-10 h-10 rounded-lg bg-surface-100 flex items-center justify-center text-lg">

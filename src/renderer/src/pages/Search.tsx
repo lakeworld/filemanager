@@ -196,7 +196,8 @@ export default function Search() {
 
   const openFilePreview = (file: FileEntry) => {
     // v2.5.1（F3）：双击分流（other 类型 → 默认应用打开）
-    openFileSmart(file, { onDelete: () => doSearch(query()) });
+    // v2.5.8 D18：带搜索结果列表（results().files 即界面上那个文件网格的可见顺序）
+    openFileSmart(file, { onDelete: () => doSearch(query()), list: results().files });
   };
 
   return (
@@ -355,6 +356,8 @@ export default function Search() {
                   productSet: productSetFromFilePath(file.path),
                   editMetadata: true,
                   onDelete: () => doSearch(query()),
+                  // v2.5.8 D18：编辑信息入口同带搜索结果快照（与双击/预览同列）
+                  list: results().files,
                 }),
               onOpenDefault: (file) => void api.files.openWithDefaultApp(file.path),
               onCopy: handleCopy,

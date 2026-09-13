@@ -30,6 +30,9 @@ import {
   saveCurrentMetadata,
   deleteCurrentFile,
   openCurrentWithSystem,
+  navigatePreview,
+  canPreviewNavigate,
+  previewPosition,
 } from "~/stores/preview";
 
 function formatBytes(bytes: number): string {
@@ -96,12 +99,38 @@ export default function FilePreviewModal() {
     onCleanup(() => layer.remove());
   });
 
+  // v2.5.8 D18：方向键切上一张/下一张。**四守卫任一命中即放行默认行为**（PLAN §三 D2.2）——
+  // 少一条就会吃掉用户本该正常的按键：
+  //  ① `defaultPrevented`：层栈/其他弹层已消费（与 Esc 同一先例）；
+  //  ② 右键菜单 / 删除确认开着：那两层各自有自己的按键语义；
+  //  ③ 目标是输入类元素或 contenteditable：元数据面板的 Input/Textarea、TagInput、DatePicker、
+  //     PdfPreview 查找框、Crepe 编辑器（md 路由下方向键是**编辑器**的）——在里面打字不该翻页；
+  //  ④ 目标是 VIDEO：视频自带 ←/→ 调进度，抢过来等于把这条能力删了。
+  // 不可导航（未传列表 / 长度 1 / 快照过期）由 `navigatePreview` 自己静默返回，这里不重复判据。
+  const isNavEditableTarget = (el: EventTarget | null): boolean => {
+    const node = el as HTMLElement | null;
+    if (!node || typeof node.tagName !== "string") return false;
+    if (["INPUT", "TEXTAREA", "SELECT"].includes(node.tagName)) return true;
+    return node.isContentEditable === true; // Crepe 笔记编辑器走这条
+  };
+
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (e.defaultPrevented) return; // 层栈/其他弹出层已消费
-      if (contextMenu().show) return;
-      closePreview();
+      if (e.key === "Escape") {
+        if (e.defaultPrevented) return; // 层栈/其他弹出层已消费
+        if (contextMenu().show) return;
+        closePreview();
+        return;
+      }
+      // v2.5.8 D18：←/→ 在同列表快照内循环切换（拍板 #1 = 到头绕回）
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (!showPreview() || !previewFile()) return; // 预览没开着，不该管全站的方向键
+      if (e.defaultPrevented) return; // ①
+      if (contextMenu().show || confirmDelete() !== null) return; // ②
+      if (isNavEditableTarget(e.target)) return; // ③
+      if ((e.target as HTMLElement | null)?.tagName === "VIDEO") return; // ④
+      e.preventDefault(); // 命中即消费，避免冒泡到底层页面的方向键语义（列表滚动等）
+      void navigatePreview(e.key === "ArrowRight" ? 1 : -1);
     };
     window.addEventListener("keydown", onKey);
     onCleanup(() => window.removeEventListener("keydown", onKey));
@@ -185,7 +214,16 @@ export default function FilePreviewModal() {
           }}
         >
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold">{previewFile()?.name}</h3>
+            <div class="flex items-center gap-3 min-w-0">
+              {/* data-preview-title：e2e 稳定钩子（D18 导航用例断言「标题跟着换」，不靠文案位置定位） */}
+              <h3 class="text-lg font-semibold truncate" data-preview-title>{previewFile()?.name}</h3>
+              {/* v2.5.8 D18：位置指示 `i / N`（仅同列表快照有效时显示；tabular-nums 防跳字宽） */}
+              <Show when={canPreviewNavigate()}>
+                <span class="text-sm text-surface-400 tabular-nums whitespace-nowrap" data-navpos>
+                  {previewPosition()}
+                </span>
+              </Show>
+            </div>
             <div class="flex gap-2">
               <button class="btn-secondary text-sm" onClick={handleCopyFile}>
                 📋 复制文件
@@ -211,7 +249,28 @@ export default function FilePreviewModal() {
           </Show>
 
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div class={showMetadata() ? "lg:col-span-2" : "lg:col-span-3"}>
+            <div class={`${showMetadata() ? "lg:col-span-2" : "lg:col-span-3"} relative`}>
+              {/* v2.5.8 D18：同列表快照内的 ◀▶ 手动入口（与 ←/→ 同一判据、同一动作）。
+                  只在 `canPreviewNavigate()` 为真时出现 = 未传列表 / 只有一张 / 快照过期三种情况
+                  下弹窗与改造前逐字一致；形状档走 `.icon-btn`（AGENTS §二.8：缺能力走统一档，不手搓材质串）。 */}
+              <Show when={canPreviewNavigate()}>
+                <button
+                  class="icon-btn absolute left-2 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-white/80 hover:bg-white text-surface-600 shadow-md"
+                  aria-label="上一张"
+                  data-nav-prev
+                  onClick={() => void navigatePreview(-1)}
+                >
+                  ◀
+                </button>
+                <button
+                  class="icon-btn absolute right-2 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-white/80 hover:bg-white text-surface-600 shadow-md"
+                  aria-label="下一张"
+                  data-nav-next
+                  onClick={() => void navigatePreview(1)}
+                >
+                  ▶
+                </button>
+              </Show>
               {/* v2.5.1（F4）：MD 预览——previewUrl 为空不进下方 Show 分支，独立渲染（内部滚动）。
                   v2.5.7（A2 笔记）：改道为 NoteEditorModal（所见即所得编辑；MarkdownPreview 移除成死代码）。
                   保存契约：工作区内 md → writeText 相对路径（原子写 + 2MB 上限），编辑即保存；

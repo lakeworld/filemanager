@@ -53,14 +53,15 @@ export default function BatchIdentifyModal(props: {
 
   const remove = (p: string) => setSelected(selected().filter((f) => f.path !== p));
 
-  const preview = (f: FileEntry) => void openPreview(f);
+  // v2.5.8 D18：批量识别暂存区带已选清单快照 ⇒ 识别前可逐张翻看挑出来的这几张
+  const preview = (f: FileEntry) => void openPreview(f, { list: selected() });
 
   const menuItems = () => {
     const f = ctxMenu.payload();
     if (!f) return [];
     return buildFileContextMenuItems<FileEntry>({
       file: f,
-      onPreview: (file) => void openPreview(file),
+      onPreview: (file) => void openPreview(file, { list: selected() }),
       onOpenDefault: (file) => void api.files.openWithDefaultApp(file.path),
       onShowInExplorer: (paths) => void api.files.showFilesInExplorer(paths),
       onCopy: (paths) => void api.files.copyFilesToClipboard(paths),

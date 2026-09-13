@@ -482,7 +482,8 @@ export default function Images() {
                   contextMenu.open(e, paths);
                 }}
                 onClick={() => toggleSelection(img.path)}
-                onDblClick={() => openFileSmart(img, { onDelete: loadAllImages })}
+                // v2.5.8 D18：带当前可见列表快照（筛选/排序后的 filteredItems）→ 预览内可 ←/→ 连看
+                onDblClick={() => openFileSmart(img, { onDelete: loadAllImages, list: filteredItems() })}
               >
                 <div class="relative h-40 rounded-lg bg-surface-100 overflow-hidden">
                   <input
@@ -514,9 +515,15 @@ export default function Images() {
           items={buildFileContextMenuItems({
             file: items().find((i) => i.path === contextMenu.payload()?.[0]),
             paths: contextMenu.payload() ?? [],
-            onPreview: (img) => openPreview(img, { onDelete: loadAllImages }),
+            // v2.5.8 D18：右键预览同样带上可见列表，与双击口径一致（不传则弹窗没有 ◀▶）
+            onPreview: (img) => openPreview(img, { onDelete: loadAllImages, list: filteredItems() }),
             onEditInfo: (img) =>
-              openPreview(img, { productSet: img.productSet, editMetadata: true, onDelete: loadAllImages }),
+              openPreview(img, {
+                productSet: img.productSet,
+                editMetadata: true,
+                onDelete: loadAllImages,
+                list: filteredItems(),
+              }),
             onOpenDefault: (img) => void api.files.openWithDefaultApp(img.path),
             onCopy: handleCopy,
             onShowInExplorer: handleShowInExplorer,
