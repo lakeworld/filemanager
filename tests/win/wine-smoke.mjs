@@ -582,8 +582,30 @@ await step('仪表盘计数自洽', async () => {
 await step('剪贴板复制文件（PowerShell Set-Clipboard 通道）', async () => {
   const r = await call(page, async (p) => await window.qihebox.files.copyFilesToClipboard(p), [imgA])
   assert(r.success !== false, `copyFilesToClipboard 失败：${r.error}`)
-  return 'powershell.exe 通道在 wine 下可用'
+  // 口径写死到 spawn 层：wine 10.14 的 powershell.exe 是**空转 stub**（2026-09-13 实测：
+  // `-Command "Set-Content C:\x.txt"` 回 rc=0 但文件根本没写出来；同前缀下 cmd /c 能真写）
+  // ⇒ 本断言只证「命令能被 spawn 且退出码 0」，剪贴板里到底有没有 CF_HDROP 不可证 → W2 真机清单
+  return 'powershell.exe 可 spawn 且 rc=0（wine 无真 PowerShell，剪贴板内容本身不可证，见 W2 真机清单）'
 })
+
+// v2.5.8 D19 读侧（Ctrl+V 粘贴导入的前置通道）：powershell Get-Clipboard -Format FileDropList。
+// 2026-09-13 首跑实测：**读回 0 条**，根因不是代码——wine 10.14 的 powershell.exe 是空转 stub
+// （探针：`-Command "Set-Content C:\qhe-ps-probe.txt"` 回 rc=0 但文件没写出来；同前缀下 cmd /c 能真写）
+// ⇒ 本步按 soft 登记，真机验到「粘贴导入收得到外部复制的文件」后再改 'hard' 并注明日期。
+await step(
+  '剪贴板读回文件列表（PowerShell Get-Clipboard -Format FileDropList 通道）',
+  async () => {
+    const r = await call(page, async () => await window.qihebox.files.readClipboardFiles())
+    const got = r.data || []
+    assert(got.length > 0, '读回 0 条——非代码缺陷：wine 的 powershell.exe 是空转 stub（cmdlet 根本不执行），本步在 wine 下必然不可证，归 W2 真机清单')
+    assert(
+      got.some((p) => String(p).toLowerCase() === imgA.toLowerCase()),
+      `读回列表不含刚复制的那张：期望 ${imgA}，实际 ${JSON.stringify(got)}`,
+    )
+    return `读回 ${got.length} 条 · ${path.win32.basename(got[0])}`
+  },
+  'soft',
+)
 
 await step('资源管理器选中（弱断言：explorer.ts 超时也当成功）', async () => {
   const r = await call(page, async (p) => await window.qihebox.files.showFilesInExplorer(p), [imgA])
