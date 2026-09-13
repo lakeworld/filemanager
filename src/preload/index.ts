@@ -127,6 +127,8 @@ const api = {
     rename: (req: unknown) => invoke('qihebox:files:rename', req),
     move: (req: unknown) => invoke('qihebox:files:move', req),
     copyFilesToClipboard: (paths: string[]) => invoke('qihebox:files:copyFilesToClipboard', paths),
+    // v2.5.8 D19（B3）：读侧——粘贴导入取剪贴板里的文件列表（无文件回空数组）
+    readClipboardFiles: () => invoke('qihebox:files:readClipboardFiles'),
     showFilesInExplorer: (paths: string[]) => invoke('qihebox:files:showFilesInExplorer', paths),
     saveTextFile: (filePath: string, content: string) =>
       invoke('qihebox:files:saveTextFile', filePath, content),

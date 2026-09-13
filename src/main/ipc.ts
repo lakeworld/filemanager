@@ -14,7 +14,7 @@ import path from 'node:path'
 import fsp from 'node:fs/promises'
 import { BoxService } from './core'
 import { AccountService } from './account'
-import { copyFilesToClipboard } from './clipboard'
+import { copyFilesToClipboard, readClipboardFilePaths } from './clipboard'
 import { showFilesInExplorer } from './explorer'
 import { workspaceFileUrl, thumbnailFileUrl, externalFileUrl } from './protocol'
 import { checkUpdate, downloadUpdate, applyUpdate, getCachedUpdate, setCachedUpdate, UpdateInfo } from './updater'
@@ -423,6 +423,11 @@ export function registerIpc(
       return copyFilesToClipboard(paths)
     }),
   )
+  // v2.5.8 D19（体验批 B3）：读侧通道——「Ctrl+V 粘贴导入」取剪贴板里的文件列表。
+  // 与复制侧不同，这里**不做工作区校验**：读到的本来就是工作区**外**的任意文件（用户从
+  // 资源管理器/微信里复制过来的），能不能落地、落到哪由下游 `files:import` 自己把关。
+  // 无文件时回空数组（不是错误），渲染层据此静默不动作。
+  ipcMain.handle('qihebox:files:readClipboardFiles', () => handle(() => readClipboardFilePaths()))
   ipcMain.handle('qihebox:files:showFilesInExplorer', (_e, paths: string[]) =>
     handle(async () => {
       const ws = box.workspace.currentWorkspacePath()

@@ -5,6 +5,9 @@ import { currentWorkspace, workspaceConfig, loadWorkspaceConfig, productSets, lo
 import { loadTagDefs, tagList } from "~/stores/tags";
 import { openPreview, openFileSmart } from "~/stores/preview";
 import { showToast } from "~/stores/notifyBanner";
+// v2.5.8 D19（B1）：复制反馈统一（成功/失败都出声）
+import { copyFilesWithFeedback } from "~/utils/copyAction";
+import { useCopyShortcut } from "~/hooks/useCopyShortcut";
 import FileThumbnail from "~/components/FileThumbnail";
 import TagChips from "~/components/TagChips";
 import VirtualGrid from "~/components/VirtualGrid";
@@ -115,13 +118,13 @@ export default function Search() {
     }
   };
 
-  const handleCopy = async (paths: string[]) => {
-    if (paths.length === 0) return;
-    const result = await api.files.copyFilesToClipboard(paths);
-    if (!result.success) {
-      showToast("error", "复制失败", result.error ?? undefined);
-    }
+  // v2.5.8 D19（B1）：原先只有失败才报、成功静默（按了没反应只能再按一次）→ 统一走 copyFilesWithFeedback
+  const handleCopy = (paths: string[]): void => {
+    void copyFilesWithFeedback(api.files.copyFilesToClipboard, paths);
   };
+
+  // v2.5.8 D19（B2）：本页有选中态 ⇒ Ctrl+C 必须接管（此前只有文件浏览器有，搜索页按了没反应）
+  useCopyShortcut(selectedPaths, handleCopy);
 
   const handleShowInExplorer = async (paths: string[]) => {
     if (paths.length === 0) return;

@@ -8,6 +8,8 @@
 import { Show, For, createSignal, createEffect, onCleanup } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
 import { api } from "~/wails/api";
+// v2.5.8 D19（B1）：复制反馈统一（成功/失败都出声）
+import { copyFilesWithFeedback } from "~/utils/copyAction";
 import { fmtLocalTime } from "~/utils/datetime";
 import { currentWorkspace } from "~/stores/workspace";
 import { customers, loadCustomers } from "~/stores/clients";
@@ -113,7 +115,8 @@ export default function QuoteDetail() {
       onPreview: () => openPreview(d, { onDelete: () => void loadDocs(), list: docs() }),
       onOpenDefault: (f) => void api.files.openWithDefaultApp(f.path),
       onShowInExplorer: (paths) => void api.files.showFilesInExplorer(paths),
-      onCopy: (paths) => void api.files.copyFilesToClipboard(paths),
+      // v2.5.8 D19（B1）：右键「复制」原先 `void api.…` 成功失败全静默，改走统一反馈
+      onCopy: (paths) => void copyFilesWithFeedback(api.files.copyFilesToClipboard, paths),
       onDelete: () => void loadDocs(),
     });
   };

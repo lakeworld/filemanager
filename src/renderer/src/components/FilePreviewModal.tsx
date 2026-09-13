@@ -2,6 +2,10 @@ import { Show, Switch, Match, createSignal, createEffect, onMount, onCleanup, la
 import { api } from "~/wails/api";
 import { tagList } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
+// v2.5.8 D19（B1）：复制反馈文案单点（成功/失败都出声）
+import { COPY_ERROR_TITLE, copyFeedbackTitle } from "~/lib/copyFeedback";
+// v2.5.8 D19（B2③）：预览内的 Ctrl+C 注册口（守卫与让位规则住在 hook + lib，本文件只接线）
+import { registerPreviewCopyShortcut } from "~/hooks/useCopyShortcut";
 import PdfPreview from "~/components/PdfPreview";
 import { isMarkdownName } from "../../../shared/fileKind";
 import { currentWorkspace } from "~/stores/workspace";
@@ -155,12 +159,31 @@ export default function FilePreviewModal() {
     if (!file) return;
     const gen = currentPreviewGen();
     const result = await api.files.copyFilesToClipboard([file.path]);
+    // v2.5.8 D19（B1）：成功也要出声——原先只有失败才写错误条，用户按了没反应只能再按一次。
+    // 反馈面分两路是有意的：成功走全局 toast（与全站复制口径同一句文案），
+    // 失败仍写弹窗内错误条（就地提示、且受下面的代际约束）。
+    if (result.success) {
+      showToast("success", copyFeedbackTitle(1));
+      return;
+    }
     // v2.5.3（T7）O1：复制为异步 IPC——期间已关闭/切换预览时，
     // 失败文案不得写进新预览（代际不一致直接丢弃）
-    if (!result.success && gen === currentPreviewGen()) {
-      setPreviewError(result.error || "复制失败");
+    if (gen === currentPreviewGen()) {
+      setPreviewError(result.error || COPY_ERROR_TITLE);
     }
   };
+
+  /**
+   * v2.5.8 D19（体验批 B2 ③）：预览开着时按 Ctrl+C，复制的必须是**正在预览的这一张**。
+   * 收编前的缺陷：本组件常驻挂载（`App.tsx:319`）但没有注册 Ctrl+C，而底层页面在弹窗下保持挂载、
+   * 它的监听还活着 ⇒ 在预览里按 Ctrl+C 拿到的是「列表里选中的那几个文件」，不是眼前这张。
+   * 现在两侧各让一半：底层页面的守卫见 `lib/copyShortcut.ts` 规则 1（预览开 → 交棒），
+   * 这里则沿用同一条 A1 正文选区守卫——在预览里选中元数据文字后按 Ctrl+C，仍是复制文本。
+   */
+  onMount(() => {
+    const off = registerPreviewCopyShortcut(() => void handleCopyFile());
+    onCleanup(off);
+  });
 
   // v2.4.7：预览内删除补确认（此前是全应用唯一无确认删除入口）+ 失败提示——
   // 与 FileBrowserView 一致，删除即移入回收站，可在回收站恢复

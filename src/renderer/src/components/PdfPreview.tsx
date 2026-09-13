@@ -182,6 +182,22 @@ export default function PdfPreview(props: PdfPreviewProps) {
   const searchNext = () => searchText() && doSearch(searchText(), false);
   const searchPrev = () => searchText() && doSearch(searchText(), true);
 
+  /**
+   * v2.5.8 D19（B11）：页码跳转。`HELP.md` §八 一直写着 PDF「可跳页」，但工具条此前只有
+   * 逐页翻——500 页的说明书要点 500 次，属「文档与行为不符」（同批 B1 同一毛病）。
+   * 口径：非法输入（空/非数字）不动作；越界夹到首/末页（与 pdf.js `currentPageNumber`
+   * 自身越界抛错的行为区别开，宁可跳到头也不弹错误）。
+   */
+  const [jumpText, setJumpText] = createSignal("");
+  const jumpToPage = (): void => {
+    const raw = jumpText().trim();
+    if (!raw || !viewer) return;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    viewer.currentPageNumber = Math.min(numPages(), Math.max(1, Math.round(n)));
+    setJumpText("");
+  };
+
   return (
     <div class="flex flex-col w-full h-full min-h-0">
       {/* 工具条 */}
@@ -195,6 +211,26 @@ export default function PdfPreview(props: PdfPreviewProps) {
         <button class="btn-secondary px-2 py-1 text-xs" onClick={goNext} disabled={!numPages() || pageNum() >= numPages()}>
           下一页 →
         </button>
+        {/* v2.5.8 D19（B11）：页码跳转输入（用 ui/Input 走统一形状档，不新手写 input ⇒ 样式债不增）。
+            定位靠 `id`：底座没有未知属性透传面，写 `data-*` 会被静默吞掉（同 D9 那批 `aria-label` 被吞的坑）。
+            无可见 label ⇒ 按 T4 规范补 aria-label。 */}
+        <Input
+          compact
+          id="pdf-page-jump"
+          ariaLabel="跳转到指定页"
+          class="w-16 text-xs"
+          inputMode="numeric"
+          placeholder="页码"
+          title="输入页码后回车跳转"
+          value={jumpText()}
+          onInput={(e) => setJumpText(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              jumpToPage();
+            }
+          }}
+        />
         <span class="w-px h-4 bg-surface-200 mx-1" />
         <button class="btn-secondary px-2 py-1 text-xs" onClick={zoomOut} title="缩小">−</button>
         <button class="btn-secondary px-2 py-1 text-xs" onClick={fitPage} title="适配页面">{zoom()}%</button>

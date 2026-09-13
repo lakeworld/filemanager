@@ -2,6 +2,8 @@ import { Show, createSignal, onMount, onCleanup } from "solid-js";
 import Modal from "~/components/ui/Modal";
 import { api } from "~/wails/api";
 import { showToast } from "~/stores/notifyBanner";
+// v2.5.8 D19（B1）：复制反馈统一（成功/失败都出声）
+import { copyFilesWithFeedback } from "~/utils/copyAction";
 import type { ArchiveEventPayload, ArchiveProgress, ArchiveResult } from "~/types";
 
 type ArchivePhase = "compress" | "extract";
@@ -130,12 +132,8 @@ export default function ArchiveProgressDialog(props: { token: string; onClose: (
   const handleCopy = async () => {
     const r = result();
     if (!r) return;
-    const res = await api.files.copyFilesToClipboard([r.path]);
-    if (res.success) {
-      showToast("success", "已复制到剪贴板");
-    } else {
-      showToast("error", "复制失败", res.error || "未知错误");
-    }
+    // v2.5.8 D19（B1）：文案并入全站统一口径（原「已复制到剪贴板」不带数量，与其余 12 处不一致）
+    await copyFilesWithFeedback(api.files.copyFilesToClipboard, [r.path]);
   };
 
   return (

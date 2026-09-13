@@ -11,6 +11,9 @@ import {
 import { openPreview, openFileSmart } from "~/stores/preview";
 import { tagLabel } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
+// v2.5.8 D19（B1）：复制反馈统一（成功/失败都出声）
+import { copyFilesWithFeedback } from "~/utils/copyAction";
+import { useCopyShortcut } from "~/hooks/useCopyShortcut";
 import FileThumbnail from "~/components/FileThumbnail";
 import TagChips from "~/components/TagChips";
 import SearchSelect from "~/components/ui/SearchSelect";
@@ -61,7 +64,6 @@ export default function Images() {
   const [subFolderFilter, setSubFolderFilter] = createSignal<string>("");
   const [sortBy, setSortBy] = createSignal<"modified" | "name" | "size">("modified");
   const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
-  const [actionMessage, setActionMessage] = createSignal("");
   const contextMenu = useContextMenu<string[]>();
 
   const [movePaths, setMovePaths] = createSignal<string[] | null>(null);
@@ -71,15 +73,7 @@ export default function Images() {
   // v2.4.7：删除确认弹窗状态（替代 window.confirm）
   const [confirmDelete, setConfirmDelete] = createSignal<string[] | null>(null);
 
-  // v2.4.7（PERF-SOP §四）：setTimeout 存句柄 + onCleanup 清理——防卸载后 setActionMessage 触碰已销毁组件
-  let actionMessageTimer: number | undefined;
-  const showActionMessage = (msg: string) => {
-    setActionMessage(msg);
-    window.clearTimeout(actionMessageTimer);
-    actionMessageTimer = window.setTimeout(() => setActionMessage(""), 2000);
-  };
-
-  onCleanup(() => window.clearTimeout(actionMessageTimer));
+  // v2.5.8 D19（B1）：复制改走全局 toast，本页这条 2s 内联条（含 setActionMessage/onCleanup）随之下线
 
   // —— 虚拟滚动由 VirtualGrid 承担：只渲染可见行，滚出即卸载（替代旧 slice+哨兵分批）——
   // 卡片固定行高（图 160px + 文本区），行高常量与卡片 CSS 保持一致
@@ -226,15 +220,14 @@ export default function Images() {
 
   const clearSelection = () => setSelectedPaths([]);
 
-  const handleCopy = async (paths: string[]) => {
-    if (paths.length === 0) return;
-    const result = await api.files.copyFilesToClipboard(paths);
-    if (result.success) {
-      showActionMessage(`已复制 ${paths.length} 个文件到剪贴板`);
-    } else {
-      showToast("error", "复制失败", result.error || "未知错误");
-    }
+  // v2.5.8 D19（B1）：成功/失败统一走全局 toast（原先成功只点亮本页 2s 内联条，
+  // 而内联条挂在 `ui/SelectionBar` 上——右键单选时没有选区条，反馈等于不存在）
+  const handleCopy = (paths: string[]): void => {
+    void copyFilesWithFeedback(api.files.copyFilesToClipboard, paths);
   };
+
+  // v2.5.8 D19（B2）：本页有选中态 ⇒ Ctrl+C 必须接管（此前只有文件浏览器有，图包库按了没反应）
+  useCopyShortcut(selectedPaths, handleCopy);
 
   const handleShowInExplorer = async (paths: string[]) => {
     if (paths.length === 0) return;
@@ -430,7 +423,6 @@ export default function Images() {
       <SelectionBar
         count={selectedCount()}
         noun="个文件"
-        message={actionMessage()}
         onClear={clearSelection}
         onSelectAll={selectAllVisible}
         onDelete={() => handleDelete(selectedPaths())}

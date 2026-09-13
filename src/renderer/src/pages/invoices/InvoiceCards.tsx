@@ -7,6 +7,8 @@ import type { ContextMenuItem } from "~/components/ContextMenu";
 import { useContextMenu } from "~/hooks/useContextMenu";
 import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import { api } from "~/wails/api";
+// v2.5.8 D19（B1）：复制反馈统一（成功/失败都出声）
+import { copyFilesWithFeedback } from "~/utils/copyAction";
 import { currentWorkspace } from "~/stores/workspace";
 import { STATUSES, statusChipClass, fmtMoney, isDueSoon, baseNameOf } from "./utils";
 import type { InvoiceRecord, InvoiceStatus } from "./types";
@@ -66,7 +68,8 @@ export default function InvoiceCards(props: {
             onPreview: () => props.onPreview(rec),
             onOpenDefault: (f) => void api.files.openWithDefaultApp(f.path),
             onShowInExplorer: (paths) => void api.files.showFilesInExplorer(paths),
-            onCopy: (paths) => void api.files.copyFilesToClipboard(paths),
+            // v2.5.8 D19（B1）：右键「复制」原先 `void api.…` 成功失败全静默，改走统一反馈
+            onCopy: (paths) => void copyFilesWithFeedback(api.files.copyFilesToClipboard, paths),
           }),
         );
       }

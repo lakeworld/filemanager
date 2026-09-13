@@ -10,6 +10,9 @@ import { customers, loadCustomers } from "~/stores/clients";
 import { suppliers, loadSuppliers } from "~/stores/suppliers";
 import { openFileSmart } from "~/stores/preview";
 import { showToast } from "~/stores/notifyBanner";
+// v2.5.8 D19（B1）：复制反馈统一（成功/失败都出声）
+import { COPY_NOUN, copyFilesWithFeedback } from "~/utils/copyAction";
+import { useCopyShortcut } from "~/hooks/useCopyShortcut";
 import VirtualGrid from "~/components/VirtualGrid";
 import ContextMenu from "~/components/ContextMenu";
 import ConfirmDialog from "~/components/ConfirmDialog";
@@ -101,7 +104,6 @@ export default function Notes() {
   const [tagFilter, setTagFilter] = createSignal("");
   const [sortBy, setSortBy] = createSignal<"modified" | "title" | "size">("modified");
   const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
-  const [actionMessage, setActionMessage] = createSignal("");
   const [truncated, setTruncated] = createSignal(false);
   const contextMenu = useContextMenu<string[]>();
 
@@ -117,13 +119,6 @@ export default function Notes() {
   const [batchTagState, setBatchTagState] = createSignal<{ paths: string[]; commonTags: string[] } | null>(null);
   const [confirmDelete, setConfirmDelete] = createSignal<NoteEntryInfo[] | null>(null);
 
-  let actionMessageTimer: number | undefined;
-  const showActionMessage = (msg: string) => {
-    setActionMessage(msg);
-    window.clearTimeout(actionMessageTimer);
-    actionMessageTimer = window.setTimeout(() => setActionMessage(""), 2000);
-  };
-  onCleanup(() => window.clearTimeout(actionMessageTimer));
   onCleanup(() => {
     noteLoadSeq++;
   });
@@ -277,12 +272,14 @@ export default function Notes() {
     );
   };
 
-  const handleCopy = async (paths: string[]) => {
-    if (paths.length === 0) return;
-    const r = await api.files.copyFilesToClipboard(paths);
-    if (r.success) showActionMessage(`已复制 ${paths.length} 篇笔记到剪贴板`);
-    else showToast("error", "复制失败", r.error || "未知错误");
+  // v2.5.8 D19（B1）：复制反馈口径统一到全局 toast（原先成功走本页 2s 内联条，
+  // 而内联条挂在 ui/SelectionBar 上、只有选中时才存在 ⇒ 右键单选复制看不见反馈）
+  const handleCopy = (paths: string[]): void => {
+    void copyFilesWithFeedback(api.files.copyFilesToClipboard, paths, COPY_NOUN.note);
   };
+
+  // v2.5.8 D19（B2）：本页有选中态 ⇒ Ctrl+C 必须接管（此前只有文件浏览器有，笔记库按了没反应）
+  useCopyShortcut(selectedPaths, handleCopy);
 
   const handleShowInExplorer = async (paths: string[]) => {
     if (paths.length === 0) return;
@@ -499,7 +496,6 @@ export default function Notes() {
       <SelectionBar
         count={selectedCount()}
         noun="篇笔记"
-        message={actionMessage()}
         onClear={clearSelection}
         onSelectAll={selectAllVisible}
         onDelete={() => handleDelete(selectedPaths())}

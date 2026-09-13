@@ -17,7 +17,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 /** spawn 调用捕获（模块 mock 需在 import 前声明 ⇒ vi.hoisted） */
 const h = vi.hoisted(() => {
   const calls: Array<{ cmd: string; args: string[]; opts: unknown }> = []
-  const state = { exitCode: 0, emitError: false }
+  // `stdout` = 被测进程的标准输出内容（读剪贴板分支要用；其余用例留空串，行为与改造前一致）
+  const state = { exitCode: 0, emitError: false, stdout: '' }
   return { calls, state }
 })
 
@@ -28,6 +29,13 @@ vi.mock('node:child_process', () => ({
       unref: () => {},
       kill: () => {},
       stdin: { end: () => {} },
+      // 读侧（`runCapture`）要拿 stdout：`setEncoding` 空实现 + 有内容时在 exit 之前吐一次 data
+      stdout: {
+        setEncoding: () => {},
+        on: (ev: string, cb: (arg?: unknown) => void) => {
+          if (ev === 'data' && h.state.stdout) setTimeout(() => cb(h.state.stdout), 0)
+        },
+      },
       on: (ev: string, cb: (arg?: unknown) => void) => {
         if (ev === 'error' && h.state.emitError) {
           setTimeout(() => cb(new Error('ENOENT')), 0)
@@ -44,17 +52,18 @@ vi.mock('node:child_process', () => ({
   },
 }))
 
-const { showItemInFolder, openPath } = vi.hoisted(() => ({
+const { showItemInFolder, openPath, readBuffer } = vi.hoisted(() => ({
   showItemInFolder: vi.fn(),
   openPath: vi.fn(() => Promise.resolve('')),
+  readBuffer: vi.fn(() => Buffer.alloc(0)),
 }))
 vi.mock('electron', () => ({
   shell: { showItemInFolder, openPath, openExternal: vi.fn() },
-  clipboard: { writeBuffer: vi.fn(), readBuffer: vi.fn(() => Buffer.alloc(0)) },
+  clipboard: { writeBuffer: vi.fn(), readBuffer },
 }))
 
 import { showFilesInExplorer } from '../../src/main/explorer'
-import { buildCFHDropBuffer, copyFilesToClipboard } from '../../src/main/clipboard'
+import { buildCFHDropBuffer, copyFilesToClipboard, readClipboardFilePaths } from '../../src/main/clipboard'
 import { openFileWithDefaultApp } from '../../src/main/open'
 
 /** 宿主平台替身：三个被测模块都在调用时读 process.platform，故按用例切换即可 */
@@ -67,9 +76,12 @@ beforeEach(() => {
   h.calls.length = 0
   h.state.exitCode = 0
   h.state.emitError = false
+  h.state.stdout = ''
   showItemInFolder.mockClear()
   openPath.mockClear()
   openPath.mockResolvedValue('')
+  readBuffer.mockClear()
+  readBuffer.mockImplementation(() => Buffer.alloc(0))
   delete process.env.QIHEBOX_E2E
 })
 
@@ -198,6 +210,57 @@ describe('clipboard.ts Windows 分支：Set-Clipboard -LiteralPath（-EncodedCom
   })
 })
 
+/**
+ * 读侧（v2.5.8 D19 / 体验批 B3「Ctrl+V 粘贴导入」）。
+ * 工具链与上面的写侧严格镜像：Win 走 PowerShell（写 Set-Clipboard / 读 Get-Clipboard），
+ * Linux 走 xclip → xsel → wl-paste → Electron。这几条分支在 Linux 宿主上永不执行，
+ * 所以按 W0 的约定在这里钉「调什么命令、参数怎么拼、失败怎么降级」。
+ */
+describe('clipboard.ts 读侧 Windows 分支：Get-Clipboard -Format FileDropList', () => {
+  beforeEach(() => usePlatform('win32'))
+
+  it('一次 powershell.exe 调用；脚本取 FileDropList 并把输出编码钉成 UTF-8', async () => {
+    h.state.stdout = 'C:\\ws\\a.jpg\nC:\\ws\\b.jpg\n'
+    const paths = await readClipboardFilePaths()
+    expect(h.calls).toHaveLength(1)
+    const { cmd, args, opts } = h.calls[0]
+    expect(cmd).toBe('powershell.exe')
+    expect(args.slice(0, 3)).toEqual(['-NoProfile', '-NonInteractive', '-EncodedCommand'])
+    // 与写侧唯一的形状差异：读侧必须把 stdout 接成管道（写侧是 stdio: 'ignore'）
+    expect(opts).toEqual({ stdio: ['ignore', 'pipe', 'ignore'] })
+    const script = decodedScript(args)
+    expect(script).toContain('Get-Clipboard -Format FileDropList')
+    // 不设 OutputEncoding，中文文件名会被 PowerShell 按控制台代码页转义成 '?' ⇒ 拿到一串坏路径
+    expect(script).toContain('[Console]::OutputEncoding')
+    expect(paths).toEqual(['C:\\ws\\a.jpg', 'C:\\ws\\b.jpg'])
+  })
+
+  it('中文路径原样回来（PowerShell 输出按 UTF-8 解码）', async () => {
+    h.state.stdout = 'C:\\ws\\图包\\主图\\产品 图.jpg\n'
+    expect(await readClipboardFilePaths()).toEqual(['C:\\ws\\图包\\主图\\产品 图.jpg'])
+  })
+
+  it('剪贴板里没有文件（stdout 空）→ 空数组，不算错误（渲染层据此静默不动作）', async () => {
+    h.state.stdout = '\n  \n'
+    expect(await readClipboardFilePaths()).toEqual([])
+  })
+
+  it('相对路径条目丢弃、重复条目去重（拼接目标位置不能靠猜）', async () => {
+    h.state.stdout = 'a.png\nC:\\ws\\a.png\nC:\\ws\\a.png\n'
+    expect(await readClipboardFilePaths()).toEqual(['C:\\ws\\a.png'])
+  })
+
+  it('PowerShell 非零退出 → 明确报错（不能把"读挂了"糊成"剪贴板是空的"）', async () => {
+    h.state.exitCode = 1
+    await expect(readClipboardFilePaths()).rejects.toThrow(/PowerShell 退出码 1/)
+  })
+
+  it('PowerShell 不存在（spawn error）→ 报错带原因', async () => {
+    h.state.emitError = true
+    await expect(readClipboardFilePaths()).rejects.toThrow(/PowerShell 不可用/)
+  })
+})
+
 describe('open.ts Windows 分支：shell.openPath 的 resolve/reject 与 e2e 短路', () => {
   beforeEach(() => usePlatform('win32'))
 
@@ -241,5 +304,34 @@ describe('非 Windows 宿主不得走进 win32 分支（防平台判定被改反
     usePlatform('linux')
     await copyFilesToClipboard(['/ws/a.jpg']).catch(() => undefined)
     expect(h.calls.some((c) => c.cmd === 'powershell.exe')).toBe(false)
+  })
+
+  it('linux：读侧按 xclip → xsel → wl-paste 的顺序试，且不碰 PowerShell', async () => {
+    usePlatform('linux')
+    h.state.exitCode = 1 // 三个工具都不可用 → 全部试过才回退
+    await readClipboardFilePaths()
+    expect(h.calls.map((c) => c.cmd)).toEqual(['xclip', 'xsel', 'wl-paste'])
+    expect(h.calls.some((c) => c.cmd === 'powershell.exe')).toBe(false)
+  })
+
+  it('linux：xclip 一上来就成功即止（不多调两个工具），参数是 text/uri-list 读法', async () => {
+    usePlatform('linux')
+    h.state.stdout = 'file:///ws/a.jpg\n'
+    expect(await readClipboardFilePaths()).toEqual(['/ws/a.jpg'])
+    expect(h.calls).toHaveLength(1)
+    expect(h.calls[0].args).toEqual(['-selection', 'clipboard', '-t', 'text/uri-list', '-o'])
+  })
+
+  it('linux：三个工具都不在 → 回退 Electron readBuffer（与写侧的 fallbackWrite 镜像）', async () => {
+    usePlatform('linux')
+    h.state.emitError = true
+    readBuffer.mockReturnValueOnce(Buffer.from('file:///ws/%E4%B8%BB%E5%9B%BE/a.png\n', 'utf-8'))
+    expect(await readClipboardFilePaths()).toEqual(['/ws/主图/a.png'])
+  })
+
+  it('linux：连 Electron 也读不到东西 → 空数组而不是报错（"没有文件"与"读取失败"是两件事）', async () => {
+    usePlatform('linux')
+    h.state.emitError = true
+    expect(await readClipboardFilePaths()).toEqual([])
   })
 })

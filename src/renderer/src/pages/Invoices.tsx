@@ -74,6 +74,10 @@ import Loading from "~/components/Loading";
 import type { InvoiceRecord, InboundRecord, FileEntry, OrphanReport } from "~/types";
 import type { InvoiceFormState, InboundFormState } from "./invoices/types";
 import SelectionBar from "~/components/ui/SelectionBar";
+// v2.5.8 D19（B1/B2）：复制反馈统一 + 台账复制面（批量条按钮与 Ctrl+C 共用一份换算）
+import { copyFilesWithFeedback, copyLedgerFiles } from "~/utils/copyAction";
+import { ledgerCopyPaths } from "~/lib/copyShortcut";
+import { useCopyShortcut } from "~/hooks/useCopyShortcut";
 
 // —— 本地类型（镜像 core 请求类型；wails/api.ts 门面类型落位后可由 ~/types 导入替代）——
 
@@ -768,6 +772,38 @@ export default function Invoices() {
     const entry = fileEntryOf(rec.file_path);
     if (entry) openPreview(entry, { onDelete: () => void loadInbound(), list: navList(filteredInbound()) });
   };
+
+  /**
+   * v2.5.8 D19（体验批 B2）：台账的复制面。此前发票/入库的批量条上有「改状态 / 导出 / 删除」，
+   * 唯独没有复制 ⇒ 要拿十张发票的 PDF 去报销，只能一张一张右键；Ctrl+C 在这两页也毫无反应。
+   * 按钮与 Ctrl+C 共用同一份「选中行 → 绝对路径」换算：台账存的是工作区相对路径，
+   * 剪贴板要的是绝对路径，而「有记录但文件已不在盘上」的行必须剔除
+   * （`fileEntryOf` 对缺失文件返回 null；空串混进批量里会让整批复制失败）。
+   */
+  const invoiceCopyRows = () => {
+    const ids = effectiveSelectedInvoices();
+    return invoices().filter((r) => ids.includes(r.number));
+  };
+  const inboundCopyRows = () => {
+    const ids = effectiveSelectedInbound();
+    return inboundRecords().filter((r) => ids.includes(r.id));
+  };
+  const ledgerCopyPath = (r: { file_path: string }): string | undefined =>
+    fileEntryOf(r.file_path)?.path ?? undefined;
+  const copySelectedInvoiceFiles = (): void => {
+    void copyLedgerFiles(api.files.copyFilesToClipboard, invoiceCopyRows(), ledgerCopyPath);
+  };
+  const copySelectedInboundFiles = (): void => {
+    void copyLedgerFiles(api.files.copyFilesToClipboard, inboundCopyRows(), ledgerCopyPath);
+  };
+  // 发票/入库两个页签的选中态互斥（各自按可见 id 过滤），拼一起即为「本页当前该复制的文件」
+  useCopyShortcut(
+    () => [
+      ...ledgerCopyPaths(invoiceCopyRows(), ledgerCopyPath),
+      ...ledgerCopyPaths(inboundCopyRows(), ledgerCopyPath),
+    ],
+    (paths) => void copyFilesWithFeedback(api.files.copyFilesToClipboard, paths),
+  );
   /**
    * @param list 该入口所属的可见列表快照（孤儿视图传，编辑器内「附件」单文件不传）
    *   —— 不传 = 弹窗无 ◀▶ 与位置指示，与改造前逐字一致。
@@ -1371,6 +1407,8 @@ export default function Invoices() {
                   onDelete={() => setBatchDeleteTarget("invoice")}
                   actions={[
                     { label: "全选可见", onClick: selectAllVisibleInvoices },
+                    // v2.5.8 D19（B2②）：批量条补复制（选中行的归档文件进系统剪贴板）
+                    { label: "📋 复制", tone: "primary", title: "复制选中发票的归档文件到剪贴板", onClick: copySelectedInvoiceFiles },
                     {
                       label: `批量改状态（${batchTargetStatus()}）`,
                       title: "待报销 ↔ 已报销",
@@ -1480,6 +1518,8 @@ export default function Invoices() {
                   onDelete={() => setBatchDeleteTarget("inbound")}
                   actions={[
                     { label: "全选可见", onClick: selectAllVisibleInbound },
+                    // v2.5.8 D19（B2②）：批量条补复制（与发票页同口径，选中行的归档文件进系统剪贴板）
+                    { label: "📋 复制", tone: "primary", title: "复制选中入库单的归档文件到剪贴板", onClick: copySelectedInboundFiles },
                     { label: "🗑️ 批量删除", tone: "danger", onClick: () => setBatchDeleteTarget("inbound") },
                   ]}
                 />

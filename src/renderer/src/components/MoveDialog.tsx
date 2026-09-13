@@ -34,6 +34,20 @@ export default function MoveDialog(props: {
   const imageFolders = () => workspaceConfig()?.image_subfolders || ["主图", "详情页", "白底图", "素材"];
   const certFolders = () => workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"];
 
+  /**
+   * v2.5.8 D19（体验批 B9）：打开对话框即默认选中**当前类型的首个子文件夹**。
+   * 原状态是 `subFolder("")` 且只在点类型 toggle 时才 `setSubFolder(首个)` ⇒
+   * 「图包」是默认类型但 chips 无高亮，「移动」按钮灰着且不说明原因，每次都要多点一下。
+   * 用 effect 而不是把初值写成 `imageFolders()[0]`：`workspaceConfig()` 是异步加载的，
+   * 初值求值时配置常常还没到，只会拿到兜底数组甚至空 ⇒ 依然灰按钮。
+   * 用户手选过（subFolder 非空）就不插手；切换类型的既有行为（按类型重置为首个）一字未动。
+   */
+  createEffect(() => {
+    if (subFolder()) return;
+    const first = (targetType() === "image" ? imageFolders() : certFolders())[0];
+    if (first) setSubFolder(first);
+  });
+
   // 收尾轮：Esc 关闭（移动进行中不允许，只能等待完成）
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {

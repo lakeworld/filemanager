@@ -198,6 +198,8 @@ export const api = {
     move: (req: MoveFilesRequest) => qb.files.move(req as any) as Promise<ApiResult<BatchMoveResult>>,
     copyFilesToClipboard: (paths: string[]) =>
       qb.files.copyFilesToClipboard(paths) as Promise<ApiResult<boolean>>,
+    // v2.5.8 D19（B3）：读剪贴板里的文件绝对路径（粘贴导入用）。无文件时 success=true + data: []
+    readClipboardFiles: () => qb.files.readClipboardFiles() as Promise<ApiResult<string[]>>,
     copyPaths: (paths: string[]) => qb.files.copyPaths(paths) as Promise<ApiResult<boolean>>,
     showFilesInExplorer: (paths: string[]) =>
       qb.files.showFilesInExplorer(paths) as Promise<ApiResult<boolean>>,

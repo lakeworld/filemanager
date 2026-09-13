@@ -2,6 +2,7 @@ import { Show, createSignal, createEffect, For, onMount, onCleanup } from "solid
 import { useNavigate } from "@solidjs/router";
 import { api } from "~/wails/api";
 import { registerShortcut } from "~/shortcuts";
+import { pushLayer } from "~/components/ui/layerStack";
 import {
   currentWorkspace,
   workspaces,
@@ -15,6 +16,29 @@ export default function Header() {
   const navigate = useNavigate();
   const [showWorkspaceMenu, setShowWorkspaceMenu] = createSignal(false);
   const [searchQuery, setSearchQuery] = createSignal("");
+  /** v2.5.8 D19（B8）：工作区菜单容器（点外部关闭的判定根） */
+  let workspaceMenuRef: HTMLDivElement | undefined;
+
+  /**
+   * v2.5.8 D19（B8）：工作区下拉菜单**点外部收起 + Esc 收起**。
+   * 此前全仓只有这一层弹出层没有外部点击关闭（`ContextMenu:64-74`、`TagInput:196-213`、
+   * `DatePicker`、`SearchSelect` 都有），开开后只能再点触发钮收起。
+   * Esc 走 `ui/layerStack` 的 `pushLayer` 而**不是自己加 keydown 监听**：
+   * 全站快捷键派发单点由 `tests/unit/shortcuts.test.ts:124` 钉成常量 14，
+   * 且弹层让位次序本来就是层栈的语义（后开先关），自己挂监听等于再造第二套。
+   */
+  createEffect(() => {
+    if (!showWorkspaceMenu()) return;
+    const layer = pushLayer({ onEscape: () => setShowWorkspaceMenu(false) });
+    const onDown = (e: MouseEvent): void => {
+      if (workspaceMenuRef && !workspaceMenuRef.contains(e.target as Node)) setShowWorkspaceMenu(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    onCleanup(() => {
+      layer.remove();
+      window.removeEventListener("mousedown", onDown);
+    });
+  });
   const [appVersion, setAppVersion] = createSignal("");
 
   onMount(async () => {
@@ -98,7 +122,7 @@ export default function Header() {
         </span>
       </Show>
 
-      <div class="relative" style={{ "-webkit-app-region": "no-drag" }}>
+      <div class="relative" ref={workspaceMenuRef} style={{ "-webkit-app-region": "no-drag" }}>
         {/* v2.5.8 D14（样式统一）：下拉触发钮挂 .link-btn 走统一节奏（过渡/禁用态），
             尺寸与描边材质（px-3 py-2 rounded-lg border）按「不改观感」原样留在调用点 */}
         <button
