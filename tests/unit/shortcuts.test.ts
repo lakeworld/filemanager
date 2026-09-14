@@ -212,8 +212,9 @@ describe('弹窗开着时的按键归属（v2.5.9）', () => {
     })
     pushLayer({ modal: true })
 
-    const { e } = fakeKey('c')
-    e.ctrlKey = true
+    // Ctrl 必须由 fakeKey 造出来：`ctrlKey` 在 KeyboardEvent 上是只读访问器，
+    // 事后赋值会被 tsc 拦（CI 的 `tsc -p tsconfig.node.json` 覆盖 tests/**，实测报 TS2540）
+    const { e } = fakeKey('c', { ctrl: true })
     dispatchShortcut(e)
     expect(hit, '预览自己的 Ctrl+C 被一起挡掉 = 回退 v2.5.8 D19 B2③；页面版仍在跑 = 原缺陷没修').toEqual(['modal'])
   })
