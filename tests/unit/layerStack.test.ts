@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearStackForTest,
   dispatchEscapeForTest,
+  hasModalLayer,
   isTop,
   pushLayer,
   topLayerId,
@@ -114,5 +115,20 @@ describe("Esc 只派栈顶（v2.5.8 D10/D11 消费顺序：弹出层 > 弹窗 > 
   it("空栈按 Esc：不消费也不抛（键原样放行给页面/浏览器）", () => {
     const { prevented } = dispatchEscapeForTest();
     expect(prevented).toBe(false);
+  });
+
+  it("hasModalLayer 只认弹窗级层：lowest 浮条与面板层都不算（v2.5.9 页面快捷键的让位判据）", () => {
+    expect(hasModalLayer(), "空栈就该判否，否则首屏所有页面快捷键全哑").toBe(false);
+    const bar = pushLayer({ lowest: true }); // ui/SelectionBar 底部浮条
+    const panel = pushLayer({}); // DatePicker / TagInput / SearchSelect / ContextMenu
+    const cut = pushLayer({}); // FileBrowserView 的「Esc 撤销剪切标记」层——非弹窗，绝不能算
+    expect(hasModalLayer(), "浮条与面板层被当成弹窗 ⇒ Ctrl+X→换目录→Ctrl+V 这类主路径会被扳死").toBe(false);
+    const modal = pushLayer({ modal: true });
+    expect(hasModalLayer()).toBe(true);
+    modal.remove();
+    expect(hasModalLayer(), "关掉一层后必须恢复：让位不能靠注销页面处理器，也不能残留").toBe(false);
+    bar.remove();
+    panel.remove();
+    cut.remove();
   });
 });

@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   SHORTCUTS,
+  dispatchShortcut,
   findShortcut,
   hasHandler,
   isTextTarget,
@@ -10,6 +11,7 @@ import {
   registerShortcut,
   resetShortcutsForTest,
 } from '../../src/renderer/src/shortcuts'
+import { clearStackForTest, pushLayer } from '../../src/renderer/src/components/ui/layerStack'
 
 /**
  * v2.5.8 D11（W6 快捷键单注册点）纯逻辑单测。
@@ -135,5 +137,129 @@ describe('快捷键单注册点门禁（v2.5.8 D11 / W6）', () => {
       `keydown 监听数量变了。当前豁免清单见 shortcuts.ts 文件头（1 保留 + 12 豁免）；` +
         `新增必须同时改本基线并在头注补「为什么算组件职责」：\n${sites.join('\n')}`,
     ).toHaveLength(14)
+  })
+})
+
+/**
+ * v2.5.9：弹窗让位（缺陷来源 = 实测，不是设想）。
+ *
+ * 探针在真应用里量到三件事（重命名弹窗开着、焦点已 blur 出输入框）：按 Ctrl+C 底层弹
+ * 「已复制 1 个文件到剪贴板」；按 Ctrl+A 底层从 1 个选成 2 个；按 Delete 在重命名弹窗上
+ * 又叠一层「删除文件」确认框。预览里更糟：屏幕显示 mkA、底层选中的是 mkB，按 Delete
+ * 删的是 mkB。`guard: "text"` 一条都拦不住——它只看焦点在不在输入元素上，而弹窗里点一下
+ * 按钮/空白就离开输入框了。本组把「谁该让位」钉死。
+ */
+describe('弹窗开着时的按键归属（v2.5.9）', () => {
+  /** 假按键：target 默认 BODY（`isTextTarget` 判否 ⇒ 走得到派发与让位这一层） */
+  const fakeKey = (key: string, opts: { ctrl?: boolean; target?: unknown } = {}) => {
+    let prevented = false
+    const e = {
+      key,
+      ctrlKey: opts.ctrl === true,
+      metaKey: false,
+      shiftKey: false,
+      target: opts.target ?? { tagName: 'BODY' },
+      preventDefault: () => {
+        prevented = true
+      },
+    } as unknown as KeyboardEvent
+    return { e, wasPrevented: () => prevented }
+  }
+
+  beforeEach(() => {
+    resetShortcutsForTest()
+    clearStackForTest()
+  })
+
+  it('弹窗级层开着 → 标了 pageOnly 的页面处理器不执行、也不 preventDefault', () => {
+    let calls = 0
+    registerShortcut('list.delete', () => {
+      calls++
+      return true
+    }, { pageOnly: true })
+    pushLayer({ modal: true, onEscape: () => undefined })
+
+    const { e, wasPrevented } = fakeKey('Delete')
+    dispatchShortcut(e)
+    expect(calls, '弹窗开着时页面那条 Delete 还是被执行了 = 用户会删掉自己没在看的文件').toBe(0)
+    expect(wasPrevented(), '没消费却按住了 Delete = 按键被凭空吞掉').toBe(false)
+  })
+
+  it('非弹窗层不算让位面：常驻浮条（lowest）与面板层开着时，页面快捷键照常工作', () => {
+    // 这两条判据错了就会误伤主路径：Ctrl+X 的剪切撤销层、日期/标签/搜索下拉面板都不是弹窗
+    let calls = 0
+    registerShortcut('file.paste', () => {
+      calls++
+      return true
+    }, { pageOnly: true })
+    pushLayer({ lowest: true, onEscape: () => undefined }) // ui/SelectionBar 那种底部浮条
+    pushLayer({ onEscape: () => undefined }) // DatePicker / TagInput / SearchSelect / ContextMenu 这类面板层
+    dispatchShortcut(fakeKey('v', { ctrl: true }).e)
+    dispatchShortcut(fakeKey('v', { ctrl: true }).e)
+    expect(calls, '把浮条/面板也当弹窗 ⇒ 「Ctrl+X → 换目录 → Ctrl+V」这类主路径会被扳死').toBe(2)
+  })
+
+  it('同一个 id 上页面版与弹窗版共存：弹窗开着只跳页面版，弹窗自己那条仍命中（file.copy 的实际形状）', () => {
+    const hit: string[] = []
+    // 注册序刻意「页面版在前」——与真应用里 FileBrowserView 先挂载的形态一致
+    registerShortcut('file.copy', () => {
+      hit.push('page')
+      return true
+    }, { pageOnly: true })
+    registerShortcut('file.copy', () => {
+      hit.push('modal')
+      return true
+    })
+    pushLayer({ modal: true })
+
+    const { e } = fakeKey('c')
+    e.ctrlKey = true
+    dispatchShortcut(e)
+    expect(hit, '预览自己的 Ctrl+C 被一起挡掉 = 回退 v2.5.8 D19 B2③；页面版仍在跑 = 原缺陷没修').toEqual(['modal'])
+  })
+
+  it('弹窗关掉后页面处理器恢复（不靠注销、不留永久哑火）', () => {
+    let calls = 0
+    registerShortcut('list.selectAll', () => {
+      calls++
+      return true
+    }, { pageOnly: true })
+    const layer = pushLayer({ modal: true })
+    // 必须带 Ctrl：不带 Ctrl 的 'a' 根本不匹配任何声明，那条断言会变成假绿
+    dispatchShortcut(fakeKey('a', { ctrl: true }).e)
+    expect(calls).toBe(0)
+    layer.remove()
+    clearStackForTest()
+    const { e, wasPrevented } = fakeKey('a', { ctrl: true })
+    dispatchShortcut(e)
+    expect(calls, '关窗后仍哑火 = 修一个 bug 造一个更难的 bug').toBe(1)
+    expect(wasPrevented()).toBe(true)
+  })
+
+  it('页面级注册点必须显式标 pageOnly（漏标即红；弹窗自己那条必须不标）', () => {
+    const SRC = path.resolve(__dirname, '../../src/renderer/src')
+    // 必须先剥注释：这些文件的头注里就写着 `registerShortcut("file.copy", …)` 这类示例，
+    // 不剥会把它当成第三个注册点（门禁自己的口径也是 `codeOnly`，见上一段 describe）
+    const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+    const read = (rel: string) => stripComments(fs.readFileSync(path.join(SRC, rel), 'utf8'))
+    const count = (s: string, re: RegExp) => (s.match(re) ?? []).length
+    // 浮条两条（Ctrl+A / Delete）、文件浏览器两条（Ctrl+X / Ctrl+V）：全是页面动作
+    expect(count(read('components/ui/SelectionBar.tsx'), /pageOnly: true/g), 'SelectionBar 两条页面注册都要让位').toBe(2)
+    expect(count(read('components/FileBrowserView.tsx'), /pageOnly: true/g), '剪切/粘贴两条页面注册都要让位').toBe(2)
+    // App 的导航与设置、Header 的全局搜索：弹窗开着都不该把用户从弹窗里踢出去
+    expect(count(read('App.tsx'), /pageOnly: true/g), '导航/设置类注册要让位').toBe(1)
+    expect(count(read('components/Header.tsx'), /pageOnly: true/g), 'search.focus 注册要让位').toBe(1)
+    // Ctrl+C 的 hook 里只能有一条让位：另一条是预览自己的，标了就等于把 B2③ 关掉
+    const hook = read('hooks/useCopyShortcut.ts')
+    expect(count(hook, /registerShortcut\(/g), 'hook 里应恰有两条注册（页面版 + 预览版）').toBe(2)
+    expect(count(hook, /pageOnly: true/g), '只准页面版让位；预览版标了就会退回 B2③ 那个缺陷').toBe(1)
+    // 预览里那条 Delete 是「弹窗自己」的处理器，标了 pageOnly 就等于没修 T1
+    const preview = read('components/FilePreviewModal.tsx')
+    expect(count(preview, /registerShortcut\(\s*["']list\.delete["']/g), '预览要自己接 Delete').toBe(1)
+    expect(count(preview, /pageOnly: true/g), '预览自己的处理器不能标 pageOnly').toBe(0)
+    // **入栈侧同样要钉**：上面查的是「页面那条有没有声明让位」，但让位的开关其实在层这一侧——
+    // 谁把 `ui/Modal` 或预览的 `modal: true` 删掉，整套让位规则立刻静默失效，而上面每条都仍全绿。
+    expect(count(read('components/ui/Modal.tsx'), /modal: true/g), 'Modal 底座入栈必须标弹窗级层').toBe(1)
+    expect(count(read('components/FilePreviewModal.tsx'), /modal: true/g), '预览入栈必须标弹窗级层').toBe(1)
   })
 })
