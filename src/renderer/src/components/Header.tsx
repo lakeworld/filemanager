@@ -58,7 +58,7 @@ export default function Header() {
     const off = registerShortcut("search.focus", () => {
       document.getElementById("global-search-input")?.focus();
       return true;
-    });
+    }, { pageOnly: true }); // 弹窗开着时不抢焦点：搜索框在弹窗外，聚焦它等于把用户从工作面上踢走
     onCleanup(off);
   });
 

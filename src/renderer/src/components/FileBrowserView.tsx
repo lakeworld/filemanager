@@ -479,12 +479,12 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       if (selectedFilePaths().length === 0) return false;
       handleCut();
       return true;
-    });
+    }, { pageOnly: true });
     const offPaste = registerShortcut("file.paste", () => {
       if (showPreview()) return false;
       void handlePaste();
       return true;
-    });
+    }, { pageOnly: true });
     onCleanup(() => {
       offCut();
       offPaste();

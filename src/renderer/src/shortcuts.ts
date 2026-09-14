@@ -14,6 +14,13 @@
  *   里**不劫持**（Ctrl+K 与 Ctrl+C 收编前都是这个口径，一字未动地搬过来）；
  *   标注 `none` 的条目（Ctrl+S）保持「编辑器里也要能存盘」的原口径；
  * - `when` 只做「本页有没有注册处理器」的门控——不引入路由判断，避免与页面自身条件双源。
+ * - **弹窗让位（v2.5.9 修复）**：处理器注册时可标 `pageOnly`，栈里开着弹窗级层（`ui/Modal` 家族
+ *   与预览弹窗，判据见 `layerStack.hasModalLayer()`）时**跳过页面级那几条、继续试弹窗自己注册的**。
+ *   补这条的原因不是理论，是三条实测：重命名弹窗里把焦点 blur 掉后按 Ctrl+C，底层弹
+ *   「已复制 1 个文件到剪贴板」；按 Ctrl+A，底层从 1 个选成 2 个；按 Delete，在重命名弹窗上
+ *   又叠一层「删除文件」确认框；预览弹窗里按 Delete 删的是**底层选中的另一个文件**，
+ *   而屏幕上显示的是眼前这一张（`tests/e2e/dialog-keys.spec.ts` 已把这些钉成常驻用例）。
+ *   `guard: "text"` 管不到这些——它只看焦点在不在输入元素上，弹窗里点一下按钮/空白就离开输入框了。
  *
  * **豁免清单（PLAN W6 三分法）**：现存 `keydown` 监听 **14 处** = 本文件单点 1 +
  * 下列 13 处豁免（`ui/layerStack.ts` 保留 1 + 组件内部 12）。`tests/unit/shortcuts.test.ts`
@@ -43,6 +50,10 @@
  *  总数不变、单测不红，这张表就会静默过期。所以动到 keydown 监听时，要人工拿单测失败信息里
  *  打印的实际清单与本表逐行对一遍；要加强成「按文件清单钉死」需要改测试断言，属待拍板项。）
  */
+
+// 相对导入而不是 `~/…`：本文件被纯 node 单测直读（`vitest.config.ts` 里没有 `~` alias），
+// 写成 alias 会让 `npm test` 直接解析失败。
+import { hasModalLayer } from "./components/ui/layerStack";
 
 /** 输入态守卫档位（见文件头说明） */
 export type ShortcutGuard = "text" | "none";
@@ -75,32 +86,39 @@ const NAV_LABELS = ["仪表盘", "产品集", "图包库", "证书库", "笔记�
  * 新增条目就加在这里，设置页与派发自动同步（防双源）。
  */
 export const SHORTCUTS: readonly ShortcutSpec[] = [
-  { id: "search.focus", key: "k", ctrl: true, guard: "text", desc: "聚焦全局搜索框" },
+  { id: "search.focus", key: "k", ctrl: true, guard: "text", desc: "聚焦全局搜索框（有弹窗打开时不生效，避免把焦点从弹窗里踢走）" },
   { id: "note.save", key: "s", ctrl: true, guard: "none", desc: "保存当前笔记（仅笔记编辑器打开时有效）" },
-  { id: "file.copy", key: "c", ctrl: true, guard: "text", desc: "复制选中的文件路径（正文有选区时让位给浏览器）" },
+  {
+    id: "file.copy",
+    key: "c",
+    ctrl: true,
+    guard: "text",
+    desc: "复制选中的文件路径（正文有选区时让位给浏览器；预览里复制的是当前这一张；其他弹窗开着时不生效）",
+  },
   // v2.5.8 D19（体验批 B3/B7）：粘贴与应用内剪切。两条都标 `guard: "text"`——
   // 输入框里的 Ctrl+V / Ctrl+X 是文本编辑，永远归浏览器（派发层拦，页面不重复判）。
-  { id: "file.cut", key: "x", ctrl: true, guard: "text", desc: "剪切选中的文件（应用内 = 移动语义，粘到目标处才落地）" },
+  // v2.5.9 追加：弹窗开着时整条让位（实测原缺陷会在重命名弹窗里按 Ctrl+V 触发底层导入）。
+  { id: "file.cut", key: "x", ctrl: true, guard: "text", desc: "剪切选中的文件（应用内 = 移动语义，粘到目标处才落地；弹窗开着时不生效）" },
   {
     id: "file.paste",
     key: "v",
     ctrl: true,
     guard: "text",
-    desc: "粘贴到当前文件夹：应用内剪切 → 移动；否则系统剪贴板里有文件 → 导入",
+    desc: "粘贴到当前文件夹：应用内剪切 → 移动；否则系统剪贴板里有文件 → 导入（弹窗开着时不生效，先在弹窗里粘贴文本请用输入框）",
   },
   {
     id: "list.selectAll",
     key: "a",
     ctrl: true,
     guard: "text",
-    desc: "全选当前筛选结果（仅多选浮条出现时有效；输入框内仍是全选文本）",
+    desc: "全选当前筛选结果（仅浮条出现时有效；输入框内仍是全选文本；弹窗开着时不生效）",
   },
   {
     id: "list.delete",
     key: "delete",
     ctrl: false,
     guard: "text",
-    desc: "删除选中项（走各页既有的二次确认弹窗，不改删除语义；仅浮条出现时有效）",
+    desc: "删除选中项（走各页既有的二次确认弹窗，不改删除语义；仅浮条出现时有效；预览里删的是当前这一张，其他弹窗开着时不生效）",
   },
   { id: "settings.open", key: ",", ctrl: true, guard: "text", desc: "打开设置页", path: "/settings" },
   ...NAV_PATHS.map((p, i) => ({
@@ -150,21 +168,39 @@ export function matchShortcut(
 
 type Handler = (e: KeyboardEvent, spec: ShortcutSpec) => boolean | void;
 
-const handlers = new Map<string, Set<Handler>>();
+/**
+ * 注册选项。`pageOnly: true` = 这条处理器属于**页面**，弹窗开着就该让位（v2.5.9 按键归属修复）。
+ *
+ * **为什么必须按处理器判、不能按 `id` 判**：同一个 `id` 上会同时挂着页面版与弹窗版两条
+ * ——`file.copy` 就是（七个页面各注册一条页面版 + 预览弹窗自己一条）。按 id 一刀切会把
+ * 预览自己的那条一起挡掉，等于把 v2.5.8 D19 B2③「预览里按 Ctrl+C 复制正在预览的那一张」改没。
+ */
+export interface ShortcutHandlerOpts {
+  pageOnly?: boolean;
+}
+
+/** 一条注册（`pageOnly` 与处理器绑在一起，注销时按对象身份移除） */
+interface Registration {
+  fn: Handler;
+  pageOnly: boolean;
+}
+
+const handlers = new Map<string, Set<Registration>>();
 
 /**
  * 注册某个快捷键的处理器（组件 `onMount` 里调、`onCleanup` 里注销）。
  * 返回注销函数——同一 id 可有多个处理器（如多个编辑器实例），按注册序试，第一个消费即止。
  */
-export function registerShortcut(id: string, fn: Handler): () => void {
+export function registerShortcut(id: string, fn: Handler, opts?: ShortcutHandlerOpts): () => void {
   let set = handlers.get(id);
   if (!set) {
     set = new Set();
     handlers.set(id, set);
   }
-  set.add(fn);
+  const reg: Registration = { fn, pageOnly: opts?.pageOnly === true };
+  set.add(reg);
   return () => {
-    set.delete(fn);
+    set.delete(reg);
     if (set.size === 0) handlers.delete(id);
   };
 }
@@ -174,14 +210,25 @@ export function hasHandler(id: string): boolean {
   return (handlers.get(id)?.size ?? 0) > 0;
 }
 
-const dispatch = (e: KeyboardEvent): void => {
+/**
+ * 单次派发的入口（导出只为让纯 node 单测能直接喂一个假事件进来验让位规则，
+ * 与 `layerStack.dispatchEscapeForTest` 同一先例——`installShortcutHost` 用的就是它，无第二条实现）。
+ */
+export const dispatchShortcut = (e: KeyboardEvent): void => {
   const spec = matchShortcut(e);
   if (!spec) return;
   if (spec.guard === "text" && isTextTarget(e.target)) return;
   const set = handlers.get(spec.id);
   if (!set || set.size === 0) return; // 没人接管 → 原样放行
-  for (const fn of set) {
-    if (fn(e, spec) === true) {
+  // v2.5.9 按键归属：栈里开着弹窗级层时，页面级处理器一条都不试（判据是**注册方声明的
+  // `pageOnly`**，不是「焦点在不在输入框」——实测：重命名弹窗里把焦点 blur 掉后按 Ctrl+C，
+  // 底层直接弹出「已复制 1 个文件到剪贴板」；按 Ctrl+A 把底层从 1 个选成 2 个；按 Delete
+  // 在重命名弹窗上又叠一层「删除文件」确认框）。跳过而不是终止：弹窗自己注册的那条
+  // （未标 `pageOnly`）仍在同一轮里能被试到，`file.copy` 的页面版/预览版共存就靠这个。
+  const yieldToModal = hasModalLayer();
+  for (const reg of set) {
+    if (yieldToModal && reg.pageOnly) continue;
+    if (reg.fn(e, spec) === true) {
       e.preventDefault();
       return;
     }
@@ -197,10 +244,10 @@ let installed = false;
 export function installShortcutHost(): () => void {
   if (installed) return () => undefined;
   installed = true;
-  window.addEventListener("keydown", dispatch);
+  window.addEventListener("keydown", dispatchShortcut);
   return () => {
     installed = false;
-    window.removeEventListener("keydown", dispatch);
+    window.removeEventListener("keydown", dispatchShortcut);
   };
 }
 

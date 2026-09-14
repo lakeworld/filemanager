@@ -195,7 +195,7 @@ export default function App(props: RouteSectionProps) {
       registerShortcut(s.id, () => {
         navigate(target);
         return true;
-      });
+      }, { pageOnly: true }); // 弹窗开着时按 Ctrl+1…6 / Ctrl+, 会把底下的页面换掉、弹窗连带Unmount
     }
 
     loadCurrentWorkspace();

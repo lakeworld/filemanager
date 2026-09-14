@@ -113,7 +113,7 @@ function ModalInner(props: ModalProps) {
 
   onMount(() => {
     lastFocused = document.activeElement;
-    const layer = pushLayer({ onEscape: handleEscape });
+    const layer = pushLayer({ onEscape: handleEscape, modal: true });
     myId = layer.id;
     removeLayer = layer.remove;
     focusFirst();

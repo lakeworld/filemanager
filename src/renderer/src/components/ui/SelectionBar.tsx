@@ -85,7 +85,7 @@ export default function SelectionBar(props: SelectionBarProps): JSX.Element {
         registerShortcut("list.selectAll", () => {
           fn();
           return true;
-        }),
+        }, { pageOnly: true }),
       );
     }
     if (props.onDelete) {
@@ -94,7 +94,7 @@ export default function SelectionBar(props: SelectionBarProps): JSX.Element {
         registerShortcut("list.delete", () => {
           fn();
           return true;
-        }),
+        }, { pageOnly: true }),
       );
     }
     onCleanup(() => offs.forEach((off) => off()));

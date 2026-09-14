@@ -49,7 +49,7 @@ export function useCopyShortcut(getPaths: () => string[], onCopy: (paths: string
       }
       onCopy(paths);
       return true; // 交回派发层 preventDefault（与收编前 FileBrowserView 的口径一致）
-    });
+    }, { pageOnly: true });
     onCleanup(off);
   });
 }

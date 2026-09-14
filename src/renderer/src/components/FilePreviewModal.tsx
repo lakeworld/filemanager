@@ -6,6 +6,8 @@ import { showToast } from "~/stores/notifyBanner";
 import { COPY_ERROR_TITLE, copyFeedbackTitle } from "~/lib/copyFeedback";
 // v2.5.8 D19（B2③）：预览内的 Ctrl+C 注册口（守卫与让位规则住在 hook + lib，本文件只接线）
 import { registerPreviewCopyShortcut } from "~/hooks/useCopyShortcut";
+// v2.5.9：预览内 Delete 的注册口（修「预览里按删除键，删的是底层选中的另一个文件」）
+import { registerShortcut } from "~/shortcuts";
 import PdfPreview from "~/components/PdfPreview";
 import { isMarkdownName } from "../../../shared/fileKind";
 import { currentWorkspace } from "~/stores/workspace";
@@ -95,6 +97,9 @@ export default function FilePreviewModal() {
   createEffect(() => {
     if (!previewFile()) return;
     const layer = pushLayer({
+      // v2.5.9：预览是「弹窗级层」——它不在 `ui/Modal` 家族里（自带遮罩），但用户的工作面
+      // 确实在它里面。不标这条，底层页面的 Ctrl+A / Delete 会在预览开着时继续接管按键。
+      modal: true,
       onEscape: () => {
         if (contextMenu().show) return; // 与旧监听同一组前置：菜单开着就先让菜单
         closePreview();
@@ -182,7 +187,25 @@ export default function FilePreviewModal() {
    */
   onMount(() => {
     const off = registerPreviewCopyShortcut(() => void handleCopyFile());
-    onCleanup(off);
+    /**
+     * v2.5.9：预览里按 `Delete` = 删**眼前这一张**，走下面那个既有的 `ConfirmDialog` 二次确认。
+     * 修前的实测行为（探针取证）：预览显示 mkA、底层列表选中的是 mkB，按 Delete 弹的是
+     * 「确定删除选中的 1 个文件吗」——删的是用户没在看的那个；底层零选中时按 Delete 干脆没反应
+     * （预览里只能用鼠标点「🗑️ 删除」）。现在底层那条已标 `pageOnly`（见 `ui/SelectionBar`），
+     * 弹窗级层开着就不会来抢这个键。
+     * 前置守卫与 D18 方向键那组同口径：预览没开着不管、右键菜单开着让给它、
+     * 自己的删除确认已弹出时不重复弹（那时栈顶是确认框，Delete 不该再有动作）。
+     */
+    const offDelete = registerShortcut("list.delete", () => {
+      if (!showPreview() || !previewFile()) return false;
+      if (contextMenu().show || confirmDelete() !== null) return false;
+      handleDeleteFile();
+      return true;
+    });
+    onCleanup(() => {
+      off();
+      offDelete();
+    });
   });
 
   // v2.4.7：预览内删除补确认（此前是全应用唯一无确认删除入口）+ 失败提示——
