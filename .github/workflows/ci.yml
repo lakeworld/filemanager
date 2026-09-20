@@ -94,11 +94,10 @@ jobs:
 
       # v2.5.9/A1b：崩溃取证管道「从不执行」的根治——此前被 playwright.config.ts 的
       # testIgnore 挡住，CI 默认套件根本不跑它，线程B 阶段2/3「等 CI 抓到真实崩溃」永远等不到。
-      # ⚠ 暂不启用：crash-diag 配置的单轮 timeout 是 **30 分钟**（取证预算），直接进 CI 会把 e2e job
-      # 拖爆；且 spec 自陈「验收后整文件清理」（PLAN-v2.5.7-preview-lifecycle §三）。
-      # 启用条件 = 批次二把轮数收敛到 ≤10 分钟、宿主实测通过后再放开本步与配套 artifact。
-      - name: Run crash-diag spec (DISABLED until batch-2, see comment)
-        if: ${{ false }}
+      # 实测（2026-09-21 宿主）：默认 5 轮全跑只 **3 秒**（配置里 30 分钟是取证预算上限、不是实际成本）。
+      # continue-on-error：本 spec 是「看得见」的管道——真抓到崩溃 = 有收获（reason/内存曲线进 artifact），
+      # 不该因此把构建判红；但它必须**真的执行**，所以不设 if 条件。
+      - name: Run crash-diag spec (v2.5.7 线程B 取证管道)
         continue-on-error: true
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test --config=playwright.crash-diag.config.ts --reporter=list,github
 
