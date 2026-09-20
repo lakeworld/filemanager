@@ -17,7 +17,7 @@ import Input from "~/components/ui/Input";
 import { SHORTCUTS, comboLabel } from "~/shortcuts";
 import { appSettings, appSettingsReady, reloadAppSettings, setAppSetting } from "~/stores/appSettings";
 import type { AppSettingsPatch } from "../../../shared/appSettings";
-import { CERT_REMINDER_DAY_CHOICES } from "../../../shared/appSettings";
+import { CERT_REMINDER_DAY_CHOICES, WAKE_SEARCH_ACCELERATOR_LABEL } from "../../../shared/appSettings";
 
 /**
  * v2.5.8 D11（W7）：通用卡里的一条开关（对齐开机自启既有行式：标题 + 一行说明 + 右侧复选框）。
@@ -730,6 +730,13 @@ export default function Settings() {
                 onChange={(v) => void savePref({ clipboardGuard: v })}
               />
               <SettingToggle
+                title="全局唤醒搜索（Ctrl+Alt+K）"
+                desc="任何程序前台时按下都能把启禾唤到前面并直接进搜索页。默认关——它占用的是系统级按键，可能与你其它软件的快捷键撞车"
+                checked={pref().globalWakeShortcut}
+                disabled={!prefReady()}
+                onChange={(v) => void savePref({ globalWakeShortcut: v })}
+              />
+              <SettingToggle
                 title="证书到期与发票待办提醒"
                 desc="每日一次系统通知（当天已提醒过的不重复打扰）；关闭后仪表盘区块照常显示"
                 checked={pref().certReminder}
@@ -780,6 +787,15 @@ export default function Settings() {
                   </li>
                 )}
               </For>
+              {/* v2.5.9 A6-1：全局键**不进** `SHORTCUTS` 声明表——那张表是渲染层应用内快捷键
+                  （监听计数门禁钉死在 14 处），而这个是主进程 `globalShortcut` 注册的系统级键，
+                  两码事。键位读 shared 常量，不在这里另写一份。 */}
+              <li class="flex items-baseline gap-2 text-sm">
+                <kbd class="shrink-0 px-1.5 py-0.5 rounded border border-surface-200 bg-surface-100 text-xs font-mono text-surface-700">
+                  {WAKE_SEARCH_ACCELERATOR_LABEL}
+                </kbd>
+                <span class="text-surface-600">全局唤醒搜索（系统级，默认关；在「通用」里开启）</span>
+              </li>
             </ul>
             <p class="text-xs text-surface-400 mt-3">
               另：Esc 关闭当前最上层（弹窗 / 菜单 / 下拉 / 浮条清空选择），方向键与 Enter/Tab 在各弹出层内导航。

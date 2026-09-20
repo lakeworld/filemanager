@@ -52,6 +52,7 @@ const SKIP = new Set([
   'label-wrapper',    // Crepe/milkdown 第三方库内部类（样式在库分片 CSS，非宿主编译产物）
   'ctx-menu-root',    // ContextMenu 容器 id
   'global-search-input', // Header 搜索框 id
+  'search-page-input',   // 搜索页关键词输入框 id（v2.5.9 A6-1 全局唤醒聚焦用；同上一行口径）
   'note-entities',    // Notes datalist id
   'note-editor-loading', // NoteEditorModal data-testid
   'compress-include-notes', // ProductSets data-testid

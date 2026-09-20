@@ -167,6 +167,9 @@ test.describe('应用级设置开关（v2.5.8 D11 / W7）', () => {
       ]) {
         await expect(toggleOf(page, t), t).toBeChecked()
       }
+      // v2.5.9 A6-1：全局唤醒搜索是**唯一默认关**的开关——全局热键占的是系统按键，
+      // 「升级后自动生效」等于替用户去和别的软件抢键（老用户零行为变更这条红线也要求它默认关）
+      await expect(toggleOf(page, '全局唤醒搜索'), '全局唤醒搜索（默认关）').not.toBeChecked()
       // 未改动 → 不该有 settings.json（等于默认值的键不落盘，回滚只需删文件）
       await fsp.access(path.join(userDataDir(label), 'settings.json')).then(
         () => {

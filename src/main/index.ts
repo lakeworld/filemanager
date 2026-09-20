@@ -5,7 +5,7 @@
  * - 注册 IPC 与 qihebox:// 文件协议
  * - 系统托盘 + 关闭隐藏到托盘 + 崩溃自愈骨架
  */
-import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage, Notification, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage, Notification, ipcMain, shell, globalShortcut } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -20,6 +20,7 @@ import type { PluginManifest } from '../plugins/types'
 import { registerPluginHost, type PluginHostHandle } from './plugins/ipc'
 import { makePluginSecretStore } from './plugins/secretStore'
 import { createSettings } from './settings'
+import { WAKE_SEARCH_ACCELERATOR, reconcileWakeShortcut, applyWakeShortcut, type WakeShortcutPort, type WakeShortcutStatus } from './core/wakeShortcut'
 import { AccountService } from './account'
 import { log, initLogger, getLogger } from './log'
 import { isAutoLaunchMode } from './core/autoLaunch'
@@ -244,9 +245,46 @@ function setupCloseToTray(win: BrowserWindow): void {
   })
 }
 
+/**
+ * 全局唤醒搜索（v2.5.9 A6-1）：任何程序前台时按 Ctrl+Alt+K ⇒ 把窗口唤到前面并落到搜索页。
+ * 判断逻辑全在 `core/wakeShortcut.ts`（可 node 直测）；这里只是 electron 薄壳。
+ * 默认**不注册**（设置项 `globalWakeShortcut` 默认 false）——全局热键是抢系统按键的动作，
+ * 这种"占别人的键"只能用户自己选，升级不得自动生效。
+ */
+const wakePort: WakeShortcutPort = {
+  isRegistered: (accel) => globalShortcut.isRegistered(accel),
+  register: (accel) =>
+    globalShortcut.register(accel, () => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (!win) return
+      // 托盘里也要能唤起：先恢复最小化 / 显示隐藏，再聚焦，最后把事件交给渲染层去导航 + 聚焦输入框
+      if (win.isMinimized()) win.restore()
+      if (!win.isVisible()) win.show()
+      win.focus()
+      win.webContents.send('qihebox:event:window:wake-search')
+    }),
+  unregister: (accel) => globalShortcut.unregister(accel),
+}
+
+/** 应用一次并如实记账：注册失败（被他人占用/系统不支持）必须留痕，否则设置页会留个按不动的开关 */
+function applyWakeShortcutSetting(prevEnabled: boolean, nextEnabled: boolean, source: string): void {
+  const status: WakeShortcutStatus | null = reconcileWakeShortcut(prevEnabled, nextEnabled, wakePort)
+  if (status === null) return
+  if (status === 'unsupported') {
+    void log('warn', `全局唤醒快捷键 ${WAKE_SEARCH_ACCELERATOR} 注册失败（可能被其它程序占用）：源=${source}`)
+  } else {
+    void log('info', `全局唤醒快捷键 ${WAKE_SEARCH_ACCELERATOR} → ${status}：源=${source}`)
+  }
+}
+
 // 系统级退出（托盘退出菜单 / 应用退出）→ 置 quitting 放行窗口关闭
 app.on('before-quit', () => {
   setQuitting(true)
+})
+
+// v2.5.9 A6-1：退出时注销全局热键（不注销的话系统里会留一条指向已退出进程的绑定）
+app.on('will-quit', () => {
+  if (globalShortcut.isRegistered(WAKE_SEARCH_ACCELERATOR)) globalShortcut.unregister(WAKE_SEARCH_ACCELERATOR)
 })
 
 // v2.5：退出清理——全部已激活插件 dispose()（尽力，超时 2s 不强等，PLAN §六.4）+ 宿主事件总线清理
@@ -743,7 +781,11 @@ app.whenReady().then(() => {
       ipcMain.handle('qihebox:appSettings:set', (_e, patch: AppSettingsPatch) =>
         handle(async () => {
           // 同 setDevMode：先落盘再返回全量值，UI 以服务端返回为准（脏值被归一时能立刻看到回落）
-          return await settings.set(patch ?? {})
+          const prevWake = settings.getAll().globalWakeShortcut
+          const next = await settings.set(patch ?? {})
+          // v2.5.9 A6-1：只有开关真的翻转才动系统注册（开着再保存一次不该注销重注册）
+          applyWakeShortcutSetting(prevWake, next.globalWakeShortcut, 'appSettings:set')
+          return next
         }),
       )
     } catch (err) {
@@ -827,6 +869,10 @@ app.whenReady().then(() => {
     }
     // v2.4.7（F10）：系统休眠唤醒自愈——resume 后分层检查，白屏自动 reload（含画面像素检测）
     setupWakeRecovery()
+
+    // v2.5.9 A6-1：按用户设置决定是否注册全局唤醒键（默认关 ⇒ 这里是一次"什么都不做"的判定）
+    const wakeStatus = applyWakeShortcut(userSettings.getAll().globalWakeShortcut, wakePort)
+    void log('info', `全局唤醒快捷键初始化：${wakeStatus}`)
   } catch (err) {
     void log('error', `窗口/托盘/唤醒自愈初始化失败，尝试兜底建窗: ${String(err)}`)
     try {

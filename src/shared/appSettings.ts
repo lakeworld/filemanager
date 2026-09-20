@@ -42,11 +42,27 @@ export interface AppSettingsFile {
    */
   certReminder?: boolean
   /**
+   * 全局唤醒搜索（默认 **false = 不注册**，v2.5.9 A6-1）。
+   * 开 = 注册系统级 `Ctrl+Alt+K`：任何程序前台时按下都能把启禾唤到前面并直接落到搜索页。
+   * 默认关的理由：全局热键是**抢系统按键**的动作，与别的软件撞车时先手方赢；这种"占别人的键"
+   * 只能由用户自己选，不能升级后自动生效（老用户升级零行为变更）。
+   * 关 = 注销注册；注册失败（被占用/系统不支持）时如实降级并写日志，不静默留一个按不动的开关。
+   */
+  globalWakeShortcut?: boolean
+  /**
    * 证书到期提醒的提前天数。默认 30 = `DashboardService.checkExpiringCerts` 的现行窗口。
    * 只接受 `CERT_REMINDER_DAY_CHOICES` 档位，其它值回落 30（防手改 json 把窗口调成 0 天）。
    */
   certReminderDays?: number
 }
+
+/**
+ * 全局唤醒搜索的加速键（v2.5.9 A6-1）——**唯一真相**：主进程用它注册，设置页速查卡用它展示。
+ * 两处各写一份键位必然会漂移（改了一处、另一处还印着旧键）。
+ */
+export const WAKE_SEARCH_ACCELERATOR = 'Control+Alt+K'
+/** 展示形态（Electron accelerator 的 `Control` 在给人看时写作 `Ctrl`） */
+export const WAKE_SEARCH_ACCELERATOR_LABEL = 'Ctrl+Alt+K'
 
 /** 证书提醒提前天数档位（顺序 = 设置页选择器顺序：宽 → 窄） */
 export const CERT_REMINDER_DAY_CHOICES = [30, 14, 7] as const
@@ -65,6 +81,7 @@ export const APP_SETTINGS_DEFAULTS: AppSettings = {
   selectionBar: true,
   clipboardGuard: true,
   certReminder: true,
+  globalWakeShortcut: false,
   certReminderDays: 30,
 }
 
@@ -78,6 +95,7 @@ const BOOL_KEYS = [
   'selectionBar',
   'clipboardGuard',
   'certReminder',
+  'globalWakeShortcut',
 ] as const
 
 /** 落盘形状（可能缺键）→ 完整设置；脏数据逐键回落默认 */

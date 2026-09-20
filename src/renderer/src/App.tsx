@@ -14,6 +14,7 @@ import { onMount, createSignal, createEffect, onCleanup, Show } from "solid-js";
 import type { WindowPrepareHideMessage } from "../../shared/types";
 import { installShortcutHost, registerShortcut, SHORTCUTS } from "./shortcuts";
 import { loadAppSettings } from "./stores/appSettings";
+import { SEARCH_INPUT_ID } from "./pages/Search";
 
 function FramelessResizer() {
   const [resizing, setResizing] = createSignal(false);
@@ -165,6 +166,8 @@ export default function App(props: RouteSectionProps) {
   let unsubRestored: (() => void) | null = null;
   let unsubSessionExpired: (() => void) | null = null;
   let unsubPrepareHide: (() => void) | null = null;
+  /** v2.5.9 A6-1：全局唤醒搜索事件订阅 */
+  let unsubWakeSearch: (() => void) | null = null;
   // v2.5.3 常驻轻壳：parked=true 时业务层条件卸载（路由/预览/拖放/缩放器），仅保留轻壳骨架
   const [parked, setParked] = createSignal(false);
   const location = useLocation();
@@ -258,7 +261,25 @@ export default function App(props: RouteSectionProps) {
       void window.qihebox.windowLifecycle.parked(msg.generation).catch(() => {});
     });
 
+    // v2.5.9 A6-1：全局唤醒搜索（Ctrl+Alt+K）——主进程已把窗口唤到前面并聚焦窗口，
+    // 渲染层负责"落到搜索页 + 光标进输入框"。聚焦用**轮询一次帧**而不是立即 focus：
+    // 事件到达时可能还在别的路由上，等导航把搜索页挂载出来再聚焦（同一帧内 focus 会打空）。
+    unsubWakeSearch = window.qihebox.windowLifecycle.onWakeSearch(() => {
+      navigate("/search");
+      const tryFocus = (attempt: number): void => {
+        const el = document.getElementById(SEARCH_INPUT_ID) as HTMLInputElement | null;
+        if (el) {
+          el.focus();
+          el.select();
+          return;
+        }
+        if (attempt < 20) requestAnimationFrame(() => tryFocus(attempt + 1));
+      };
+      requestAnimationFrame(() => tryFocus(0));
+    });
+
     onCleanup(() => {
+      unsubWakeSearch?.();
       unsubImport?.();
       unsubCertReminder?.();
       unsubRestored?.();

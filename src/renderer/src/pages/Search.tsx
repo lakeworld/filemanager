@@ -24,6 +24,9 @@ import { buildFileContextMenuItems, productSetFromFilePath } from "~/utils/fileC
 // 正解住 D15 的 `size="lg"` + `iconLeft` 槽；今天先让材质只有一处，`pl-10` 继续给放大镜让位）
 import Input from "~/components/ui/Input";
 
+/** 搜索页关键词输入框的稳定 id（v2.5.9 A6-1）：全局唤醒后由 `App.tsx` 用 `focusSearchInput()` 聚焦 */
+export const SEARCH_INPUT_ID = "search-page-input"
+
 /** 解析 core formatTime 输出的 "YYYY-MM-DD HH:mm:ss"（本地时间），失败返回 NaN */
 function parseModified(s: string): number {
   const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(s);
@@ -220,10 +223,12 @@ export default function Search() {
             <span class="text-surface-400">🔍</span>
           </div>
           <Input
+            id={SEARCH_INPUT_ID}
             class="h-auto w-full pl-10 pr-4 py-3 rounded-xl text-lg shadow-sm"
             placeholder="输入关键词搜索..."
             value={query()}
             onInput={(e) => setQuery(e.currentTarget.value)}
+            autoFocus
           />
         </div>
         <div class="flex items-center gap-2 mt-2">

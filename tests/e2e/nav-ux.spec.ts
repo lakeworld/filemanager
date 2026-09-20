@@ -65,6 +65,39 @@ test.describe('导航体验（v2.5.9 A6-2/A6-3）', () => {
     await expect.poll(currentRoute).toContain(encodeURIComponent('导航用例集A'))
   })
 
+  test('A6-1：主进程广播唤醒事件 ⇒ 落到搜索页且光标进输入框', async () => {
+    // 先在别的路由上（模拟"用户在看产品集时按了 Ctrl+Alt+K"）
+    await page.evaluate(() => { window.location.hash = '#/product-sets' })
+    await expect(page.getByRole('heading', { name: '产品集', exact: true }).first()).toBeVisible({ timeout: 15000 })
+
+    // 主进程侧广播（真实链路 = globalShortcut 回调 → show/focus → 本事件；这里只验后半段：
+    // 事件到达渲染层后的导航 + 聚焦。前半段的注册/注销由 A6-1 单测 + 设置开关用例覆盖）
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].webContents.send('qihebox:event:window:wake-search')
+    })
+
+    await expect.poll(currentRoute, { timeout: 10000 }).toContain('/search')
+    await expect
+      .poll(() => page.evaluate(() => document.activeElement?.id ?? ''), { timeout: 10000 })
+      .toBe('search-page-input')
+  })
+
+  test('A6-1：设置里开启 ⇒ 主进程真注册；关闭 ⇒ 真注销（默认关）', async () => {
+    const isRegistered = () =>
+      app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered('Control+Alt+K'))
+
+    // 默认关：不得"升级后自动占用系统按键"
+    const settings = await page.evaluate(async () => (window as any).qihebox.appSettings.get())
+    expect(settings.data.globalWakeShortcut).toBe(false)
+    expect(await isRegistered()).toBe(false)
+
+    await page.evaluate(async () => { await (window as any).qihebox.appSettings.set({ globalWakeShortcut: true }) })
+    await expect.poll(isRegistered, { timeout: 10000 }).toBe(true)
+
+    await page.evaluate(async () => { await (window as any).qihebox.appSettings.set({ globalWakeShortcut: false }) })
+    await expect.poll(isRegistered, { timeout: 10000 }).toBe(false)
+  })
+
   test('A6-2：搜索提交写回 URL；顶栏「← 后退」把现场带回来', async () => {
     // 准备一条可搜到的数据（走 IPC，不经 UI，避免用例耦合建库流程）
     await page.evaluate(async () => {

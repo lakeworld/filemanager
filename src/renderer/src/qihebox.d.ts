@@ -209,6 +209,8 @@ interface QiheboxApi {
     firstFrame: (generation: number) => Promise<ApiResult<boolean>>
     onPrepareHide: (cb: (msg: WindowPrepareHideMessage) => void) => () => void
     onRestored: (cb: (msg: WindowRestoredMessage) => void) => () => void
+    /** v2.5.9 A6-1：全局唤醒搜索（Ctrl+Alt+K）——主进程完成"唤到前面"，渲染层负责导航 + 聚焦输入框 */
+    onWakeSearch: (cb: () => void) => () => void
   }
   app: {
     version: () => Promise<unknown>
