@@ -11,6 +11,18 @@ import {
 } from '../../src/renderer/src/pages/invoices/filterUtils'
 import type { InvoiceRecord, InboundRecord, QuoteRecord } from '../../src/renderer/src/types'
 
+/**
+ * 「距今 ±30 天」窗口类断言的夹具日期必须**相对今天生成**（2026-09-21 教训：
+ * `dueSoonOnly` 一条用例把 due_date 硬编码成 `2026-08-20`，出窗即红——测试不钉死时钟
+ * 就随日历过期，跨月必炸）。本函数返回与今天相距 dayOffset 天的 YYYY-MM-DD。
+ */
+function dayFromToday(dayOffset: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + dayOffset)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
 function inv(partial: Partial<InvoiceRecord>): InvoiceRecord {
   return {
     number: 'INV',
@@ -45,7 +57,7 @@ function inb(partial: Partial<InboundRecord>): InboundRecord {
 describe('发票/入库筛选纯函数（B3 任务 C）', () => {
   it('filterInvoices：状态 + 客户 + 待办 + 搜索组合', () => {
     const rows = [
-      inv({ number: 'A1', status: '待报销', customer: '客户X', due_date: '2026-08-20', seller: '开票方甲' }),
+      inv({ number: 'A1', status: '待报销', customer: '客户X', due_date: dayFromToday(5), seller: '开票方甲' }),
       inv({ number: 'B2', status: '已报销', customer: '客户X', buyer: '购方乙' }),
       inv({ number: 'C3', status: '待报销', customer: '客户Y' }),
     ]
