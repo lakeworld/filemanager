@@ -2,19 +2,20 @@
 
 ## 一、安装与启动
 
-前往官网 `https://www.qihebook.cloud/file-manager` 下载对应平台的安装包（无需验证码）：
+前往官网 `https://www.qihebook.cloud/file-manager` 下载对应平台的安装包（下载前需过一次图形验证码，防机器刷包）：
 
 ### Windows
 
-1. 下载 Windows 安装包（NSIS 安装程序，文件名形如 `启禾文件管理 Setup 2.x.x.exe`）。
-2. 双击运行安装程序，按向导完成安装。
-3. 从开始菜单或桌面快捷方式启动「启禾文件管理」。
-4. 如需卸载，在「设置 → 应用 → 已安装的应用」中找到「启禾文件管理」卸载即可。
+1. 下载 Windows 安装包（文件名形如 `启禾文件管理 Setup 2.x.x.zip`）。**官网下发的是压缩包、不是裸 exe**——浏览器会把裸 `.exe` 直链判成风险文件拦下（现象是「能下载、但装不上」），所以安装包装在 zip 里。
+2. 右键该压缩包 → 「解压到当前文件夹」，得到 `启禾文件管理 Setup 2.x.x.exe`。
+3. 双击这个 exe 运行安装程序，按向导完成安装。
+4. 从开始菜单或桌面快捷方式启动「启禾文件管理」。
+5. 如需卸载，在「设置 → 应用 → 已安装的应用」中找到「启禾文件管理」卸载即可。
 
 ### Linux
 
-1. 下载 AppImage 或 deb 安装包。
-2. AppImage：`chmod +x` 后直接运行（免安装）；deb：`sudo dpkg -i qihe-box_x.x.x_amd64.deb` 安装（文件名中的版本号以实际下载为准）。
+1. 下载 deb 安装包（文件名形如 `qihe-box_x.x.x_amd64.deb`，版本号以实际下载为准）。
+2. `sudo dpkg -i qihe-box_x.x.x_amd64.deb` 安装；依赖缺失时用 `sudo apt install ./qihe-box_x.x.x_amd64.deb` 自动补齐。
 3. 从应用菜单或终端启动「启禾文件管理」。
 
 ## 二、首次使用
