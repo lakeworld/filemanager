@@ -1,5 +1,9 @@
 // md-to-image.cjs — 把 Markdown 渲染成图片（PNG）
-// 用法：electron scripts/md-to-image.cjs <input.md> <output.png> [width=900]
+// 用法（推荐）：npm run md-to-image -- <input.md> <output.png> [width=900]
+// 等价直调：electron --no-sandbox --disable-gpu scripts/md-to-image.cjs <input.md> <output.png> [width]
+// ⚠ 两个参数都不是装饰：① 漏 --disable-gpu ⇒ Xvfb 下 ANGLE 起不来、**静默不产文件**
+//    （2026-09-21 v2.5.9/A5 实测：rc=124 超时且无产物）；② 本机 AI 会话沙箱里还需 --no-sandbox，
+//    否则结尾 `Failed to shutdown` + SIGTRAP、同样无产物。渲染教程 PNG 就用上面这条 npm script。
 // 原理：md → HTML（内联样式）→ 无头 BrowserWindow 加载 → capturePage 全页截图
 // 不依赖第三方 md 库：内置轻量转换（标题/列表/粗体/代码/引用/分隔线/链接）
 const { app, BrowserWindow } = require('electron')

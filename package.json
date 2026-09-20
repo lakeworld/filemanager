@@ -22,6 +22,8 @@
     "check:win-artifact": "node scripts/check-win-artifact.mjs",
     "check:leaks": "node scripts/check-no-secrets.mjs --all",
     "check:leaks:history": "node scripts/check-no-secrets.mjs --history",
+    "check:version-sync": "node scripts/check-version-sync.mjs",
+    "md-to-image": "electron --no-sandbox --disable-gpu scripts/md-to-image.cjs",
     "hooks:install": "git config core.hooksPath scripts/git-hooks",
     "test:win": "bash scripts/win-smoke.sh",
     "test:e2e": "playwright test",

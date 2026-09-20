@@ -10,19 +10,22 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const INDEX_URL = 'file://' + ROOT.replace(/\\/g, '/') + '/out/renderer/index.html'
 
 /**
- * 删除确认弹窗崩溃 回归取证（2026-08-15 定位）：
+ * 删除确认弹窗 · 常驻回归（缺陷 2026-08-15 定位并关闭；v2.5.9/A4 转正）：
  * 根因 = Solid props 惰性 getter 陷阱——onConfirm 先置 null 再读 props（重求值为 null → TypeError → 删除不执行）。
- * - 用例 1/2：FileBrowserView（产品集文档 tab）与 Search 为 f89b433 已修路径——回归守护，必须全绿。
- * - 用例 3：Settings 标签删除为本次定位新发现的同款未修实例——修复前红、修复后绿（TDD 红绿锚点）。
- * 取证：pageerror 全量收集，任何 'kind'/'orphan' TypeError 即失败并打印现场。
+ *
+ * 为什么它**没被删掉**（A4 原计划是"折进常驻断言后删文件"）：实测全仓只有这一个 spec 同时具备
+ * 「删除动作」×「pageerror 全量守卫」两面（`grep -l pageErrors` 只有 memory-soak / render-guard 两个，
+ * 都不碰删除），即删除路径上"崩了但界面看着删了"这类静默失败**只有这里在守**。
+ * 故处置 = 去掉 `-repro` 一次性身份、转正常驻（仍在默认套件里，每轮都跑），而不是删。
+ * 三个面各一条：FileBrowserView（产品集文档 tab）/ Search / Settings 标签删除——三处都是同款陷阱的不同实例。
  */
-test.describe('删除确认弹窗崩溃回归（2026-08-15 定位）', () => {
+test.describe('删除确认弹窗：三面删除后不崩、且对象真的消失（常驻）', () => {
   let app: ElectronApplication
   let page: Page
   let pageErrors: string[]
 
   test.beforeAll(async () => {
-    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT, env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('delete-confirm-repro') } })
+    app = await electron.launch({ args: ['.', '--no-sandbox'], cwd: ROOT, env: { ...process.env, QIHEBOX_E2E: '1', QIHEBOX_E2E_USERDATA: e2eUserDataDirName('delete-confirm') } })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
     await page.waitForFunction(() => !!(window as any).qihebox, null, { timeout: 10000 })

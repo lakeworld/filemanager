@@ -31,6 +31,11 @@ jobs:
       - name: Leak gate (private identity / credentials / local paths)
         run: node scripts/check-no-secrets.mjs --all
 
+      # v2.5.9/A3：版本一致性门禁（package.json / CHANGELOG / README badge / RELEASE 说明四处同源）。
+      # 零依赖、放在依赖安装之前——bump 漏一处是"发出去就收不回"的错，越早红越好。
+      - name: Version consistency gate (check:version-sync)
+        run: node scripts/check-version-sync.mjs
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
