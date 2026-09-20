@@ -114,6 +114,10 @@ export default function Search() {
     e.preventDefault();
     const q = query();
     if (q && typeof q === "string") {
+      // v2.5.9 A6-2：把搜索现场写回 URL（replace 不堆历史）——搜索条件原先只活在组件信号里，
+      // 一离开就丢；回写后它变成可恢复的书签式入口，也让「返回搜索页」有东西可返。
+      // 同值 replace 不重复触发：上面 createEffect 读的是 searchParams.q，值没变则 effect 不重跑。
+      navigate(`/search?q=${encodeURIComponent(q)}`, { replace: true });
       doSearch(q);
     }
   };
@@ -242,7 +246,7 @@ export default function Search() {
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
             <For each={results().product_sets}>
               {(ps: ProductSetInfo) => (
-                <div class="card p-4 cursor-pointer" onClick={() => navigate(`/product-sets/${ps.name}`)}>
+                <div class="card p-4 cursor-pointer" onClick={() => navigate(`/product-sets/${encodeURIComponent(ps.name)}`)}>
                   <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center text-lg">📦</div>
                     <div>

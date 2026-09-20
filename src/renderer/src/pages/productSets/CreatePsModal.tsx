@@ -14,11 +14,13 @@ import type { ProductSetPrefill } from "~/stores/createPrefillNormalize";
  * 新建产品集弹窗（v2.5.1 T3 波2 拆分 + overlay→Modal 迁移）：
  * 字段信号与提交逻辑从 ProductSets.tsx 纯搬迁；成功回调 onCreated。
  * v2.5.4 预填（PLAN-v2.5.4 §3.4）：可选 initial + onCancel（语义同 CreateClientModal）。
+ * v2.5.9 A6-3：`onCreated(name)` 带出新建的名字——调用方据此**直接进详情**（`/product-sets/<name>`）；
+ * 不带名字时调用方只能停在列表页（旧行为），那是本次要修的用户体验缺口。
  */
 export default function CreatePsModal(props: {
   open: boolean;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (name: string) => void;
   initial?: ProductSetPrefill | null;
   onCancel?: () => void;
 }) {
@@ -83,7 +85,7 @@ export default function CreatePsModal(props: {
       setNewPsTags([]);
       setNewPsNotes("");
       props.onClose();
-      props.onCreated();
+      props.onCreated(name);
     } else {
       showToast("error", "创建失败", result.error || "未知错误");
     }

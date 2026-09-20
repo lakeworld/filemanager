@@ -98,6 +98,22 @@ export default function Header() {
       class="h-14 flex items-center gap-4 px-6 bg-surface-0/80 backdrop-blur border-b border-surface-200 shadow-[inset_0_1px_0_0_rgb(255_255_255/0.55)] relative z-20"
       style={{ "-webkit-app-region": "drag" }}
     >
+      {/*
+        v2.5.9 A6-2：全局「← 后退」。此前详情页（`/product-sets/:name` 等）只能靠侧栏重新点进列表，
+        「搜到 → 打开 → 退回搜索结果」这条最常用的动线断在最后一步。走 `navigate(-1)` 吃浏览器历史，
+        不自己记栈（记栈等于再造一套导航状态，和路由器必然漂移）。
+        形状走统一清单的 `.icon-btn`（§一.8 两条合法路之一），不手搓长串。
+      */}
+      <button
+        type="button"
+        class="icon-btn"
+        aria-label="后退"
+        title="后退（返回上一页）"
+        onClick={() => navigate(-1)}
+        style={{ "-webkit-app-region": "no-drag" }}
+      >
+        ←
+      </button>
       <div class="relative flex-1 max-w-md" style={{ "-webkit-app-region": "no-drag" }}>
         <div class="absolute inset-y-0 left-3 flex items-center pointer-events-none">
           <span class="text-surface-400">🔍</span>

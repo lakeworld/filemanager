@@ -720,9 +720,15 @@ export default function ProductSets() {
       <CreatePsModal
         open={showCreateModal()}
         onClose={() => setShowCreateModal(false)}
-        onCreated={() => {
+        onCreated={(name) => {
+          // v2.5.9 A6-3：插件预填链（`createPrefill`）在跑时**维持现状**——预填是「连着建好几条」的流程，
+          // 跳详情会让本页卸载、队列里剩下的条目再没人消费（advancePrefill 的接收端就在本页的 effect 里）。
+          // 判据取"这次创建是不是预填来的"（提交前队首非空），而不是"提交后队列空不空"：后者在
+          // 单条预填时也成立，会把插件单条预填的场景一起跳走。
+          const fromPrefill = currentPrefill("productSet") !== null;
           loadProductSets();
           advancePrefill("productSet");
+          if (!fromPrefill) navigate(`/product-sets/${encodeURIComponent(name)}`);
         }}
         initial={createInitial()}
         onCancel={() => {

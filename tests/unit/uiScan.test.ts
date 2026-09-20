@@ -139,13 +139,17 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  *     （AGENTS §二.8 两条合法路之一），所以 `debt` 仍是 6、`tint` 仍是 0、`press` 仍是 0——
  *     清点器口径里形状档仍归 handwritten，这一格本来就不是收口指标（见上条）。
  *     增数是因为**多了两个真按钮**，不是谁各写各的：这也是为什么这两格该动而 `debt` 不该动。
+ *   - `total 271 → 272` / `handwritten 130 → 131`（**v2.5.9 A6-2 全局后退钮**）：
+ *     `Header` 顶栏新增一枚 «←» 后退（`navigate(-1)`，吃浏览器历史不自己记栈），走**形状具名档 `.icon-btn`**
+ *     （AGENTS §一.8 两条合法路之一）⇒ 与上条 D18 同口径：形状档在清点器里归 handwritten，
+ *     这一格**本就不是收口指标**；`debt` 仍 6、`tint` 仍 0、`press` 仍 0（增数 = 多了一个真按钮）。
  *   - `modal framed 6 → 21`：D14 先按 PLAN 判据推 9 个（15），D16 收尾时**判据的前提被实测推翻**——
  *     原列"不推"的 6 个里有 5 个本来就自绘了标题行与底部按钮行（`ConfirmDialog:23` `MoveDialog:93`
  *     `ArchiveProgressDialog:144` `SupplierDetail` 编辑档弹窗 `Invoice/InboundEditorModal`），套 framed 是
  *     **拆掉重复的标题与页脚**、不是"多空一层头"。用户 09-12 复拍「推平 21 个」⇒ 未迁名额清零。 */
 const BASE = {
   button: {
-    total: 271, unified: 141, handwritten: 130, noclass: 0,
+    total: 272, unified: 141, handwritten: 131, noclass: 0,
     tint: 0, debt: 6, baseInternal: 5, press: 0, noTransition: 4,
   },
   input: { total: 16, checkbox: 12, baseInternal: 3, debt: 0, exempt: 1, other: 0 },

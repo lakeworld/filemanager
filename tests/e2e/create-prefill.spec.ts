@@ -114,6 +114,11 @@ test.describe('全业务新建预填 e2e（v2.5.4）', () => {
     await expect(psDlg).toHaveCount(0, { timeout: 10000 })
     const sets = await page.evaluate(async () => (window as any).qihebox.productSets.list())
     expect(sets.data.some((x: { name: string }) => x.name === '预填产品集A')).toBe(true)
+    // v2.5.9 A6-3 边界：**预填来的创建停在列表页**（A6-3 加了"手动新建直入详情"）。
+    // 理由：预填是"连着建好几条"的流程，跳详情会让本页卸载、队列剩余条目再没人消费
+    // （advancePrefill 的接收端就在本页 effect 里）——这里把该边界钉成断言，防以后有人顺手改成一律跳。
+    expect(await page.evaluate(() => window.location.hash)).toContain('/product-sets')
+    expect(await page.evaluate(() => window.location.hash)).not.toContain('/product-sets/')
   })
 
   test('quote：lines 明细预填正确', async () => {
