@@ -51,6 +51,11 @@ jobs:
       - name: Build (electron-vite)
         run: npm run build
 
+      # v2.5.9/A2-1：渲染层 class token 对编译 CSS 全命中（AGENTS.md §二 明列出口门禁，此前本地有、CI 从不跑）。
+      # 必须紧跟 build——脚本读 out/renderer 的编译产物，无产物时等于没判。
+      - name: Class inventory check (check:classes)
+        run: npm run check:classes
+
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
@@ -64,6 +69,10 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # v2.5.9/A2-4：历史/元数据口径泄漏门禁（tip 口径在 test job；已推送历史的残留此前靠人推前手跑）
+      - name: Leak gate, history mode (check:leaks:history)
+        run: npm run check:leaks:history
 
       - name: Build (electron-vite)
         run: npm run build
@@ -83,10 +92,37 @@ jobs:
       - name: Run Playwright tests (xvfb)
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test --reporter=list,github
 
+      # v2.5.9/A1b：崩溃取证管道「从不执行」的根治——此前被 playwright.config.ts 的
+      # testIgnore 挡住，CI 默认套件根本不跑它，线程B 阶段2/3「等 CI 抓到真实崩溃」永远等不到。
+      # ⚠ 暂不启用：crash-diag 配置的单轮 timeout 是 **30 分钟**（取证预算），直接进 CI 会把 e2e job
+      # 拖爆；且 spec 自陈「验收后整文件清理」（PLAN-v2.5.7-preview-lifecycle §三）。
+      # 启用条件 = 批次二把轮数收敛到 ≤10 分钟、宿主实测通过后再放开本步与配套 artifact。
+      - name: Run crash-diag spec (DISABLED until batch-2, see comment)
+        if: ${{ false }}
+        continue-on-error: true
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test --config=playwright.crash-diag.config.ts --reporter=list,github
+
+      - name: Upload crash-diag results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: crash-diag-results
+          path: crash-diag-results/
+          if-no-files-found: ignore
+
       # v2.5（PLAN-v2.5-测试 Task 4）：一致性套件自检（hello 自检 = 套件健康证明）——
       # hello 构建产物已由上一步「Build hello plugin (e2e fixture)」就位；套件内部自建正负夹具
+      # v2.5.9/A1c：加 if: always()——此前 e2e 一红就连坐跳过 conformance（本步与报告同病）
       - name: Run conformance suite (hello self-check)
+        if: always()
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm run conformance -- out/plugins/com.qihe.hello.qbox
+
+      # v2.5.9/A1c：主跑用 --reporter=list,github 整体覆盖 config 的 reporter，不产 HTML ⇒
+      # 下面的上传步骤常年空传（实测 annotation "No files were found: playwright-report/"）。
+      # 失败轮补一次「只重跑上次失败用例」并产 html——不是全量重来，成本≈红的那几条。
+      - name: Produce HTML report (failed runs only)
+        if: failure()
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test --last-failed --reporter=html
 
       - name: Upload playwright report
         uses: actions/upload-artifact@v4
@@ -94,6 +130,11 @@ jobs:
         with:
           name: playwright-report
           path: playwright-report/
+          if-no-files-found: warn
+
+      # v2.5.9/A1e：action 债登记——checkout/setup-node/upload-artifact 仍 @v4（Node20 deprecation
+      # 警告）。升 v5 属外向动作、且出口判据是"CI 日志无该警告"（只能在真 run 里验），
+      # 与 push 同批做、单独一笔，见动作卡 §四。
 
   package:
     name: Package (${{ matrix.os }})
@@ -127,6 +168,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: npm run build:win
+
+      # v2.5.9/A2-2 边界登记：W1a（check:win-artifact）**不在任何 CI job 跑**——CI 出的 win 包
+      # 必假红（缺 sharp-win32-x64，出包必须走宿主；INDEX D20 段改正②）。承担方 = 本机出口轮。
+      # v2.5.9/A2-3 同源登记：内存门禁（test:memory-soak/baseline）同样不进共享 runner——绝对值
+      # 阈值在 CI 必抖（待拍板 #13 已裁「同会话 A/B」口径），由本机出口轮承担。
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4

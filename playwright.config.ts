@@ -11,7 +11,9 @@ export default defineConfig({
   // 2026-08-19 发布轮两轮失败位置漂移取证）：允许 1 次重试，重试起新 app 实例环境重置；
   // 本地不重试，失败即失败，避免掩盖真实回归
   retries: process.env.CI ? 1 : 0,
-  reporter: [['list']],
+  // v2.5.9/A1c：html 常驻产出。CI 主跑用 `--reporter=list,github` 会整体覆盖此项，
+  // 失败轮由 ci.yml 补跑 `--last-failed --reporter=html` 兜底；本地全量直接有报告可看。
+  reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
