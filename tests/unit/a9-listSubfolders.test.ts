@@ -17,6 +17,7 @@ import { buildTestBox } from './helpers'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import { listActualSubfolders } from '../../src/main/core/subfolders'
 
 const tmp = () => fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-a9-'))
 
@@ -228,5 +229,75 @@ describe('A9 刀3b · 改名默认只改模板，改所有实体要显式点名'
     await box.workspace.saveConfig(ws, cfg0)
     const cfg = await box.workspace.renameSubfolder('image', '只存在于模板', '换了个名')
     expect(cfg.image_subfolders).toContain('换了个名')
+  })
+})
+
+describe('A9 刀5 · 客户/供应商内部挪（tab → tab）', () => {
+  it('客户：同一实体内从一个子文件夹挪进另一个，盘上落位正确', async () => {
+    const { box, ws } = await boxWithWs()
+    await box.clients.create({ name: '华东客户' })
+    const base = path.join(ws, '客户', '华东客户')
+    await fsp.mkdir(path.join(base, '沟通'), { recursive: true })
+    await fsp.mkdir(path.join(base, '归档'), { recursive: true })
+    const f = path.join(base, '沟通', '报价.pdf')
+    await fsp.writeFile(f, 'pdf')
+
+    const r = await box.files.moveFiles({
+      paths: [f],
+      scope: 'customer',
+      target_product_set: '华东客户',
+      sub_folder: '归档',
+    })
+    expect(r.failed).toHaveLength(0)
+    expect(r.moved).toHaveLength(1)
+    await expect(fsp.stat(path.join(base, '归档', '报价.pdf'))).resolves.toBeTruthy()
+    await expect(fsp.stat(f)).rejects.toThrow()
+    // 挪完之后 tab 列表仍以盘为准：目标在、源目录空着也还在（且标出"没文件"）
+    const subs = await listActualSubfolders(base)
+    // 只看本次造的两个（`clients.create` 还会按模板建出 报价/合同/其他 等，与本判据无关）
+    const mine = subs.filter((e) => ['归档', '沟通'].includes(e.name))
+    expect(mine.map((e) => e.name)).toEqual(['沟通', '归档']) // 名称序（gou < gui），非创建序
+    expect(mine.find((e) => e.name === '沟通')?.has_files).toBe(false)
+    expect(mine.find((e) => e.name === '归档')?.has_files).toBe(true)
+  })
+
+  it('供应商：同一条 scope 分支不能被漏掉', async () => {
+    const { box, ws } = await boxWithWs()
+    await box.suppliers.create({ name: '北方厂' })
+    const base = path.join(ws, '供应商', '北方厂')
+    await fsp.mkdir(path.join(base, '样品'), { recursive: true })
+    await fsp.mkdir(path.join(base, '合同'), { recursive: true })
+    const f = path.join(base, '样品', 'a4.pdf')
+    await fsp.writeFile(f, 'x')
+    const r = await box.files.moveFiles({
+      paths: [f],
+      scope: 'supplier',
+      target_product_set: '北方厂',
+      sub_folder: '合同',
+    })
+    expect(r.failed).toHaveLength(0)
+    await expect(fsp.stat(path.join(base, '合同', 'a4.pdf'))).resolves.toBeTruthy()
+  })
+
+  it('客户内部挪动后**标签必须跟着走**（与产品集内部移动同口径，不许另起一套）', async () => {
+    const { box, ws } = await boxWithWs()
+    await box.clients.create({ name: '华东客户' })
+    const base = path.join(ws, '客户', '华东客户')
+    await fsp.mkdir(path.join(base, '沟通'), { recursive: true })
+    await fsp.mkdir(path.join(base, '归档'), { recursive: true })
+    const f = path.join(base, '沟通', '带标签.pdf')
+    await fsp.writeFile(f, 'x')
+    await box.metadata.update({ file_path: f, tags: ['重点'] })
+    await box.files.moveFiles({
+      paths: [f],
+      scope: 'customer',
+      target_product_set: '华东客户',
+      sub_folder: '归档',
+    })
+    const after = await box.metadata.get(path.join(base, '归档', '带标签.pdf'))
+    expect(after.tags).toEqual(['重点'])
+    // 旧 key 不许留下僵尸条目（否则元数据只会越积越脏）
+    const stale = await box.metadata.get(f)
+    expect(stale.tags ?? []).toHaveLength(0)
   })
 })

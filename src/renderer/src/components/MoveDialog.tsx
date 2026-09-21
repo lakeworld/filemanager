@@ -2,6 +2,7 @@ import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid
 import Modal from "~/components/ui/Modal";
 import SearchSelect from "~/components/ui/SearchSelect";
 import { api } from "~/wails/api";
+import type { SubfolderEntry } from "../../../shared/types";
 import {
   currentWorkspace,
   productSets,
@@ -18,12 +19,40 @@ export default function MoveDialog(props: {
   paths: string[];
   onClose: () => void;
   onMoved?: () => void;
+  /**
+   * v2.5.9（A9 刀5）：客户/供应商**实体内部**挪动（从一个 tab 挪到另一个 tab）。
+   * 传了 `scope` + `entity` 就进"实体内"形态：不选产品集、不分图包/证书，
+   * 目标只能是该实体自己盘上已有的那些子文件夹（同一份 `files.listSubfolders` 口径）。
+   */
+  scope?: "customer" | "supplier";
+  entity?: string;
 }) {
+  /** 是否处于"实体内部挪动"形态 */
+  const inEntity = () => Boolean(props.scope && props.entity);
+  const [entityFolders, setEntityFolders] = createSignal<SubfolderEntry[]>([]);
+
+  /** 可选目标：实体内形态只列**这个实体盘上实际有**的子文件夹；否则按图包/证书取 */
+  const folderChoices = (): string[] =>
+    inEntity()
+      ? entityFolders().map((entry) => entry.name)
+      : targetType() === "image"
+        ? imageFolders()
+        : certFolders();
   const [selectedProductSet, setSelectedProductSet] = createSignal("");
   const [targetType, setTargetType] = createSignal<"image" | "cert">("image");
   const [subFolder, setSubFolder] = createSignal("");
   const [status, setStatus] = createSignal<"idle" | "moving" | "error">("idle");
   const [errorMsg, setErrorMsg] = createSignal("");
+
+  // 实体内形态：目标列表来自盘（A9 口径），不读那张全局模板表
+  createEffect(() => {
+    const ws = currentWorkspace();
+    if (!ws || !inEntity()) return;
+    void (async () => {
+      const r = await api.files.listSubfolders({ product_set: props.entity!, scope: props.scope });
+      if (r.success) setEntityFolders(r.data ?? []);
+    })();
+  });
 
   createEffect(() => {
     if (currentWorkspace()) {
@@ -68,17 +97,27 @@ export default function MoveDialog(props: {
     const ps = selectedProductSet();
     const type = targetType();
     const sub = subFolder();
-    if (!ps || !sub) return;
+    if (!sub) return;
+    if (!inEntity() && !ps) return;
 
     setStatus("moving");
     setErrorMsg("");
     try {
-      const result = await api.files.move({
-        paths: props.paths,
-        target_product_set: ps,
-        target_type: type,
-        sub_folder: sub,
-      });
+      const result = await api.files.move(
+        inEntity()
+          ? {
+              paths: props.paths,
+              scope: props.scope,
+              target_product_set: props.entity,
+              sub_folder: sub,
+            }
+          : {
+              paths: props.paths,
+              target_product_set: ps,
+              target_type: type,
+              sub_folder: sub,
+            },
+      );
       if (!result.success) {
         setStatus("error");
         setErrorMsg(result.error || "移动失败");
@@ -122,7 +161,7 @@ export default function MoveDialog(props: {
           <button
             class="btn-primary"
             onClick={() => void handleMove()}
-            disabled={!selectedProductSet() || !subFolder() || status() === "moving"}
+            disabled={(!inEntity() && !selectedProductSet()) || !subFolder() || status() === "moving"}
           >
             {status() === "moving" ? "移动中..." : `移动 ${props.paths.length} 个文件`}
           </button>
@@ -137,6 +176,9 @@ export default function MoveDialog(props: {
           内层 `space-y-4` / `mt-4` 的原有节奏保持不变（不趁迁移改版式）。 */}
       <div onClick={(e) => e.stopPropagation()}>
         <div class="space-y-4">
+          {/* v2.5.9（A9 刀5）：在客户/供应商内部挪时，"去哪个实体/哪一类"都不成立——
+              目的地只有本实体自己盘上的那些子文件夹，故整段收起来（不是禁用，是不存在这个选择）。 */}
+          <Show when={!inEntity()}>
           <div>
             <label class="block text-sm font-medium text-surface-700 mb-1">产品集</label>
             {/* v2.5.8 D9（W4 控件统一 II）：原生 select → SearchSelect（弹窗内走非紧凑 h-9 档）。
@@ -184,13 +226,20 @@ export default function MoveDialog(props: {
               </button>
             </div>
           </div>
+          </Show>
+          <Show when={inEntity()}>
+            <div class="text-sm text-surface-600">
+              只挪进<b class="text-surface-800">{props.entity}</b>
+              {props.scope === "supplier" ? "（供应商）" : "（客户）"}自己盘上已有的子文件夹里
+            </div>
+          </Show>
 
           <div>
             <label class="block text-sm font-medium text-surface-700 mb-1">子文件夹</label>
             {/* v2.5.8 D14（样式统一收口）：同上收进 `.seg-item` / `.seg-item-on`（原串 `px-4 py-2 text-sm rounded-md transition-colors`
                 与档逐项等值，故整串删掉）；选中底色/未选中文字色留在调用点（形状档刻意不管颜色）。 */}
             <div class="flex bg-surface-100 rounded-lg p-1 flex-wrap gap-1">
-              <For each={targetType() === "image" ? imageFolders() : certFolders()}>
+              <For each={folderChoices()}>
                 {(folder) => (
                   <button
                     class={`seg-item ${subFolder() === folder ? "seg-item-on" : "text-surface-500"}`}

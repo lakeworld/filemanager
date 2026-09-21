@@ -967,6 +967,10 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       <Show when={movePaths()}>
         <MoveDialog
           paths={movePaths() ?? []}
+          // v2.5.9（A9 刀5）：客户/供应商文件区里挪文件＝在**本实体内部**换子文件夹，
+          // 不再让用户去选"哪个产品集/图包还是证书"（那套选择在这个域里根本不成立）。
+          scope={isCustomer() ? "customer" : isSupplier() ? "supplier" : undefined}
+          entity={isCustomer() || isSupplier() ? props.entity : undefined}
           onClose={() => setMovePaths(undefined)}
           onMoved={() => {
             setMovePaths(undefined);
