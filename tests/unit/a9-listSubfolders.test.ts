@@ -111,3 +111,31 @@ describe('A9 刀1a · listSubfolders 以盘为准', () => {
     ).rejects.toThrow()
   })
 })
+
+describe('A9 刀1c · productSetList 一并带回各集真实子文件夹（卡片面同一答案）', () => {
+  it('每集带回自己的 image/cert/doc 实际目录（含空目录），不是全局表', async () => {
+    const { box, ws } = await boxWithWs()
+    await box.workspace.productSetCreate({ name: '甲集' })
+    await box.workspace.productSetCreate({ name: '乙集' })
+    await fsp.mkdir(path.join(ws, '产品集', '甲集', '图包', '甲集独有'), { recursive: true })
+    await fsp.mkdir(path.join(ws, '产品集', '乙集', '证书', '乙集证'), { recursive: true })
+
+    const list = await box.workspace.productSetList()
+    const a = list.find((p) => p.name === '甲集')!
+    const b = list.find((p) => p.name === '乙集')!
+    expect(a.image_folders!.map((x) => x.name)).toContain('甲集独有')
+    expect(b.image_folders!.map((x) => x.name)).not.toContain('甲集独有')
+    expect(b.cert_folders!.map((x) => x.name)).toContain('乙集证')
+    // 空/非空标记一路带到卡片面（卡片要能区分"有货"与"空壳"）
+    expect(a.image_folders!.find((x) => x.name === '甲集独有')?.has_files).toBe(false)
+  })
+
+  it('与 files.listSubfolders 给同一个答案（唯一实现，禁两处各写一遍）', async () => {
+    const { box } = await boxWithWs()
+    await box.workspace.productSetCreate({ name: '甲集' })
+    const list = await box.workspace.productSetList()
+    const viaList = list.find((p) => p.name === '甲集')!.image_folders!
+    const viaApi = await box.files.listSubfolders({ product_set: '甲集', file_type: 'image' })
+    expect(viaList).toEqual(viaApi)
+  })
+})

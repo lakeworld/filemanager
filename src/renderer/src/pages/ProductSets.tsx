@@ -4,7 +4,7 @@ import { api } from "~/wails/api";
 import { fmtLocalTime } from "~/utils/datetime";
 import CreatePsModal from "./productSets/CreatePsModal";
 import EditInfoPsModal from "./productSets/EditInfoPsModal";
-import { withBuiltinNotes, defaultSubFolder } from "~/constants/notes";
+import { withBuiltinNotes, defaultSubFolder, BUILTIN_NOTES_FOLDER } from "~/constants/notes";
 import { tagList } from "~/stores/tags";
 import SearchSelect from "~/components/ui/SearchSelect";
 import { prefillVersion, currentPrefill, advancePrefill, clearPrefill, currentEditPrefill, clearEditPrefill } from "~/stores/createPrefill";
@@ -234,6 +234,38 @@ export default function ProductSets() {
       if (tag && !(ps.tags || []).includes(tag)) return false;
       return true;
     });
+  };
+
+  /**
+   * v2.5.9（A9 刀1c）：本集**盘上实际存在**的子文件夹。数据随 `productSetList` 一并带回
+   * （卡片本来就要每集的计数，同一趟 readdir，不另发 IPC、不做 N 次往返）。
+   * 没带回来时（首帧未达 / 搜索结果不含该字段）退回今日那张全局表当占位 ——
+   * **占位不是第二权威**：一旦 `*_folders` 到达就以它为准（同 A9 文件区口径）。
+   */
+  const psInfo = () => productSets().find((p) => (p as { name: string }).name === psName());
+  const actualFolders = (which: "image" | "cert" | "doc"): string[] => {
+    const info = psInfo();
+    const entries =
+      which === "image" ? info?.image_folders : which === "cert" ? info?.cert_folders : info?.doc_folders;
+    if (!entries) return which === "image" ? imageFolders() : which === "cert" ? certFolders() : docFolders();
+    const names = entries.map((x) => x.name);
+    // 内建「笔记」按现状并进最左（用户拍板「笔记保持现状」），图包/证书不参与
+    return which === "doc" ? withBuiltinNotes(names, []) : names;
+  };
+  /**
+   * 点卡片先进哪个文件夹。**以盘为准改的是"有哪些"，不是"默认进哪个"**——
+   * 后者是既有产品语义（图包→主图、证书→3C、文档→说明书；`docs-view.spec.ts:66` 就钉着这条），
+   * 我第一版写成"名称序第一个"，把这条踩了个正着（e2e 两条红抓出来的，见提交说明）。
+   * 口径：先试模板首选（若它在本集盘上真的存在）→ 再试第一个有文件的 → 再退到盘上第一个。
+   */
+  const landingFolder = (which: "image" | "cert" | "doc"): string => {
+    const names = actualFolders(which);
+    const notNotes = (n: string) => n !== BUILTIN_NOTES_FOLDER;
+    const preferred =
+      which === "doc" ? defaultSubFolder(docFolders()) : (which === "image" ? imageFolders() : certFolders())[0];
+    if (preferred && names.includes(preferred)) return preferred;
+    const entries = psInfo()?.[which === "image" ? "image_folders" : which === "cert" ? "cert_folders" : "doc_folders"];
+    return entries?.find((x) => x.has_files && notNotes(x.name))?.name ?? names.find(notNotes) ?? names[0] ?? "";
   };
 
   const imageFolders = () => workspaceConfig()?.image_subfolders || ["主图", "详情页", "白底图", "素材"];
@@ -580,8 +612,7 @@ export default function ProductSets() {
             <div
               class="card p-8 cursor-pointer bg-gradient-to-br from-info-50 to-white"
               onClick={() => {
-                const folders = imageFolders();
-                navigate(`/files/image/${encodeURIComponent(psName())}/${folders[0]}`);
+                navigate(`/files/image/${encodeURIComponent(psName())}/${encodeURIComponent(landingFolder('image'))}`);
               }}
             >
               <div class="flex items-center gap-4">
@@ -592,7 +623,7 @@ export default function ProductSets() {
                 </div>
               </div>
               <div class="mt-6 flex gap-3 flex-wrap">
-                <For each={imageFolders()}>
+                <For each={actualFolders("image")}>
                   {(folder) => (
                     <span class="text-xs px-3 py-1.5 rounded-full bg-info-100 text-info-700">{folder}</span>
                   )}
@@ -604,8 +635,7 @@ export default function ProductSets() {
             <div
               class="card p-8 cursor-pointer bg-gradient-to-br from-cert-50 to-white"
               onClick={() => {
-                const folders = certFolders();
-                navigate(`/files/cert/${encodeURIComponent(psName())}/${folders[0]}`);
+                navigate(`/files/cert/${encodeURIComponent(psName())}/${encodeURIComponent(landingFolder('cert'))}`);
               }}
             >
               <div class="flex items-center gap-4">
@@ -616,7 +646,7 @@ export default function ProductSets() {
                 </div>
               </div>
               <div class="mt-6 flex gap-3 flex-wrap">
-                <For each={certFolders()}>
+                <For each={actualFolders("cert")}>
                   {(folder) => (
                     <span class="text-xs px-3 py-1.5 rounded-full bg-cert-100 text-cert-700">{folder}</span>
                   )}
@@ -627,8 +657,7 @@ export default function ProductSets() {
             <div
               class="card p-8 cursor-pointer bg-gradient-to-br from-surface-100 to-white"
               onClick={() => {
-                const folders = docFolders();
-                navigate(`/files/doc/${encodeURIComponent(psName())}/${defaultSubFolder(folders)}`);
+                navigate(`/files/doc/${encodeURIComponent(psName())}/${encodeURIComponent(landingFolder("doc"))}`);
               }}
             >
               <div class="flex items-center gap-4">
@@ -639,7 +668,7 @@ export default function ProductSets() {
                 </div>
               </div>
               <div class="mt-6 flex gap-3 flex-wrap">
-                <For each={docFolders()}>
+                <For each={actualFolders("doc")}>
                   {(folder) => (
                     <span class="text-xs px-3 py-1.5 rounded-full bg-surface-200 text-surface-700">{folder}</span>
                   )}

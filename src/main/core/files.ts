@@ -15,6 +15,7 @@
  */
 import path from 'node:path'
 import fsp from 'node:fs/promises'
+import { listActualSubfolders } from './subfolders'
 import fs from 'node:fs'
 import {
   WorkspaceConfig,
@@ -183,16 +184,9 @@ export class FilesService {
               holder,
               req.file_type === 'cert' ? CERTS_DIR : req.file_type === 'doc' ? DOCS_DIR : IMAGES_DIR,
             )
-    const entries = await fsp.readdir(parent, { withFileTypes: true }).catch(() => [] as fs.Dirent[])
-    const out: SubfolderEntry[] = []
-    for (const ent of entries) {
-      if (!ent.isDirectory() || ent.name.startsWith('.')) continue
-      // 判空只扫到第一个非隐藏条目即停：隐藏文件（.DS_Store 之类）不算"有内容"
-      const kids = await fsp.readdir(path.join(parent, ent.name)).catch(() => [] as string[])
-      out.push({ name: ent.name, has_files: kids.some((k) => !k.startsWith('.')) })
-    }
-    out.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
-    return out
+    // v2.5.9（A9 刀1c）：readdir + 判空 + 排序**收进唯一实现**（`core/subfolders.ts`），
+    // 与产品集卡片面共用同一答案；本文件不再自带一份（那两份会漂移）。
+    return listActualSubfolders(parent)
   }
 
   private targetDir(req: ImportFileRequest): string {

@@ -4,6 +4,7 @@
  */
 import os from 'node:os'
 import path from 'node:path'
+import { listActualSubfolders } from './subfolders'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import {
@@ -331,11 +332,22 @@ export class WorkspaceService {
         countFiles(path.join(dir, setName, DOCS_DIR)),
       ])
       const ex = extra[setName] ?? { tags: [], notes: '' }
+      // v2.5.9（A9 刀1c）：卡片上那排文件夹名改看**盘**（用户拍板"以盘为准"）。
+      // 与文件区 tab 共用 `listActualSubfolders` ⇒ 同一实体在两处给同一个答案。
+      const setDir = path.join(dir, setName)
+      const [imageFolders, certFolders, docFolders] = await Promise.all([
+        listActualSubfolders(path.join(setDir, IMAGES_DIR)),
+        listActualSubfolders(path.join(setDir, CERTS_DIR)),
+        listActualSubfolders(path.join(setDir, DOCS_DIR)),
+      ])
       sets.push({
         name: setName,
         image_count: imgCount,
         cert_count: certCount,
         doc_count: docCount,
+        image_folders: imageFolders,
+        cert_folders: certFolders,
+        doc_folders: docFolders,
         created_at: formatTime(info.mtime),
         tags: ex.tags ?? [],
         notes: ex.notes ?? '',

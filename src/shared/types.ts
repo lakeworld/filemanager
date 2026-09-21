@@ -53,6 +53,14 @@ export interface ProductSetInfo {
   created_at: string
   tags: string[]
   notes: string
+  /**
+   * v2.5.9（A9 刀1c）：该集图包/证书/文档域下**实际存在**的子文件夹（卡片显示与"点进去落哪儿"用）。
+   * 可选：`search.ts` 那份 `ProductSetInfo` 构造点不填（它只做命中列表，不渲染文件夹行），
+   * 渲染层对 `undefined` 保留旧的"读全局表"占位 ⇒ 不因这一笔让搜索结果缺字段变空行。
+   */
+  image_folders?: SubfolderEntry[]
+  cert_folders?: SubfolderEntry[]
+  doc_folders?: SubfolderEntry[]
 }
 
 export interface ProductSetStats {
