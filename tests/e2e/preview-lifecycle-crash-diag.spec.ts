@@ -1,3 +1,15 @@
+/**
+ * preview-lifecycle-crash-diag.spec.ts —— 预览生命周期「崩溃取证」专用套件
+ *
+ * 为什么不进默认套件：`playwright.config.ts` 的 testIgnore 里点名挡了本文件，
+ * 它只在崩溃排查时跑（复刻 preview-lifecycle 那条负载型红的前置序列并留 trace/video），
+ * 让 CI 天天跑它既慢又把探针产物混进正式报告。
+ * 唯一明确跑法（别指望 `npx playwright test` 会带上它）：
+ *   npx playwright test --config=playwright.crash-diag.config.ts
+ * CI 侧同样有独立一步，并被 `ci.yml` 那道不容错的
+ * 「Assert crash-diag pipeline really ran」守卫兜住"配了却从不执行"（v2.5.9/A1b 病灶本身）。
+ * ⚠ 本文件的排除关系由常驻门禁 `tests/unit/specDiscovery.test.ts` 机器核对（认领 + 自证）。
+ */
 import { test, expect, _electron as electron } from '@playwright/test'
 import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page } from '@playwright/test'
