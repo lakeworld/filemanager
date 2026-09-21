@@ -128,14 +128,40 @@ jobs:
       # 不该因此把构建判红；但它必须**真的执行**，所以不设 if 条件。
       - name: Run crash-diag spec (v2.5.7 线程B 取证管道)
         continue-on-error: true
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test --config=playwright.crash-diag.config.ts --reporter=list,github
+        run: |
+          set -o pipefail
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test --config=playwright.crash-diag.config.ts --reporter=list,github 2>&1 | tee crash-diag-run.log
+
+      # v2.5.9/A1b 自纠（评审 Standards 轴指出）：上面那格 `continue-on-error: true` 是**故意的**
+      # （真抓到崩溃 = 拿到证据，不该因此判红构建），但它同时把「这个 spec 根本没被发现」也吞了——
+      # 而"被 testIgnore 挡住、CI 从不执行却全程绿"正是 A1b 当初修的原始病灶（病灶以另一种形态复发）。
+      # ⇒ 补一道可执行的守卫：管道必须**真的跑出用例汇总行**。
+      # 取舍写明：卡死/超时也会判红（宁可红得吵，不要再静默死一次；实测默认 5 轮仅 ~3 秒）。
+      - name: Assert crash-diag pipeline really ran
+        run: |
+          set -e
+          if [ ! -s crash-diag-run.log ]; then
+            echo "::error::crash-diag 没有任何输出（管道没跑起来）"
+            exit 1
+          fi
+          if grep -q "No tests found" crash-diag-run.log; then
+            echo "::error::crash-diag spec 未被发现——testIgnore/config 又把它挡住了（A1b 病灶复发）"
+            exit 1
+          fi
+          if ! grep -qE "[0-9]+ (passed|failed|skipped|did not run)" crash-diag-run.log; then
+            echo "::error::crash-diag 没有用例汇总行，视为没跑完"
+            exit 1
+          fi
+          echo "crash-diag 取证管道确已执行（见 crash-diag-run.log）"
 
       - name: Upload crash-diag results
         uses: actions/upload-artifact@v7
         if: always()
         with:
           name: crash-diag-results
-          path: crash-diag-results/
+          path: |
+            crash-diag-results/
+            crash-diag-run.log
           if-no-files-found: ignore
 
       # v2.5（PLAN-v2.5-测试 Task 4）：一致性套件自检（hello 自检 = 套件健康证明）——
