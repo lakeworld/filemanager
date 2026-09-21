@@ -180,6 +180,17 @@ export default function TagInput(props: {
     if (n > 0) setActiveIndex((i) => Math.min(i, n - 1));
   });
 
+  // 键盘 ↑/↓ 时把高亮行拉回视野：面板 max-h-48 只装得下约 7 行，而 items() 可达数十条——
+  // 不做这件事，"选不到尾部标签"只修了一半（鼠标能滚了，键盘 ↓ 到底仍在一屏之外瞎选）。
+  // block:'nearest' 而不是 'end'：已在视野内时**一动不动**，不会为了看高亮行把整屏顶偏。
+  createEffect(() => {
+    if (!open()) return;
+    const idx = activeIndex();
+    queueMicrotask(() => {
+      panelEl?.querySelectorAll<HTMLButtonElement>("button")[idx]?.scrollIntoView({ block: "nearest" });
+    });
+  });
+
   // v2.5.1（T3 波3，D2）：弹出层入层栈（Esc 归属栈顶：弹出层 > 弹窗）
   createEffect(() => {
     if (!open()) return;
@@ -201,14 +212,31 @@ export default function TagInput(props: {
       setOpen(false);
     };
     const close = () => setOpen(false);
+    /*
+     * 滚动关闭只认「**会让输入框移位**」的滚动：document/window，或输入框的祖先滚动容器。
+     * 口径照抄 ui/SearchSelect.tsx 的 onScroll——那边 v2.5.8 已实测并修过同一处自杀（其注释原话：
+     * "选项 >7 条时面板内 .vscroll 一翻页就把自己关掉（探针实验：面板数 1→0）"）。本组件当时
+     * **没跟着改**，于是留着无条件 close()：面板自身是 `max-h-48 overflow-y-auto`（第 273 行），
+     * 标签一多（实测 30 个 = scrollHeight 968 vs clientHeight 190）用户想在面板里滚到尾部，
+     * 第一格滚动就把整个下拉关掉 ⇒ **尾部标签永远选不到**，重开又从头（用户读作"跳顶/空白/错位"）。
+     * 事件目标类型是 EventTarget（document 滚动的 target 就是 document），不能用 Node 收窄，
+     * 否则与 window 的比较在 tsc 下是 TS2367 无重叠比较（SearchSelect 同注）。
+     */
+    const onScroll = (e: Event) => {
+      const t = e.target as EventTarget | null;
+      if (t && t !== document) {
+        if (!rootEl || !(t as Element).contains?.(rootEl)) return; // 面板内滚动 / 无关容器 ⇒ 保持打开
+      }
+      close();
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("mousedown", onDown);
-    window.addEventListener("scroll", close, true);
+    window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", close);
     onCleanup(() => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", close);
     });
   });
