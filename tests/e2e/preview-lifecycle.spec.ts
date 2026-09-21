@@ -167,6 +167,13 @@ test.describe('预览生命周期治理（v2.5.3 T7）', () => {
    * 看不出时间花在哪。现在按段计时：导入落库（真正的"冷索引"）/ 整页 reload / 标题挂载 / 卡片渲染。
    * 判据不变：卡片必须真的可见，等不到照样红。
    */
+  /**
+   * 每次等卡片的预算。⚠ **必须是 30s，不能按总预算均摊**：
+   * 2026-09-21 CI #112 实测——我把它改成 `timeout/3`（15s）后，这条在 runner 上从
+   * "首跑挂、Retry 过"变成**两连败**：runner 上卡片就是要 15–30s 才渲染得出来，
+   * 均摊等于把每个attempt 的余量砍一半。总预算（3 次）与判据都没变，变的只是这个常数。
+   */
+  const CARD_ATTEMPT_MS = 30000
   const waitImageCard = async (psName: string, timeout = 45000): Promise<void> => {
     const t0 = Date.now()
     await page.waitForFunction(
@@ -199,7 +206,7 @@ test.describe('预览生命周期治理（v2.5.3 T7）', () => {
       try {
         await expect(async () => {
           expect(await page.locator('.card', { hasText: psName }).count()).toBeGreaterThan(0)
-        }).toPass({ timeout: Math.ceil(timeout / 3) })
+        }).toPass({ timeout: CARD_ATTEMPT_MS })
         console.log(
           `[pv] 冷索引分段耗时 ${psName}：导入落库=${tListed - t0}ms 整页reload=${tNav - tListed}ms ` +
             `标题挂载=${tHead - tNav}ms 卡片渲染=${Date.now() - tHead}ms（第 ${attempt} 次即中）总=${Date.now() - t0}ms`,
