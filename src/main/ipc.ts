@@ -167,6 +167,11 @@ export function registerIpc(
     handle(() => box.workspace.renameSubfolder(type, oldName, newName, opts)),
   )
 
+  // v2.5.9（悬案·就地改名）：只改**一个实体下**的那一个目录（不碰模板、不碰其他实体）
+  ipcMain.handle('qihebox:workspace:renameSubfolderInEntity', (_e, type: 'image' | 'cert' | 'customer' | 'supplier' | 'doc', entity: string, oldName: string, newName: string) =>
+    handle(() => box.workspace.renameSubfolderInEntity(type, entity, oldName, newName)),
+  )
+
   // v2.5.9（A9 刀4）：老工作区体检（只读，见 WorkspaceService.healthAudit）
   ipcMain.handle('qihebox:workspace:healthAudit', () => handle(() => box.workspace.healthAudit()))
 

@@ -39,6 +39,7 @@ interface QiheboxApi {
     renameSubfolder: (type: "image" | "cert" | "customer" | "supplier" | "doc", oldName: string, newName: string, opts?: { acrossEntities?: boolean }) => Promise<unknown>
     /** v2.5.9（A9 刀4）：老工作区体检（只读） */
     healthAudit: () => Promise<unknown>
+    renameSubfolderInEntity: (type: string, entity: string, oldName: string, newName: string) => Promise<unknown>
   }
   config: {
     get: () => Promise<unknown>

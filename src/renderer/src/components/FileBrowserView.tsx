@@ -558,6 +558,30 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
     loadSeq++;
   });
 
+  /**
+   * v2.5.9（悬案·就地改名）：把当前实体下的这一个子文件夹目录直接改名。
+   * 只动盘：不碰模板表、不碰其他实体——与「改名直接改盘上目录名」的口径一致。
+   */
+  const handleRenameSubfolder = async (oldName: string, newName: string) => {
+    try {
+      const result = await api.workspace.renameSubfolderInEntity(
+        isCustomer() ? "customer" : isSupplier() ? "supplier" : fileType() === "cert" ? "cert" : fileType() === "doc" ? "doc" : "image",
+        props.entity,
+        oldName,
+        newName,
+      );
+      if (!result.success) {
+        showToast("error", "改名失败", result.error || "未知错误");
+        return;
+      }
+      refreshSubFolders(); // A9：先让盘名单落地
+      navigate(folderPath(newName)); // 人还在原地，只是目录换了名
+      showToast("success", `已改名「${oldName}」→「${newName}」`, "只改了这一个实体下的目录");
+    } catch (err) {
+      showToast("error", "改名失败", String(err));
+    }
+  };
+
   const handleDeleteSubfolder = () => {
     const folder = props.subFolder;
     if (!folder) return;
@@ -751,6 +775,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         onImportFiles={() => void handleImportFiles()}
         onNavigate={(sub) => navigate(folderPath(sub))}
         onDeleteSubfolder={handleDeleteSubfolder}
+        onRenameSubfolderCommit={(oldName, newName) => void handleRenameSubfolder(oldName, newName)}
         onNewSubfolder={() => setShowNewFolder(true)}
         onNewNote={() => setShowNewNote(true)}
       />
@@ -958,6 +983,8 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
               onCompress: (paths) => void handleCompress(paths),
               onExtract: (file, mode) => void handleExtract(file, mode),
               onDelete: handleDelete,
+              onOpenPluginPage: (openPage) =>
+                navigate(`${openPage}${openPage.includes("?") ? "&" : "?"}from=menu&t=${Date.now()}`),
             }),
           ]}
         />

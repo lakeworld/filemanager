@@ -38,6 +38,8 @@ const api = {
     renameSubfolder: (type: string, oldName: string, newName: string, opts?: { acrossEntities?: boolean }) =>
       invoke('qihebox:workspace:renameSubfolder', type, oldName, newName, opts),
     healthAudit: () => invoke('qihebox:workspace:healthAudit'),
+    renameSubfolderInEntity: (type: string, entity: string, oldName: string, newName: string) =>
+      invoke('qihebox:workspace:renameSubfolderInEntity', type, entity, oldName, newName),
   },
   config: {
     get: () => invoke('qihebox:config:get'),

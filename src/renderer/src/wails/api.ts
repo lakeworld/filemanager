@@ -100,6 +100,9 @@ export const api = {
       qb.workspace.renameSubfolder(type, oldName, newName, opts) as Promise<ApiResult<WorkspaceConfig>>,
     // v2.5.9（A9 刀4）：老工作区体检（只读）——模板表 vs 盘上实际的差额清单
     healthAudit: () => qb.workspace.healthAudit() as Promise<ApiResult<SubfolderDriftReport>>,
+    // v2.5.9（悬案·就地改名）：只改一个实体下的那一个目录（不碰模板、不碰其他实体）
+    renameSubfolderInEntity: (type: "image" | "cert" | "customer" | "supplier" | "doc", entity: string, oldName: string, newName: string) =>
+      qb.workspace.renameSubfolderInEntity(type, entity, oldName, newName) as Promise<ApiResult<void>>,
   },
   config: {
     get: () => qb.config.get() as Promise<ApiResult<WorkspaceConfig>>,

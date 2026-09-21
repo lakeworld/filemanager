@@ -29,6 +29,7 @@ import {
   writeJsonAtomic,
   readJsonFile,
   assertSafeFolderName,
+  assertSafePathSegment,
   isReservedRootName,
 } from './paths'
 import { globalCountCache } from './scanCache'
@@ -321,6 +322,49 @@ export class WorkspaceService {
     list[idx] = newName
     await this.saveConfig(this.currentWS, cfg)
     return cfg
+  }
+
+  /**
+   * v2.5.9（A9 悬案·就地改名）：把**某一个实体下**的那一个子文件夹目录直接改名（只动盘）。
+   * 与 `renameSubfolder` 的三点区别：不碰模板表、不碰其他实体、目标实体由调用方点名。
+   * 内建「笔记」不可改（与 renameSubfolder 同一红线）。
+   */
+  async renameSubfolderInEntity(
+    type: 'image' | 'cert' | 'customer' | 'supplier' | 'doc',
+    entity: string,
+    oldName: string,
+    newName: string,
+  ): Promise<void> {
+    this.requireWorkspace()
+    oldName = oldName.trim()
+    if (oldName === BUILTIN_NOTES_SUBFOLDER) throw new Error(`内建「${BUILTIN_NOTES_SUBFOLDER}」不可改名`)
+    if (newName.trim() === BUILTIN_NOTES_SUBFOLDER) throw new Error(`不能重命名为「${BUILTIN_NOTES_SUBFOLDER}」`)
+    newName = assertSafeFolderName(newName, '子文件夹名称')
+    if (!oldName || !newName) throw new Error('名称不能为空')
+    if (oldName === newName) return
+    const base =
+      type === 'customer'
+        ? path.join(this.currentWS, CUSTOMERS_DIR, assertSafePathSegment(entity, '客户名'))
+        : type === 'supplier'
+          ? path.join(this.currentWS, SUPPLIERS_DIR, assertSafePathSegment(entity, '供应商名'))
+          : path.join(
+              this.currentWS,
+              PRODUCT_SETS_DIR,
+              assertSafePathSegment(entity, '产品集名'),
+              type === 'image' ? IMAGES_DIR : type === 'cert' ? CERTS_DIR : DOCS_DIR,
+            )
+    const from = path.join(base, oldName)
+    const to = path.join(base, newName)
+    if (!(await fsp.stat(from).then(() => true).catch(() => false))) {
+      throw new Error(`目录「${oldName}」不存在（${type === 'customer' || type === 'supplier' ? entity : entity + '/' + (type === 'image' ? '图包' : type === 'cert' ? '证书' : '文档')}）`)
+    }
+    if (await fsp.stat(to).then(() => true).catch(() => false)) {
+      throw new Error(`已存在同名目录「${newName}」`)
+    }
+    await fsp.rename(from, to)
+    const { globalWorkspaceIndex } = await import('./indexCache')
+    globalWorkspaceIndex.invalidate(base)
+    globalWorkspaceIndex.invalidate(path.dirname(to))
   }
 
   /**

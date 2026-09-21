@@ -301,3 +301,61 @@ describe('A9 刀5 · 客户/供应商内部挪（tab → tab）', () => {
     expect(stale.tags ?? []).toHaveLength(0)
   })
 })
+
+// —— 刀6：悬案·实体页「就地改名」（2026-09-21）——
+// 与 刀3b 的 `renameSubfolder` 是两把不同的刀：
+//   刀3b = 改**模板**（默认）或**所有实体**（⇌）；本刀 = 只改**一个实体下**的那一个目录。
+describe('悬案 · 就地改名 renameSubfolderInEntity', () => {
+  it('只改点名那一个实体的盘上目录：模板表与其他实体都不动', async () => {
+    const home = await tmp()
+    const box = buildTestBox(home)
+    const ws = path.join(home, 'ws')
+    await box.workspace.create(ws)
+    await box.workspace.renameSubfolder('image', '主图', '首图') // 模板：主图 → 首图
+    await box.workspace.productSetCreate({ name: '甲集' })
+    await box.workspace.productSetCreate({ name: '乙集' })
+    await box.workspace.productSetCreate({ name: '丙集' })
+
+    await box.workspace.renameSubfolderInEntity('image', '乙集', '首图', '乙特供')
+
+    // ① 盘上：只有乙集那个目录换了名
+    const dirs = async (ps: string) =>
+      (await listActualSubfolders(path.join(ws, '产品集', ps, '图包'))).map((e) => e.name)
+    expect(await dirs('乙集')).toContain('乙特供')
+    expect(await dirs('乙集')).not.toContain('首图')
+    // ② 其他实体原样：模板那几个目录都在，且**没有**被塞进「乙特供」
+    expect(await dirs('甲集')).toContain('首图')
+    expect(await dirs('甲集')).not.toContain('乙特供')
+    expect(await dirs('丙集')).toContain('首图')
+    expect(await dirs('丙集')).not.toContain('乙特供')
+    // ③ 模板表没被碰（仍是「首图」，不会变成「乙特供」）
+    const cfg = await box.workspace.getConfig()
+    expect(cfg.image_subfolders).toContain('首图')
+    expect(cfg.image_subfolders).not.toContain('乙特供')
+    expect(cfg.image_subfolders).not.toContain('主图')
+    // ④ 反向锚点：正因为模板没改，**新建**的实体仍旧拿到模板名（这正是"只影响一个"的证明）
+    await box.workspace.productSetCreate({ name: '丁集' })
+    expect(await dirs('丁集')).toContain('首图')
+    expect(await dirs('丁集')).not.toContain('乙特供')
+  })
+
+  it('重名/不存在/内建笔记三条红线照旧挡（就地改名不是后门）', async () => {
+    const home = await tmp()
+    const box = buildTestBox(home)
+    const ws = path.join(home, 'ws')
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '甲集' })
+
+    await box.files.createSubfolder({ product_set: '甲集', file_type: 'image', name: '占位', scope: 'productSet' })
+    await expect(
+      box.workspace.renameSubfolderInEntity('image', '甲集', '占位', '主图'), // 目标已存在
+    ).rejects.toThrow(/已存在同名目录/)
+    await expect(
+      box.workspace.renameSubfolderInEntity('image', '甲集', '压根没有', '随便'),
+    ).rejects.toThrow(/不存在/)
+    await expect(
+      box.workspace.renameSubfolderInEntity('image', '甲集', '主图', '笔记'),
+    ).rejects.toThrow(/不能重命名为/)
+    expect(ws).toBeTruthy()
+  })
+})
