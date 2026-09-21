@@ -25,7 +25,7 @@ jobs:
     name: Typecheck & Unit Test & Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 公开仓隐私/凭据门禁（2026-09-12 泄漏事故固化）：零依赖，放最前尽早失败
       - name: Leak gate (private identity / credentials / local paths)
@@ -36,7 +36,7 @@ jobs:
       - name: Version consistency gate (check:version-sync)
         run: node scripts/check-version-sync.mjs
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -65,9 +65,9 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -107,7 +107,7 @@ jobs:
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test --config=playwright.crash-diag.config.ts --reporter=list,github
 
       - name: Upload crash-diag results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: crash-diag-results
@@ -129,16 +129,21 @@ jobs:
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test --last-failed --reporter=html
 
       - name: Upload playwright report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-report
           path: playwright-report/
           if-no-files-found: warn
 
-      # v2.5.9/A1e：action 债登记——checkout/setup-node/upload-artifact 仍 @v4（Node20 deprecation
-      # 警告）。升 v5 属外向动作、且出口判据是"CI 日志无该警告"（只能在真 run 里验），
-      # 与 push 同批做、单独一笔，见动作卡 §四。
+      # v2.5.9/A1e：action 大版本已升到位（本文件内 9 处 `@v4` → `@v7`，三件一次做完）。
+      # ⚠ 目标版本**不是照 PLAN 里那句"升 v5"手抄的**：PLAN 写于旧读数上，2026-09-21 用
+      # `curl api.github.com/repos/actions/<件>/releases/latest` 实查 = checkout **v7.0.1** /
+      # setup-node **v7.0.0** / upload-artifact **v7.0.1** ⇒ 跟最新**大版本标签**（`@v7`，
+      # 这两家的既有惯例是 major tag 随补丁滚动）。照抄 PLAN 会升出一个"比目标旧两代"的版本，
+      # 等于把这次收口做成一次假收口——这正是本版主题"发布链不再靠手抄"要防的形态。
+      # 出口判据仍是"真 run 日志里 Node20 deprecation 警告消失"，只能在 push 后验；
+      # 故本笔**单独成 commit**（与功能改动分开），红了好归因、好回退。
 
   package:
     name: Package (${{ matrix.os }})
@@ -148,9 +153,9 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -179,7 +184,7 @@ jobs:
       # 阈值在 CI 必抖（待拍板 #13 已裁「同会话 A/B」口径），由本机出口轮承担。
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qihe-box-${{ runner.os }}
           path: release/
