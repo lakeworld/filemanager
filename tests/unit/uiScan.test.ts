@@ -159,14 +159,23 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  *   - `modal framed 6 → 21`：D14 先按 PLAN 判据推 9 个（15），D16 收尾时**判据的前提被实测推翻**——
  *     原列"不推"的 6 个里有 5 个本来就自绘了标题行与底部按钮行（`ConfirmDialog:23` `MoveDialog:93`
  *     `ArchiveProgressDialog:144` `SupplierDetail` 编辑档弹窗 `Invoice/InboundEditorModal`），套 framed 是
- *     **拆掉重复的标题与页脚**、不是"多空一层头"。用户 09-12 复拍「推平 21 个」⇒ 未迁名额清零。 */
+ *     **拆掉重复的标题与页脚**、不是"多空一层头"。用户 09-12 复拍「推平 21 个」⇒ 未迁名额清零。
+ *   - `total 275 → 283` / `unified 141 → 143` / `handwritten 134 → 140`（**v2.5.9 A7 计算面板**）：
+ *     `components/CalcPanel.tsx` 新增 **8 枚真按钮**——头部 ✕ 与底部 `%` 插入钮走形状具名档 `.icon-btn`，
+ *     算式回填钮与 hover 两枚（复制 / 存为资料）走 `.link-btn`，共 6 处（清点器口径里形状档仍归 handwritten）；
+ *     编辑标题备注弹窗页脚「取消 / 保存」走 `.btn-*` 五档（+2 unified，先例 = `ui/ConfirmDialog.tsx` 裸 button）。
+ *     与 D18 / A6-2 / A8 / A9 同口径：**形状档归 handwritten 这一格本就不是收口指标** ⇒
+ *     `debt` 仍 6、`tint` 仍 0、`press` 仍 0、`noTransition` 仍 4（增数 = 多了 8 个真按钮，不是谁各写各的）。
+ *   - `modal framed 21 → 22`（**v2.5.9 A7**）：计算面板的「编辑标题备注」弹窗（`ui/Modal` framed +
+ *     `.dlg-field` 字段区 + `.btn-*` 页脚）——面板内唯一一个 Modal 调用点，未 framed 名单仍为空。
+ */
 const BASE = {
   button: {
-    total: 275, unified: 141, handwritten: 134, noclass: 0,
+    total: 283, unified: 143, handwritten: 140, noclass: 0,
     tint: 0, debt: 6, baseInternal: 5, press: 0, noTransition: 4,
   },
   input: { total: 16, checkbox: 12, baseInternal: 3, debt: 0, exempt: 1, other: 0 },
-  modal: { total: 21, framed: 21, unframed: 0 },
+  modal: { total: 22, framed: 22, unframed: 0 },
 } as const;
 
 /** D16 收口后这张名单**必须为空**：全站 21 个业务调用点一律走 `framed` 骨架。

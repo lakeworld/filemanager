@@ -2,12 +2,20 @@ import { Show, For, createSignal, onMount } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import Logo from "~/components/Logo";
 import { currentWorkspace } from "~/stores/workspace";
+import { openCalcPanel } from "~/stores/calcPanel";
 import { initPluginRegistry, pluginSidebarGroups } from "~/plugins/registry";
 
 interface MenuItem {
   icon: string;
   label: string;
-  path: string;
+  /** 导航项的目标路由。**动作项**（v2.5.9 A7「计算」）不换页面，故可省 */
+  path?: string;
+  /**
+   * 动作项（v2.5.9 A7）：点一下执行动作而不导航——「计算」是悬浮面板（PLAN-v2.6-计算 §八② 拍板），
+   * 不该为它造一条假路由。动作项也不参与高亮（`isActive` 直接判否）与 `Ctrl+1…6` 的位序对齐
+   * （那六项是导航项，只数带 path 的）。
+   */
+  action?: () => void;
 }
 
 interface MenuGroup {
@@ -67,6 +75,8 @@ export default function Sidebar() {
         { icon: "🔍", label: "搜索", path: "/search" },
         // v2.4.8：导出区入口（压缩分享产物）
         { icon: "📤", label: "导出", path: "/exports" },
+        // v2.5.9 A7：计算面板（悬浮浮层，不换页面 ⇒ 标记为动作项；唤起键 Ctrl+= 见 shortcuts.ts）
+        { icon: "🧮", label: "计算", action: openCalcPanel },
       ],
     },
     {
@@ -81,7 +91,10 @@ export default function Sidebar() {
     },
   ];
 
-  const isActive = (path: string) => {
+  const isActive = (item: MenuItem) => {
+    // 动作项（如「计算」）打开浮层而不换页面：永远不高亮，也不参与「更具体项让位」的比对
+    const path = item.action ? undefined : item.path;
+    if (!path) return false;
     if (path === "/") {
       return location.pathname === "/";
     }
@@ -89,7 +102,9 @@ export default function Sidebar() {
     // 前缀匹配（父级入口在详情/子页高亮，如 /product-sets/:name 高亮「产品集」）；
     // 但若存在更具体的菜单项命中当前路径（如 /settings/plugins 命中插件入口），父项让位不高亮
     if (location.pathname.startsWith(`${path}/`)) {
-      const all = groups.flatMap((g) => g.items.map((i) => i.path));
+      const all = groups
+        .flatMap((g) => g.items.map((i) => i.path))
+        .filter((p): p is string => !!p);
       const hitMoreSpecific = all.some(
         (p) => p !== path && (location.pathname === p || location.pathname.startsWith(`${p}/`))
       );
@@ -148,11 +163,15 @@ export default function Sidebar() {
                     <button
                       class="row-btn text-sm hover:bg-surface-100"
                       classList={{
-                        "text-primary-700 bg-primary-600/[0.12]": isActive(item.path),
-                        "text-surface-600": !isActive(item.path),
+                        "text-primary-700 bg-primary-600/[0.12]": isActive(item),
+                        "text-surface-600": !isActive(item),
                       }}
                       title={!expanded() ? item.label : undefined}
-                      onClick={() => navigate(item.path)}
+                      onClick={() => {
+                        // 动作项（v2.5.9 A7「计算」）执行动作；导航项换页面
+                        if (item.action) item.action();
+                        else if (item.path) void navigate(item.path);
+                      }}
                     >
                       <span class="text-base">{item.icon}</span>
                       <Show when={expanded()}>
@@ -195,8 +214,8 @@ export default function Sidebar() {
                     <button
                       class="row-btn text-sm hover:bg-surface-100"
                       classList={{
-                        "text-primary-700 bg-primary-600/[0.12]": isActive(item.path),
-                        "text-surface-600": !isActive(item.path),
+                        "text-primary-700 bg-primary-600/[0.12]": isActive(item),
+                        "text-surface-600": !isActive(item),
                       }}
                       title={!expanded() ? item.label : undefined}
                       onClick={() => navigate(item.path)}

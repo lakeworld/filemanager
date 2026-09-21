@@ -4,7 +4,7 @@
 
 ## qihe-emoji-subset.woff2
 
-- 来源：Google Noto Color Emoji（`NotoColorEmoji.ttf`），子集化到本应用在用的 47 个码位，保留 CBDT/CBLC 位图表
+- 来源：Google Noto Color Emoji（`NotoColorEmoji.ttf`），子集化到本应用在用的 48 个码位，保留 CBDT/CBLC 位图表
 - nameID 0（Copyright）：`Copyright 2022 Google Inc.`
 - nameID 13（License）：`This Font Software is licensed under the SIL Open Font License, Version 1.1. This Font Software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the SIL Open Font License for the specific language governing permissions and limitations under it.`
 - nameID 14（License URL）：`http://scripts.sil.org/OFL`

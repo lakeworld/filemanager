@@ -23,11 +23,17 @@
  * 任何 emoji 面 ⇒ 系统缺 emoji 字体时 Windows/wine 下 Chromium 走远程字体源取字形失败
  * （日志 remote_font_face_source.cc NOTREACHED），回退宽度 32768px 把整行文字挤出可视区
  * （缺字形回退实测 32768px，正常约 16–32px）。
- * 做法与思源黑体同路：pyftsubset 从系统 NotoColorEmoji.ttf（10.5MB，OFL）只取**在用的 47 码位**
- * ⇒ 60.7KB，CBDT/CBLC 位图表保留（彩色图标不变样）。
+ * 做法与思源黑体同路：pyftsubset 从系统 NotoColorEmoji.ttf（10.5MB，OFL）只取**在用的码位**
+ * ⇒ 63.3KB，CBDT/CBLC 位图表保留（彩色图标不变样）。
+ * ⚠ 码位数会随新增图标涨（v2.5.9 A7「计算」加了侧栏 🧮 = U+1F9EE ⇒ 47→48）——**改图标必须重跑下面两条**：
+ *   ① `pyftsubset /usr/share/fonts/truetype/noto/NotoColorEmoji.ttf --unicodes=<在用的全部码位>
+ *      --output-file=./fonts/qihe-emoji-subset.woff2 --flavor=woff2 --layout-features='*' --no-hinting --desubroutinize`
+ *      （这套参数是 2026-09-22 复核过的：用它重生成 v2.5.8 那版 47 码位，产物与仓里那份**逐字节相同**）
+ *   ② 把新码位加进下面的 `unicode-range`（**按彩色/文字呈现归对的面**，见下），
+ *      再跑 `npx vitest run tests/unit/emojiFontCoverage.test.ts`（漏了它 = 缺字体机器上那个图标又是空的）。
  * font-display 用 block 而非 swap——swap 会先画系统回退，而"系统回退"正是本次要消灭的那个 32768px 塌陷。
  *
- * ⚠ 分两面，不是一面（v2.5.8 补丁的返工点）：47 个码位里有一批是**默认文字呈现**的
+ * ⚠ 分两面，不是一面（v2.5.8 补丁的返工点）：这批码位里有一批是**默认文字呈现**的
  *   （↔ ⏰ ▶ ◀ ⚙  ✏  ➕ ⬆，Unicode 的 Emoji_Presentation=No），它们在系统里本就该长成
  *   黑色文字字形（侧栏那个折叠键 ◀ 就是被这条规则坑过：面放队首 ⇒ 变成橙色实心 emoji，用户明确指出要黑色）。
  *   所以拆成两个面、放字体栈的两端：
@@ -48,7 +54,7 @@
   unicode-range: U+1F310, U+1F389, U+1F3AC, U+1F3E2, U+1F3ED, U+1F3F7, U+1F441, U+1F464, U+1F4C1,
     U+1F4C2, U+1F4C4, U+1F4C5, U+1F4CA, U+1F4CB, U+1F4CE, U+1F4DC, U+1F4DD, U+1F4E1, U+1F4E4,
     U+1F4E5, U+1F4E6, U+1F504, U+1F50D, U+1F514, U+1F517, U+1F524, U+1F573, U+1F5A5, U+1F5BC,
-    U+1F5C2, U+1F5D1, U+1F5DC, U+1F916, U+1F91D, U+1F9E9, U+1F9F9, U+1F9FE;
+    U+1F5C2, U+1F5D1, U+1F5DC, U+1F916, U+1F91D, U+1F9E9, U+1F9EE, U+1F9F9, U+1F9FE;
 }
 
 @font-face {

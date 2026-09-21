@@ -121,6 +121,12 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
     desc: "删除选中项（走各页既有的二次确认弹窗，不改删除语义；仅浮条出现时有效；预览里删的是当前这一张，其他弹窗开着时不生效）",
   },
   { id: "settings.open", key: ",", ctrl: true, guard: "text", desc: "打开设置页", path: "/settings" },
+  // v2.5.9 A7（计算）：`=` 是 `e.key` 的裸等号（Ctrl+Shift+= 是 `+`，不命中本条目）。
+  // **guard 取 `none` 而不是 `text`**：本条的语义是「手头正敲着别的东西时随手开算账」，
+  // 在输入框里焦点时同样要生效（`text` 档的定义是「在 INPUT/TEXTAREA/SELECT/contenteditable
+  // 里不劫持」，正好与本条目标相反）。标 `none` 后 Ctrl+= 在任何输入态都会被消费并 preventDefault
+  // ——本仓没有第二处用这个组合键，不会抢谁的文本编辑动作。
+  { id: "calc.open", key: "=", ctrl: true, guard: "none", desc: "打开计算面板（悬浮；Esc 关闭；在输入框里也生效）" },
   ...NAV_PATHS.map((p, i) => ({
     id: `nav.${i + 1}`,
     key: String(i + 1),
