@@ -25,7 +25,15 @@ jobs:
     name: Typecheck & Unit Test & Build
     runs-on: ubuntu-latest
     steps:
+      # v2.5.9（A1b 同类病灶；2026-09-21 由 push 后的 CI #101 取证）：**必须 fetch-depth: 0**。
+      # 本 job 的 `npm test` 里有一条自举证判据 `tests/unit/leakCheck.test.ts:64`：
+      # 拿**真仓**跑 `check-no-secrets --history`，要求全历史零命中。而 checkout 默认 depth=1
+      # 看不见历史 ⇒ 门禁按 A2 口径**拒绝执行**（浅克隆＝不可审，不许"审不到就当过了"）。
+      # 所以那条红不是测试写坏了，是它在如实报告"这台机器上根本没盘过历史"。
+      # e2e job 早在 A2 已加同一行，本 job 当时漏了 —— 漏的这一步正是本 sprint 要防的形状。
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       # 公开仓隐私/凭据门禁（2026-09-12 泄漏事故固化）：零依赖，放最前尽早失败
       - name: Leak gate (private identity / credentials / local paths)
