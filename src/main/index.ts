@@ -20,7 +20,7 @@ import type { PluginManifest } from '../plugins/types'
 import { registerPluginHost, type PluginHostHandle } from './plugins/ipc'
 import { makePluginSecretStore } from './plugins/secretStore'
 import { createSettings } from './settings'
-import { WAKE_SEARCH_ACCELERATOR, reconcileWakeShortcut, applyWakeShortcut, type WakeShortcutPort, type WakeShortcutStatus } from './core/wakeShortcut'
+import { WAKE_SEARCH_ACCELERATOR, reconcileWakeShortcut, applyWakeShortcut, type WakeShortcutPort, type WakeShortcutStatus, shouldRollbackWakeSetting } from './core/wakeShortcut'
 import { AccountService } from './account'
 import { log, initLogger, getLogger } from './log'
 import { isAutoLaunchMode } from './core/autoLaunch'
@@ -253,8 +253,13 @@ function setupCloseToTray(win: BrowserWindow): void {
  */
 const wakePort: WakeShortcutPort = {
   isRegistered: (accel) => globalShortcut.isRegistered(accel),
-  register: (accel) =>
-    globalShortcut.register(accel, () => {
+  register: (accel) => {
+    // 测试缝（v2.5.9/A6-1 验收）：**必须**双开关同时为 1 才生效——`QIHEBOX_E2E=1` 且
+    // `QIHEBOX_E2E_FAIL_WAKE=1`。真实"热键被别的程序占了"在 CI/本机都造不出来，
+    // 而 PLAN 的验收判据正好写在占用那一侧（要如实降级 + 设置页说清楚），
+    // 没这条缝就只能靠肉眼，等于那条判据没门禁。生产路径不可达此分支。
+    if (process.env.QIHEBOX_E2E === '1' && process.env.QIHEBOX_E2E_FAIL_WAKE === '1') return false
+    return globalShortcut.register(accel, () => {
       const win = BrowserWindow.getAllWindows()[0]
       if (!win) return
       // 托盘里也要能唤起：先恢复最小化 / 显示隐藏，再聚焦，最后把事件交给渲染层去导航 + 聚焦输入框
@@ -262,19 +267,21 @@ const wakePort: WakeShortcutPort = {
       if (!win.isVisible()) win.show()
       win.focus()
       win.webContents.send('qihebox:event:window:wake-search')
-    }),
+    })
+  },
   unregister: (accel) => globalShortcut.unregister(accel),
 }
 
 /** 应用一次并如实记账：注册失败（被他人占用/系统不支持）必须留痕，否则设置页会留个按不动的开关 */
-function applyWakeShortcutSetting(prevEnabled: boolean, nextEnabled: boolean, source: string): void {
+function applyWakeShortcutSetting(prevEnabled: boolean, nextEnabled: boolean, source: string): WakeShortcutStatus | null {
   const status: WakeShortcutStatus | null = reconcileWakeShortcut(prevEnabled, nextEnabled, wakePort)
-  if (status === null) return
+  if (status === null) return null
   if (status === 'unsupported') {
     void log('warn', `全局唤醒快捷键 ${WAKE_SEARCH_ACCELERATOR} 注册失败（可能被其它程序占用）：源=${source}`)
   } else {
     void log('info', `全局唤醒快捷键 ${WAKE_SEARCH_ACCELERATOR} → ${status}：源=${source}`)
   }
+  return status
 }
 
 // 系统级退出（托盘退出菜单 / 应用退出）→ 置 quitting 放行窗口关闭
@@ -784,7 +791,14 @@ app.whenReady().then(() => {
           const prevWake = settings.getAll().globalWakeShortcut
           const next = await settings.set(patch ?? {})
           // v2.5.9 A6-1：只有开关真的翻转才动系统注册（开着再保存一次不该注销重注册）
-          applyWakeShortcutSetting(prevWake, next.globalWakeShortcut, 'appSettings:set')
+          const wakeStatus = applyWakeShortcutSetting(prevWake, next.globalWakeShortcut, 'appSettings:set')
+          // v2.5.9/A6-1 验收补漏（评审 Spec 轴抓到）：要开却没注册上时**不能只留日志**——
+          // 必须把持久值退回 false 并返回退回后的全量值。否则设置页那个受控开关会一直显示
+          // "已开启"，而系统里什么都没注册（按键无反应、也看不到异常）＝PLAN 点名要防的「按不动的开关」。
+          if (shouldRollbackWakeSetting(next.globalWakeShortcut, wakeStatus)) {
+            void log('warn', `全局唤醒快捷键未能注册 ⇒ 持久值如实退回 false（源=appSettings:set）`)
+            return await settings.set({ ...patch, globalWakeShortcut: false })
+          }
           return next
         }),
       )
@@ -873,6 +887,16 @@ app.whenReady().then(() => {
     // v2.5.9 A6-1：按用户设置决定是否注册全局唤醒键（默认关 ⇒ 这里是一次"什么都不做"的判定）
     const wakeStatus = applyWakeShortcut(userSettings.getAll().globalWakeShortcut, wakePort)
     void log('info', `全局唤醒快捷键初始化：${wakeStatus}`)
+    // 同一口径也要盖住启动期：磁盘上写着开、这次没注册上 ⇒ 退回 false，
+    // 否则设置页一进来就是个"开着但不干活"的开关（与 set 路径同一条 A6-1 判据）
+    if (shouldRollbackWakeSetting(userSettings.getAll().globalWakeShortcut, wakeStatus)) {
+      void log('warn', '全局唤醒快捷键启动期未能注册 ⇒ 持久值如实退回 false')
+      // 这里的外层不是 async（Electron ready 回调链），用 fire-and-forget 但必须留痕：
+      // 退回写失败也只可能让开关暂时撒谎，下一次 set/重启仍会走同一判据
+      void userSettings
+        .set({ globalWakeShortcut: false })
+        .catch((err: unknown) => void log('error', `唤醒快捷键退回写盘失败: ${String(err)}`))
+    }
   } catch (err) {
     void log('error', `窗口/托盘/唤醒自愈初始化失败，尝试兜底建窗: ${String(err)}`)
     try {

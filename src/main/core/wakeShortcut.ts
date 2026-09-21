@@ -51,3 +51,15 @@ export function reconcileWakeShortcut(
   if (prevEnabled === nextEnabled) return null
   return applyWakeShortcut(nextEnabled, port)
 }
+
+/**
+ * 用户要求开启、但系统层面没注册上 ⇒ 必须把**持久值退回 false**。
+ *
+ * 为什么这是硬要求而不是"记个日志就行"（v2.5.9/A6-1 验收原句：注册失败要「如实降级」；
+ * 评审 Spec 轴抓到本批只留了痕、没降级）：设置页的开关是**受控**的，显示的是磁盘上的值。
+ * 不退回，界面就会长期显示"已开启"而系统里什么都没注册——用户按键没反应、又看不到任何异常，
+ * 正是本仓最怕的「按不动的开关」。退回后开关自己弹回关，调用方还能据状态说一句"被占用"。
+ */
+export function shouldRollbackWakeSetting(nextEnabled: boolean, status: WakeShortcutStatus | null): boolean {
+  return nextEnabled === true && status === 'unsupported'
+}

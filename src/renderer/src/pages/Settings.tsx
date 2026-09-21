@@ -16,6 +16,7 @@ import { BUILTIN_NOTES_FOLDER } from "~/constants/notes";
 import Input from "~/components/ui/Input";
 import { SHORTCUTS, comboLabel } from "~/shortcuts";
 import { appSettings, appSettingsReady, reloadAppSettings, setAppSetting } from "~/stores/appSettings";
+import { wakeOutcome, WAKE_OCCUPIED_HINT } from "~/lib/wakeFeedback";
 import type { AppSettingsPatch } from "../../../shared/appSettings";
 import { CERT_REMINDER_DAY_CHOICES, WAKE_SEARCH_ACCELERATOR_LABEL } from "../../../shared/appSettings";
 
@@ -157,6 +158,9 @@ export default function Settings() {
   // 值来自 `stores/appSettings` 的信号（App 启动时拉一次）；写回以主进程返回的全量值为权威。
   const pref = appSettings;
   const prefReady = appSettingsReady;
+  // v2.5.9/A6-1 验收补漏（评审 Spec 轴抓到）：主进程注册不上时会把持久值如实退回 false，
+  // 这里负责把"为什么弹回关了"说一句——否则用户只看到一个自己跳回去的开关，等于没说。
+  const [wakeNote, setWakeNote] = createSignal("");
   const savePref = async (patch: AppSettingsPatch) => {
     const ok = await setAppSetting(patch);
     if (!ok) {
@@ -164,6 +168,14 @@ export default function Settings() {
       // 用户刚点过的那一下已经改了 DOM 状态，不重拉就留下「显示已关、其实没落盘」的假象。
       await reloadAppSettings();
       showToast("error", "设置失败", "未能保存该设置，已恢复为磁盘上的当前值");
+      return; // 写都没写成，别把"写失败"报成"快捷键被占用"
+    }
+    const outcome = wakeOutcome(patch.globalWakeShortcut, pref().globalWakeShortcut);
+    if (outcome === "occupied") {
+      setWakeNote(WAKE_OCCUPIED_HINT);
+      showToast("error", "全局唤醒快捷键未注册", "开关已保持关闭；释放该组合键后可以再试一次");
+    } else if (outcome === "registered") {
+      setWakeNote("");
     }
   };
 
@@ -736,6 +748,9 @@ export default function Settings() {
                 disabled={!prefReady()}
                 onChange={(v) => void savePref({ globalWakeShortcut: v })}
               />
+              <Show when={wakeNote()}>
+                <p class="text-xs text-warning-800 -mt-2 mb-2">{wakeNote()}</p>
+              </Show>
               <SettingToggle
                 title="证书到期与发票待办提醒"
                 desc="每日一次系统通知（当天已提醒过的不重复打扰）；关闭后仪表盘区块照常显示"
