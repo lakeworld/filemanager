@@ -694,25 +694,11 @@ export class FilesService {
               : path.join(ws, PRODUCT_SETS_DIR, req.product_set, IMAGES_DIR, name)
     if (await fsp.stat(dir).then(() => true).catch(() => false)) throw new Error('子文件夹已存在')
     await fsp.mkdir(dir, { recursive: true })
-    // v2.4.x：新建子文件夹 → 失效父目录（图包/证书）与新子目录的索引快照
-    globalWorkspaceIndex.invalidate(path.dirname(dir))
-    globalWorkspaceIndex.invalidate(dir)
-    if (req.scope === 'customer') {
-      if (!cfg.customer_subfolders) cfg.customer_subfolders = []
-      cfg.customer_subfolders.push(name)
-    } else if (req.scope === 'supplier') {
-      // v2.5.5（对齐客户）：供应商子文件夹从固定集改可配置，config 写入 supplier_subfolders
-      if (!cfg.supplier_subfolders) cfg.supplier_subfolders = []
-      cfg.supplier_subfolders.push(name)
-    } else if (req.file_type === 'doc') {
-      if (!cfg.doc_subfolders) cfg.doc_subfolders = []
-      cfg.doc_subfolders.push(name)
-    } else if (req.file_type === 'cert') {
-      cfg.cert_subfolders.push(name)
-    } else {
-      cfg.image_subfolders.push(name)
-    }
-    await this.workspace.saveConfig(ws, cfg)
+    // v2.5.9（A9 刀2b）：**这里过去会把名字 push 进全站一份的 `config.*_subfolders`**，
+    // 于是"在甲集新建一个文件夹"＝"以后新建的每一个集都自动带上它"（客户/供应商同病）。
+    // 那张表现在只剩一个角色：**新建实体时的默认目录模板**，要改它就去做那件事的人
+    // 亲自去「设置 → 子文件夹」里改（那里已有增删面，不需要在新建路径上偷偷写）。
+    // 显示侧自刀1b/1c 起一律看盘 ⇒ 本方法只需把目录建出来，不必再"登记"给谁看。
   }
 
   async deleteSubfolder(req: DeleteSubfolderRequest): Promise<void> {

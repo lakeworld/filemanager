@@ -375,7 +375,18 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     // config.supplier_subfolders 已写入 样品（默认集 合同/对账单/往来文件 保留）
     const cfgRes = await page.evaluate(async () => (window as any).qihebox.config.get())
     expect(cfgRes.success).toBe(true)
-    expect(cfgRes.data.supplier_subfolders).toContain('样品')
+    // A9 刀2b：新建只落本实体，**不再写**全站模板表（要改默认集去「设置 → 子文件夹」；旧断言钉的正是那个偷偷写表的行为）
+    expect(cfgRes.data.supplier_subfolders).not.toContain('样品')
+    // 下面要判「删除不得动模板表」⇒ 前提得显式造出来（模拟用户自己去「设置 → 子文件夹」登记过）：
+    // 不这么写的话，新建不再进表 ⇒ 那条 `toContain` 会因为"根本没登记"而红，属测试自己的假故障。
+    await page.evaluate(async () => {
+      const cur = await (window as any).qihebox.config.get()
+      const next = { ...cur.data, supplier_subfolders: [...new Set([...(cur.data.supplier_subfolders ?? []), '样品'])] }
+      const r = await (window as any).qihebox.config.update(next)
+      if (!r.success) throw new Error(`登记模板失败：${JSON.stringify(r).slice(0, 120)}`)
+    })
+    expect((await page.evaluate(async () => (window as any).qihebox.config.get())).data.supplier_subfolders,
+      '前提：已显式登记进模板表').toContain('样品')
     expect(cfgRes.data.supplier_subfolders).toEqual(expect.arrayContaining(['合同', '对账单', '往来文件']))
 
     // 删除当前子文件夹 → ConfirmDialog 确认 → 跳回剩余首个子文件夹 + config 移除

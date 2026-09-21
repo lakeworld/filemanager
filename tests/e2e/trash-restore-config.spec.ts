@@ -90,7 +90,16 @@ test.describe('回收站恢复子文件夹：界面与 config 同步', () => {
       window.location.hash = decodeURIComponent('/files/image/恢复集/恢复验证类')
     })
     await page.waitForTimeout(800)
-    expect(await imgFolders()).toContain('恢复验证类')
+    // A9 刀2b：新建只落本实体，**不再写**全站模板表（要改默认集去「设置 → 子文件夹」；旧断言钉的正是那个偷偷写表的行为）
+    expect(await imgFolders()).not.toContain('恢复验证类')
+    // 下面要测的是「删除/恢复不得动模板表」⇒ 前提得**显式**造出来（模拟用户自己去设置页登记过）：
+    await page.evaluate(async () => {
+      const cur = await (window as any).qihebox.config.get()
+      const next = { ...cur.data, image_subfolders: [...new Set([...(cur.data.image_subfolders ?? []), '恢复验证类'])] }
+      const r = await (window as any).qihebox.config.update(next) // 面叫 update（我上一版凭印象写成 set ⇒ 直接 not a function）
+      if (!r.success) throw new Error(`登记模板失败：${JSON.stringify(r).slice(0, 120)}`)
+    })
+    expect(await imgFolders(), '前提：已显式登记进模板表').toContain('恢复验证类')
 
     // 2) 删除（进回收站，不真删）
     await page.evaluate(async () => {

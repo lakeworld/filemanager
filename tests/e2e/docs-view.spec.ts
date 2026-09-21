@@ -13,7 +13,7 @@ const INDEX_URL = 'file://' + ROOT.replace(/\\/g, '/') + '/out/renderer/index.ht
  * 产品集文档视图 e2e（v2.5.1 F2）：
  * - 产品集详情页文档卡片 → /files/doc/<产品集>/<子文件夹>（零新增路由，type='doc' 走通用路由）
  * - 空文档目录懒补建无报错（D18）
- * - 新建文档子文件夹（doc_subfolders 配置写入，D30）
+ * - 新建文档子文件夹（v2.5.9 刀2b 起**不再写** doc_subfolders 模板表，改为「出现在子文件夹列表」判据）
  * 说明：右键「用默认应用打开」与双击分流在 open-with-default.spec.ts（F3）；MD 预览在 md-preview.spec.ts（F4）。
  * QIHEBOX_E2E=1 隔离 userData；每用例独立临时工作区，互不干扰。
  * 导航模式：goto 初始入口（reload 同步 currentWorkspace）→ location.hash（v2.5.7 补丁：file:// 走 HashRouter）。
@@ -85,7 +85,7 @@ test.describe('产品集文档视图（v2.5.1 F2）', () => {
     }
   })
 
-  test('新建文档子文件夹：写入 doc_subfolders 配置并出现在子文件夹列表', async () => {
+  test('新建文档子文件夹：只建本集目录并出现在子文件夹列表（**不写** doc_subfolders 模板）', async () => {
     const wsDir = await setupWorkspace('文档系列B')
     try {
       await navigateTo('/product-sets/文档系列B')
@@ -103,7 +103,8 @@ test.describe('产品集文档视图（v2.5.1 F2）', () => {
       // 配置已写入 doc_subfolders
       const cfgRes = await page.evaluate(async () => (window as any).qihebox.config.get())
       expect(cfgRes.success).toBe(true)
-      expect(cfgRes.data.doc_subfolders).toContain('安装手册')
+      // A9 刀2b：新建只落本实体，**不再写**全站模板表（要改默认集去「设置 → 子文件夹」；旧断言钉的正是那个偷偷写表的行为）
+      expect(cfgRes.data.doc_subfolders).not.toContain('安装手册')
 
       // 返回详情页：文档卡片 chips 含新子文件夹
       await navigateTo('/product-sets/文档系列B')

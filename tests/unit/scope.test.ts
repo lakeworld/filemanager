@@ -239,7 +239,7 @@ describe('v2.4.7 files scope（§4.6）', () => {
     expect(store.files['客户/张三/合同/a.pdf']?.tags).toEqual(['合同'])
   })
 
-  it('createSubfolder scope=customer：建 客户/<名>/<子文件夹> + config.customer_subfolders 写入', async () => {
+  it('createSubfolder scope=customer：建 客户/<名>/<子文件夹> （**不写** config.customer_subfolders 模板）', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -249,7 +249,7 @@ describe('v2.4.7 files scope（§4.6）', () => {
     await box.files.createSubfolder({ product_set: '张三', file_type: 'image', name: '样品', scope: 'customer' })
     await expect(fsp.stat(path.join(ws, '客户', '张三', '样品'))).resolves.toBeTruthy()
     let cfg = await box.workspace.loadConfig()
-    expect(cfg.customer_subfolders).toContain('样品')
+    expect(cfg.customer_subfolders).not.toContain('样品')  // A9 刀2b：新建只落本集，**不写**全站模板表（要改默认集去「设置 → 子文件夹」）
 
     // 重复创建 → 拒绝
     await expect(
@@ -260,7 +260,7 @@ describe('v2.4.7 files scope（§4.6）', () => {
     await box.workspace.productSetCreate({ name: '系列A' })
     await box.files.createSubfolder({ product_set: '系列A', file_type: 'image', name: '新图包' })
     cfg = await box.workspace.loadConfig()
-    expect(cfg.image_subfolders).toContain('新图包')
+    expect(cfg.image_subfolders).not.toContain('新图包')  // A9 刀2b：新建只落本集，**不写**全站模板表（要改默认集去「设置 → 子文件夹」）
     expect(cfg.customer_subfolders).not.toContain('新图包')
   })
 
@@ -272,6 +272,13 @@ describe('v2.4.7 files scope（§4.6）', () => {
     await setupCustomer(ws, '张三')
 
     await box.files.createSubfolder({ product_set: '张三', file_type: 'image', name: '样品', scope: 'customer' })
+    // A9 刀2b：新建不再自动进模板 ⇒ 这里**显式**把名字登记进模板表，
+    // 才能真的测出"删除/恢复都不动它"（否则前提消失，断言会在空集上自证）
+    {
+      const cfg0 = await box.workspace.loadConfig(ws)
+      cfg0.customer_subfolders = [...(cfg0.customer_subfolders ?? []), '样品']
+      await box.workspace.saveConfig(ws, cfg0)
+    }
     await box.files.deleteSubfolder({ product_set: '张三', file_type: 'image', name: '样品', scope: 'customer' })
 
     await expect(fsp.stat(path.join(ws, '客户', '张三', '样品'))).rejects.toBeTruthy()
@@ -282,7 +289,7 @@ describe('v2.4.7 files scope（§4.6）', () => {
     expect(items.some((i) => i.kind === 'subfolder' && i.originalPath.includes('客户'))).toBe(true)
   })
 
-  it('createSubfolder scope=supplier：建 供应商/<名>/<子文件夹> + config.supplier_subfolders 写入（v2.5.5 对齐客户）', async () => {
+  it('createSubfolder scope=supplier：建 供应商/<名>/<子文件夹> （**不写** config.supplier_subfolders 模板）（v2.5.5 对齐客户）', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -293,9 +300,12 @@ describe('v2.4.7 files scope（§4.6）', () => {
     await box.files.createSubfolder({ product_set: '甲', file_type: 'image', name: '样品', scope: 'supplier' })
     await expect(fsp.stat(path.join(ws, '供应商', '甲', '样品'))).resolves.toBeTruthy()
     let cfg = await box.workspace.loadConfig()
-    expect(cfg.supplier_subfolders).toContain('样品')
+    expect(cfg.supplier_subfolders).not.toContain('样品')  // A9 刀2b：新建只落本集，**不写**全站模板表（要改默认集去「设置 → 子文件夹」）
     // 默认集仍在（合同/对账单/往来文件）
-    expect(cfg.supplier_subfolders).toEqual(expect.arrayContaining(['合同', '对账单', '往来文件', '样品']))
+    // A9 刀2b：默认集仍在（合同/对账单/往来文件），但**不含**本次新建的「样品」
+    //（重复创建仍被拒——那是盘上已存在，判据在下面那条 rejects）
+    expect(cfg.supplier_subfolders).toEqual(expect.arrayContaining(['合同', '对账单', '往来文件']))
+    expect(cfg.supplier_subfolders).not.toContain('样品')
 
     // 重复创建 → 拒绝
     await expect(
@@ -306,7 +316,7 @@ describe('v2.4.7 files scope（§4.6）', () => {
     await box.workspace.productSetCreate({ name: '系列A' })
     await box.files.createSubfolder({ product_set: '系列A', file_type: 'image', name: '新图包' })
     cfg = await box.workspace.loadConfig()
-    expect(cfg.image_subfolders).toContain('新图包')
+    expect(cfg.image_subfolders).not.toContain('新图包')  // A9 刀2b：新建只落本集，**不写**全站模板表（要改默认集去「设置 → 子文件夹」）
     expect(cfg.supplier_subfolders).not.toContain('新图包')
   })
 
@@ -318,6 +328,13 @@ describe('v2.4.7 files scope（§4.6）', () => {
 
     await box.suppliers.create({ name: '甲' })
     await box.files.createSubfolder({ product_set: '甲', file_type: 'image', name: '样品', scope: 'supplier' })
+    // A9 刀2b：新建不再自动进模板 ⇒ 这里**显式**把名字登记进模板表，
+    // 才能真的测出"删除/恢复都不动它"（否则前提消失，断言会在空集上自证）
+    {
+      const cfg0 = await box.workspace.loadConfig(ws)
+      cfg0.supplier_subfolders = [...(cfg0.supplier_subfolders ?? []), '样品']
+      await box.workspace.saveConfig(ws, cfg0)
+    }
     await box.files.deleteSubfolder({ product_set: '甲', file_type: 'image', name: '样品', scope: 'supplier' })
 
     await expect(fsp.stat(path.join(ws, '供应商', '甲', '样品'))).rejects.toBeTruthy()

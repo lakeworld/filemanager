@@ -44,7 +44,7 @@ describe('产品集文档目录（v2.5.1 F1：文档/ 与图包/证书并列）'
     expect(list.find((f) => f.name === '使用说明.md')?.file_type).toBe('other')
   })
 
-  it('createSubfolder(file_type=doc)：建 文档/<名> 并写入 config.doc_subfolders', async () => {
+  it('createSubfolder(file_type=doc)：建 文档/<名> （**不写** config.doc_subfolders 模板）', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -54,7 +54,7 @@ describe('产品集文档目录（v2.5.1 F1：文档/ 与图包/证书并列）'
     await box.files.createSubfolder({ product_set: '系列A', file_type: 'doc', name: '安装手册' })
     await expect(fsp.stat(path.join(ws, '产品集', '系列A', '文档', '安装手册'))).resolves.toBeTruthy()
     const cfg = await box.workspace.loadConfig(ws)
-    expect(cfg.doc_subfolders).toContain('安装手册')
+    expect(cfg.doc_subfolders).not.toContain('安装手册')  // A9 刀2b：新建只落本集，**不写**全站模板表（要改默认集去「设置 → 子文件夹」）
   })
 
   it('deleteSubfolder(file_type=doc)：移入回收站，且**不动** config.doc_subfolders 模板表', async () => {
@@ -65,6 +65,13 @@ describe('产品集文档目录（v2.5.1 F1：文档/ 与图包/证书并列）'
     await box.workspace.productSetCreate({ name: '系列A' })
 
     await box.files.createSubfolder({ product_set: '系列A', file_type: 'doc', name: '安装手册' })
+    // A9 刀2b：新建不再自动进模板 ⇒ 这里**显式**把名字登记进模板表，
+    // 才能真的测出"删除/恢复都不动它"（否则前提消失，断言会在空集上自证）
+    {
+      const cfg0 = await box.workspace.loadConfig(ws)
+      cfg0.doc_subfolders = [...(cfg0.doc_subfolders ?? []), '安装手册']
+      await box.workspace.saveConfig(ws, cfg0)
+    }
     await box.files.deleteSubfolder({ product_set: '系列A', file_type: 'doc', name: '安装手册' })
     // 目录已移入回收站（产品集下不再存在）
     await expect(fsp.stat(path.join(ws, '产品集', '系列A', '文档', '安装手册'))).rejects.toBeTruthy()

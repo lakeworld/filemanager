@@ -128,8 +128,15 @@ describe('回收站（v2.3.1）', () => {
 
     await box.files.createSubfolder({ product_set: '系列A', file_type: 'image', name: '场景图' })
     const cfg = await box.workspace.loadConfig(ws)
-    expect(cfg.image_subfolders).toContain('场景图')
+    expect(cfg.image_subfolders).not.toContain('场景图')  // A9 刀2b：新建只落本集，**不写**全站模板表（要改默认集去「设置 → 子文件夹」）
 
+    // A9 刀2b：新建不再自动进模板 ⇒ 这里**显式**把名字登记进模板表，
+    // 才能真的测出"删除/恢复都不动它"（否则前提消失，断言会在空集上自证）
+    {
+      const cfg0 = await box.workspace.loadConfig(ws)
+      cfg0.image_subfolders = [...(cfg0.image_subfolders ?? []), '场景图']
+      await box.workspace.saveConfig(ws, cfg0)
+    }
     await box.files.deleteSubfolder({ product_set: '系列A', file_type: 'image', name: '场景图' })
     const cfg2 = await box.workspace.loadConfig(ws)
     expect(cfg2.image_subfolders).toContain('场景图') // A9 刀2a：删除只作用于本实体，**不动全站模板表**（旧断言钉的正是用户报的「删一个动全身」）

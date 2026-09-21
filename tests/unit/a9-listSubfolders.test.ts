@@ -139,3 +139,42 @@ describe('A9 刀1c · productSetList 一并带回各集真实子文件夹（卡�
     expect(viaList).toEqual(viaApi)
   })
 })
+
+describe('A9 刀2b · createSubfolder 只建本集，不再自动进模板表', () => {
+  it('新建子文件夹：目录落在本集，config 模板表不被改写', async () => {
+    const { box, ws } = await boxWithWs()
+    await box.workspace.productSetCreate({ name: '甲集' })
+
+    await box.files.createSubfolder({ product_set: '甲集', file_type: 'image', name: '临时夹' })
+
+    await expect(fsp.stat(path.join(ws, '产品集', '甲集', '图包', '临时夹'))).resolves.toBeTruthy()
+    const cfg = await box.workspace.loadConfig(ws)
+    // 旧行为：把名字 push 进全站一份的 image_subfolders（=「新建一个，未来所有集都带」）
+    expect(cfg.image_subfolders).not.toContain('临时夹')
+    const subs = await box.files.listSubfolders({ product_set: '甲集', file_type: 'image' })
+    expect(subs.map((x) => x.name)).toContain('临时夹') // 本集看得见（盘驱动）
+  })
+
+  it('新建另一个产品集时**不会**继承甲集里新建的那个文件夹（模板没被改写过）', async () => {
+    const { box, ws } = await boxWithWs()
+    await box.workspace.productSetCreate({ name: '甲集' })
+    await box.files.createSubfolder({ product_set: '甲集', file_type: 'image', name: '只在甲' })
+    await box.workspace.productSetCreate({ name: '乙集' })
+
+    const b = await box.files.listSubfolders({ product_set: '乙集', file_type: 'image' })
+    expect(b.map((x) => x.name)).not.toContain('只在甲')
+    // 但模板表里本来有的默认项照旧进乙集（模板角色没坏）
+    const cfg = await box.workspace.loadConfig(ws)
+    for (const d of cfg.image_subfolders) expect(b.map((x) => x.name)).toContain(d)
+  })
+
+  it('客户域同口径：新建只落本客户，不写 customer_subfolders 模板', async () => {
+    const { box, ws } = await boxWithWs()
+    await box.clients.create({ name: '张三' })
+    await box.files.createSubfolder({ product_set: '张三', scope: 'customer', file_type: '', name: '张三专夹' })
+    const cfg = await box.workspace.loadConfig(ws)
+    expect(cfg.customer_subfolders).not.toContain('张三专夹')
+    const got = await box.files.listSubfolders({ product_set: '张三', scope: 'customer' })
+    expect(got.map((x) => x.name)).toContain('张三专夹')
+  })
+})
