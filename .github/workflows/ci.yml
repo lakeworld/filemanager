@@ -105,6 +105,22 @@ jobs:
       - name: Run Playwright tests (xvfb)
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test --reporter=list,github
 
+      # v2.5.9/A1b 补：**最能定位崩溃的 trace 之前根本没上传**。上一轮我只把 HTML 报告挪进 if: failure()，
+      # 而 CI annotations 实证默认套件里的真崩溃是进程级的（search.spec.ts:101、preview-lifecycle.spec.ts:278
+      # 都是 "Target page, context or browser has been closed"）——这类红全靠 playwright.config.ts 的
+      # `trace: retain-on-failure` 留下的 trace.zip 才看得懂。不传 trace = 装了报警器没接电话线。
+      # 只传 trace + error-context：**不传 video**（retain-on-failure 的视频每条几十 MB，崩溃轮次能攒到几百 MB，
+      # 换不来额外信息量）。
+      - name: Upload crash traces (failed runs only)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-traces
+          path: |
+            test-results/**/trace.zip
+            test-results/**/error-context.md
+          if-no-files-found: ignore
+
       # v2.5.9/A1b：崩溃取证管道「从不执行」的根治——此前被 playwright.config.ts 的
       # testIgnore 挡住，CI 默认套件根本不跑它，线程B 阶段2/3「等 CI 抓到真实崩溃」永远等不到。
       # 实测（2026-09-21 宿主）：默认 5 轮全跑只 **3 秒**（配置里 30 分钟是取证预算上限、不是实际成本）。
@@ -136,13 +152,18 @@ jobs:
         if: failure()
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npx playwright test --last-failed --reporter=html
 
+      # 报告只在失败轮产出（上一步 if: failure()），上传也就跟着收敛到 failure()：
+      # 此前 `always() + warn` 让**每一轮绿构建都留一条"没找到文件"的告警 annotation**
+      # （CI annotations 实证：`No files were found with the provided path: playwright-report/`），
+      # 噪音会把真正要看的崩溃签名淹掉——告警要么有意义要么没有。ignore 兜住 conformance
+      # 单独失败（e2e 全绿 ⇒ 没有报告可传）那种组合。
       - name: Upload playwright report
+        if: failure()
         uses: actions/upload-artifact@v7
-        if: always()
         with:
           name: playwright-report
           path: playwright-report/
-          if-no-files-found: warn
+          if-no-files-found: ignore
 
       # v2.5.9/A1e：action 大版本已升到位（本文件内 9 处 `@v4` → `@v7`，三件一次做完）。
       # ⚠ 目标版本**不是照 PLAN 里那句"升 v5"手抄的**：PLAN 写于旧读数上，2026-09-21 用
