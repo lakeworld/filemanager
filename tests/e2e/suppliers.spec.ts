@@ -444,7 +444,7 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '设置供应商甲' }))
     await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '设置供应商乙' }))
     const chip = card.locator('span', { hasText: '样品夹' }).first()
-    await chip.getByTitle('重命名（只改新建默认模板；已有实体里的同名目录不动）').click()
+    await chip.getByTitle('重命名（默认只改新建模板；旁边 ⇌ 才连所有实体一起改）').click()
     const input = card.locator('input.w-32')
     await input.fill('样品柜')
     await input.press('Enter') // ← 安全默认：只改模板
@@ -480,11 +480,11 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
       await fsp.mkdir(d, { recursive: true })
       await fsp.writeFile(path.join(d, 'note.txt'), holder) // 里面有文件：迁移必须整体搬走
     }
-    // 界面这一侧暂时**没有**那颗危险按钮（加按钮会顶动 D13 点数基线，等人点头），
-    // 所以这里直调主进程 API 验"显式点名才物理迁移"那条能力仍然完好。
-    await page.evaluate(async () =>
-      (window as any).qihebox.workspace.renameSubfolder('supplier', '样品厅', '样品室', { acrossEntities: true }),
-    )
+    // 危险钮就在编辑行里（红色 ⇌）⇒ 必须点它才物理迁移。这里走界面，不走后门 API。
+    const chip2 = card.locator('span', { hasText: '样品厅' }).first()
+    await chip2.getByTitle('重命名（默认只改新建模板；旁边 ⇌ 才连所有实体一起改）').click()
+    await card.locator('input.w-32').fill('样品室')
+    await page.getByTitle('连所有实体下的同名文件夹一起改名（直接改硬盘上的目录名）').click()
     await expect
       .poll(subfolders, { timeout: 15000, message: '显式点名这条也要把 config 改掉' })
       .toContain('样品室')

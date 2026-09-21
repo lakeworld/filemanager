@@ -148,13 +148,21 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  *     走的都是形状具名档 `.link-btn`（AGENTS §一.8 两条合法路之一）⇒ 与 D18 / A6-2 同口径：
  *     形状档归 handwritten 这一格本就不是收口指标（`debt` 仍 6 / `tint` 0 / `press` 0），
  *     增数 = 多了两个真按钮。提交按钮走 `ui/Button` 底座，不进这一格。
+ *   - `total 274 → 275` / `handwritten 133 → 134`（**v2.5.9 A9 刀3b 改名危险入口回到界面**）：
+ *     设置页子文件夹改名那排新增一枚红色 ⇌（`Settings.tsx`，title「连所有实体下的同名文件夹一起改名
+ *     （直接改硬盘上的目录名）」）。动机：A9 把改名的默认行为改成**只改新建模板**（旧行为无条件把
+ *     全工作区同名目录物理改名，用户报「可是它动的是全局的」），但能力不该随默认一起消失 ⇒
+ *     降级成一颗必须显式点的危险钮。用既有形状档 `.icon-btn`（与同排 ✓/✕ 同档），颜色
+ *     `text-danger-600/700` 两处均已在编译 CSS 内（`check:classes` 实测命中），并带 `transition-colors`
+ *     免得把 `noTransition` 顶动。AGENTS §一.8 两条合法路之一，且**用户 2026-09-21 明确点头**
+ *     「放回来，基线 +1」⇒ 这次动数是获授权的。`debt` 仍 6、`tint` 仍 0、`press` 仍 0、`noTransition` 仍 4。
  *   - `modal framed 6 → 21`：D14 先按 PLAN 判据推 9 个（15），D16 收尾时**判据的前提被实测推翻**——
  *     原列"不推"的 6 个里有 5 个本来就自绘了标题行与底部按钮行（`ConfirmDialog:23` `MoveDialog:93`
  *     `ArchiveProgressDialog:144` `SupplierDetail` 编辑档弹窗 `Invoice/InboundEditorModal`），套 framed 是
  *     **拆掉重复的标题与页脚**、不是"多空一层头"。用户 09-12 复拍「推平 21 个」⇒ 未迁名额清零。 */
 const BASE = {
   button: {
-    total: 274, unified: 141, handwritten: 133, noclass: 0,
+    total: 275, unified: 141, handwritten: 134, noclass: 0,
     tint: 0, debt: 6, baseInternal: 5, press: 0, noTransition: 4,
   },
   input: { total: 16, checkbox: 12, baseInternal: 3, debt: 0, exempt: 1, other: 0 },

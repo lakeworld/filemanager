@@ -400,11 +400,10 @@ export default function Settings() {
               }}
             />
             <button class="icon-btn text-primary-600 hover:text-primary-700 text-xs" onClick={() => void confirmRename()}>✓</button>
-            {/* v2.5.9（A9 刀3b）：界面上这里**只有安全那条路**（✓/Enter 只改新建模板）。
-                 "连所有实体同名目录一起改"（会直接改硬盘目录名）的能力保留在主进程
-                 （`renameSubfolder(..., { acrossEntities: true })`），但**暂时不占界面**：
-                 给它加一颗按钮会让 D13 的人工基准值漂移（handwritten 133→134），
-                 那种点着数的基线要人点头才能动 ⇒ 已把这一问递给用户，点了头再补按钮 + 同步基准。 */}
+            {/* v2.5.9（A9 刀3b）：这颗红钮是**显式点名才动盘**——把每个实体下的同名目录一起改名。
+                 ✓ / Enter 走的是安全默认（只改新建模板）。旧代码那种"改个名就迁全工作区"不再发生。
+                 基准值同批更新见 `tests/unit/uiScan.test.ts` 的 BASE 变更流水（用户 2026-09-21 点头）。 */}
+            <button class="icon-btn text-danger-600 hover:text-danger-700 transition-colors text-xs" title="连所有实体下的同名文件夹一起改名（直接改硬盘上的目录名）" onClick={() => void confirmRename(true)}>⇌</button>
             <button class="icon-btn text-surface-400 hover:text-surface-600 text-xs" onClick={cancelRename}>✕</button>
           </span>
         }
@@ -417,7 +416,7 @@ export default function Settings() {
             </span>
           ) : (
             <>
-              <button class="icon-btn text-surface-400 hover:text-primary-600 ml-0.5" title="重命名（只改新建默认模板；已有实体里的同名目录不动）" onClick={() => startRename(props.type, props.name)}>
+              <button class="icon-btn text-surface-400 hover:text-primary-600 ml-0.5" title="重命名（默认只改新建模板；旁边 ⇌ 才连所有实体一起改）" onClick={() => startRename(props.type, props.name)}>
                 ✎
               </button>
               <button class="icon-btn text-surface-400 hover:text-danger-500 ml-0.5" onClick={() => props.onRemove(props.index)}>
