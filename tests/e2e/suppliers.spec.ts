@@ -425,10 +425,24 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     const input = card.locator('input.w-32')
     await input.fill('样品柜')
     await input.press('Enter')
-    const cfgRes2 = await page.evaluate(async () => (window as any).qihebox.config.get())
-    expect(cfgRes2.success).toBe(true)
-    expect(cfgRes2.data.supplier_subfolders).toContain('样品柜')
-    expect(cfgRes2.data.supplier_subfolders).not.toContain('样品夹')
+    // ⚠ A1a 定责后的修法（2026-09-21，取证 = GitHub API 直接读到 09-12/09-13 两次红的 annotations）：
+    //   报错原文 `Expected value: "样品柜" / Received array: ["合同","对账单","往来文件","样品夹"]`，
+    //   位置就在下面这四行的**一次性 config 读**上——Enter 触发的重命名是 `await api.workspace.renameSubfolder`
+    //   （渲染层 → 主进程 → 落盘）三段异步，本机快、runner 慢，于是读到旧值；**"Retry 同红"也不是抖动**，
+    //   是同一台慢机器上每次都赶不上。09-14 两轮转绿的真正原因 = 中间 v2.5.8 的 `5317ce2`
+    //   把这枚输入收进了 ui/Input（同一提交面还动了本 spec），窗口收窄到本机再也复现不出来。
+    //   ⇒ 修法不是加 sleep、也不是放宽判据：把**读**改成轮询，判据一字不减（仍要求新值在、旧值不在）。
+    const subfolders = async (): Promise<string[]> => {
+      const r = await page.evaluate(async () => (window as any).qihebox.config.get())
+      expect(r.success).toBe(true) // 读本身失败不参与轮询，直接判红
+      return (r.data.supplier_subfolders ?? []) as string[]
+    }
+    await expect
+      .poll(subfolders, { timeout: 15000, message: '重命名后 config 未落新值：等满 15s 仍读不到「样品柜」' })
+      .toContain('样品柜')
+    await expect
+      .poll(subfolders, { timeout: 15000, message: '重命名后旧值「样品夹」仍在 config 里' })
+      .not.toContain('样品夹')
     // 目录迁移：供应商/设置供应商/样品夹 → 样品柜
     await expect(fsp.stat(path.join(wsDir, '供应商', '设置供应商', '样品柜'))).resolves.toBeTruthy()
     await expect(fsp.stat(path.join(wsDir, '供应商', '设置供应商', '样品夹'))).rejects.toBeTruthy()
