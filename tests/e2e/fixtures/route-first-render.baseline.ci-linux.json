@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "frozenAt": "2026-09-21",
+  "source": "CI run #107 (tip 6535a88) GitHub ubuntu-latest runner，每路由 5 样本 p90，两轮取最大值",
+  "platform": "linux",
+  "comparisonRatio": 1.25,
+  "routeMediansMs": {
+    "/": 69.7,
+    "/product-sets": 53.4,
+    "/images": 52.7,
+    "/certs": 58.5,
+    "/search": 49.2,
+    "/settings": 69.4,
+    "/profile": 60.3,
+    "/trash": 48.6,
+    "/clients": 61.4,
+    "/invoices": 63.5
+  },
+  "observedRuns": {
+    "#107-run1": {
+      "/": 69.7,
+      "/product-sets": 53.4,
+      "/images": 52.7,
+      "/certs": 58.5,
+      "/search": 49.2,
+      "/settings": 69.4,
+      "/profile": 60.3,
+      "/trash": 48.6,
+      "/clients": 61.4,
+      "/invoices": 63.5
+    },
+    "#107-retry": {
+      "/": 62.7,
+      "/product-sets": 52.5,
+      "/images": 47.6,
+      "/certs": 53.9,
+      "/search": 47.7,
+      "/settings": 65.6,
+      "/profile": 50.5,
+      "/trash": 47.1,
+      "/clients": 60.1,
+      "/invoices": 59.7
+    }
+  },
+  "thresholdsMs": {
+    "/": 100.2,
+    "/product-sets": 76.8,
+    "/images": 75.8,
+    "/certs": 84.1,
+    "/search": 70.7,
+    "/settings": 99.8,
+    "/profile": 86.7,
+    "/trash": 69.9,
+    "/clients": 88.3,
+    "/invoices": 91.3
+  },
+  "note": "GitHub Actions ubuntu-latest runner 的懒加载路由首渲染 p90 冻结基线（v2.5.9/A1d 双基线口径）。观测来源 = CI run #107 tip 6535a88 的两次采样（首跑 + Retry#1），每个数本身已是 5 样本 p90。**取两轮最大值**（不是平均、不是最小），因为带宽公式 max(base×ratio×1.15, base+20ms) 会再给一档余量。⚠ n=2 属于**临时档**：再跑几轮后若最大值明显上移，应按新观测重冻结（重冻结属阈值纪律，需在动作文档记录）。"
+}
