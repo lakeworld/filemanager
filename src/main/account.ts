@@ -12,6 +12,16 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { writeJsonAtomic } from './core/jsonStore'
+import {
+  isUsernameConflict,
+  looksLikeEmail,
+  mapAccountApiError,
+  MIN_PASSWORD_LEN,
+  usernameFromEmail,
+  withRandomSuffix,
+  type AccountApiCall,
+  type CaptchaChallenge,
+} from '../shared/accountApi'
 
 const HEARTBEAT_INTERVAL_MS = 60 * 60 * 1000
 /** 登录请求上限（AbortController 超时 + race 兜底，v2.5.3 T4） */
@@ -155,6 +165,12 @@ export class AccountService {
   async login(
     email: string,
     password: string,
+    /**
+     * v2.5.9 A8：图形码答案（可选）。**本版不切服务端**——现网 `hooks_captcha.go` 对
+     * `X-Qihe-Client: box` 最优先豁免，不带码照样能登（旧包不受影响）；带上是给 2.6
+     * 切换 `BOX_LOGIN_CAPTCHA=required` 预留客户端位，届时这条链路无需再改。
+     */
+    captcha?: { id: string; value: string },
   ): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!this.deps.baseUrl) {
       return { ok: false, error: '未配置服务器地址，登录不可用' }
@@ -179,6 +195,11 @@ export class AccountService {
             'Content-Type': 'application/json',
             // 桌面客户端标识：服务端据此豁免图形验证码（仍受邮箱认证+登录限流保护）
             'X-Qihe-Client': 'box',
+            // A8：只在用户**真的填了**码时才带头——空值头会被服务端当"提交了空码"，反而更容易被判失败；
+            // 判空前先 trim（粘贴带空格是常态，别把 "  " 当有效答案）
+            ...(captcha?.id?.trim() && captcha.value?.trim()
+              ? { 'X-Captcha-Id': captcha.id.trim(), 'X-Captcha-Value': captcha.value.trim() }
+              : {}),
           },
           body: JSON.stringify({ identity: email, password }),
           signal: controller.signal,
@@ -243,6 +264,115 @@ export class AccountService {
     this.startHeartbeat()
     void this.beat(this.sessionGen)
     return { ok: true }
+  }
+
+  // —— v2.5.9 A8：图形码 / 注册 / 邮箱认证（纯加法，不动登录既有语义）——
+
+  /** 一次账号类网络调用的通用外壳：超时 + JSON 解析 +「状态码/服务端 message → 人话」映射 */
+  private async accountCall<T>(
+    call: AccountApiCall,
+    path: string,
+    init: { method: 'GET' | 'POST'; body?: unknown },
+    timeoutMs: number,
+  ): Promise<{ ok: true; data: T } | { ok: false; error: string; rawMessage: string }> {
+    if (!this.deps.baseUrl) {
+      return { ok: false, error: '未配置服务器地址，该功能暂不可用', rawMessage: '' }
+    }
+    const fetchImpl = this.deps.fetchImpl ?? fetch
+    const controller = new AbortController()
+    let timer: NodeJS.Timeout | undefined
+    try {
+      const res = await Promise.race([
+        fetchImpl(`${this.deps.baseUrl}${path}`, {
+          method: init.method,
+          ...(init.body === undefined
+            ? { headers: { 'X-Qihe-Client': 'box' } }
+            : {
+                headers: { 'Content-Type': 'application/json', 'X-Qihe-Client': 'box' },
+                body: JSON.stringify(init.body),
+              }),
+          signal: controller.signal,
+        }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            controller.abort()
+            reject(new LoginTimeoutError())
+          }, timeoutMs)
+        }),
+      ])
+      let message = ''
+      let data: T | null = null
+      try {
+        const parsed = (await res.json()) as T & { message?: string }
+        data = parsed
+        message = typeof parsed?.message === 'string' ? parsed.message : ''
+      } catch {
+        // 非 JSON 响应体（网关 HTML 错误页等）→ 走兜底文案
+      }
+      // rawMessage = 服务端原话：调用方要按它判"用户名冲突"这类细节，
+      // 拿映射后的中文文案去判等于自己把自己的输入改掉再比对（第一版就栽在这儿）
+      if (!res.ok) return { ok: false, error: mapAccountApiError(call, res.status, message), rawMessage: message }
+      if (data === null) return { ok: false, error: mapAccountApiError(call, res.status, ''), rawMessage: '' }
+      return { ok: true, data }
+    } catch (err) {
+      if (err instanceof LoginTimeoutError) return { ok: false, error: '网络超时，请稍后重试', rawMessage: '' }
+      return { ok: false, error: '网络异常，请检查网络后重试', rawMessage: '' }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /**
+   * 取一张图形码（`GET {base}/captcha`，不带 query = 登录桶）。
+   * 隐私口径（`PLAN-v2.6-box支付与账号体系.md` §三）：**不落盘、不进日志**——
+   * 所以本方法一条 log 都不写（图码属凭据类内容，进日志等于多开一份泄漏面）。
+   */
+  async fetchCaptcha(): Promise<({ ok: true } & CaptchaChallenge) | { ok: false; error: string }> {
+    const timeoutMs = this.deps.loginTimeoutMs ?? LOGIN_TIMEOUT_MS
+    const r = await this.accountCall<{ captcha_id?: string; image?: string }>('captcha', '/captcha', { method: 'GET' }, timeoutMs)
+    if (!r.ok) return { ok: false, error: r.error }
+    const id = r.data?.captcha_id
+    const image = r.data?.image
+    if (!id || !image) return { ok: false, error: mapAccountApiError('captcha', 200, '') }
+    return { ok: true, captchaId: id, image }
+  }
+
+  /**
+   * 注册账号（**不发验证邮件**，那步留给 `requestEmailCode`——分开是因为"没收到、重发"要能单独调）。
+   * username = 邮箱前缀；服务端报占用时**自动加随机后缀重试一次**：用户只填了邮箱，
+   * 不该为一个他看不见的字段被打回。
+   */
+  async register(email: string, password: string): Promise<{ ok: true; email: string } | { ok: false; error: string }> {
+    const e = email.trim()
+    if (!looksLikeEmail(e)) return { ok: false, error: '邮箱格式不正确' }
+    if (password.length < MIN_PASSWORD_LEN) return { ok: false, error: `密码至少 ${MIN_PASSWORD_LEN} 位` }
+    const timeoutMs = this.deps.loginTimeoutMs ?? LOGIN_TIMEOUT_MS
+    const bodyFor = (username: string) => ({ email: e, username, password, passwordConfirm: password })
+    const first = await this.accountCall<unknown>('register', '/collections/users/records', { method: 'POST', body: bodyFor(usernameFromEmail(e)) }, timeoutMs)
+    if (first.ok) return { ok: true, email: e }
+    // 只对"用户名冲突"重试——其它失败重试没有意义（同样的请求再发一遍而已）
+    if (!isUsernameConflict(first.rawMessage)) return { ok: false, error: first.error }
+    const retry = await this.accountCall<unknown>('register', '/collections/users/records', { method: 'POST', body: bodyFor(withRandomSuffix(usernameFromEmail(e))) }, timeoutMs)
+    return retry.ok ? { ok: true, email: e } : { ok: false, error: retry.error }
+  }
+
+  /** 请服务端发 6 位邮箱验证码（5 分钟有效）。注册成功后与「没收到、重发」都走这里。 */
+  async requestEmailCode(email: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    const e = email.trim()
+    if (!looksLikeEmail(e)) return { ok: false, error: '邮箱格式不正确' }
+    const timeoutMs = this.deps.loginTimeoutMs ?? LOGIN_TIMEOUT_MS
+    const r = await this.accountCall<unknown>('email-request', '/auth/email-verification/request', { method: 'POST', body: { email: e } }, timeoutMs)
+    return r.ok ? { ok: true } : { ok: false, error: r.error }
+  }
+
+  /** 提交邮箱验证码；通过后**不自动登录**（登录要密码，由渲染层用手里那份密码接着调 login） */
+  async confirmEmailCode(email: string, code: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    const e = email.trim()
+    const c = code.trim()
+    if (!/^[0-9]{6}$/.test(c)) return { ok: false, error: '请输入 6 位数字验证码' }
+    const timeoutMs = this.deps.loginTimeoutMs ?? LOGIN_TIMEOUT_MS
+    const r = await this.accountCall<unknown>('email-confirm', '/auth/email-verification/confirm', { method: 'POST', body: { email: e, code: c } }, timeoutMs)
+    return r.ok ? { ok: true } : { ok: false, error: r.error }
   }
 
   async logout(): Promise<void> {

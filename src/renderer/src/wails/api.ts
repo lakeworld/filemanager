@@ -65,9 +65,20 @@ const qb = window.qihebox;
 export const api = {
   account: {
     status: () => qb.account.status() as Promise<ApiResult<AccountStatus>>,
-    login: (email: string, password: string) =>
-      qb.account.login(email, password) as Promise<ApiResult<{ ok: boolean; error?: string }>>,
+    login: (email: string, password: string, captcha?: { id: string; value: string }) =>
+      qb.account.login(email, password, captcha) as Promise<ApiResult<{ ok: boolean; error?: string }>>,
     logout: () => qb.account.logout() as Promise<ApiResult<boolean>>,
+    // v2.5.9 A8：图形码 / 注册 / 邮箱认证（失败一律走 ApiResult.error + 服务端中文 message，渲染层不再各写一份）
+    captcha: () =>
+      qb.account.captcha() as Promise<
+        ApiResult<{ ok: boolean; captchaId?: string; image?: string; error?: string }>
+      >,
+    register: (email: string, password: string) =>
+      qb.account.register(email, password) as Promise<ApiResult<{ ok: boolean; email?: string; error?: string }>>,
+    emailRequest: (email: string) =>
+      qb.account.emailRequest(email) as Promise<ApiResult<{ ok: boolean; error?: string }>>,
+    emailConfirm: (email: string, code: string) =>
+      qb.account.emailConfirm(email, code) as Promise<ApiResult<{ ok: boolean; error?: string }>>,
   },
   workspace: {
     list: () => qb.workspace.list() as Promise<ApiResult<WorkspaceInfo[]>>,

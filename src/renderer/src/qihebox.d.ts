@@ -16,8 +16,16 @@ import type {
 interface QiheboxApi {
   account: {
     status: () => Promise<unknown>
-    login: (email: string, password: string) => Promise<unknown>
+    login: (email: string, password: string, captcha?: { id: string; value: string }) => Promise<unknown>
     logout: () => Promise<unknown>
+    /** v2.5.9 A8：取一张登录图形码（data URL + captchaId） */
+    captcha: () => Promise<unknown>
+    /** v2.5.9 A8：注册账号（不含发码） */
+    register: (email: string, password: string) => Promise<unknown>
+    /** v2.5.9 A8：请服务端发 6 位邮箱验证码 */
+    emailRequest: (email: string) => Promise<unknown>
+    /** v2.5.9 A8：提交邮箱验证码 */
+    emailConfirm: (email: string, code: string) => Promise<unknown>
   }
   workspace: {
     list: () => Promise<unknown>

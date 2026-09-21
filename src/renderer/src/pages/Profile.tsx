@@ -1,7 +1,7 @@
 import { Show, For, createSignal, onCleanup, onMount, createEffect } from "solid-js";
 import { api } from "~/wails/api";
 import { simpleMarkdownToHtml } from "~/utils/markdown";
-import { accountStatus, loginAccount, logoutAccount } from "~/stores/account";
+import { accountStatus, confirmEmailCode, fetchCaptcha, loginAccount, logoutAccount, registerAccount, requestEmailCode } from "~/stores/account";
 import { showToast } from "~/stores/notifyBanner";
 import Input from "~/components/ui/Input";
 import Button from "~/components/ui/Button";
@@ -409,11 +409,52 @@ export default function Profile() {
 
 // —— 账号区（v2.2.0：可选登录复用 ERP 账号）——
 
+/**
+ * 账号区（v2.2.0 可选登录；v2.5.9 A8 加图形码与**客户端内注册**）。
+ *
+ * 三态：`login`（未登录，带图码）→ `register`（填邮箱密码）→ `verify`（客户端内输 6 位邮箱码，
+ * **不把用户赶去网页**），验证通过自动转登录。
+ * 图码是**选填**：本版不切服务端，现网对 `X-Qihe-Client: box` 最优先豁免 ⇒ 图码取不到、用户不填，
+ * 登录照旧可用（所以图码位取不到时只提示、不禁按钮）。
+ */
 function AccountSection() {
   const [email, setEmail] = createSignal("");
   const [password, setPassword] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal("");
+  const [mode, setMode] = createSignal<"login" | "register" | "verify">("login");
+  const [captchaId, setCaptchaId] = createSignal("");
+  const [captchaImg, setCaptchaImg] = createSignal("");
+  const [captchaHint, setCaptchaHint] = createSignal("");
+  const [captchaValue, setCaptchaValue] = createSignal("");
+  const [code, setCode] = createSignal("");
+
+  /** 取一张图形码（进账号区就先取；点图片可重取。失败只写提示，不影响登录按钮） */
+  const loadCaptcha = async (): Promise<void> => {
+    setCaptchaHint("");
+    const r = await fetchCaptcha();
+    if (r.ok && r.captchaId && r.image) {
+      setCaptchaId(r.captchaId);
+      setCaptchaImg(r.image);
+      setCaptchaValue("");
+    } else {
+      setCaptchaHint(r.error ?? "验证码加载失败，点击图片重试");
+    }
+  };
+  onMount(() => {
+    void loadCaptcha();
+  });
+
+  const doLogin = async (cap?: { id: string; value: string }): Promise<boolean> => {
+    const r = await loginAccount(email().trim(), password(), cap);
+    if (!r.ok) {
+      setError(r.error ?? "登录失败");
+      return false;
+    }
+    // v2.5.1 登录增强（D5）：登录成功 toast 反馈
+    showToast("success", "已登录", accountStatus().email);
+    return true;
+  };
 
   const handleLogin = async () => {
     const e = email().trim();
@@ -423,13 +464,63 @@ function AccountSection() {
     }
     setBusy(true);
     setError("");
-    const r = await loginAccount(e, password());
-    if (!r.ok) {
-      setError(r.error ?? "登录失败");
-    } else {
-      // v2.5.1 登录增强（D5）：登录成功 toast 反馈
-      showToast("success", "已登录", accountStatus().email);
+    const filled = captchaId() && captchaValue().trim();
+    // A8：码错时服务端 message 会透传回来（v2.5.1 口径），这里顺手换一张新的——
+    // 图码是一次性的，留在原图上让用户重试同一张必然再失败
+    const ok = await doLogin(filled ? { id: captchaId(), value: captchaValue().trim() } : undefined);
+    if (!ok && filled) await loadCaptcha();
+    setBusy(false);
+  };
+
+  /** 注册：建档 + 发码两步连着做（对用户是同一个「提交」动作），成功才进 verify 态 */
+  const handleRegister = async () => {
+    const e = email().trim();
+    if (!e || !password()) {
+      setError("请输入邮箱和密码");
+      return;
     }
+    setBusy(true);
+    setError("");
+    const r = await registerAccount(e, password());
+    if (!r.ok) {
+      setError(r.error ?? "注册失败，请稍后重试");
+      setBusy(false);
+      return;
+    }
+    const sent = await requestEmailCode(e);
+    if (!sent.ok) {
+      // 档案已建成功，只是码没发出去 ⇒ 停在注册态但说清"账号已建好，去重发"
+      setError(`账号已创建，但验证邮件没发出去：${sent.error ?? "未知原因"}，可点「重发验证码」`);
+      setMode("verify");
+      setBusy(false);
+      return;
+    }
+    setError("");
+    setMode("verify");
+    setBusy(false);
+  };
+
+  const handleResend = async (): Promise<void> => {
+    setBusy(true);
+    setError("");
+    const r = await requestEmailCode(email().trim());
+    if (!r.ok) setError(r.error ?? "验证邮件发送失败，请稍后重试");
+    else showToast("success", "已重发验证码", "请查收邮箱（5 分钟内有效）");
+    setBusy(false);
+  };
+
+  /** 验证码提交 → 通过后用手里的密码自动转登录（主进程不代存密码） */
+  const handleVerify = async () => {
+    const e = email().trim();
+    setBusy(true);
+    setError("");
+    const r = await confirmEmailCode(e, code());
+    if (!r.ok) {
+      setError(r.error ?? "验证失败，请核对验证码");
+      setBusy(false);
+      return;
+    }
+    await doLogin();
     setBusy(false);
   };
 
@@ -452,42 +543,138 @@ function AccountSection() {
               </div>
             </div>
 
-            {/* 登录表单（v2.5.1 登录增强 D4：换 ui/Input + ui/Button 底座） */}
-            <form
-              class="mt-5 space-y-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleLogin();
-              }}
-            >
-              <Input
-                type="email"
-                placeholder="邮箱"
-                value={email()}
-                onInput={(e) => setEmail(e.currentTarget.value)}
-              />
-              <Input
-                type="password"
-                placeholder="密码"
-                value={password()}
-                onInput={(e) => setPassword(e.currentTarget.value)}
-              />
-              <Show when={error()}>
-                <div class="rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-600">{error()}</div>
-              </Show>
-              <div class="flex items-center justify-between">
-                <Button type="submit" disabled={busy()}>
-                  {busy() ? "登录中..." : "登录"}
-                </Button>
-                <button
-                  type="button"
-                  class="link-btn text-xs text-primary-600 hover:text-primary-700"
-                  onClick={() => window.open("https://www.qihebook.cloud/", "_blank")}
+            {/*
+              三态表单（v2.5.9 A8；底座仍走 ui/Input + ui/Button，v2.5.1 D4 口径不变）：
+              login（邮箱密码 + 选填图码）↔ register（同两格，改文案）→ verify（6 位邮箱码）。
+              注册链**留在客户端内**：不再把用户甩去官网注册页（旧文案就是那个）。
+            */}
+            <Show
+              when={mode() === "verify"}
+              fallback={
+                <form
+                  class="mt-5 space-y-3"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (mode() === "register") void handleRegister();
+                    else void handleLogin();
+                  }}
                 >
-                  没有账号？去官网注册 →
-                </button>
-              </div>
-            </form>
+                  <Input
+                    type="email"
+                    placeholder="邮箱"
+                    value={email()}
+                    onInput={(e) => setEmail(e.currentTarget.value)}
+                  />
+                  <Input
+                    type="password"
+                    placeholder={mode() === "register" ? "密码（至少 8 位）" : "密码"}
+                    value={password()}
+                    onInput={(e) => setPassword(e.currentTarget.value)}
+                  />
+                  <Show when={mode() === "login"}>
+                    <div class="flex items-center gap-2">
+                      <Input
+                        class="flex-1"
+                        placeholder="图形验证码（选填）"
+                        value={captchaValue()}
+                        onInput={(e) => setCaptchaValue(e.currentTarget.value)}
+                      />
+                      <Show
+                        when={captchaImg()}
+                        fallback={
+                          <span class="flex h-9 w-24 items-center justify-center rounded-lg border border-surface-200 bg-surface-100 text-xs text-surface-400">
+                            点击重试
+                          </span>
+                        }
+                      >
+                        <img
+                          src={captchaImg()}
+                          alt="图形验证码"
+                          title="看不清？点击换一张"
+                          class="h-9 w-24 cursor-pointer rounded-lg border border-surface-200 object-contain"
+                          onClick={() => void loadCaptcha()}
+                        />
+                      </Show>
+                    </div>
+                    <Show when={captchaHint()}>
+                      <div class="text-xs text-surface-400">{captchaHint()}</div>
+                    </Show>
+                  </Show>
+                  <Show when={error()}>
+                    <div class="rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-600">{error()}</div>
+                  </Show>
+                  <div class="flex items-center justify-between">
+                    <Button type="submit" disabled={busy()}>
+                      {mode() === "register" ? (busy() ? "注册中..." : "注册账号") : busy() ? "登录中..." : "登录"}
+                    </Button>
+                    <button
+                      type="button"
+                      class="link-btn text-xs text-primary-600 hover:text-primary-700"
+                      onClick={() => {
+                        setError("");
+                        setMode(mode() === "register" ? "login" : "register");
+                      }}
+                    >
+                      {mode() === "register" ? "已有账号？返回登录 →" : "没有账号？注册账号 →"}
+                    </button>
+                  </div>
+                  <Show when={mode() === "login"}>
+                    <div class="text-xs text-surface-400">
+                      忘记密码？在官网
+                      <button
+                        type="button"
+                        class="link-btn ml-1 text-primary-600 hover:text-primary-700"
+                        onClick={() => window.open("https://www.qihebook.cloud/", "_blank")}
+                      >
+                        重置密码 →
+                      </button>
+                    </div>
+                  </Show>
+                </form>
+              }
+            >
+              {/* 待验证态：客户端内输 6 位码，通过后自动转登录（不发用户去邮箱里点链接） */}
+              <form
+                class="mt-5 space-y-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void handleVerify();
+                }}
+              >
+                <div class="rounded-xl bg-surface-100 px-4 py-3 text-sm text-surface-700">
+                  验证邮件已发到 <span class="font-semibold">{email()}</span>，把 6 位数字码填进来即可
+                  <span class="text-surface-500">（5 分钟内有效）</span>
+                </div>
+                <Input
+                  placeholder="6 位数字验证码"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={code()}
+                  onInput={(e) => setCode(e.currentTarget.value.replace(/[^0-9]/g, ""))}
+                />
+                <Show when={error()}>
+                  <div class="rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-600">{error()}</div>
+                </Show>
+                <div class="flex items-center gap-3">
+                  <Button type="submit" disabled={busy()}>
+                    {busy() ? "验证中..." : "验证并登录"}
+                  </Button>
+                  <Button type="button" variant="secondary" disabled={busy()} onClick={() => void handleResend()}>
+                    重发验证码
+                  </Button>
+                  <button
+                    type="button"
+                    class="link-btn ml-auto text-xs text-primary-600 hover:text-primary-700"
+                    onClick={() => {
+                      setError("");
+                      setMode("login");
+                    }}
+                  >
+                    返回登录 →
+                  </button>
+                </div>
+              </form>
+            </Show>
           </>
         }
       >

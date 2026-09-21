@@ -124,13 +124,30 @@ export function registerIpc(
 ): void {
   // —— 账号（v2.2.0：可选登录复用 ERP 账号；心跳统计活跃）——
   ipcMain.handle('qihebox:account:status', () => handle(() => account.status()))
-  ipcMain.handle('qihebox:account:login', (_e, email: string, password: string) =>
-    handle(async () => {
-      const r = await account.login(email, password)
-      // v2.5.1（D24 落地）：登录成功 → 广播 accountChanged（闭源插件使用锁据此即时恢复服务）
-      if (r.ok) hooks.onAccountChanged?.(true)
-      return r
-    }),
+  ipcMain.handle(
+    'qihebox:account:login',
+    (_e, email: string, password: string, captcha?: { id: string; value: string }) =>
+      handle(async () => {
+        const r = await account.login(email, password, captcha)
+        // v2.5.1（D24 落地）：登录成功 → 广播 accountChanged（闭源插件使用锁据此即时恢复服务）
+        if (r.ok) hooks.onAccountChanged?.(true)
+        return r
+      }),
+  )
+  /**
+   * v2.5.9 A8：图形码与注册链四条通道（命名照既有 `qihebox:account:*` 风格）。
+   * 这四条是**宿主内部通道**（只给自家渲染层用），不进 PLUGIN.md 插件面——
+   * 插件既不该能替用户取图码，也不该能发注册/认证请求。
+   */
+  ipcMain.handle('qihebox:account:captcha', () => handle(() => account.fetchCaptcha()))
+  ipcMain.handle('qihebox:account:register', (_e, email: string, password: string) =>
+    handle(() => account.register(email, password)),
+  )
+  ipcMain.handle('qihebox:account:emailRequest', (_e, email: string) =>
+    handle(() => account.requestEmailCode(email)),
+  )
+  ipcMain.handle('qihebox:account:emailConfirm', (_e, email: string, code: string) =>
+    handle(() => account.confirmEmailCode(email, code)),
   )
   ipcMain.handle('qihebox:account:logout', () =>
     handle(async () => {

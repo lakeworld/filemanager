@@ -3,7 +3,7 @@
 <!-- 列：file:line | kind | 覆盖测试（UNCOVERED = 该类点位无测试引用，门禁红） -->
 count: 12
 
-- src/main/account.ts:315 | platform-read | tests/unit/account.test.ts tests/unit/ipc-entity-events.test.ts | platform: process.platform + (process.arch ? `-${process.arch}` : ''),
+- src/main/account.ts:445 | platform-read | tests/unit/account.test.ts tests/unit/accountCaptcha.test.ts tests/unit/ipc-entity-events.test.ts | platform: process.platform + (process.arch ? `-${process.arch}` : ''),
 - src/main/autoLaunchMain.ts:29 | platform-read | tests/unit/autoLaunch.test.ts | export function isMacAutostartLaunch(platform: NodeJS.Platform = process.platform): boolean {
 - src/main/autoLaunchMain.ts:34 | platform-read | tests/unit/autoLaunch.test.ts | export function setAutoLaunch(enabled: boolean, platform: NodeJS.Platform = process.platform): void {
 - src/main/autoLaunchMain.ts:41 | win32-branch | tests/unit/autoLaunch.test.ts | if (platform === 'win32') {

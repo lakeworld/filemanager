@@ -20,7 +20,13 @@ const invoke = (channel: string, ...args: unknown[]): Promise<unknown> =>
 const api = {
   account: {
     status: () => invoke('qihebox:account:status'),
-    login: (email: string, password: string) => invoke('qihebox:account:login', email, password),
+    login: (email: string, password: string, captcha?: { id: string; value: string }) =>
+      invoke('qihebox:account:login', email, password, captcha),
+    // v2.5.9 A8：图形码 / 注册 / 邮箱认证（宿主内部通道，不属插件面）
+    captcha: () => invoke('qihebox:account:captcha'),
+    register: (email: string, password: string) => invoke('qihebox:account:register', email, password),
+    emailRequest: (email: string) => invoke('qihebox:account:emailRequest', email),
+    emailConfirm: (email: string, code: string) => invoke('qihebox:account:emailConfirm', email, code),
     logout: () => invoke('qihebox:account:logout'),
   },
   workspace: {
