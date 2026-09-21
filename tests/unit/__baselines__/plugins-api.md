@@ -2,7 +2,7 @@
   qihe-box API 兼容性守护基线（API_VERSION=1 · 只增不删）
   生成器：tests/unit/helpers/apiSurface.ts · 更新：npm run api:update
   TypeScript: 5.9.3
-  break-reason: v2.5.7 协议增量（纯新增不破坏）：account.cloudFetch 宿主代签（F4a）+ getToken 标弃用但仍导出；invoice/inbound 只读域（E1/E2）；share.getThumb（E4）——旧符号零删除，接口行因成员新增而变宽
+  break-reason: commands[] 增加可选 openPage 字段（v2.5.10 增量，语义只增不改：旧插件不声明行为零变化；旧符号文本因 inline 类型追加字段而被判定为变更）
 -->
 
 # qihe-box 插件协议 API 面（types / preload / ipc）
@@ -117,9 +117,10 @@
 - PluginManifest.apiCompat?: [ number, number ]
 - PluginManifest.apiVersion: number
 - PluginManifest.author?: string
-- PluginManifest.commands?: Array<{ id: string; label: PluginText; scope: 'file' | 'global'; when?: { exts?: string[]; }; }>
+- PluginManifest.commands?: Array<{ id: string; label: PluginText; scope: 'file' | 'global'; when?: { exts?: string[]; }; openPage?: string; }>
 - PluginManifest.commands[].id: string
 - PluginManifest.commands[].label: PluginText
+- PluginManifest.commands[].openPage?: string
 - PluginManifest.commands[].scope: 'file' | 'global'
 - PluginManifest.commands[].when.exts?: string[]
 - PluginManifest.commands[].when?: { exts?: string[]; }

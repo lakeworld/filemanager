@@ -77,6 +77,13 @@ export interface PluginManifest {
     scope: 'file' | 'global'
     /** 可见性过滤：仅匹配的文件类型出现该命令（防右键菜单污染），如 { exts: ['.png', '.jpg'] } */
     when?: { exts?: string[] }
+    /**
+     * 「此命令 = 打开本插件页面」声明（v2.5.10 增量，可选）：
+     * 声明后宿主不再 callPlugin 执行回调，改为把右键 filePaths 写 sessionStorage 交接键
+     * （qihebox:plugin-handoff = { pluginId, paths, at }）并 navigate 到该页面；
+     * 值必须是本插件 pages[].path 之一（登记期校验，防越权跳转到别的插件/本体路由）。
+     */
+    openPage?: string
   }>
   description?: PluginText
   author?: string
@@ -677,6 +684,19 @@ export function validateManifest(input: unknown): { ok: boolean; errors: string[
           errors.push(`${where}.when 须为对象`)
         } else if (c.when.exts !== undefined && (!Array.isArray(c.when.exts) || !c.when.exts.every((e) => typeof e === 'string'))) {
           errors.push(`${where}.when.exts 须为字符串数组`)
+        }
+      }
+      if (c.openPage !== undefined) {
+        // openPage 三边校验：字符串 / '/plugin/' 前缀 / 必须命中本插件 pages[].path（防越权跳转）
+        const pagePaths = (Array.isArray(input.pages) ? input.pages : [])
+          .map((pg) => (isRecord(pg) && typeof pg.path === 'string' ? pg.path : null))
+          .filter((v): v is string => v !== null)
+        if (typeof c.openPage !== 'string' || c.openPage.length === 0) {
+          errors.push(`${where}.openPage 须为非空字符串`)
+        } else if (!c.openPage.startsWith('/plugin/')) {
+          errors.push(`${where}.openPage 须为插件页面路径（'/plugin/' 前缀），收到 ${JSON.stringify(c.openPage)}`)
+        } else if (!pagePaths.includes(c.openPage)) {
+          errors.push(`${where}.openPage ${JSON.stringify(c.openPage)} 不在本插件 pages[].path 内（禁止越权跳转）`)
         }
       }
     })

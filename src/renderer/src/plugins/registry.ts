@@ -37,6 +37,40 @@ export interface PluginFileCommand {
   label: string
   /** 可见性过滤：仅匹配的文件扩展名出现该命令（when.exts，防右键菜单污染） */
   exts?: string[]
+  /** 「打开本插件页面」命令（manifest commands[].openPage；宿主改走交接+导航，不执行回调） */
+  openPage?: string
+}
+
+/** 右键 openPage 命令的文件交接键（sessionStorage；插件页 take-and-clear 语义，PLUGIN.md §commands） */
+export const PLUGIN_HANDOFF_KEY = 'qihebox:plugin-handoff'
+
+/** 交接载荷形状（写入方=宿主注入槽，读取方=插件页面；pluginId 不符 → 忽略） */
+export interface PluginHandoff {
+  pluginId: string
+  paths: string[]
+  at: number
+}
+
+/**
+ * 注入槽单项构造（纯函数，v2.5.10）：openPage 命令 → deps.open（写交接 + 导航）；
+ * 否则 → deps.call（callPlugin 执行回调，原行为）。抽成纯函数以便单测分流本身。
+ */
+export function buildPluginCommandItem(
+  cmd: PluginFileCommand,
+  paths: string[],
+  deps: {
+    call: (pluginId: string, commandId: string, filePaths: string[]) => void
+    open: (openPage: string, filePaths: string[]) => void
+  },
+): { label: string; icon: string; action: () => void } {
+  return {
+    label: cmd.label,
+    icon: '🧩',
+    action: () => {
+      if (cmd.openPage) deps.open(cmd.openPage, paths)
+      else deps.call(cmd.pluginId, cmd.commandId, paths)
+    },
+  }
 }
 
 /** preload plugins 命名空间的最小本地类型（纯透传，不 import 任何插件代码） */
@@ -152,6 +186,7 @@ export function deriveFileCommands(list: PluginInfo[]): PluginFileCommand[] {
         commandId: c.id,
         label: c.label,
         ...(Array.isArray(c.when?.exts) ? { exts: c.when.exts } : {}),
+        ...(typeof c.openPage === 'string' && c.openPage.length > 0 ? { openPage: c.openPage } : {}),
       })
     }
   }

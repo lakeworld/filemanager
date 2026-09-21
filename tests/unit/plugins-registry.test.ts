@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PluginInfo } from '../../src/shared/types'
 import {
+  buildPluginCommandItem,
   deriveFileCommands,
   deriveGlobalCommands,
   deriveRoutes,
@@ -42,6 +43,7 @@ function fullPlugin(overrides: Partial<PluginInfo> & { id: string }): PluginInfo
       { id: 'ping', label: '示例命令', scope: 'file', when: { exts: ['.png', '.jpg'] } },
       { id: 'globalCmd', label: '全局命令', scope: 'global' },
       { id: 'noExts', label: '无过滤命令', scope: 'file' },
+      { id: 'openPanel', label: '去页面处理', scope: 'file', openPage: '/plugin/hello/about' },
     ],
     ...overrides,
   })
@@ -103,6 +105,7 @@ describe('deriveFileCommands：列表 → 右键命令注入槽（PLAN §5.3）'
     expect(deriveFileCommands([fullPlugin({ id: 'com.qihe.hello' })])).toEqual([
       { pluginId: 'com.qihe.hello', commandId: 'ping', label: '示例命令', exts: ['.png', '.jpg'] },
       { pluginId: 'com.qihe.hello', commandId: 'noExts', label: '无过滤命令' },
+      { pluginId: 'com.qihe.hello', commandId: 'openPanel', label: '去页面处理', openPage: '/plugin/hello/about' },
     ])
   })
 
@@ -118,6 +121,31 @@ describe('deriveFileCommands：列表 → 右键命令注入槽（PLAN §5.3）'
   it('无 when.exts 的命令不带 exts 字段（菜单对该命令全类型可见）', () => {
     const cmds = deriveFileCommands([fullPlugin({ id: 'com.qihe.hello' })])
     expect('exts' in cmds[1]).toBe(false)
+  })
+})
+
+describe('buildPluginCommandItem：注入槽单项构造（openPage 分流，v2.5.10）', () => {
+  const paths = ['/ws/a.png', '/ws/b.png']
+  it('无 openPage → 走 callPlugin 执行（原行为不回归）', () => {
+    const calls: string[] = []
+    const item = buildPluginCommandItem(
+      { pluginId: 'com.qihe.hello', commandId: 'ping', label: '示例命令' },
+      paths,
+      { call: (id, cid, fp) => calls.push(`call:${id}:${cid}:${fp.length}`), open: (p) => calls.push(`open:${p}`) },
+    )
+    item.action()
+    expect(calls).toEqual(['call:com.qihe.hello:ping:2'])
+  })
+  it('有 openPage → 走 open 交接+导航，且不 callPlugin', () => {
+    const calls: string[] = []
+    const item = buildPluginCommandItem(
+      { pluginId: 'com.qihe.hello', commandId: 'openPanel', label: '去页面处理', openPage: '/plugin/hello/about' },
+      paths,
+      { call: (id, cid) => calls.push(`call:${id}:${cid}`), open: (p, fp) => calls.push(`open:${p}:${fp.length}`) },
+    )
+    expect(item.label).toBe('去页面处理')
+    item.action()
+    expect(calls).toEqual(['open:/plugin/hello/about:2'])
   })
 })
 
