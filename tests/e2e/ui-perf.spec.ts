@@ -10,7 +10,22 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const INDEX_URL = 'file://' + ROOT.replace(/\\/g, '/') + '/out/renderer/index.html'
-const BASELINE_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'route-first-render.baseline.json')
+const FIXTURES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
+/**
+ * v2.5.9/A1d（用户 2026-09-21 拍板 = **给 CI 单独一套基线口径**，本机灵敏度不动）：
+ * 判据**代码**两边完全同一套（同一比较、同一带宽、同一 3000ms 灾难线），
+ * 分开的只是**冻结基线文件**——因为性能的可比性本来就跟机器绑，不跟"是不是 CI"绑：
+ *   · `route-first-render.baseline.json`     = 本机开发机（现有文件，数值一字未动）
+ *   · `route-first-render.baseline.ci-linux.json` = GitHub ubuntu-latest runner
+ * ⚠ 别把这条读成 A1d 的病根复发：病根是 `if (process.env.CI)` 把**比较整个跳过**
+ * （于是"CI 绿"什么都不证明）。这里 CI 不仅要比，而且在**自己的基线冻上之前会红**，
+ * 红的时候把候选数字直接打在失败信息里 ⇒ 下一笔就能落成文件、转为常态门禁。
+ */
+const IS_GH_RUNNER = process.env.GITHUB_ACTIONS === 'true'
+const BASELINE_PATH = path.join(
+  FIXTURES_DIR,
+  IS_GH_RUNNER ? 'route-first-render.baseline.ci-linux.json' : 'route-first-render.baseline.json',
+)
 
 /**
  * v2.5.9/A1d（待拍板 #19 附带项③「ui-perf 补 PROD_ARGS」）：性能探针必须跑在**生产形态启动参数**上。
@@ -37,7 +52,7 @@ interface PerfBaseline {
  *   13 轮实测 /settings p90 = 40.1–45.2ms（其余路由 ≤37.4），20ms 带（阈值 48）仍留 ≥2.8ms 余量；
  *   曾试 12ms 带（阈值 40）⇒ 同一台机器 6 轮里红 1 轮，正是本判据要消灭的"贴脸判据"；
  * - **基线数值一律不动**（重冻结属阈值纪律，未经用户拍板不得执行）；
- * - CI 与本地**同一套逻辑**（A1d 的病根 = `if (process.env.CI)` 把基线置 null 造出两套口径）：
+ * - 判据逻辑 CI 与本地**同一套**（A1d 的病根 = `if (process.env.CI)` 把基线置 null 造出两套口径）：
  *   平台不可比时退化为灾难线并显式告警，与本地基线缺失路径完全同码。
  */
 const PERF_SAMPLES = 5
@@ -154,6 +169,14 @@ test.describe('渲染性能探针（v2.5.1 D4 / v2.5.3 T0 / v2.5.9 A1d）', () =
           `route ${route.path} p90 ${p90.toFixed(1)}ms 超过基线 ${routeBaseline.toFixed(1)}ms 的回归阈值 ${threshold.toFixed(1)}ms（${PERF_SAMPLES} 样本=[${samples.map((v) => v.toFixed(1)).join(',')}]），需在动作文档记录并解释`,
         ).toBeLessThanOrEqual(threshold)
       }
+    }
+
+    // CI 基线还没冻结 ⇒ **不静默放行**：把本轮观测值塞进失败信息，供下一笔写成基线文件。
+    if (IS_GH_RUNNER && !baseline) {
+      throw new Error(
+        `[ui-perf] CI 基线尚未冻结（缺 ${path.relative(ROOT, BASELINE_PATH)}）。` +
+          `本轮 runner 实测 p90 = ${JSON.stringify(p90s)} ⇒ 按这些数（含少量余量）写进该文件即转常态门禁。`,
+      )
     }
 
     await test.info().attach('route-first-render.json', {

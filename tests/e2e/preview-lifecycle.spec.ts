@@ -48,6 +48,14 @@ const waitForArtifact = async (filePath: string, deadlineMs: number): Promise<vo
   }
   throw new Error(`等待预览副本生成超时（${deadlineMs}ms）：${filePath} —— 主进程预览解码管线是否变更？`)
 }
+// v2.5.9/A1c（CI #101/#102 取证，2026-09-21）：这条在 GitHub runner 上恒红的根因**不是产品**——
+// 注解原文两条：`Test timeout of 90000ms exceeded` + 由它派生的 `locator.waitFor: Target page … has been closed`。
+// `waitImageCard` 本来就写了「3 次 × 30s」的等待预算（=90s），恰好把全局 90s 预算吃干，
+// 任何一次冷索引比本机慢就必然超时；超时后 Playwright 中止页面，剩余等待就报成"target closed"
+// （所以那条签名看着像崩溃，其实像超时多过像崩溃）。
+// ⇒ 这里只放宽**等待预算**，不放宽判据：卡片必须真的可见才算过，等不到照样红。
+test.describe.configure({ timeout: process.env.GITHUB_ACTIONS === 'true' ? 180_000 : 90_000 })
+
 test.describe('预览生命周期治理（v2.5.3 T7）', () => {
   let app: ElectronApplication
   let page: Page
