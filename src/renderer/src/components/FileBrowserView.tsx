@@ -27,6 +27,7 @@ import { buildFileContextMenuItems } from "~/utils/fileContextMenu";
 import { useContextMenu } from "~/hooks/useContextMenu";
 import type { FileEntry } from "~/types";
 import { withBuiltinNotes, BUILTIN_NOTES_FOLDER, defaultSubFolder } from "~/constants/notes";
+import type { SubfolderEntry } from "../../../shared/types";
 import Input from "~/components/ui/Input";
 import SelectionBar from "~/components/ui/SelectionBar";
 import { useCopyShortcut } from "~/hooks/useCopyShortcut";
@@ -141,7 +142,12 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   const fileType = () => props.fileType ?? "image";
   const typeLabel = () =>
     isCustomer() ? "客户文件" : isSupplier() ? "供应商文件" : fileType() === "image" ? "图包" : fileType() === "cert" ? "证书" : "文档";
-  const subFolders = () =>
+  /**
+   * 今日口径的名单（读全局 config 那张表）——A9 刀1b 起**降级为占位**：
+   * 只用于「盘数据还没到达的首帧」与「读盘失败时不把人锁在外面」，
+   * 一旦 `listSubfolders` 返回就以它为准。刻意保留而不是删掉：删了首帧会闪空白。
+   */
+  const configFolders = () =>
     isCustomer()
       ? withBuiltinNotes(workspaceConfig()?.customer_subfolders, CUSTOMER_DEFAULT_SUBFOLDERS)
       : isSupplier()
@@ -150,9 +156,62 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
           ? workspaceConfig()?.image_subfolders || ["主图", "详情页", "白底图", "素材"]
           : fileType() === "cert"
             ? workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"]
-            : // v2.5.1（F2）：文档子文件夹（config 缺省已由 loadConfig 合并，此处镜像兜底）
+            : // v2.5.1（F2）：文档子文件夹（config 缺省已由 loadConfig 合并，此处镜
               // v2.5.7（A2 笔记）：文档区并入内建「笔记」
               withBuiltinNotes(workspaceConfig()?.doc_subfolders, DOC_DEFAULT_SUBFOLDERS);
+
+  /**
+   * v2.5.9（A9 刀1b）：**tab 名单改由硬盘决定**（设计 §二；P1/P2 的根治点）。
+   *  - 盘上有、表里没 → 看得见（坚果云手工塞的目录不再隐身，P2）；
+   *  - 顺序与「空/非空」都在主进程定（§八 实测 readdir 原序非名称序 ⇒ 顺序只留一个权威）；
+   *  - 内建「笔记」按现状并进最左，不参与以盘为准（用户拍板「笔记保持现状」）。
+   */
+  // v2.5.9（A9 刀1b）：**tab 名单改由硬盘决定**（设计 §二；P1/P2 的根治点）。
+  //  - 盘上有、表里没 → 看得见（坚果云手工塞进来的目录不再隐身，P2）；
+  //  - 顺序与「空 / 非空」都在主进程定（§八 实测 readdir 原序稳定但非名称序 ⇒ 顺序只留一个权威）；
+  //  - 内建「笔记」按现状并进最左，不参与以盘为准（用户拍板「笔记保持现状」）。
+  // 形状用本文件既有的 signal + effect（不引 createResource：它在本仓只有零星使用者，
+  // 而这里的取值语义就是「每次实体/域变了重拉一次」）。
+  const [diskSubs, setDiskSubs] = createSignal<SubfolderEntry[] | null>(null);
+  const loadSubFolders = async () => {
+    const r = await api.files.listSubfolders({
+      product_set: props.entity,
+      file_type: fileType(),
+      scope: props.scope,
+    });
+    // 失败不清盘（保持上一次结果，避免网络/IO 抖动把 tab 打空），只记一条日志
+    if (r.success) setDiskSubs(r.data ?? []);
+    else console.warn('[A9] listSubfolders 失败，tab 暂用占位名单:', r.error);
+  };
+  createEffect(() => {
+    // 依赖追踪：实体 / 域变 ⇒ 重拉；**连子文件夹切换也重拉**，这样手工建的或坚果云刚同步进来的
+    // 目录「切一下 tab 就出现」，不必重启应用（A9 的核心承诺之一）。
+    // 代价实测过（设计 §八）：整域 readdir 800 个目录 3.5ms、单实体一层 0.022ms ⇒ 换一次路由
+    // 重拉完全可忽略；**不用轮询**（无界 IO，且 §一.7 那类"背景活别占主线程"的口径也不允许）。
+    void props.entity;
+    void props.fileType;
+    void props.scope;
+    void props.subFolder;
+    void loadSubFolders();
+  });
+  const subFolders = () => {
+    const e = diskSubs();
+    if (!e) return configFolders(); // 首帧占位 / 读盘失败：退回今日口径，不让用户对着空白 tab
+    const names = e.map((x) => x.name);
+    return isCustomer() || isSupplier() || fileType() === "doc"
+      ? withBuiltinNotes(names, [])
+      : names;
+  };
+  /** 空目录（盘上真实为空）→ 淡一档；占位期不淡显——那份名单没有盘信息 */
+  const emptySubFolders = () => {
+    const e = diskSubs();
+    if (!e) return new Set<string>();
+    return new Set(e.filter((x) => !x.has_files).map((x) => x.name));
+  };
+  /** 新建 / 删除 / 改名后刷新盘名单（表仍作为模板存在，但不再驱动显示） */
+  const refreshSubFolders = () => {
+    void loadSubFolders();
+  };
 
   // v2.4.7：子文件夹路由路径按 scope 生成（customer → /files/customer/:name/:subFolder；v2.4.9 S2：supplier 同构）
   const folderPath = (sub: string) =>
@@ -513,6 +572,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
       scope: props.scope,
     });
     if (result.success) {
+      refreshSubFolders(); // A9：先让盘名单落地（删除只动本集，别再写全局表）
       const folders = subFolders().filter((f) => f !== folder);
       const next =
         defaultSubFolder(folders) ||
@@ -548,6 +608,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
         setShowNewFolder(false);
         setNewFolderName("");
         loadWorkspaceConfig();
+        refreshSubFolders(); // A9：以盘为准 ⇒ 新建完就要看见新 tab
         navigate(folderPath(name));
       } else {
         showToast("error", "创建子文件夹失败", result.error ?? undefined);
@@ -681,6 +742,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
 
       <FileBrowserToolbar
         subFolders={subFolders()}
+        emptySubs={emptySubFolders()}
         currentSub={props.subFolder}
         typeLabel={typeLabel()}
         isCustomer={isCustomer()}

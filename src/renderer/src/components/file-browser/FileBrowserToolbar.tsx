@@ -9,6 +9,8 @@ import { BUILTIN_NOTES_FOLDER } from "../../constants/notes";
  */
 export default function FileBrowserToolbar(props: {
   subFolders: string[];
+  /** v2.5.9（A9 刀1b）：盘上尚无文件的子文件夹名 → 淡一档（用户拍板「空的要显示并且淡一点」） */
+  emptySubs?: Set<string>;
   currentSub: string;
   typeLabel: string;
   isCustomer: boolean;
@@ -29,7 +31,15 @@ export default function FileBrowserToolbar(props: {
         <For each={props.subFolders}>
           {(sub) => (
             <button
-              class={`seg-item ${props.currentSub === sub ? "seg-item-on" : "text-surface-500 hover:text-surface-700"}`}
+              class={`seg-item ${
+                props.currentSub === sub
+                  ? "seg-item-on"
+                  : props.emptySubs?.has(sub)
+                    ? // A9：空目录不藏，只淡一档（看得见的空结构比藏起来好懂）
+                      "text-surface-400 hover:text-surface-700"
+                    : "text-surface-500 hover:text-surface-700"
+              }`}
+              title={props.currentSub !== sub && props.emptySubs?.has(sub) ? "还没有文件；放进去就会出现在这里" : undefined}
               onClick={() => props.onNavigate(sub)}
             >
               {sub}

@@ -20,6 +20,8 @@ import type {
   ExportEntry,
   SubfolderCreateRequest,
   DeleteSubfolderRequest,
+  ListSubfoldersRequest,
+  SubfolderEntry,
   FileRenameRequest,
   MoveFilesRequest,
   UpdateInfo,
@@ -223,6 +225,9 @@ export const api = {
       qb.files.createSubfolder(req as any) as Promise<ApiResult<boolean>>,
     deleteSubfolder: (req: DeleteSubfolderRequest) =>
       qb.files.deleteSubfolder(req as any) as Promise<ApiResult<boolean>>,
+    // v2.5.9（A9 刀1b）：某实体某域下实际存在的子文件夹（tab 名单唯一来源；主进程已排序）
+    listSubfolders: (req: ListSubfoldersRequest) =>
+      qb.files.listSubfolders(req as any) as Promise<ApiResult<SubfolderEntry[]>>,
     previewUrl: (path: string) => qb.files.previewUrl(path) as Promise<ApiResult<string>>,
     externalUrl: (path: string) => qb.files.externalUrl(path) as Promise<ApiResult<string>>,
     workspaceUrl: (path: string) => qb.files.workspaceUrl(path) as Promise<ApiResult<string>>,

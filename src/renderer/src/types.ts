@@ -18,6 +18,9 @@ export type {
   MetadataUpdateRequest,
   SubfolderCreateRequest,
   DeleteSubfolderRequest,
+  // v2.5.9（A9 刀1b）：子文件夹名单以盘为准（tab 唯一来源）
+  ListSubfoldersRequest,
+  SubfolderEntry,
   FileRenameRequest,
   MoveFilesRequest,
   BatchMoveResult,
