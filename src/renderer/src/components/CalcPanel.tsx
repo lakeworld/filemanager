@@ -98,10 +98,12 @@ function CalcHistoryRow(props: {
             </button>
             <button
               class="link-btn px-1.5 py-0.5 text-xs text-surface-500 hover:text-primary-600"
-              title={props.rec.saved ? "已存资料（右键可取消转正）" : "存为资料"}
+              title={props.rec.saved ? "取消转正（回到暂存）" : "存为资料"}
               onClick={() => props.onToggleSaved(props.rec)}
             >
-              存为资料
+              {/* 文案跟着状态走：已转正的行这枚按钮点下去是**取消转正**（toggleSaved），
+                  原来两态都写「存为资料」，是文案与行为相反 */}
+              {props.rec.saved ? "取消转正" : "存为资料"}
             </button>
           </div>
         </div>
@@ -116,8 +118,13 @@ function CalcHistoryRow(props: {
 function CalcPanelInner() {
   const [records, setRecords] = createSignal<CalcRecord[]>([]);
   const [draft, setDraft] = createSignal("");
-  /** 解析失败的温和提示（「算式没看懂」/「除数不能为 0」/「这个日期不存在」）；空串 = 不显示 */
+  /**
+   * 解析失败的温和提示（「算式没看懂」/「除数不能为 0」/「这个日期不存在」/「数太大，算不出来」）；
+   * 空串 = 不显示
+   */
   const [hint, setHint] = createSignal("");
+  /** 提交在途标志（防双击/双回车连发两条同参 add——清空输入已前移到发 IPC 之前，见 submit） */
+  const [submitting, setSubmitting] = createSignal(false);
   const [editId, setEditId] = createSignal<string | null>(null);
   const [editTitle, setEditTitle] = createSignal("");
   const [editNote, setEditNote] = createSignal("");
@@ -181,6 +188,7 @@ function CalcPanelInner() {
   };
 
   const submit = async () => {
+    if (submitting()) return; // 双击/双回车：上一次还在路上时不再发第二条同参 add（否则落两条重复记录）
     const raw = draft().trim();
     if (!raw) return; // 空输入 / 纯空格：忽略（不提示、不落账）
     const evaled = evaluateExpression(raw);
@@ -189,19 +197,26 @@ function CalcPanelInner() {
       setHint(evaled.message);
       return;
     }
-    const res = await api.calcs.add({
-      expression: evaled.expression,
-      result: evaled.display,
-      resultKind: evaled.kind,
-    });
-    if (!res.success) {
-      reportError(res.error, "没记上，请重试");
-      return;
-    }
+    // 清空必须在发 IPC **之前**：原来写在 await 之后，两次快速提交会在各自 await 前都还没清空
+    // ⇒ 两条 add 都带着同一份 draft 发出去（重复落账），第二次还会把第一次刚填的算式当草稿清掉。
+    setSubmitting(true);
     setDraft("");
     setHint("");
-    await reload(true);
-    focusInput();
+    try {
+      const res = await api.calcs.add({
+        expression: evaled.expression,
+        result: evaled.display,
+        resultKind: evaled.kind,
+      });
+      if (!res.success) {
+        reportError(res.error, "没记上，请重试");
+        return;
+      }
+      await reload(true);
+      focusInput();
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   /**

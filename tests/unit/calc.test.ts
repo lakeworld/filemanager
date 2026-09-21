@@ -5,12 +5,19 @@
  *
  * 语义模型（实现与测试共用的同一份口径，写在这里防漂移）：
  * - 值 = {n, percent}：后缀 % 既除以 100 又打上 percent 标记；
- * - 加法/减法：右操作数带 percent 标记时按相对口径 A×(1±B/100)（％ 标记在乘除/括号/一元后原样传递规则见实现注释）；
+ * - 加法/减法：右操作数带 percent 标记时按相对口径 A×(1±B/100)；**乘除会消标记**（`100+10%*2` 已不带），
+ *   括号与一元正负原样传递标记（`100+(10%)` / `-10%` 仍带，实现注释同口径）；
  * - 乘除：percent 只作为 /100 的数值参与（A×B% = A×B/100）；
  * - 裸 B% = B/100。
  */
 import { describe, it, expect } from 'vitest'
-import { evaluateExpression, renderExpression, formatCalcNumber, formatCalcTime } from '../../src/shared/calc'
+import {
+  evaluateExpression,
+  renderExpression,
+  formatCalcNumber,
+  formatCalcDate,
+  formatCalcTime,
+} from '../../src/shared/calc'
 
 /** 断言成功并取 display（失败时把错误信息带进断言输出，便于定位） */
 function displayOf(input: string): string {
@@ -230,6 +237,89 @@ describe('计算解析器（v2.5.9/A7）', () => {
     it('iso 非法 / 空串 → 空串（UI 不显示时间，不崩）', () => {
       expect(formatCalcTime('not-a-date', now)).toBe('')
       expect(formatCalcTime('', now)).toBe('')
+    })
+  })
+
+  /**
+   * 三路代码审查抓出的真缺陷（2026-09-21 修复批）。每条都先在本机复现过旧行为，再钉新口径：
+   * raw 保真 / 千分位只在合规分组时剔除 / 纯整数日期（年份与时区两坑）/ 日期±非整数天 / 非有限数。
+   */
+  describe('审查修复批（原样字面量 · 千分位分组 · 纯整数日期 · 非有限数）', () => {
+    it('千分位只在合规分组时剔除：1,234 / 12,345,678.9 / 1,234.56 照常算', () => {
+      expect(displayOf('1,234')).toBe('1,234.00')
+      expect(displayOf('12,345,678.9 + 0.1')).toBe('12,345,679.00')
+      expect(displayOf('1,234.56 + 0.44')).toBe('1,235.00')
+    })
+
+    it('分组不成立即语法错，不做静默纠偏（旧口径：1,5+1=16、2,5*4=100、1,2,3=123、1,=1）', () => {
+      for (const bad of ['1,5 + 1', '2,5*4', '1,2,3', '1,', '1,0000', '2026-09-16,5']) {
+        expect(errorOf(bad), `${bad} 应语法错——静默算成别的数比报错坏得多`).toBe('syntax')
+      }
+    })
+
+    it('renderExpression 回显用户原样字面量（raw）：千分位逗号与长整数不被 String(v) 改写', () => {
+      expect(renderExpression('1,380 / 1.13 * 0.13')).toBe('1,380 ÷ 1.13 × 0.13')
+      expect(renderExpression('9007199254740993 + 0')).toBe('9007199254740993 + 0')
+      expect(renderExpression('1111111111111111111111 + 0')).toBe('1111111111111111111111 + 0')
+    })
+
+    it('点算式回填再算：raw 保真的算式原样再算得同结果（22 位字面量不塌成 1e+21）', () => {
+      for (const input of ['1,380 / 1.13 * 0.13', '9007199254740993 + 0', `${'1'.repeat(22)} + 0`]) {
+        const r = evaluateExpression(input)
+        expect(r.ok, `${input} 应能算`).toBe(true)
+        if (!r.ok) continue
+        expect(r.expression, `${input} 的展示态算式塌成了科学计数法`).not.toContain('e+')
+        const again = evaluateExpression(r.expression)
+        expect(again.ok, `回填后语法错：${r.expression}`).toBe(true)
+        if (again.ok) {
+          expect(again.display, `回填再算结果变了：${r.expression}`).toBe(r.display)
+          expect(again.expression).toBe(r.expression)
+        }
+      }
+    })
+
+    it('日期运算不再受 JS 年份映射影响：0000-01-01 + 1、0100-01-01 + 1（旧口径 1900-01-02 / 100-01-02）', () => {
+      expect(displayOf('0000-01-01 + 1')).toBe('0000-01-02')
+      expect(displayOf('0100-01-01 + 1')).toBe('0100-01-02')
+      expect(formatCalcDate(100, 1, 2)).toBe('0100-01-02') // 年份补零到 4 位（回填后才不会读成减法）
+    })
+
+    it('日期运算不再受运行机器时区影响：2011-12-31 - 1 = 2011-12-30（Apia 那天被本地时区跳过）', () => {
+      expect(displayOf('2011-12-31 - 1')).toBe('2011-12-30')
+      expect(displayOf('2011-12-31 - 2011-12-29')).toBe('2.00')
+    })
+
+    it('日期字面量刻意放宽：2026-9-16 认作日期（代价 = 1234-5-6 也被当日期）', () => {
+      expect(displayOf('2026-9-16 + 1')).toBe('2026-09-17')
+      expect(renderExpression('2026-9-16 + 1')).toBe('2026-09-16 + 1')
+      expect(displayOf('1234-5-6')).toBe('1234-05-06')
+    })
+
+    it('日期超出 YYYY-MM-DD 可表达范围报 invalid-date：9999-12-31 + 1 / 0000-01-01 - 1', () => {
+      expect(errorOf('9999-12-31 + 1')).toBe('invalid-date')
+      expect(errorOf('0000-01-01 - 1')).toBe('invalid-date')
+    })
+
+    it('日期 ± 非整数天 = 语法错（旧口径静默截断：2026-09-16 + 1.5 曾得 2026-09-17）', () => {
+      expect(errorOf('2026-09-16 + 1.5')).toBe('syntax')
+      expect(errorOf('2026-09-16 - 0.5')).toBe('syntax')
+      expect(displayOf('2026-09-16 + 1.0')).toBe('2026-09-17') // 整值写法仍算 1 天
+    })
+
+    it('非有限数报「数太大，算不出来」：400 位字面量 / 溢出后再 ×0（∞×0=NaN）', () => {
+      expect(errorOf('9'.repeat(400))).toBe('too-large')
+      expect(errorOf(`${'9'.repeat(400)} + 1`)).toBe('too-large')
+      expect(errorOf(`${'9'.repeat(400)} * 0`)).toBe('too-large')
+      const r = evaluateExpression('9'.repeat(400))
+      expect(r.ok).toBe(false)
+      if (!r.ok) expect(r.message).toBe('数太大，算不出来')
+    })
+
+    it('括号与一元正负原样传递 % 标记（只有乘除消标记）：100 + (10%) = 110', () => {
+      expect(displayOf('100 + (10%)')).toBe('110.00')
+      expect(displayOf('200 + (10%)')).toBe('220.00') // 相对口径随基数变，证明确实还带标记
+      expect(displayOf('100 - (10%)')).toBe('90.00')
+      expect(displayOf('100 + 10%*2')).toBe('100.20') // 对照组：乘除已把标记消掉
     })
   })
 })

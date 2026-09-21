@@ -7,15 +7,21 @@
  *
  * 规格要点（与 §二 逐条对应，改动前先改文档）：
  * - 输入收 ASCII `*` `/`，显示渲染成 `×` `÷`（`renderExpression`）；输入侧同时认 `×` `÷`，
- *   这样「点算式回填输入框」原样贴回也能再算（回填的是显示态）。
+ *   这样「点算式回填输入框」原样贴回也能再算（回填的是显示态）。数字 token 渲染时回显**用户原样
+ *   字面量**（`raw`，含千分位逗号）——用 `String(v)` 会抹掉 `1,380` 的逗号、把 22 位以上字面量
+ *   写成 `1e+21`（回填再算直接语法错）、把 2^53 以上的末位精度洗成另一个数。
  * - `%` 四条：`A+B%`=A×(1+B/100)、`A-B%`=A×(1-B/100)、`A×B%`=A×B/100、裸 `B%`=B/100。
  *   实现上用「percent 标记」表达：后缀 % 既除以 100 又打标记；加减法见到右操作数带标记才走
- *   相对口径；乘除/括号/一元正负只是把它当数值传递（`100+10%*2` 里 `10%*2` 已不带标记）。
+ *   相对口径；**乘除会消标记**（`100+10%*2` 里 `10%*2` 已不带标记，只按普通数值参与），
+ *   **括号与一元正负原样传递标记**（`100+(10%)` = 110 仍走相对口径、`-10%` 仍是「负百分之十」）。
  * - 日期三形态：`日期±数`、`日期−日期`；日期与数字的其余混算一律语法错（`日期×2` 不猜）。
+ *   日期字面量刻意放宽成 `\d{4}-\d{1,2}-\d{1,2}`（手敲 `2026-9-16` 的常见形态），取舍见 `DATE_RE` 注释。
  * - 容错只有三条：任意空格；结尾多按的二元运算符自动忽略；除零给温和提示。
+ *   三条之外的错一律明报——宁可「算式没看懂」，不做静默纠偏（`1,5 + 1` 曾被当 16、
+ *   `2026-09-16 + 1.5` 曾被静默截成一天）。
  */
 
-export type CalcErrorKind = 'syntax' | 'divide-by-zero' | 'invalid-date'
+export type CalcErrorKind = 'syntax' | 'divide-by-zero' | 'invalid-date' | 'too-large'
 export type CalcResultKind = 'number' | 'date'
 
 export interface CalcSuccess {
@@ -37,11 +43,12 @@ export interface CalcFailure {
 
 export type CalcEvalResult = CalcSuccess | CalcFailure
 
-/** 错误三态文案（面板内温和提示，不落账、不崩） */
+/** 错误四态文案（面板内温和提示，不落账、不崩） */
 export const CALC_ERROR_MESSAGES: Record<CalcErrorKind, string> = {
   syntax: '算式没看懂',
   'divide-by-zero': '除数不能为 0',
   'invalid-date': '这个日期不存在',
+  'too-large': '数太大，算不出来',
 }
 
 // —— 内部值模型 ——
@@ -57,7 +64,7 @@ function num(n: number, percent = false): NumVal {
 // —— tokenizer ——
 
 type Tok =
-  | { t: 'num'; v: number }
+  | { t: 'num'; v: number; raw: string }
   | { t: 'date'; y: number; m: number; d: number }
   | { t: 'op'; v: '+' | '-' | '*' | '/' }
   | { t: '%' }
@@ -71,12 +78,19 @@ class CalcError extends Error {
 }
 
 /**
- * 日期字面量：`\d{4}-\d{1,2}-\d{1,2}`（月份/日放 1–2 位是刻意的——`2026-9-16` 是手敲日期
- * 的常见形态，若按 `\d{2}` 严格匹配它会被静默算成 `2026 - 9 - 16` 的减法，属于「看起来算了
- * 个数字」的坏答案；代价是 `1234-5-6` 这类四位数减法的罕见输入会被当日期，见 §六 口径）。
+ * 日期字面量：`\d{4}-\d{1,2}-\d{1,2}`。月份/日放 1–2 位是**刻意放宽**——`2026-9-16` 是手敲日期
+ * 的常见形态，若按 `\d{2}` 严格匹配，它会被静默算成 `2026 - 9 - 16` 的减法，属于「看起来算了
+ * 个数字」的坏答案；代价是 `1234-5-6` 这类四位数减法的罕见输入会被当成日期（`1234-05-06`）。
  * 月份/日范围与真实日期合法性在 parseAtom 里校验（报 invalid-date）。
  */
 const DATE_RE = /^(\d{4})-(\d{1,2})-(\d{1,2})(?![\d.,])/
+
+/**
+ * 合规的千分位分组：1–3 位起始组 + 若干 3 位组（`1,234` / `12,345,678.9` / `1,234.56`）。
+ * 只有整串合上它才剔逗号——「宽容剔除」是静默算错的源头（`1,5 + 1` 被算成 16、`2,5*4` 算成 100、
+ * `1,2,3` 算成 123、`1,` 算成 1），那些都打算账，账就跟着错；分组不成立一律语法错。
+ */
+const GROUPED_NUM_RE = /^\d{1,3}(,\d{3})+(\.\d*)?$/
 
 function isDigit(c: string): boolean {
   return c >= '0' && c <= '9'
@@ -113,9 +127,13 @@ function tokenize(input: string): Tok[] {
         }
         break
       }
-      const raw = input.slice(i, j).replace(/,/g, '') // 千分位逗号宽容剔除
-      if (raw === '.' || raw === '') throw new CalcError('syntax')
-      toks.push({ t: 'num', v: Number(raw) })
+      const text = input.slice(i, j)
+      // 逗号只在合规分组时剔除；`1,5` / `2026-09-16,5` 这类一律语法错（旧口径静默算成别的数）
+      if (text.includes(',') && !GROUPED_NUM_RE.test(text)) throw new CalcError('syntax')
+      const bare = text.replace(/,/g, '')
+      if (bare === '.' || bare === '') throw new CalcError('syntax')
+      // `raw` = 用户原样字面量（含逗号），渲染与回填都用它；`v` 才是拿去算的数
+      toks.push({ t: 'num', v: Number(bare), raw: text })
       i = j
       continue
     }
@@ -161,10 +179,39 @@ function tokenize(input: string): Tok[] {
   return toks
 }
 
-// —— 日期工具（本地时区口径，不引 dayjs） ——
+// —— 日期工具（纯整数日历运算，不碰时区/夏令时） ——
+//
+// 用 Howard Hinnant 的 days_from_civil / civil_from_days 纯整数算法，不碰 `Date`。之前走
+// `new Date(y, m-1, d+n)` 有两个已实测到的坑：① 年 0–99 被 JS 映射成 1900+（`0000-01-01 + 1`
+// 算出 1900-01-02），且年份不补零（`0100-01-01 + 1` 得 `100-01-02`，回填又被读成 100−1−1=98）；
+// ② 日期按本地时区回绕，跨时区/夏令时/换日线会漂（`TZ=Pacific/Apia` 下 `2011-12-31 - 1`
+// 等于它自己——2011-12-30 那天在该时区被跳过）。整数日历差与运行机器时区彻底无关。
+
+function daysFromCivil(y: number, m: number, d: number): number {
+  const yy = m <= 2 ? y - 1 : y
+  const era = Math.floor(yy / 400)
+  const yoe = yy - era * 400
+  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1
+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy
+  return era * 146097 + doe - 719468
+}
+
+function civilFromDays(z: number): DateVal {
+  const zz = z + 719468
+  const era = Math.floor(zz / 146097)
+  const doe = zz - era * 146097
+  const yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365)
+  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100))
+  const mp = Math.floor((5 * doy + 2) / 153)
+  const d = doy - Math.floor((153 * mp + 2) / 5) + 1
+  const m = mp + (mp < 10 ? 3 : -9)
+  return { kind: 'date', y: yoe + era * 400 + (m <= 2 ? 1 : 0), m, d }
+}
 
 function daysInMonth(y: number, m: number): number {
-  return new Date(y, m, 0).getDate()
+  const first = daysFromCivil(y, m, 1)
+  const next = m === 12 ? daysFromCivil(y + 1, 1, 1) : daysFromCivil(y, m + 1, 1)
+  return next - first
 }
 
 function isValidDate(y: number, m: number, d: number): boolean {
@@ -173,15 +220,14 @@ function isValidDate(y: number, m: number, d: number): boolean {
 }
 
 function addDays(y: number, m: number, d: number, n: number): DateVal {
-  const dt = new Date(y, m - 1, d + n)
-  return { kind: 'date', y: dt.getFullYear(), m: dt.getMonth() + 1, d: dt.getDate() }
+  const out = civilFromDays(daysFromCivil(y, m, d) + n)
+  if (out.y < 0 || out.y > 9999) throw new CalcError('invalid-date') // 超出 `YYYY-MM-DD` 可表达范围：不猜
+  return out
 }
 
-/** 日期 − 日期 = 天数。走 UTC 归一化差值，避开夏令时造成的非整数天 */
+/** 日期 − 日期 = 天数（纯整数日历差，无时区参与） */
 function dayDiff(a: DateVal, b: DateVal): number {
-  const A = Date.UTC(a.y, a.m - 1, a.d)
-  const B = Date.UTC(b.y, b.m - 1, b.d)
-  return Math.round((A - B) / 86400000)
+  return daysFromCivil(a.y, a.m, a.d) - daysFromCivil(b.y, b.m, b.d)
 }
 
 // —— 格式化与展示态渲染 ——
@@ -192,7 +238,8 @@ export function formatCalcNumber(n: number): string {
 }
 
 export function formatCalcDate(y: number, m: number, d: number): string {
-  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  // 年份补零到 4 位：不补的话 `0100-01-02` 会渲染成 `100-01-02`，回填输入框又被读成 `100 - 1 - 2` 的减法
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
 
 const WEEKDAY_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -222,6 +269,8 @@ export function formatCalcTime(iso: string, now: Date = new Date()): string {
 /**
  * 展示态算式：`*`→`×`、`/`→`÷`，并把空格规整成「二元运算符两侧一个空格、
  * 一元运算符贴住操作数、括号内外不留空格、`%` 贴住前一 token」。
+ * 数字回显**用户原样字面量**（token 的 `raw`）：不重排、不重算——`1,380` 保持逗号、
+ * 22 位字面量不塌成 `1e+21`（回填输入框再算会语法错）。
  * 走 token 而不是字符串替换，是为了不把日期里的 `-` 拆坏（`2026-09-16` 必须整块）。
  * tokenize 失败（半敲状态如 `1+abc`）时退回「收空格 + 换符号」的简单渲染，保证输入栏回显不崩。
  */
@@ -235,7 +284,7 @@ export function renderExpression(input: string): string {
   const tokText = (tk: Tok): string => {
     switch (tk.t) {
       case 'num':
-        return String(tk.v)
+        return tk.raw
       case 'date':
         return formatCalcDate(tk.y, tk.m, tk.d)
       case 'op':
@@ -310,6 +359,8 @@ class Parser {
         throw new CalcError('syntax') // 日期 + 日期：不猜
       }
       if (right.percent) throw new CalcError('syntax') // 日期 ± 百分数：不猜
+      // 天数只认整数：`2026-09-16 + 1.5` 静默截断成一天，等于给用户一个假日期（宁可「算式没看懂」）
+      if (!Number.isInteger(right.n)) throw new CalcError('syntax')
       return addDays(left.y, left.m, left.d, plus ? right.n : -right.n)
     }
     if (right.kind === 'date') throw new CalcError('syntax') // 数 + 日期：不猜
@@ -385,7 +436,7 @@ class Parser {
 }
 
 /**
- * 求值入口。成功返回展示态结果与展示态算式；失败返回三态之一（不抛异常、不崩）。
+ * 求值入口。成功返回展示态结果与展示态算式；失败返回四态之一（不抛异常、不崩）。
  * 空输入 / 纯空格按语法错返回（UI 层在回车前自行忽略空输入，不落账）。
  */
 export function evaluateExpression(input: string): CalcEvalResult {
@@ -400,6 +451,10 @@ export function evaluateExpression(input: string): CalcEvalResult {
   if (parsed.kind === 'date') {
     const value = formatCalcDate(parsed.y, parsed.m, parsed.d)
     return { ok: true, kind: 'date', value, display: value, expression }
+  }
+  // 溢出成 ∞ / NaN 的不落账：展示成 '∞' 照样记进台账，点回填再算又变语法错（`∞×0` 更是 NaN 落账）
+  if (!Number.isFinite(parsed.n)) {
+    return { ok: false, error: 'too-large', message: CALC_ERROR_MESSAGES['too-large'] }
   }
   return { ok: true, kind: 'number', value: parsed.n, display: formatCalcNumber(parsed.n), expression }
 }

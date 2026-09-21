@@ -1,8 +1,8 @@
 /**
  * 计算台账服务单测（v2.5.9/A7；权威 = docs/INTERNAL/PLAN-v2.6-计算.md §三 对象模型与存储）
- * 覆盖：落账默认值（saved=false / created=updated / 可选字段缺省）/ 入参校验 /
+ * 覆盖：落账默认值（saved=false / created=updated / 可选字段缺省）/ 入参校验（含类型面）/
  * 列表顺序（先记的在先）/ update 补丁语义（title·note·saved 互不打扰、'' 清空、undefined 不动）/
- * 取消转正（saved true→false）/ 未知 id 拒绝 / remove / 持久化（重开工作区仍在）/
+ * 取消转正（saved true→false）/ 未知 id 与原型链假 id（`__proto__` / `toString`）拒绝 / remove / 持久化（重开工作区仍在）/
  * 工作区隔离（各自 calcs.json）/ 损坏文件拒绝覆盖（jsonStore 守卫）/
  * Logger 注入（add/update/remove 各调一次 info）。
  */
@@ -125,6 +125,47 @@ describe('计算台账服务（v2.5.9/A7）', () => {
 
     await expect(box.calcs.update({ id: 'nope', title: 'x' })).rejects.toThrow('不存在')
     await expect(box.calcs.remove('nope')).rejects.toThrow('不存在')
+  })
+
+  it('原型链上的假 id 一律按「不存在」拒绝：不污 Object.prototype、不返回 function', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    // 旧口径 `store[id]` 是原型链查找：`__proto__` 取到 Object.prototype（被当记录写脏 = 污主进程全局），
+    // `toString` 取到函数（过 IPC 报 could not be cloned，渲染层按钮静默无效）；`delete store['toString']`
+    // 还会假成功（什么都没删却报成功）。一律先按自有键判存在。
+    await expect(box.calcs.update({ id: '__proto__', title: 'PWN' })).rejects.toThrow('不存在')
+    await expect(box.calcs.update({ id: 'toString', saved: true })).rejects.toThrow('不存在')
+    await expect(box.calcs.remove('__proto__')).rejects.toThrow('不存在')
+    await expect(box.calcs.remove('toString')).rejects.toThrow('不存在')
+    expect(({} as Record<string, unknown>).title, 'Object.prototype 被写脏了').toBeUndefined()
+    expect(({} as Record<string, unknown>).saved).toBeUndefined()
+    expect(await box.calcs.list()).toHaveLength(0)
+    await expect(fsp.stat(calcsFilePath(ws)), '被拒绝的调用不该落盘').rejects.toThrow()
+  })
+
+  it('入参类型校验：saved 只认布尔、title/note 只认文本、id 只认非空字符串', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const rec = await box.calcs.add(REQ)
+
+    // 旧口径 `req.saved === true` 把字符串 'true' 判成 false ⇒ 悄悄取消转正（还报成功）
+    await expect(box.calcs.update({ id: rec.id, saved: 'true' as unknown as boolean })).rejects.toThrow('布尔')
+    await expect(box.calcs.update({ id: rec.id, title: 123 as unknown as string })).rejects.toThrow('标题')
+    await expect(box.calcs.update({ id: rec.id, note: {} as unknown as string })).rejects.toThrow('备注')
+    await expect(box.calcs.update({ id: 5 as unknown as string, title: 'x' })).rejects.toThrow('缺少记录 id')
+    await expect(box.calcs.remove('')).rejects.toThrow('缺少记录 id')
+    await expect(box.calcs.remove(undefined as unknown as string)).rejects.toThrow('缺少记录 id')
+
+    // 被拒的调用不改盘也不改内存：saved 仍 false、title 仍未写
+    const after = (await box.calcs.list())[0]
+    expect(after.id).toBe(rec.id)
+    expect(after.saved).toBe(false)
+    expect(after.title).toBeUndefined()
   })
 
   it('remove：删记录不留空壳；重复删拒绝', async () => {

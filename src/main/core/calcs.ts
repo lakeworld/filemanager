@@ -107,13 +107,19 @@ export class CalcsService {
    * 三个字段都没出现 = no-op（不改盘、不刷 updated）。
    */
   async update(req: CalcUpdateRequest, ws?: string): Promise<CalcRecord> {
-    if (!req || !req.id) throw new Error('缺少记录 id')
+    if (!req || typeof req.id !== 'string' || req.id.trim() === '') throw new Error('缺少记录 id')
     const hasTitle = req.title !== undefined
     const hasNote = req.note !== undefined
     const hasSaved = req.saved !== undefined
+    // 类型校验放在动盘之前：`saved: 'true'`（字符串）旧写法会被 `=== true` 静默当 false —— 等于悄悄取消转正
+    if (hasTitle && typeof req.title !== 'string') throw new Error('标题必须是文本')
+    if (hasNote && typeof req.note !== 'string') throw new Error('备注必须是文本')
+    if (hasSaved && typeof req.saved !== 'boolean') throw new Error('saved 必须是布尔值')
     const next = await this.mutateStore(ws, (store, markChanged) => {
+      // 存在性必须按**自有键**判：`store[id]` 是原型链查找，`__proto__` 会取到 Object.prototype
+      // （当作记录写脏 = 污主进程全局），`toString` 会取到一个函数（过 IPC 报 could not be cloned）
+      if (!Object.hasOwn(store, req.id)) throw new Error('计算记录不存在')
       const rec = store[req.id]
-      if (!rec) throw new Error('计算记录不存在')
       if (!hasTitle && !hasNote && !hasSaved) return rec
       if (hasTitle) putOptionalText(rec, 'title', req.title as string)
       if (hasNote) putOptionalText(rec, 'note', req.note as string)
@@ -128,9 +134,10 @@ export class CalcsService {
 
   /** 删除记录（账物分离：无文件实体，直接删；确认弹窗在 UI 层） */
   async remove(id: string, ws?: string): Promise<void> {
-    if (!id) throw new Error('缺少记录 id')
+    if (typeof id !== 'string' || id.trim() === '') throw new Error('缺少记录 id')
     await this.mutateStore(ws, (store, markChanged) => {
-      if (!store[id]) throw new Error('计算记录不存在')
+      // 同 update：先按自有键确认存在再删——`delete store['toString']` 会假成功（什么都没删）并写盘
+      if (!Object.hasOwn(store, id)) throw new Error('计算记录不存在')
       delete store[id]
       markChanged()
     })

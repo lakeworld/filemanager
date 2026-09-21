@@ -64,9 +64,15 @@ describe('快捷键声明表与派发（v2.5.8 D11 / W6）', () => {
     expect(isTextTarget(el('DIV'))).toBe(false)
     expect(isTextTarget(el('BUTTON'))).toBe(false)
     expect(isTextTarget(null)).toBe(false)
-    // 档位归属不许漂：Ctrl+S 必须在编辑器里也能存盘（guard=none），
-    // 其余劫持型快捷键必须让位给输入态（guard=text）
+    // 档位归属不许漂。**白名单式**：`guard: "none"`（输入态里也生效）只准这两条，新增第三条即红——
+    // 门禁曾漏在「只逐条点名 text 档、不数 none 档」上：`calc.open` 进来后这条口径被静默绕过。
+    // 两条豁免各有理由，先例是 Ctrl+S：
+    //  - `note.save`（Ctrl+S）：编辑器里也要能存盘（收编前原口径）；
+    //  - `calc.open`（Ctrl+=，v2.5.9 A7 计算）：语义就是「手头敲着别的也随手开算账」，
+    //    与 `text` 档定义（在 INPUT/TEXTAREA/SELECT/contenteditable 里不劫持）正好相反，属刻意豁免。
+    expect(SHORTCUTS.filter((s) => s.guard === 'none').map((s) => s.id)).toEqual(['note.save', 'calc.open'])
     expect(findShortcut('note.save')?.guard).toBe('none')
+    expect(findShortcut('calc.open')?.guard, 'Ctrl+= 语义变了？改回 text 就没人能边敲字边开账').toBe('none')
     for (const id of ['search.focus', 'file.copy', 'settings.open', 'list.selectAll', 'list.delete']) {
       expect(findShortcut(id)?.guard, `${id} 守卫档位变了`).toBe('text')
     }
