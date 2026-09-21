@@ -17,12 +17,16 @@ export function useContextMenu<T>() {
 
   /** 打开菜单（阻止浏览器默认右键菜单；stopPropagation 阻止冒泡到 window 的关闭监听器——
    *  v2.4.2：旧实现事件继续冒泡 → 菜单刚 open 就被 window contextmenu 监听器立即 close，右键等于不可用） */
+  /** 本次打开的时刻：用于忽略「开菜单这一瞬间」的无关 scroll（理由见 onScroll 处注释） */
+  let openedAt = 0;
+
   const open = (e: MouseEvent, p: T) => {
     e.preventDefault();
     e.stopPropagation();
     setShow(true);
     setX(e.clientX);
     setY(e.clientY);
+    openedAt = Date.now();
     // 用函数形式写入：泛型 T 可能是函数类型时避免 setter 值/更新器重载歧义
     setPayload(() => p);
   };
@@ -40,7 +44,18 @@ export function useContextMenu<T>() {
   // 菜单自身点击由 ContextMenu 内部 stopPropagation 阻止冒泡到此，不会误关。
   onMount(() => {
     const onAny = () => close();
-    const onScroll = () => close();
+    /**
+     * v2.5.9 返工（2026-09-22）：开菜单后 **150ms 内** 的 scroll 事件不让位。
+     * 实测（A9「就地改名」右键子文件夹 tab）：菜单挂上 ~10ms 后，`main` 容器会派发一条
+     * scrollTop/scrollLeft **完全没变**的 scroll 事件（右键目标被视口下沿切到时浏览器把它滚进视野、
+     * 以及列表异步刷新引起的重排与滚动锚定）——它不是用户滚动，却把菜单当场关掉，
+     * 真机表现 =「菜单闪一下就没」。用户真滚动时一次手势会连发几十条 scroll，过了 150ms
+     * 第二条即关闭 ⇒ 既有「滚动即关」语义不受影响；「点外部 / Esc / 别处右键」三条通道也不动。
+     */
+    const onScroll = () => {
+      if (Date.now() - openedAt < 150) return;
+      close();
+    };
     window.addEventListener("mousedown", onAny);
     window.addEventListener("contextmenu", onAny);
     window.addEventListener("scroll", onScroll, true);

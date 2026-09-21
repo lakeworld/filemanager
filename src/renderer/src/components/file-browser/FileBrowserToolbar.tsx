@@ -104,6 +104,15 @@ export default function FileBrowserToolbar(props: {
                   : undefined
               }
               onClick={() => props.onNavigate(sub)}
+              // v2.5.9 返工（2026-09-22）：**右键 mousedown 必须 preventDefault**。不给这一步，
+              // 按钮会拿到焦点，而焦点落在「被视口下沿切到一半」的 tab 上时，浏览器会把它滚进视野
+              // ⇒ MAIN 容器冒出一个 scroll 事件；`useContextMenu` 的「滚动即关」是刻意设计（防菜单漂走）
+              // ⇒ 菜单开完 ~7ms 就被自己这脚滚动关掉（真机表现 = 菜单闪一下就没）。
+              // 旧代码看不出来：那时菜单关闭也照渲染在 DOM 里，靠这个 bug 掩盖了那个 bug。
+              // 只拦右键；左键导航与键盘可达性不受影响。
+              onMouseDown={(e) => {
+                if (e.button === 2) e.preventDefault();
+              }}
               // v2.5.9（悬案·就地改名）：右键某个 tab = 只改**这个实体下**的这一个目录
               // （不碰模板、不碰其他实体）。入口只有这一个菜单项——按钮基线 +1 是用户点头的。
               onContextMenu={(e) => {
@@ -162,13 +171,19 @@ export default function FileBrowserToolbar(props: {
       </div>
 
       {/* v2.5.9（悬案·就地改名）：整站只此一个新菜单项 ⇒ 按钮基线 +1（用户已授权）。
-          内建「笔记」在 tab 的 onContextMenu 里就挡掉，这里不重复判。 */}
-      <ContextMenu
-        x={menu.x()}
-        y={menu.y()}
-        items={renameMenuItems()}
-        onClose={menu.close}
-      />
+          内建「笔记」在 tab 的 onContextMenu 里就挡掉，这里不重复判。
+          ⚠ 必须套 `<Show when={menu.show()}>`（`useContextMenu` 头注的既有契约，全站其余调用点皆如此）：
+          `ContextMenu` 自身只按 `items.some(...)` 决定渲染，而本处的 items 是**常量非空**的
+          ⇒ 不套这层，菜单在关闭时也常驻 DOM（实测：`#ctx-menu-root` 里永远多一枚隐形
+          「重命名这一个目录…」，把 `tests/e2e/rename.spec.ts` 的 /重命名/ 定位打成 strict 冲突）。 */}
+      <Show when={menu.show()}>
+        <ContextMenu
+          x={menu.x()}
+          y={menu.y()}
+          items={renameMenuItems()}
+          onClose={menu.close}
+        />
+      </Show>
     </div>
   );
 }
