@@ -56,6 +56,7 @@ import type {
   DirBrowseResult,
   NoteEntryInfo,
   SweepResult,
+  SubfolderDriftReport,
 } from "~/types";
 
 /**
@@ -97,6 +98,8 @@ export const api = {
     ) =>
       // v2.5.9（A9 刀3b）：opts.acrossEntities 缺省 = 只改默认模板（不动任何实体目录）
       qb.workspace.renameSubfolder(type, oldName, newName, opts) as Promise<ApiResult<WorkspaceConfig>>,
+    // v2.5.9（A9 刀4）：老工作区体检（只读）——模板表 vs 盘上实际的差额清单
+    healthAudit: () => qb.workspace.healthAudit() as Promise<ApiResult<SubfolderDriftReport>>,
   },
   config: {
     get: () => qb.config.get() as Promise<ApiResult<WorkspaceConfig>>,

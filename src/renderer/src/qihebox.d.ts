@@ -37,6 +37,8 @@ interface QiheboxApi {
     switch: (path: string) => Promise<unknown>
     // v2.5.3（P2-19）：renameSubfolder 类型收口（与 main core workspace.ts 联合一致）；v2.5.5 补 supplier
     renameSubfolder: (type: "image" | "cert" | "customer" | "supplier" | "doc", oldName: string, newName: string, opts?: { acrossEntities?: boolean }) => Promise<unknown>
+    /** v2.5.9（A9 刀4）：老工作区体检（只读） */
+    healthAudit: () => Promise<unknown>
   }
   config: {
     get: () => Promise<unknown>

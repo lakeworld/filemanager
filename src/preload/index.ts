@@ -37,6 +37,7 @@ const api = {
     switch: (path: string) => invoke('qihebox:workspace:switch', path),
     renameSubfolder: (type: string, oldName: string, newName: string, opts?: { acrossEntities?: boolean }) =>
       invoke('qihebox:workspace:renameSubfolder', type, oldName, newName, opts),
+    healthAudit: () => invoke('qihebox:workspace:healthAudit'),
   },
   config: {
     get: () => invoke('qihebox:config:get'),

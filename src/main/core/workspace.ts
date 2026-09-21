@@ -5,6 +5,8 @@
 import os from 'node:os'
 import path from 'node:path'
 import { listActualSubfolders } from './subfolders'
+import { auditSubfolderDrift } from './healthAudit'
+import type { SubfolderDriftReport } from '../../shared/types'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import {
@@ -319,6 +321,16 @@ export class WorkspaceService {
     list[idx] = newName
     await this.saveConfig(this.currentWS, cfg)
     return cfg
+  }
+
+  /**
+   * v2.5.9（A9 刀4）：老工作区体检——「全局模板表 vs 盘上实际」的差额清单。
+   * 只读：不建目录、不删目录、不改配置。给用户在把聚合页也改成以盘为准（刀1d）之前看清存量。
+   */
+  async healthAudit(): Promise<SubfolderDriftReport> {
+    this.requireWorkspace()
+    const cfg = await this.loadConfig()
+    return auditSubfolderDrift(this.currentWS, cfg)
   }
 
   // —— 产品集 API（对照 ProductSetList / Create / Delete / Stats / Rename / UpdateInfo）——

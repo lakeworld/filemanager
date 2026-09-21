@@ -135,6 +135,35 @@ export interface ListSubfoldersRequest {
 }
 
 /** 一个实际存在的子文件夹；`has_files` 供渲染层把空目录**淡一档显示**（A9 §三.2 用户拍板） */
+/** v2.5.9（A9 刀4）：体检发现的一条"盘上有、模板表里没有" */
+export interface UnregisteredFolder {
+  scope: 'productSet' | 'customer' | 'supplier'
+  entity: string
+  /** image / cert / doc / customer / supplier——与哪一张模板表对不上 */
+  kind: string
+  name: string
+}
+
+/** v2.5.9（A9 刀4）：体检发现的一条"盘上真实为空"的目录 */
+export interface EmptyFolderEntry {
+  scope: 'productSet' | 'customer' | 'supplier'
+  entity: string
+  kind: string
+  name: string
+}
+
+/** v2.5.9（A9 刀4）：老工作区体检报告（只读，不改任何东西） */
+export interface SubfolderDriftReport {
+  /** 扫了几个实体（产品集 + 客户 + 供应商） */
+  scannedEntities: number
+  /** 盘上有、模板表里没有 ⇒ A9 之后会**新出现**在界面/聚合页里的那批 */
+  unregistered: UnregisteredFolder[]
+  /** 模板表里登记了、但任何实体盘上都没有 ⇒ 死条目（只在新建实体时才生效） */
+  templateOnly: string[]
+  /** 盘上真实为空的目录 ⇒ A9 之后会淡显 */
+  emptyFolders: EmptyFolderEntry[]
+}
+
 export interface SubfolderEntry {
   name: string
   has_files: boolean

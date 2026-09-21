@@ -318,4 +318,38 @@ test.describe('应用级设置开关（v2.5.8 D11 / W7）', () => {
       await fsp.rm(userDataDir(label), { recursive: true, force: true }).catch(() => {})
     }
   })
+  // v2.5.9（A9 刀4）：老工作区体检摘要——打开「子文件夹」tab 自动跑，只读。
+  // 钉两件事：① 摘要真的出现并给出三个计数（不是空面板）；
+  //            ② 它对"盘上有、表里没有"的目录**点名**（这正是 A9 之后会新出现的那批）。
+  test('子文件夹 tab 自动出体检摘要：未登记目录被点名', async () => {
+    const label = 'w7-health-audit'
+    await fsp.rm(userDataDir(label), { recursive: true, force: true }).catch(() => {})
+    const { app, page } = await launch(label)
+    try {
+      const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-w7-health-'))
+      await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+      await page.evaluate(async () => {
+        const qb = (window as any).qihebox
+        await qb.productSets.create({ name: '体检集' })
+        // 盘上现建一个"表里没登记"的图包子文件夹，并放一个文件（否则它同时是空目录，断言会混）
+        await qb.files.createSubfolder({
+          product_set: '体检集', file_type: 'image', name: '手工夹', scope: 'productSet',
+        })
+      })
+      // 手工夹要在盘上真有文件：经 IPC 建目录 + 直接写盘（体检只看盘）
+      const img = path.join(wsDir, '产品集', '体检集', '图包', '手工夹', 'a.png')
+      await fsp.writeFile(img, 'png')
+
+      await gotoSettings(page)
+      // 子文件夹那几张卡就在设置页正文里（没有独立 tab），摘要挂在它们上方 ⇒ 直接找文本
+      const summary = page.getByText(/体检：扫了 \d+ 个实体/)
+      await expect(summary).toBeVisible({ timeout: 20000 })
+      await expect(page.getByText('未登记目录（会开始出现在界面上）：')).toBeVisible()
+      await expect(page.getByText(/产品集「体检集」\/ 图包 \/ 手工夹/)).toBeVisible()
+      await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+    } finally {
+      await kill(app)
+      await fsp.rm(userDataDir(label), { recursive: true, force: true }).catch(() => {})
+    }
+  })
 })

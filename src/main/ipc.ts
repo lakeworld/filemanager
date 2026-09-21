@@ -167,6 +167,9 @@ export function registerIpc(
     handle(() => box.workspace.renameSubfolder(type, oldName, newName, opts)),
   )
 
+  // v2.5.9（A9 刀4）：老工作区体检（只读，见 WorkspaceService.healthAudit）
+  ipcMain.handle('qihebox:workspace:healthAudit', () => handle(() => box.workspace.healthAudit()))
+
   ipcMain.handle('qihebox:config:get', () => handle(() => box.workspace.getConfig()))
   ipcMain.handle('qihebox:config:update', (_e, cfg) => handle(() => box.workspace.updateConfig(cfg)))
 

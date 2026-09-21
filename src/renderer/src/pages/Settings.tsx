@@ -7,6 +7,7 @@ import {
   defaultWorkspaceConfig,
 } from "~/stores/workspace";
 import { api } from "~/wails/api";
+import type { SubfolderDriftReport } from "~/types";
 import { loadTagDefs, refreshTags } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
 import ConfirmDialog from "~/components/ConfirmDialog";
@@ -61,6 +62,69 @@ const PALETTE = [
   "#14b8a6", "#0ea5e9", "#3b82f6", "#8b5cf6", "#ec4899",
   "#64748b",
 ];
+
+/** v2.5.9（A9 刀4）：模板表 vs 盘上实际的差额摘要（只读，打开「子文件夹」tab 时自动跑）。
+ *  不新建卡片、不加按钮——见挂载处的棘轮说明。 */
+function HealthDriftSummary() {
+  const [report, setReport] = createSignal<SubfolderDriftReport | null>(null);
+  const [failed, setFailed] = createSignal("");
+
+  onMount(() => {
+    void (async () => {
+      const r = await api.workspace.healthAudit();
+      if (r.success && r.data) setReport(r.data);
+      else setFailed(r.error || "体检失败");
+    })();
+  });
+
+  const KIND_LABEL: Record<string, string> = {
+    image: "图包", cert: "证书", doc: "文档", customer: "客户", supplier: "供应商",
+  };
+  const SCOPE_LABEL: Record<string, string> = { productSet: "产品集", customer: "客户", supplier: "供应商" };
+  const where = (f: { scope: string; entity: string; kind: string; name: string }): string =>
+    `${SCOPE_LABEL[f.scope] ?? f.scope}「${f.entity}」/ ${KIND_LABEL[f.kind] ?? f.kind} / ${f.name}`;
+
+  return (
+    <Show when={report() || failed()} fallback={<p class="text-xs text-surface-400">体检中…</p>}>
+      <Show when={failed()}>
+        <p class="text-xs text-danger-600">工作区体检失败：{failed()}</p>
+      </Show>
+      <Show when={report()}>
+        {(r) => (
+          <div class="text-xs text-surface-500 space-y-2">
+            <p>
+              体检：扫了 {r().scannedEntities} 个实体 · <b class="text-surface-700">未登记 {r().unregistered.length}</b>（盘上有、表里没有，v2.5.9 起会显示） ·
+              模板死条目 {r().templateOnly.length} · 空目录 {r().emptyFolders.length}
+            </p>
+            <Show when={r().unregistered.length > 0}>
+              <div>
+                <p class="text-surface-600 mb-0.5">未登记目录（会开始出现在界面上）：</p>
+                <ul class="space-y-0.5 max-h-32 overflow-auto">
+                  <For each={r().unregistered}>{(f) => <li>· {where(f)}</li>}</For>
+                </ul>
+              </div>
+            </Show>
+            <Show when={r().templateOnly.length > 0}>
+              <p>
+                模板死条目（登记了但盘上没有，只在新建实体时生效）：
+                <span class="text-surface-600">{r().templateOnly.join("、")}</span>
+              </p>
+            </Show>
+            <Show when={r().emptyFolders.length > 0}>
+              <p>
+                空目录 {r().emptyFolders.length} 个（会淡显），例如：
+                <span class="text-surface-600">{r().emptyFolders.slice(0, 5).map(where).join("；")}</span>
+                <Show when={r().emptyFolders.length > 5}>
+                  <span class="text-surface-400"> 等 {r().emptyFolders.length} 个</span>
+                </Show>
+              </p>
+            </Show>
+          </div>
+        )}
+      </Show>
+    </Show>
+  );
+}
 
 /** v2.5.8（D3.5）：存储优化——去重巡检（证书/文档域同内容重建硬链接；同步物化副本的本机回收） */
 function DedupSweepCard() {
@@ -830,6 +894,7 @@ export default function Settings() {
           </div>
 
           {/* v2.5.8（D3.5）：存储优化——去重巡检（2026-09-06 用户拍板：置于「通用」卡下方） */}
+
           <DedupSweepCard />
 
           {/* 标签管理 */}
@@ -1243,6 +1308,14 @@ export default function Settings() {
               </div>
               <p class="text-xs text-surface-400 mt-1">编号：导入按批次顺序、批量重命名按起始序号，自动补零</p>
             </div>
+          </div>
+
+          {/* v2.5.9（A9 刀4）：老工作区体检——打开本 tab 自动跑，只读。
+              ⚠ 刻意**不做成新卡片、也不放按钮**：本仓有两道点着数的棘轮
+              （`.card-glass` 浮层玻璃点位、按钮面三分类），新增任意一个都要用户点头才能动基线；
+              而"打开设置就看到差额"本来就不需要按钮——自动跑更省一步，也不该为它单独申请基线。 */}
+          <div class="mb-4">
+            <HealthDriftSummary />
           </div>
 
           {/* v2.5.5：LAN 自动注册说明（PLAN §四 决策 3——子文件夹管理段可见性反馈） */}
