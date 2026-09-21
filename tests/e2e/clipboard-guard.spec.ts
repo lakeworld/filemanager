@@ -43,8 +43,8 @@ test.describe('剪贴板劫持守卫（v2.5.7 A1）', () => {
       if (!r.success) throw new Error(JSON.stringify(r))
     }, srcDir)
     await fsp.rm(srcDir, { recursive: true, force: true }).catch(() => {})
-    // 导入是异步完成（import:complete 事件）——轮询索引直到文件可见（慢机加宽到 80×300ms=24s）
     let imported = false
+    let lastList: string[] = []
     for (let i = 0; i < 80; i++) {
       const list = await page.evaluate(async () =>
         ((await (window as any).qihebox.files.list({
@@ -54,13 +54,35 @@ test.describe('剪贴板劫持守卫（v2.5.7 A1）', () => {
           scope: 'productSet',
         }))?.data ?? []) as { name: string }[],
       )
+      lastList = list.map((f) => f.name)
       if (list.some((f) => f.name.includes('clip'))) {
         imported = true
         break
       }
       await new Promise((r) => setTimeout(r, 300))
     }
-    expect(imported, '导入应进入文件索引（beforeAll 前提）').toBe(true)
+    // 红的时候必须**自己把答案带出来**（A1a 那一课：当时判据只有 `Expected true / Received false`，
+    // 只能去 GitHub 未鉴权读 check-run annotations 反推，再靠人猜"是没拷进来"还是"索引没跟上"）。
+    // 所以这里在失败信息里塞进三项独立事实：盘上有没有 / 索引给了什么 / 名单里有没有这个类型。
+    // ⚠ 只加诊断，**不改判据也不加轮询预算**（80×300ms 与 `toBe(true)` 一字未动）。
+    if (!imported) {
+      const diag = await page
+        .evaluate(async (seen) => {
+          const cfg = await (window as any).qihebox.config.get()
+          return {
+            索引返回列表: seen,
+            config_image_subfolders: (cfg?.data?.image_subfolders ?? []) as string[],
+          }
+        }, lastList)
+        .catch((e) => ({ 诊断本身失败: String(e) }))
+      const 目标目录 = path.join(wsDir, '产品集', '剪贴板测试集', '图包', '主图')
+      const 盘上内容 = await fsp.readdir(目标目录).catch((e) => `目录读不到：${String(e)}`)
+      throw new Error(
+        '导入应进入文件索引（beforeAll 前提）——诊断：' +
+          JSON.stringify({ 盘上图包主图目录: 盘上内容, ...diag, 轮询次数: '80×300ms 已用尽' }),
+      )
+    }
+
   })
 
   test.afterAll(async () => {
