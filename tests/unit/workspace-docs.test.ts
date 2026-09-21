@@ -46,7 +46,7 @@ describe('产品集文档目录——workspace 侧（v2.5.1 F1）', () => {
     expect(stats.doc_count).toBe(3)
   })
 
-  it('renameSubfolder(type=doc)：迁移所有产品集的 文档/<old> → <new> 并更新配置', async () => {
+  it('renameSubfolder(type=doc, acrossEntities=true)：迁移所有产品集的 文档/<old> → <new> 并更新配置', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -56,7 +56,7 @@ describe('产品集文档目录——workspace 侧（v2.5.1 F1）', () => {
     // 系列B 不建该子目录（懒建场景）
     await fsp.writeFile(path.join(ws, '产品集', '系列A', '文档', '说明书', 'a.md'), TXT)
 
-    const cfg = await box.workspace.renameSubfolder('doc', '说明书', '使用说明')
+    const cfg = await box.workspace.renameSubfolder('doc', '说明书', '使用说明', { acrossEntities: true })
     expect(cfg.doc_subfolders).toContain('使用说明')
     expect(cfg.doc_subfolders).not.toContain('说明书')
     // 系列A 目录真实迁移

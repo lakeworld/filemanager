@@ -236,7 +236,8 @@ export class WorkspaceService {
   }
 
   /**
-   * 子文件夹重命名（v2.2.1）：同步迁移所有已有产品集下的同名目录，并更新工作区配置。
+   * 子文件夹重命名。**v2.5.9（A9 刀3b）起默认只改模板名**；
+   * 传 `opts.acrossEntities: true` 才会同步迁移所有已有产品集/客户/供应商下的同名目录（会改盘）。
    * v2.4.7：type 扩展 'customer'——迁移所有 客户/<名>/<old> → <new>，config 操作对象为 customer_subfolders。
    * v2.5.1（F1）：type 扩展 'doc'——迁移所有 产品集/<名>/文档/<old> → <new>，config 操作对象为 doc_subfolders。
    * v2.5.5：type 扩展 'supplier'——迁移所有 供应商/<名>/<old> → <new>，config 操作对象为 supplier_subfolders。
@@ -248,6 +249,7 @@ export class WorkspaceService {
     type: 'image' | 'cert' | 'customer' | 'supplier' | 'doc',
     oldName: string,
     newName: string,
+    opts: { acrossEntities?: boolean } = {},
   ): Promise<WorkspaceConfig> {
     this.requireWorkspace()
     oldName = oldName.trim()
@@ -275,35 +277,41 @@ export class WorkspaceService {
     if (!list || !list.includes(oldName)) throw new Error(`子文件夹「${oldName}」不存在`)
     if (list.includes(newName)) throw new Error(`子文件夹「${newName}」已存在`)
 
-    // 同步迁移所有 产品集 或 客户 目录下的同名子文件夹（源不存在跳过、目标存在跳过，幂等）
-    const parentDir =
-      type === 'customer'
-        ? path.join(this.currentWS, CUSTOMERS_DIR)
-        : type === 'supplier'
-          ? path.join(this.currentWS, SUPPLIERS_DIR)
-          : path.join(this.currentWS, PRODUCT_SETS_DIR)
-    // v2.5.1（F1）：doc 类型 → 文档 目录；v2.5.5：supplier 同 customer（供应商/<名>/ 根下直接是子文件夹）
-    const typeDir =
-      type === 'customer' || type === 'supplier'
-        ? ''
-        : type === 'image'
-          ? IMAGES_DIR
-          : type === 'cert'
-            ? CERTS_DIR
-            : DOCS_DIR
-    const entries = await fsp.readdir(parentDir, { withFileTypes: true }).catch(() => [] as fs.Dirent[])
-    for (const e of entries) {
-      if (!e.isDirectory()) continue
-      const oldPath = path.join(parentDir, e.name, typeDir, oldName)
-      const newPath = path.join(parentDir, e.name, typeDir, newName)
-      try {
-        await fsp.stat(oldPath)
-        const exists = await fsp.stat(newPath).then(() => true).catch(() => false)
-        if (exists) continue
-        await fsp.rename(oldPath, newPath)
-      } catch {
-        // 源目录不存在（该产品集/客户未建此子目录）→ 跳过
-      }
+    // v2.5.9（A9 刀3b）：**默认只改模板名**。旧行为是把每个产品集/客户/供应商下的同名目录
+    // **全部物理改名**——用户在设置页改个名，实际改动了整个工作区的盘（A9 病根之一，用户原话
+    // 「它动的是全局的」）。现在要连实体一起改必须显式 `acrossEntities: true`（界面先弹一句确认，
+    // 默认不动盘）。以下分支保留原能力：源不存在跳过、目标存在跳过，幂等。
+    // ⚠ 只有显式点名才动盘上目录（默认不改，见上方说明）
+    if (opts.acrossEntities) {
+        const parentDir =
+          type === 'customer'
+            ? path.join(this.currentWS, CUSTOMERS_DIR)
+            : type === 'supplier'
+              ? path.join(this.currentWS, SUPPLIERS_DIR)
+              : path.join(this.currentWS, PRODUCT_SETS_DIR)
+        // v2.5.1（F1）：doc 类型 → 文档 目录；v2.5.5：supplier 同 customer（供应商/<名>/ 根下直接是子文件夹）
+        const typeDir =
+          type === 'customer' || type === 'supplier'
+            ? ''
+            : type === 'image'
+              ? IMAGES_DIR
+              : type === 'cert'
+                ? CERTS_DIR
+                : DOCS_DIR
+        const entries = await fsp.readdir(parentDir, { withFileTypes: true }).catch(() => [] as fs.Dirent[])
+        for (const e of entries) {
+          if (!e.isDirectory()) continue
+          const oldPath = path.join(parentDir, e.name, typeDir, oldName)
+          const newPath = path.join(parentDir, e.name, typeDir, newName)
+          try {
+            await fsp.stat(oldPath)
+            const exists = await fsp.stat(newPath).then(() => true).catch(() => false)
+            if (exists) continue
+            await fsp.rename(oldPath, newPath)
+          } catch {
+            // 源目录不存在（该产品集/客户未建此子目录）→ 跳过
+          }
+        }
     }
 
     // 更新配置（list 是 cfg 的引用，改后写回）

@@ -35,8 +35,8 @@ const api = {
     create: (path: string) => invoke('qihebox:workspace:create', path),
     open: (path: string) => invoke('qihebox:workspace:open', path),
     switch: (path: string) => invoke('qihebox:workspace:switch', path),
-    renameSubfolder: (type: string, oldName: string, newName: string) =>
-      invoke('qihebox:workspace:renameSubfolder', type, oldName, newName),
+    renameSubfolder: (type: string, oldName: string, newName: string, opts?: { acrossEntities?: boolean }) =>
+      invoke('qihebox:workspace:renameSubfolder', type, oldName, newName, opts),
   },
   config: {
     get: () => invoke('qihebox:config:get'),

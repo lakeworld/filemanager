@@ -144,7 +144,7 @@ describe('工作区全链路（对照原 app_test.go）', () => {
   })
 
   // —— v2.2.1：子文件夹重命名 + 同步迁移已有产品集 ——
-  it('子文件夹重命名：迁移所有产品集目录 + 更新配置', async () => {
+  it('子文件夹重命名 acrossEntities=true：迁移所有产品集目录 + 更新配置（默认只改模板，另见 a9 刀3b 判据）', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -152,7 +152,7 @@ describe('工作区全链路（对照原 app_test.go）', () => {
     await box.workspace.productSetCreate({ name: '系列A' })
     await box.workspace.productSetCreate({ name: '系列B' })
 
-    const cfg = await box.workspace.renameSubfolder('image', '主图', '场景图')
+    const cfg = await box.workspace.renameSubfolder('image', '主图', '场景图', { acrossEntities: true })
     expect(cfg.image_subfolders).toContain('场景图')
     expect(cfg.image_subfolders).not.toContain('主图')
 
@@ -196,7 +196,7 @@ describe('工作区全链路（对照原 app_test.go）', () => {
     await box.suppliers.create({ name: '甲' })
     await box.suppliers.create({ name: '乙' })
 
-    const cfg = await box.workspace.renameSubfolder('supplier', '合同', '采购合同')
+    const cfg = await box.workspace.renameSubfolder('supplier', '合同', '采购合同', { acrossEntities: true })
     expect(cfg.supplier_subfolders).toContain('采购合同')
     expect(cfg.supplier_subfolders).not.toContain('合同')
 

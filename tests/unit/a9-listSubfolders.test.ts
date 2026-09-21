@@ -178,3 +178,55 @@ describe('A9 刀2b · createSubfolder 只建本集，不再自动进模板表', 
     expect(got.map((x) => x.name)).toContain('张三专夹')
   })
 })
+
+describe('A9 刀3b · 改名默认只改模板，改所有实体要显式点名', () => {
+  /** 建两个集，各有一个同名图包子文件夹（其一有文件，便于看盘上有没有被动过） */
+  async function twoSetsWithFolder() {
+    const { box, ws } = await boxWithWs()
+    await box.workspace.productSetCreate({ name: '甲集' })
+    await box.workspace.productSetCreate({ name: '乙集' })
+    for (const set of ['甲集', '乙集']) {
+      const d = path.join(ws, '产品集', set, '图包', '场景图')
+      await fsp.mkdir(d, { recursive: true })
+      await fsp.writeFile(path.join(d, 'a.png'), 'x')
+    }
+    // 让「场景图」进模板（模拟用户在设置页登记过；新建不再自动进模板是刀2b 之后的事实）
+    const cfg0 = await box.workspace.loadConfig(ws)
+    cfg0.image_subfolders = [...new Set([...cfg0.image_subfolders, '场景图'])]
+    await box.workspace.saveConfig(ws, cfg0)
+    return { box, ws }
+  }
+
+  it('默认（不传 acrossEntities）：只改模板名，**任何实体目录都不动**', async () => {
+    const { box, ws } = await twoSetsWithFolder()
+    const cfg = await box.workspace.renameSubfolder('image', '场景图', '场景实拍')
+    expect(cfg.image_subfolders).toContain('场景实拍')
+    expect(cfg.image_subfolders).not.toContain('场景图')
+    for (const set of ['甲集', '乙集']) {
+      // 旧名仍在盘上、新名不存在：这是本判据的核心（旧行为会把每个集都改掉）
+      await expect(fsp.stat(path.join(ws, '产品集', set, '图包', '场景图'))).resolves.toBeTruthy()
+      await expect(fsp.stat(path.join(ws, '产品集', set, '图包', '场景实拍'))).rejects.toThrow()
+    }
+  })
+
+  it('acrossEntities=true：才真的连所有实体一起改（能力保留，只是不再默认）', async () => {
+    const { box, ws } = await twoSetsWithFolder()
+    await box.workspace.renameSubfolder('image', '场景图', '场景实拍', { acrossEntities: true })
+    for (const set of ['甲集', '乙集']) {
+      await expect(fsp.stat(path.join(ws, '产品集', set, '图包', '场景实拍'))).resolves.toBeTruthy()
+      await expect(fsp.stat(path.join(ws, '产品集', set, '图包', '场景图'))).rejects.toThrow()
+      // 文件跟着目录走（改名不是复制：盘上还是那个 a.png）
+      await expect(fsp.readFile(path.join(ws, '产品集', set, '图包', '场景实拍', 'a.png'), 'utf8')).resolves.toBe('x')
+    }
+  })
+
+  it('只改模板时，若某实体里根本没有该文件夹，也不报错（旧行为同样不动盘）', async () => {
+    const { box, ws } = await boxWithWs()
+    await box.workspace.productSetCreate({ name: '甲集' })
+    const cfg0 = await box.workspace.loadConfig(ws)
+    cfg0.image_subfolders = [...new Set([...cfg0.image_subfolders, '只存在于模板'])]
+    await box.workspace.saveConfig(ws, cfg0)
+    const cfg = await box.workspace.renameSubfolder('image', '只存在于模板', '换了个名')
+    expect(cfg.image_subfolders).toContain('换了个名')
+  })
+})

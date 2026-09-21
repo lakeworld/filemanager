@@ -162,8 +162,9 @@ export function registerIpc(
   ipcMain.handle('qihebox:workspace:create', (_e, p: string) => handle(() => box.workspace.create(p)))
   ipcMain.handle('qihebox:workspace:open', (_e, p: string) => handle(() => box.workspace.open(p)))
   ipcMain.handle('qihebox:workspace:switch', (_e, p: string) => handle(() => box.workspace.switchTo(p)))
-  ipcMain.handle('qihebox:workspace:renameSubfolder', (_e, type: 'image' | 'cert' | 'customer' | 'supplier' | 'doc', oldName: string, newName: string) =>
-    handle(() => box.workspace.renameSubfolder(type, oldName, newName)),
+  // v2.5.9（A9 刀3b）：第 4 参 = 是否连所有实体的同名目录一起改（默认 false＝只改模板）
+  ipcMain.handle('qihebox:workspace:renameSubfolder', (_e, type: 'image' | 'cert' | 'customer' | 'supplier' | 'doc', oldName: string, newName: string, opts?: { acrossEntities?: boolean }) =>
+    handle(() => box.workspace.renameSubfolder(type, oldName, newName, opts)),
   )
 
   ipcMain.handle('qihebox:config:get', () => handle(() => box.workspace.getConfig()))

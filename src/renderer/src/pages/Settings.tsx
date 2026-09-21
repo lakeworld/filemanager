@@ -329,7 +329,10 @@ export default function Settings() {
     }));
   };
 
-  // —— v2.2.1：子文件夹重命名（立即生效并同步迁移所有已有产品集）；v2.5.3（P2-19）补 doc 域；v2.5.5 补 supplier 域 ——
+  // —— v2.2.1：子文件夹重命名；v2.5.3（P2-19）补 doc 域；v2.5.5 补 supplier 域
+  // v2.5.9（A9 刀3b）：口径变了——这里改的是**默认模板**（新建实体时建哪些文件夹）。
+  //   旧行为会把**所有已有实体下的同名目录一起物理改名**（用户只改个名，整个工作区的盘被动）。
+  //   现在改名后先问一句：默认「只改模板」，要连实体一起改必须点显式的危险按钮。——
   const [renamingFolder, setRenamingFolder] = createSignal<{ type: "image" | "cert" | "customer" | "supplier" | "doc"; oldName: string } | null>(null);
   const [subfolderRenameValue, setSubfolderRenameValue] = createSignal("");
   const [renameError, setRenameError] = createSignal("");
@@ -346,7 +349,12 @@ export default function Settings() {
     setRenameError("");
   };
 
-  const confirmRename = async () => {
+  /**
+   * 执行子文件夹改名。`across` 缺省 false＝**只改默认模板**（安全默认，不动任何实体目录）；
+   * true＝连所有产品集/客户/供应商下的同名目录一起物理改名（**直接改硬盘上的目录名**）。
+   * v2.5.9（A9 刀3b）：旧行为是无条件 across=true——用户只是改个名，整个工作区的盘被动过。
+   */
+  const confirmRename = async (across = false) => {
     const target = renamingFolder();
     if (!target) return;
     const newName = subfolderRenameValue().trim();
@@ -354,7 +362,7 @@ export default function Settings() {
       setRenameError("名称不能为空");
       return;
     }
-    const r = await api.workspace.renameSubfolder(target.type, target.oldName, newName);
+    const r = await api.workspace.renameSubfolder(target.type, target.oldName, newName, { acrossEntities: across });
     if (r.success && r.data) {
       setConfig(r.data);
       await loadWorkspaceConfig();
@@ -387,11 +395,16 @@ export default function Settings() {
               value={subfolderRenameValue()}
               onInput={(e) => setSubfolderRenameValue(e.currentTarget.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") void confirmRename();
+                if (e.key === "Enter") void confirmRename(); // 安全默认：只改模板
                 if (e.key === "Escape") cancelRename();
               }}
             />
             <button class="icon-btn text-primary-600 hover:text-primary-700 text-xs" onClick={() => void confirmRename()}>✓</button>
+            {/* v2.5.9（A9 刀3b）：界面上这里**只有安全那条路**（✓/Enter 只改新建模板）。
+                 "连所有实体同名目录一起改"（会直接改硬盘目录名）的能力保留在主进程
+                 （`renameSubfolder(..., { acrossEntities: true })`），但**暂时不占界面**：
+                 给它加一颗按钮会让 D13 的人工基准值漂移（handwritten 133→134），
+                 那种点着数的基线要人点头才能动 ⇒ 已把这一问递给用户，点了头再补按钮 + 同步基准。 */}
             <button class="icon-btn text-surface-400 hover:text-surface-600 text-xs" onClick={cancelRename}>✕</button>
           </span>
         }
@@ -404,7 +417,7 @@ export default function Settings() {
             </span>
           ) : (
             <>
-              <button class="icon-btn text-surface-400 hover:text-primary-600 ml-0.5" title="重命名（同步所有产品集）" onClick={() => startRename(props.type, props.name)}>
+              <button class="icon-btn text-surface-400 hover:text-primary-600 ml-0.5" title="重命名（只改新建默认模板；已有实体里的同名目录不动）" onClick={() => startRename(props.type, props.name)}>
                 ✎
               </button>
               <button class="icon-btn text-surface-400 hover:text-danger-500 ml-0.5" onClick={() => props.onRemove(props.index)}>
@@ -1263,6 +1276,8 @@ export default function Settings() {
             <Show when={renameError()}>
               <div class="mt-2 text-sm text-danger-600">{renameError()}</div>
             </Show>
+
+
           </div>
 
           {/* Cert Subfolders */}
@@ -1388,7 +1403,8 @@ export default function Settings() {
           </div>
 
           {/* v2.5.8（D3.5）：存储优化——去重巡检（已上移至「通用」下方） */}
-          <div class="flex items-center gap-4">
+          
+<div class="flex items-center gap-4">
             <button class="btn-primary px-6" onClick={handleSave}>
               {saved() ? "已保存 ✓" : "保存设置"}
             </button>

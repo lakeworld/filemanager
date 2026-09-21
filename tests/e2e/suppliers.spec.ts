@@ -437,34 +437,64 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     expect(cfgRes.data.supplier_subfolders).toContain('样品夹')
     expect(cfgRes.data.supplier_subfolders).toEqual(expect.arrayContaining(['合同', '对账单', '往来文件']))
 
-    // 重命名（chip ✎ → 改名 → ✓）：立即生效并迁移所有供应商目录
-    await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '设置供应商' }))
+    // —— 子文件夹改名两条路（v2.5.9 / A9 刀3b）——————————————————————————
+    // 背景：旧实现无条件把**每个实体**下的同名目录一起物理改名，用户在设置页改个名
+    // 就把整个工作区的盘动了（用户原话「可是它动的是全局的」）。现在 ✓/Enter 只改**默认模板**，
+    // 物理迁移降级为编辑行里那颗显式红钮（⇌）。两段各验一条路。
+    await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '设置供应商甲' }))
+    await page.evaluate(async () => (window as any).qihebox.suppliers.create({ name: '设置供应商乙' }))
     const chip = card.locator('span', { hasText: '样品夹' }).first()
-    await chip.getByTitle('重命名（同步所有产品集）').click()
+    await chip.getByTitle('重命名（只改新建默认模板；已有实体里的同名目录不动）').click()
     const input = card.locator('input.w-32')
     await input.fill('样品柜')
-    await input.press('Enter')
-    // ⚠ A1a 定责后的修法（2026-09-21，取证 = GitHub API 直接读到 09-12/09-13 两次红的 annotations）：
-    //   报错原文 `Expected value: "样品柜" / Received array: ["合同","对账单","往来文件","样品夹"]`，
-    //   位置就在下面这四行的**一次性 config 读**上——Enter 触发的重命名是 `await api.workspace.renameSubfolder`
-    //   （渲染层 → 主进程 → 落盘）三段异步，本机快、runner 慢，于是读到旧值；**"Retry 同红"也不是抖动**，
-    //   是同一台慢机器上每次都赶不上。09-14 两轮转绿的真正原因 = 中间 v2.5.8 的 `5317ce2`
-    //   把这枚输入收进了 ui/Input（同一提交面还动了本 spec），窗口收窄到本机再也复现不出来。
-    //   ⇒ 修法不是加 sleep、也不是放宽判据：把**读**改成轮询，判据一字不减（仍要求新值在、旧值不在）。
+    await input.press('Enter') // ← 安全默认：只改模板
+
+    // ⚠ 判据必须用**轮询**（A1a 定责留下的修法，取证见 2026-09-21 动作记录）：
+    //   Enter 触发的改名要穿三段异步（渲染层 → 主进程 → 落盘），一次性读在慢机器上会赶不上。
     const subfolders = async (): Promise<string[]> => {
       const r = await page.evaluate(async () => (window as any).qihebox.config.get())
       expect(r.success).toBe(true) // 读本身失败不参与轮询，直接判红
       return (r.data.supplier_subfolders ?? []) as string[]
     }
     await expect
-      .poll(subfolders, { timeout: 15000, message: '重命名后 config 未落新值：等满 15s 仍读不到「样品柜」' })
+      .poll(subfolders, { timeout: 15000, message: '安全默认这条也要把 config 改掉' })
       .toContain('样品柜')
     await expect
-      .poll(subfolders, { timeout: 15000, message: '重命名后旧值「样品夹」仍在 config 里' })
+      .poll(subfolders, { timeout: 15000, message: '改名后旧值「样品夹」仍在 config 里' })
       .not.toContain('样品夹')
-    // 目录迁移：供应商/设置供应商/样品夹 → 样品柜
-    await expect(fsp.stat(path.join(wsDir, '供应商', '设置供应商', '样品柜'))).resolves.toBeTruthy()
-    await expect(fsp.stat(path.join(wsDir, '供应商', '设置供应商', '样品夹'))).rejects.toBeTruthy()
+    // 关键判据：**盘上目录一个字都没动**（两个供应商都还是旧名，新名不存在）
+    for (const holder of ['设置供应商甲', '设置供应商乙']) {
+      await expect(fsp.stat(path.join(wsDir, '供应商', holder, '样品夹'))).resolves.toBeTruthy()
+      await expect(fsp.stat(path.join(wsDir, '供应商', holder, '样品柜'))).rejects.toBeTruthy()
+    }
+
+    // 第二段：**显式 acrossEntities=true 才走物理迁移**，每个实体的同名目录跟着改名、文件跟着走。
+    // 为了让"盘上确有其名"，先造一个真实存在的同名目录（等价于用户在实体里建过/同步进来的文件夹），
+    // 再把名字登记进模板（改名要求旧名在表里），最后点 ⇌。
+    await card.locator('input[placeholder="新增供应商子文件夹名称"]').fill('样品厅')
+    await card.getByRole('button', { name: '添加' }).click()
+    await page.getByRole('button', { name: '保存设置' }).click()
+    await expect(page.getByText('已保存 ✓')).toBeVisible({ timeout: 10000 })
+    for (const holder of ['设置供应商甲', '设置供应商乙']) {
+      const d = path.join(wsDir, '供应商', holder, '样品厅')
+      await fsp.mkdir(d, { recursive: true })
+      await fsp.writeFile(path.join(d, 'note.txt'), holder) // 里面有文件：迁移必须整体搬走
+    }
+    // 界面这一侧暂时**没有**那颗危险按钮（加按钮会顶动 D13 点数基线，等人点头），
+    // 所以这里直调主进程 API 验"显式点名才物理迁移"那条能力仍然完好。
+    await page.evaluate(async () =>
+      (window as any).qihebox.workspace.renameSubfolder('supplier', '样品厅', '样品室', { acrossEntities: true }),
+    )
+    await expect
+      .poll(subfolders, { timeout: 15000, message: '显式点名这条也要把 config 改掉' })
+      .toContain('样品室')
+    for (const holder of ['设置供应商甲', '设置供应商乙']) {
+      const moved = path.join(wsDir, '供应商', holder, '样品室')
+      await expect(fsp.stat(moved)).resolves.toBeTruthy()
+      await expect(fsp.stat(path.join(wsDir, '供应商', holder, '样品厅'))).rejects.toBeTruthy()
+      // 内容跟着目录走（改名是 move 不是复制/重建）
+      expect(await fsp.readFile(path.join(moved, 'note.txt'), 'utf8')).toBe(holder)
+    }
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
