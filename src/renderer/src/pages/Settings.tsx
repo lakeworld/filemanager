@@ -1239,6 +1239,7 @@ export default function Settings() {
           {/* Image Subfolders */}
           <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">图包子文件夹</h2>
+            <p class="-mt-3 mb-3 text-xs text-surface-500">这里是<b>模板</b>：只决定"新建实体时默认建哪些文件夹"。某个实体里实际有哪些文件夹，看它自己页面上方那一排（以硬盘为准，v2.5.9）；在那个页面里新建/删除文件夹<b>不会</b>改到这里来。</p>
             <div class="flex gap-2 mb-4">
               <Input
                 type="text"
@@ -1267,6 +1268,7 @@ export default function Settings() {
           {/* Cert Subfolders */}
           <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">证书子文件夹</h2>
+            <p class="-mt-3 mb-3 text-xs text-surface-500">这里是<b>模板</b>：只决定"新建实体时默认建哪些文件夹"。某个实体里实际有哪些文件夹，看它自己页面上方那一排（以硬盘为准，v2.5.9）；在那个页面里新建/删除文件夹<b>不会</b>改到这里来。</p>
             <div class="flex gap-2 mb-4">
               <Input
                 type="text"
@@ -1295,6 +1297,7 @@ export default function Settings() {
           {/* v2.4.7：客户子文件夹（对齐 image/cert 段；重命名同步迁移所有客户目录） */}
           <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">客户子文件夹</h2>
+            <p class="-mt-3 mb-3 text-xs text-surface-500">这里是<b>模板</b>：只决定"新建实体时默认建哪些文件夹"。某个实体里实际有哪些文件夹，看它自己页面上方那一排（以硬盘为准，v2.5.9）；在那个页面里新建/删除文件夹<b>不会</b>改到这里来。</p>
             <div class="flex gap-2 mb-4">
               <Input
                 type="text"
@@ -1325,6 +1328,7 @@ export default function Settings() {
           {/* v2.5.3（P2-19）：文档子文件夹（对齐客户段；config.doc_subfolders；重命名同步迁移所有产品集「文档/」目录） */}
           <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">文档子文件夹</h2>
+            <p class="-mt-3 mb-3 text-xs text-surface-500">这里是<b>模板</b>：只决定"新建实体时默认建哪些文件夹"。某个实体里实际有哪些文件夹，看它自己页面上方那一排（以硬盘为准，v2.5.9）；在那个页面里新建/删除文件夹<b>不会</b>改到这里来。</p>
             <div class="flex gap-2 mb-4">
               <Input
                 type="text"
@@ -1355,6 +1359,7 @@ export default function Settings() {
           {/* v2.5.5：供应商子文件夹（对齐客户段；config.supplier_subfolders；重命名同步迁移所有供应商目录） */}
           <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">供应商子文件夹</h2>
+            <p class="-mt-3 mb-3 text-xs text-surface-500">这里是<b>模板</b>：只决定"新建实体时默认建哪些文件夹"。某个实体里实际有哪些文件夹，看它自己页面上方那一排（以硬盘为准，v2.5.9）；在那个页面里新建/删除文件夹<b>不会</b>改到这里来。</p>
             <div class="flex gap-2 mb-4">
               <Input
                 type="text"

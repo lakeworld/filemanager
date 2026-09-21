@@ -274,15 +274,11 @@ export class ShareViewService {
             : path.join(ws, CUSTOMERS_DIR, holderSafe, safe)
     const existed = await fsp.stat(dir).then(() => true).catch(() => false)
     if (!existed) await fsp.mkdir(dir, { recursive: true })
-    const cfg = await this.box.workspace.loadConfig(ws)
-    const list =
-      kind === 'image'
-        ? cfg.image_subfolders
-        : kind === 'cert'
-          ? cfg.cert_subfolders
-          : kind === 'doc'
-            ? (cfg.doc_subfolders ??= [])
-            : (cfg.customer_subfolders ??= [])
+    // v2.5.9（A9 刀3a）：**这里过去会把名字登记进全站一份的 `config.*_subfolders`**
+    // （契约原话就是「目录缺失 → 创建 + 注册」）。A9 之后子文件夹名单以盘为准 ⇒
+    // 那次"注册"不仅没用（目录建出来就自动可见），还留下一条暗门：
+    // 插件每拉一个文件夹，就等于替**未来所有新建的产品集/客户**改了一次默认目录模板。
+    // 表只剩一个角色：新建实体时的默认目录模板，要改它请人去「设置 → 子文件夹」。
     const { globalWorkspaceIndex } = await import('./indexCache')
     // v2.5.7（A2 笔记，LAN 旁路）：内建「笔记」子文件夹幂等、不重复注册进 config——
     // 客户/文档两域（挂载面）同步语义下内建名直接可见（渲染层并集显示）；其余 kind 非同语义照常注册
@@ -291,11 +287,9 @@ export class ShareViewService {
       globalWorkspaceIndex.invalidate(path.dirname(dir))
       return
     }
-    if (!list.includes(safe)) list.push(safe)
-    await this.box.workspace.saveConfig(ws, cfg)
     if (existed) globalWorkspaceIndex.invalidate(dir)
     globalWorkspaceIndex.invalidate(path.dirname(dir))
-    // v2.5.5：注册成功后通知装配层 → 渲染侧面板即时刷新（可见性反馈）
+    // v2.5.5 → v2.5.9：确保目录后通知装配层 → 渲染侧面板即时刷新（可见性反馈）
     this.hooks?.onSubfolderRegistered?.({ kind, holder: holderSafe, name: safe })
   }
 

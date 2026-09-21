@@ -257,50 +257,60 @@ describe('ShareViewService（v2.5.1 A2）', () => {
   })
 })
 
-describe('ensureSubfolder（LAN v0.2.3 自动注册拉取子文件夹白名单）', () => {
-  it('图包子文件夹：缺失目录 → 创建 + 注册 + 幂等去重', async () => {
+describe('ensureSubfolder（LAN v0.2.3 拉取时按需建目录；A9 起不再注册进全局白名单）', () => {
+  it('图包子文件夹：缺失目录 → 创建 + 幂等去重（**不写**全局模板表）', async () => {
     const { ws, box } = await makeBox()
     const svc = new ShareViewService(box)
     await svc.ensureSubfolder('image', '夏季新款', 'sku')
     await svc.ensureSubfolder('image', '夏季新款', 'sku') // 幂等
     const dir = path.join(ws, '产品集', '夏季新款', '图包', 'sku')
     expect((await fsp.stat(dir)).isDirectory()).toBe(true)
+    // A9 刀3a：以盘为准之后「注册」这层没意义了 ⇒ 不再写全站模板表（插件建的目录建出来就可见）
     const cfg = await box.workspace.loadConfig(ws)
-    expect(cfg.image_subfolders.filter((x) => x === 'sku')).toHaveLength(1)
+    expect(cfg.image_subfolders).not.toContain('sku')
+    // 幂等仍要成立：两次调用后盘上就是一个目录，不抛「子文件夹已存在」
+    expect((await fsp.stat(dir)).isDirectory()).toBe(true)
   })
 
-  it('已存在的目录：仅补注册，不抛「子文件夹已存在」', async () => {
+  it('已存在的目录：什么都不做，不抛「子文件夹已存在」', async () => {
     const { ws, box } = await makeBox()
     await fsp.mkdir(path.join(ws, '产品集', '夏季新款', '图包', '白底'), { recursive: true })
     const svc = new ShareViewService(box)
     await svc.ensureSubfolder('image', '夏季新款', '白底')
+    // A9 刀3a：以盘为准之后「注册」这层没意义了 ⇒ 不再写全站模板表（插件建的目录建出来就可见）
     const cfg = await box.workspace.loadConfig(ws)
-    expect(cfg.image_subfolders).toContain('白底')
+    expect(cfg.image_subfolders).not.toContain('白底')
   })
 
   it.each([
     ['cert', '证书', '质检'],
     ['doc', '文档', '参数表'],
-  ])('%s 子文件夹注册到对应白名单', async (kind, label, name) => {
+  ])('%s 子文件夹：目录建出来即可见（**不进**白名单表）', async (kind, label, name) => {
     const { ws, box } = await makeBox()
     const svc = new ShareViewService(box)
+    const cfgBefore = await box.workspace.loadConfig(ws)
+    // 注意：'质检'/'参数表' 本身就是默认模板项 ⇒ 只能判"表内容前后不变"，
+    //      判 not.toContain(名字) 是错写法（它会因为"本来就有"而红）。
     await svc.ensureSubfolder(kind as 'cert' | 'doc', '夏季新款', name)
     const dir = path.join(ws, '产品集', '夏季新款', label, name)
     expect((await fsp.stat(dir)).isDirectory()).toBe(true)
-    const cfg = await box.workspace.loadConfig(ws)
-    const list = kind === 'cert' ? cfg.cert_subfolders : cfg.doc_subfolders
-    expect(list).toContain(name)
+    // A9 刀3a：以盘为准之后「注册」这层没意义了 ⇒ 不再写全站模板表（插件建的目录建出来就可见）
+    const cfgAfter = await box.workspace.loadConfig(ws)
+    const key = kind === 'cert' ? 'cert_subfolders' : 'doc_subfolders'
+    expect((cfgAfter as any)[key]).toEqual((cfgBefore as any)[key])
   })
 
-  it('客户子文件夹：客户/<名>/<子> + customer_subfolders 注册', async () => {
+  it('客户子文件夹：建 客户/<名>/<子>（**不写** customer_subfolders 模板）', async () => {
     const { ws, box } = await makeBox()
     const svc = new ShareViewService(box)
     await svc.ensureCustomer('华东客户')
+    const cfgBefore = await box.workspace.loadConfig(ws)
     await svc.ensureSubfolder('customer', '华东客户', '沟通')
     const dir = path.join(ws, '客户', '华东客户', '沟通')
     expect((await fsp.stat(dir)).isDirectory()).toBe(true)
-    const cfg = await box.workspace.loadConfig(ws)
-    expect(cfg.customer_subfolders).toContain('沟通')
+    // A9 刀3a：不再写全站模板表（'沟通' 本就是默认项 ⇒ 判"前后不变"而非判不存在）
+    const cfgAfter = await box.workspace.loadConfig(ws)
+    expect(cfgAfter.customer_subfolders).toEqual(cfgBefore.customer_subfolders)
   })
 
   it('非法名称/非法 kind → 拒绝', async () => {

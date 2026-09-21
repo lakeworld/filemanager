@@ -603,9 +603,11 @@ share: {
   /** 同名合并：存在 → 'exists'（零覆盖）；不存在 → 复用产品集/客户创建 → 'created' */
   ensureProductSet(name: string): Promise<'created' | 'exists'>
   ensureCustomer(name: string): Promise<'created' | 'exists'>
-  /** 按需把第一层子文件夹注册进工作区白名单（图包/证书/文档/客户）：
+  /** 按需确保第一层子文件夹存在（图包/证书/文档/客户）——v2.5.9（A9）起「以盘为准」：：
    *  kind=image|cert|doc → 产品集/<holder>/{图包|证书|文档}/<name>；kind=customer → 客户/<holder>/<name>。
-   *  目录缺失 → 创建 + 注册；已存在 → 仅补注册；幂等去重。名称/holder 防穿越；kind 非法 → INVALID_NAME */
+   *  目录缺失 → **创建**；已存在 → 什么都不做；幂等。**不再登记进全局子文件夹表**
+   *  （那张表如今只是"新建产品集/客户时的默认目录模板"，插件建出来的目录本身就在盘上，
+   *   界面直接可见，无需登记）。若插件此前依赖"注册后别的集也出现该文件夹"，那是旧缺陷而非契约。名称/holder 防穿越；kind 非法 → INVALID_NAME */
   ensureSubfolder(kind: 'image' | 'cert' | 'doc' | 'customer', holder: string, name: string): Promise<void>
   /** 元数据合并导入：path 粒度两级——文件路径 → metadata store；产品集根路径 → product_sets.json；
    *  tags 并集；notes 本地为空采纳远端、本地非空且不同 → 保留本地（计入冲突清单）；
