@@ -65,7 +65,15 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     steps:
+      # v2.5.9/A2 补：**必须 fetch-depth: 0**。checkout 默认 depth=1 ⇒ runner 上是浅克隆，
+      # 本 job 的历史泄漏门禁会扫到 1 个提交却照样打印"通过"（2026-09-21 用 file:// 浅克隆实测：
+      # 完整仓 rev-list --objects = 5026 条 ⇄ 浅克隆 517 条、提交数 1）。脚本侧已改成
+      # **浅克隆直接 rc=2 拒绝执行**（审不了就说审不了，不替公开面背书），这里补齐另一半。
+      # ⚠ 边界仍要记：即便 depth 0，CI 上 `--all` 也只有**被检出的这根分支**——其它分支/标签与
+      # 账号外围（AGENTS §一.9 第④⑤层）不在本门禁能力范围内，须本地/人工盘。
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v7
         with:

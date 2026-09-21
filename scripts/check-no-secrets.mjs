@@ -222,6 +222,40 @@ function scanTracked() {
   }
 }
 
+/**
+ * 历史口径**能不能审**的纯判据（v2.5.9/A2 补：CI 假绿根治）。
+ *
+ * 病根（2026-09-21 实测）：GitHub Actions 的 `checkout` 默认 `fetch-depth: 1` ⇒ runner 上是**浅克隆**，
+ * `rev-list --objects --all` 从完整仓的 5026 条塌成 **517 条、提交数 1**，而本门禁的历史模式照样
+ * 打印「✓ 通过（history）」并 rc=0 —— 一条**保证绿**的门禁比没有门禁更糟：它会替我们把"历史上还有残留"
+ * 这件事背书。本仓确实为此重写过一次历史（AGENTS §一.1），所以这条判据不是理论洁癖。
+ *
+ * 判据用「浅克隆」**而不是**「对象数 < 阈值」：后者会在真小仓上误红，浅克隆是**结构性**的"看不见历史"。
+ */
+export function historyAuditScope(status) {
+  const { isShallow, commitCount } = status
+  if (isShallow) {
+    return {
+      usable: false,
+      reason:
+        `仓库是浅克隆（shallow）：看不见历史 ⇒ 历史口径等于没审。` +
+        `CI 须在 checkout 里加 fetch-depth: 0；本地若是 --depth 克隆，先 git fetch --unshallow。`,
+    }
+  }
+  // ⚠ 只有 shallow 这一条是不可审：**单提交的完整仓照样要审**（那一个提交里就可能藏着私人邮箱，
+  // 而且本仓既有 5 条 fixture 用例就是拿单提交仓验历史的）——第一版我多加了"提交数 ≤1 不可审"，
+  // 直接把那些用例打红；结构性看不见历史才叫审不了，"内容少"不是。
+  void commitCount // 仅作附注信息，不参与判据
+  return { usable: true, reason: '' }
+}
+
+/** 取真实仓库状态喂给判据（git 查询失败由 gitBuffer 统一 rc=2） */
+export function readHistoryAuditStatus() {
+  const isShallow = gitBuffer(['rev-parse', '--is-shallow-repository']).toString('utf8').trim() === 'true'
+  const commitCount = Number(gitBuffer(['rev-list', '--count', '--all']).toString('utf8').trim()) || 0
+  return { isShallow, commitCount }
+}
+
 // ───────────────────────────── 模式二：历史（--history / --pre-push） ─────────────────────────────
 function objectPaths(refArgs) {
   const out = gitBuffer(['rev-list', '--objects', ...refArgs]).toString('utf8')
@@ -360,12 +394,30 @@ async function scanPrePush() {
   })
 }
 
+// ───────────────────────────── 历史口径的"审不了就红" ─────────────────────────────
+/** 不可审 ⇒ 立即 rc=2 并给出修法（**绝不打印"通过"**：假绿比没门禁更糟） */
+function assertAuditableHistory(mode) {
+  const scope = historyAuditScope(readHistoryAuditStatus())
+  if (scope.usable) return
+  process.stderr.write(
+    `✗ 公开仓泄漏门禁（${mode}）拒绝执行：${scope.reason}\n` +
+      `  边界另记：CI 上 --all 只含**被检出的那根分支**，其它分支/标签与账号外围（AGENTS §一.9 第④⑤层）\n` +
+      `  仍须本地/人工盘——本门禁绿，不等于"公开面已盘完"。\n`,
+  )
+  process.exit(2)
+}
+
 // ───────────────────────────── 入口 ─────────────────────────────
 async function main() {
   const mode = (process.argv[2] || '--all').replace(/^--/, '')
   if (mode === 'all') scanTracked()
-  else if (mode === 'history') await scanHistory(['--all'])
-  else if (mode === 'pre-push') await scanPrePush()
+  else if (mode === 'history') {
+    assertAuditableHistory(mode)
+    await scanHistory(['--all'])
+  } else if (mode === 'pre-push') {
+    assertAuditableHistory(mode)
+    await scanPrePush()
+  }
   else {
     process.stderr.write('用法：check-no-secrets.mjs [--all|--history|--pre-push]\n')
     process.exit(2)
@@ -384,14 +436,16 @@ async function main() {
   process.stdout.write(`✓ 公开仓泄漏门禁通过（${mode}）\n`)
 }
 
-if (process.argv.includes('--rules')) {
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+
+if (isMain && process.argv.includes('--rules')) {
   for (const r of [...HARD_RULES, ...SOFT_RULES, { name: 'ip-address', why: '非回环 IPv4（公网与内网地址均不外泄）' }, { name: 'commit-identity', why: '提交/标签身份必须在允许清单内' }, { name: 'identity-shape', why: '作者/tagger 显示名是纯数字账号形态（QQ 号当名字）' }]) {
     process.stdout.write(`  ${r.name}  ${r.why || ''}\n`)
   }
   process.exit(0)
 }
 
-main().catch((e) => {
+if (isMain) main().catch((e) => {
   process.stderr.write(`门禁自身异常：${e && e.stack ? e.stack : e}\n`)
   process.exit(2)
 })

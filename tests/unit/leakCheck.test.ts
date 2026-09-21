@@ -17,6 +17,8 @@ import os from 'node:os'
 import path from 'node:path'
 
 const SCRIPT = path.resolve(__dirname, '../../scripts/check-no-secrets.mjs')
+// v2.5.9/A2 补：历史口径"审不了就红"的纯判据（脚本有 isMain 守卫，可安全 import）
+import { historyAuditScope } from '../../scripts/check-no-secrets.mjs'
 
 /** 在 fixture 仓里跑门禁；args 为脚本参数（--all / --history） */
 function runLeak(root: string, args: string[]) {
@@ -192,5 +194,45 @@ describe('check-no-secrets —— 公开仓泄漏门禁', () => {
     const r = runLeak(dir, ['--all'])
     expect(r.status).toBe(1)
     expect(r.all).toContain('rule=server-config')
+  })
+
+  // ───────────── v2.5.9/A2 补：CI 假绿根治（浅克隆下历史口径不得报"通过"）─────────────
+
+  it('纯判据：浅克隆 ⇒ 不可审，且理由里带修法（fetch-depth / unshallow）', () => {
+    const r = historyAuditScope({ isShallow: true, commitCount: 1 })
+    expect(r.usable).toBe(false)
+    expect(r.reason).toContain('浅克隆')
+    expect(r.reason).toContain('fetch-depth: 0')
+  })
+
+  it('纯判据只看结构性信号：非浅克隆的单提交仓**必须可审**（那一个提交里就可能藏着私人邮箱）', () => {
+    // 反向实验的本体：第一版多加过一条"提交数 ≤1 判不可审"，把 5 条既有 fixture 用例打红——
+    // "内容少"不是"审不了"，只有浅克隆才是。这条断言防的就是把判据写宽。
+    expect(historyAuditScope({ isShallow: false, commitCount: 1 }).usable).toBe(true)
+    expect(historyAuditScope({ isShallow: false, commitCount: 2 }).usable).toBe(true)
+  })
+
+  it('集成：浅克隆跑 --history 必须 rc=2 且不出现"通过"；同仓完整跑必须 rc=0', () => {
+    // fixture：两个提交（避免"提交数 ≤1"这条把集成用例挡掉）
+    const dir = mkRepo({ 'README.md': '# fixture\n' })
+    const git = (...a: string[]) => {
+      const r = spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' })
+      if (r.status !== 0) throw new Error(`git ${a.join(' ')}: ${r.stderr}`)
+    }
+    fs.writeFileSync(path.join(dir, 'notes.md'), 'second commit\n')
+    git('add', '-A')
+    git('-c', 'user.name=启禾软件', '-c', 'user.email=ai_qihe@vip.qq.com', 'commit', '-q', '-m', 'fixture 2')
+
+    // 完整（非浅）克隆 ⇒ 历史口径正常绿
+    expect(runLeak(dir, ['--history']).status).toBe(0)
+
+    // 浅克隆（照 CI checkout 默认 depth=1 的形态）⇒ 必须拒绝执行，而不是打印"通过"
+    const shallow = fs.mkdtempSync(path.join(os.tmpdir(), 'qihe-leak-'))
+    const clone = spawnSync('git', ['clone', '-q', '--depth', '1', `file://${dir}`, path.join(shallow, 'w')], { encoding: 'utf8' })
+    expect(clone.status, `git clone 失败：${clone.stderr}`).toBe(0)
+    const r = runLeak(path.join(shallow, 'w'), ['--history'])
+    expect(r.status).toBe(2)
+    expect(r.all).toContain('浅克隆')
+    expect(r.all).not.toContain('泄漏门禁通过')
   })
 })
