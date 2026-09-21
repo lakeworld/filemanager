@@ -24,6 +24,8 @@ import { ExchangeService } from './exchange'
 import { ClientsService } from './clients'
 import { SuppliersService } from './suppliers'
 import { QuotesService } from './quotes'
+// v2.5.9（A7 计算）：计算台账（calcs.json，暂存/转正两态）
+import { CalcsService } from './calcs'
 import type { Logger } from './logger'
 import path from 'node:path'
 import fsp from 'node:fs/promises'
@@ -46,6 +48,8 @@ export class BoxService {
   suppliers: SuppliersService
   /** v2.4.9 S3：报价单台账（报价.json + 报价/<YYYY>/ 归档，对齐启禾 OS 报价单 Quotation） */
   quotes: QuotesService
+  /** v2.5.9（A7 计算）：计算台账（calcs.json；暂存 saved:false 也落盘，转正 saved:true） */
+  calcs: CalcsService
   /** v2.4.7：入库单（PLAN §7） */
   inbound: InboundService
   /** v2.4.7：交换区投递（PLAN §8）——文件归集内置；发票/入库台账经 ledger sink 接入（见构造器） */
@@ -71,6 +75,8 @@ export class BoxService {
     this.suppliers = new SuppliersService(this.workspace, logger)
     // v2.4.9 S3：报价服务注入 Logger（S6 core 接口；测试传 MemoryLogger 断言）
     this.quotes = new QuotesService(this.workspace, logger)
+    // v2.5.9（A7 计算）：计算台账（纯本地；解析在 shared/calc，本服务只记展示态）
+    this.calcs = new CalcsService(this.workspace, logger)
     this.trash = new TrashService(this.workspace, this.metadata, thumbs, this.clients, this.suppliers)
     this.files = new FilesService(this.workspace, this.metadata, thumbs, this.trash)
     this.dashboard = new DashboardService(this.workspace, this.metadata, this.files)

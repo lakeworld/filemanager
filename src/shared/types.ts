@@ -788,3 +788,42 @@ export interface WindowFirstFrameAckMessage {
 export interface WindowRestoredMessage {
   generation: number
 }
+
+// —— v2.5.9（A7 计算）——
+// 一条计算记录（calcs.json 的 Record key = id）；权威 = docs/INTERNAL/PLAN-v2.6-计算.md §三。
+// expression/result 都是**展示态**（× ÷ 已渲染、数字已千分位两位）；resultKind 区分日期结果。
+// saved=false（暂存）也持久化——"临时"指身份还不是资料，不是"还没落盘"。
+
+export interface CalcRecord {
+  id: string
+  /** 展示态算式（× ÷ 渲染 + 规整空格） */
+  expression: string
+  /** 展示态结果（千分位文本或 YYYY-MM-DD） */
+  result: string
+  resultKind: 'number' | 'date'
+  /** 标题（可选；update 传 '' 清空） */
+  title?: string
+  /** 备注（可选，如「XX客户的报价，含15个点毛利」；update 传 '' 清空） */
+  note?: string
+  /** false=暂存，true=已存资料（转正；两态唯一视觉差异 = 历史行上的「已存资料」小标签） */
+  saved: boolean
+  created: string
+  updated: string
+}
+
+/** 记一条（解析与格式化在渲染层用 shared/calc 完成后传入展示态） */
+export interface CalcCreateRequest {
+  expression: string
+  result: string
+  resultKind: 'number' | 'date'
+  title?: string
+  note?: string
+}
+
+/** 补丁式更新：只有出现的字段被改动；title/note 传 ''（或纯空格）表示清空；saved 双向可切 */
+export interface CalcUpdateRequest {
+  id: string
+  title?: string
+  note?: string
+  saved?: boolean
+}

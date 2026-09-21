@@ -40,6 +40,8 @@ export const INBOUND_FILE = 'inbound.json'
 export const EXCHANGE_STATE_FILE = 'exchange_state.json'
 export const SUPPLIERS_INFO_FILE = 'suppliers.json'
 export const QUOTES_FILE = '报价.json'
+// v2.5.9（A7 计算）：计算台账（Record<id, CalcRecord>；新文件，无迁移问题）
+export const CALCS_FILE = 'calcs.json'
 export const RECENT_FILE = '.qihefilemanager_recent.json'
 export const TAGS_FILE = 'tags.json'
 export const THUMBNAIL_DIR = '.thumbnails'
@@ -156,6 +158,11 @@ export function quotesPath(workspace: string): string {
 
 export function quoteRootPath(workspace: string): string {
   return path.join(workspace, QUOTES_DIR)
+}
+
+// —— v2.5.9（A7 计算）：台账路径 ——
+export function calcsPath(workspace: string): string {
+  return path.join(cmDir(workspace), CALCS_FILE)
 }
 
 export function invoiceRootPath(workspace: string): string {
