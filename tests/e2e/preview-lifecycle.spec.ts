@@ -120,12 +120,17 @@ test.describe('预览生命周期治理（v2.5.3 T7）', () => {
 
     const sharp = (await import('sharp')).default
     let pngPath: string
+    // v2.5.9/A1c：大图这条用例会造 12000×12000 随机 raw（=432MB 缓冲）+ PNG 编码，
+    // 在 2 核 GitHub runner 上可能是几十秒级的 CPU/内存尖峰，并把**紧随其后**那条用例的首跑拖垮
+    // （旧现象：首跑挂、Retry 过）。把这段耗时打出来，下次抖动能直接验证或排除这个假设。
+    const tBig = Date.now()
     if (big) {
       const { randomBytes } = await import('node:crypto')
       const W = 12000
       const buf = randomBytes(W * W * 3)
       pngPath = path.join(wsDir, '超大图.png')
       await sharp(buf, { raw: { width: W, height: W, channels: 3 } }).png().toFile(pngPath)
+      console.log(`[pv] 大图夹具耗时 ${psName}：${W}×${W} raw+png=${Date.now() - tBig}ms`)
     } else {
       pngPath = path.join(wsDir, '小图.png')
       await sharp({ create: { width: 400, height: 300, channels: 3, background: { r: 120, g: 160, b: 200 } } })
@@ -155,7 +160,15 @@ test.describe('预览生命周期治理（v2.5.3 T7）', () => {
   /** 轮询图包列表直到导入完成出现条目（import 为异步，完成才可双击预览）。
    *  导入完成后整页 reload 重新挂载图包页——全量套件负载下页面首次挂载可能早于导入完成，
    *  且 SPA 同路径导航不会重挂载，产品集卡片列表会过期不显示新集（v2.5.3 修复）。 */
+  /**
+   * v2.5.9/A1c（2026-09-21）：等图包卡片，并把**各段耗时打出来**。
+   * 背景：这条在 CI 上先是"恒红"、加了 180s 预算后降级为 flaky（首跑挂、Retry 过），
+   * 而根因一直说不清——旧写法是「3 次 × 30s」盲等，红的时候只看见最后一行 locator 超时，
+   * 看不出时间花在哪。现在按段计时：导入落库（真正的"冷索引"）/ 整页 reload / 标题挂载 / 卡片渲染。
+   * 判据不变：卡片必须真的可见，等不到照样红。
+   */
   const waitImageCard = async (psName: string, timeout = 45000): Promise<void> => {
+    const t0 = Date.now()
     await page.waitForFunction(
       async (psName) => {
         const r = await (window as any).qihebox.files.list({
@@ -169,25 +182,42 @@ test.describe('预览生命周期治理（v2.5.3 T7）', () => {
       psName,
       { timeout },
     )
+    const tListed = Date.now()
     // 整页 reload：重新挂载后产品集列表以最新状态重新加载
     await navigateTo('/images')
+    const tNav = Date.now()
     await expect(page.getByRole('heading', { name: '图包库' })).toBeVisible({ timeout: 30000 })
-    // 确认卡片列表已渲染新集（全量套件负载下重挂载后列表可能仍未就绪——自动再 reload 重试，最多 3 次；
-    // 卡片可见性不是本用例断言目标，等它就是为让后续双击可执行）
-    let cardVisible = false
-    for (let attempt = 0; attempt < 3 && !cardVisible; attempt += 1) {
+    const tHead = Date.now()
+    // 卡片可见性不是本用例断言目标，等它就是为让后续双击可执行。
+    // ⚠ 保留「等不到就重新挂载再试」这条恢复路径——它是**承重墙**不是冗余：
+    //   SPA 同路径导航不会重挂载，产品集卡片列表会停在旧状态，光靠等时间等不出来
+    //   （2026-09-21 实测：把三连试简化成"一个总预算内轮询"后，这条用例从"偶发"变成**稳定复现失败**）。
+    // v2.5.9/A1c：在保留恢复路径的同时按段计时 + 每次重试都打印累计耗时，
+    //   红的时候能读出时间花在"导入落库 / reload / 标题 / 卡片"哪一段。
+    let lastError: unknown
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
-        await page.locator('.card', { hasText: psName }).first().waitFor({ timeout: 30000 })
-        cardVisible = true
+        await expect(async () => {
+          expect(await page.locator('.card', { hasText: psName }).count()).toBeGreaterThan(0)
+        }).toPass({ timeout: Math.ceil(timeout / 3) })
+        console.log(
+          `[pv] 冷索引分段耗时 ${psName}：导入落库=${tListed - t0}ms 整页reload=${tNav - tListed}ms ` +
+            `标题挂载=${tHead - tNav}ms 卡片渲染=${Date.now() - tHead}ms（第 ${attempt} 次即中）总=${Date.now() - t0}ms`,
+        )
+        return
       } catch (error) {
-        if (attempt < 2) {
+        lastError = error
+        console.log(
+          `[pv] 第 ${attempt} 次等卡片未中（累计 ${Date.now() - t0}ms），重新挂载再试：` +
+            `导入落库=${tListed - t0}ms reload=${tNav - tListed}ms 标题=${tHead - tNav}ms 本段=${Date.now() - tHead}ms`,
+        )
+        if (attempt < 3) {
           await navigateTo('/images')
           await expect(page.getByRole('heading', { name: '图包库' })).toBeVisible({ timeout: 30000 })
-        } else {
-          throw error
         }
       }
     }
+    throw lastError
   }
 
   test('关闭预览后无状态残留：再次打开显示新文件', async () => {
