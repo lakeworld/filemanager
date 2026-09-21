@@ -486,6 +486,8 @@ export function registerIpc(
   )
   ipcMain.handle('qihebox:files:createSubfolder', (_e, req) => handle(() => box.files.createSubfolder(req)))
   ipcMain.handle('qihebox:files:deleteSubfolder', (_e, req) => handle(() => box.files.deleteSubfolder(req)))
+  // v2.5.9（A9 刀1）：子文件夹名单改由**盘**决定（tab 名单唯一来源，已在主进程排好序）
+  ipcMain.handle('qihebox:files:listSubfolders', (_e, req) => handle(() => box.files.listSubfolders(req)))
   ipcMain.handle('qihebox:files:ensureThumbnail', (_e, filePath: string) =>
     handle(() => box.ensureThumbnailFor(filePath)),
   )

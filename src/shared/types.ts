@@ -115,6 +115,23 @@ export interface FileListRequest {
   media_type?: 'image' | 'video'
 }
 
+/**
+ * v2.5.9（A9 刀1）：列某实体某域下**实际存在**的子文件夹（tab 名单以盘为准）。
+ * 请求形状与 `FileListRequest` 同口径：`product_set` 槽位承载实体名，`scope` 决定域根目录。
+ */
+export interface ListSubfoldersRequest {
+  product_set: string
+  /** 'image' | 'cert' | 'doc'；scope 为 customer/supplier 时忽略（实体根下一层即子文件夹） */
+  file_type?: string
+  scope?: 'productSet' | 'customer' | 'supplier'
+}
+
+/** 一个实际存在的子文件夹；`has_files` 供渲染层把空目录**淡一档显示**（A9 §三.2 用户拍板） */
+export interface SubfolderEntry {
+  name: string
+  has_files: boolean
+}
+
 export interface ImportFileRequest {
   source_paths: string[]
   target_product_set: string

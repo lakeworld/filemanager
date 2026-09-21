@@ -143,6 +143,8 @@ const api = {
       invoke('qihebox:files:writeText', relPath, content),
     createSubfolder: (req: unknown) => invoke('qihebox:files:createSubfolder', req),
     deleteSubfolder: (req: unknown) => invoke('qihebox:files:deleteSubfolder', req),
+    // v2.5.9（A9 刀1）：列该实体该域下实际存在的子文件夹（以盘为准）
+    listSubfolders: (req: unknown) => invoke('qihebox:files:listSubfolders', req),
     ensureThumbnail: (filePath: string) => invoke('qihebox:files:ensureThumbnail', filePath),
     thumbnailUrl: (filePath: string) => invoke('qihebox:files:thumbnailUrl', filePath),
     // v2.4.6：图片预览降采样副本 URL（≤2048px JPEG，主进程 sharp 生成并缓存）

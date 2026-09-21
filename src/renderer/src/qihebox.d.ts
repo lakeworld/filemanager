@@ -3,6 +3,8 @@
  */
 import type {
   ApiResult,
+  ListSubfoldersRequest,
+  SubfolderEntry,
   WindowFirstFrameAckMessage,
   WindowParkedAckMessage,
   WindowPrepareHideMessage,
@@ -127,6 +129,9 @@ interface QiheboxApi {
     writeText: (relPath: string, content: string) => Promise<unknown>
     createSubfolder: (req: unknown) => Promise<unknown>
     deleteSubfolder: (req: unknown) => Promise<unknown>
+    /** v2.5.9（A9 刀1）：某实体某域下**实际存在**的子文件夹 = tab 名单唯一来源；
+     *  主进程已按名称排好序，空目录以 has_files=false 返回（渲染层据此淡显） */
+    listSubfolders: (req: ListSubfoldersRequest) => Promise<ApiResult<SubfolderEntry[]>>
     ensureThumbnail: (filePath: string) => Promise<unknown>
     thumbnailUrl: (filePath: string) => Promise<unknown>
     previewUrl: (filePath: string) => Promise<unknown>
