@@ -108,6 +108,9 @@ export interface PluginManifest {
     label: PluginText              // 按钮/菜单文案
     scope: 'file' | 'global'       // 'file'=右键菜单注入；'global'=表单上下文槽（v2.5.4，当前：新建发票弹窗 create 模式首行，随 registry 启停增减）
     when?: { exts?: string[] }     // 可见性过滤，防右键菜单污染
+    openPage?: string              // 「打开本插件页面」命令（v2.5.9 增量）：声明后宿主不执行回调，
+                                   // 改为把右键 filePaths 写 sessionStorage 交接键并 navigate 到该页；
+                                   // 必须为本插件 pages[].path 之一（登记期校验，防越权跳转）
   }>
   description?: PluginText
   author?: string
@@ -136,6 +139,7 @@ export interface PluginManifest {
 7. `activation` 中 `onEvent:<channel>` 的 channel 必须以本插件 `ipcPrefix` 开头 <!-- contract:v1:manifest.rule7 -->
 8. `syncScope` 仅支持缺省（默认 `'local'`）、`'global'` 或 `'local'`；其余值 → broken（v2.5 增量） <!-- contract:v1:manifest.rule8 -->
 9. `permissions` 子字段类型校验：`account` / `clipboard` / `notification` 布尔、`network` 字符串数组或 `'*'`；非法 → broken（v2.5 增量） <!-- contract:v1:manifest.rule9 -->
+10. `commands[].openPage`（可选）三边校验：非空字符串 / `'/plugin/'` 前缀 / 必须命中本插件 `pages[].path`；非法 → broken（v2.5.9 增量） <!-- contract:v1:manifest.rule10 -->
 
 ---
 
@@ -167,6 +171,8 @@ export interface PluginManifest {
 |---|---|---|
 | onView | `pages` 声明自动推断 | 访问插件页面才激活 |
 | onCommand | `commands` 声明自动推断 | 点击插件命令才激活 |
+
+**`openPage` 运行语义（v2.5.9 增量）**：`scope='file'` 命令声明 `openPage` 后，宿主在文件右键菜单注入该项的形态不变，但点击行为改为两步：① 把本次右键的 `filePaths` 写入 `sessionStorage['qihebox:plugin-handoff']`（JSON：`{ pluginId, paths, at }`）；② `navigate(openPage + '?from=menu&t=<时间戳>')`，并 `window.dispatchEvent(new CustomEvent('qihebox:plugin-handoff'))`（solid-router 的 navigate 走 pushState 不发 DOM 事件，页面已打开时不重挂 → 显式广播）。插件页面挂载时及收到该事件时读取交接键并**立即清除**（take 语义；`pluginId` 不符或形状非法的条目忽略不清）。未声明 `openPage` 的命令维持 `callPlugin(pluginId, commandId, { filePaths })` 原行为。
 | IPC 首次到达 | `plugins.call(<id>, ...)` | 被调用时激活 |
 | `onEvent:<channel>` | **显式声明** | 事件订阅类插件必须声明，否则永不激活 |
 | `onStartupFinished` | **显式声明** | 启动完成后延迟激活，不进启动关键路径 |

@@ -420,6 +420,7 @@ function toInfo(e: PluginEntry): PluginInfo {
             label: resolvePluginText(c.label),
             scope: c.scope,
             ...(c.when !== undefined ? { when: c.when } : {}),
+            ...(c.openPage !== undefined ? { openPage: c.openPage } : {}),
           })),
         }
       : {}),

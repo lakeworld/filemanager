@@ -1,7 +1,7 @@
 import type { ContextMenuItem } from "~/components/ContextMenu";
 import { api } from "~/wails/api";
 import type { FileEntry } from "~/types";
-import { callPlugin, pluginFileCommands } from "~/plugins/registry";
+import { buildPluginCommandItem, callPlugin, pluginFileCommands, PLUGIN_HANDOFF_KEY } from "~/plugins/registry";
 import { isMarkdownName } from "../../../shared/fileKind";
 
 /**
@@ -41,6 +41,8 @@ export interface FileContextMenuOptions<T extends FileEntry> {
   onExtract?: (file: T, mode: "here" | "folder") => void;
   /** 删除 */
   onDelete?: (paths: string[]) => void;
+  /** openPage 插件命令的导航回调（v2.5.9；宿主侧 useNavigate 注入，带时间戳 query 防同路由不刷新） */
+  onOpenPluginPage?: (openPage: string, paths: string[]) => void;
 }
 
 export function buildFileContextMenuItems<T extends FileEntry>(
@@ -210,11 +212,30 @@ export function buildFileContextMenuItems<T extends FileEntry>(
       cmd.exts.length === 0 ||
       (single && cmd.exts.some((e) => file.name.toLowerCase().endsWith(e.toLowerCase())));
     if (!extMatch) continue;
-    items.push({
-      label: cmd.label,
-      icon: "🧩",
-      action: () => void callPlugin(cmd.pluginId, cmd.commandId, { filePaths: paths }),
-    });
+    items.push(
+      buildPluginCommandItem(cmd, paths, {
+        call: (pluginId, commandId, filePaths) => void callPlugin(pluginId, commandId, { filePaths }),
+        open: (openPage, filePaths) => {
+          // 交接优先于导航：sessionStorage 不可用（隐私模式等）仍导航，插件侧按无交接处理
+          try {
+            sessionStorage.setItem(
+              PLUGIN_HANDOFF_KEY,
+              JSON.stringify({ pluginId: cmd.pluginId, paths: filePaths, at: Date.now() }),
+            );
+          } catch {
+            /* 忽略：插件页读不到交接即回落「手动选择文件」 */
+          }
+          // 自定义事件（v2.5.9）：solid-router 的 navigate 走 pushState 不发 DOM 事件，
+          // 插件页已打开时不重挂 → 显式广播一次，页面监听即消费（take 语义）
+          try {
+            window.dispatchEvent(new CustomEvent("qihebox:plugin-handoff"));
+          } catch {
+            /* 非浏览器环境（单测）忽略 */
+          }
+          opts.onOpenPluginPage?.(openPage, filePaths);
+        },
+      }),
+    );
   }
 
   return items;

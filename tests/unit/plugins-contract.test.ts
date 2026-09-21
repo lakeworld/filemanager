@@ -370,6 +370,24 @@ const CONTRACT: Record<string, ContractEntry> = {
       reject(deps.validateManifest, baseManifest({ activation: ['onEvent:workspaceChanged'] }), 'onEvent')
     },
   },
+  'contract:v1:manifest.rule10': {
+    stage: 'v1',
+    check: (deps) => {
+      // commands[].openPage（v2.5.9 增量）：声明「此命令=打开本插件页面」而非执行回调。
+      // 校验三边：非字符串 / 无 /plugin/ 前缀 / 不落在本插件 pages[].path 内 → 均错（防越权跳转）。
+      const withPages = { pages: [PAGE], kind: ['ipc', 'pages', 'commands'] as unknown[] }
+      const okCmd = { id: 'open', label: '去页面', scope: 'file', openPage: PAGE.path }
+      reject(deps.validateManifest, baseManifest({ ...withPages, commands: [{ ...okCmd, openPage: 42 }] }), 'openPage')
+      reject(deps.validateManifest, baseManifest({ ...withPages, commands: [{ ...okCmd, openPage: '/dashboard' }] }), 'openPage')
+      reject(deps.validateManifest, baseManifest({ ...withPages, commands: [{ ...okCmd, openPage: '/plugin/other' }] }), 'openPage')
+      // 合法 openPage 通过（不因新字段误伤）
+      const okM = baseManifest({ ...withPages, commands: [okCmd] })
+      expect(deps.validateManifest(okM).errors, okM.errors?.join()).toEqual([])
+      // 旧插件不声明 openPage → 行为零变化
+      const legacy = baseManifest({ kind: ['ipc', 'commands'], commands: [{ id: 'c', label: 'x', scope: 'file' }] })
+      expect(deps.validateManifest(legacy).errors).toEqual([])
+    },
+  },
   'contract:v1:manifest.rule8': {
     stage: 'v1',
     check: (deps) => {
