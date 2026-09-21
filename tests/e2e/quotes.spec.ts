@@ -394,6 +394,13 @@ test.describe('报价单 e2e（v2.4.9 S3）', () => {
     await expect(dialog.getByText(/归档文件保留/)).toBeVisible()
     await dialog.getByRole('button', { name: '删除', exact: true }).click()
 
+    // 等对话框关闭再查台账：ConfirmDialog 只有父级在 delete resolve 之后才清 deleteTarget
+    // （Quotes.tsx confirmDelete：await api.quotes.delete → setDeleteTarget(null)），
+    // 所以「对话框已关」= 删除已落库。少了这一等，下一行 list() 会与异步删除**赛跑**——
+    // 快机常赢、CI/容器必输（2026-09-11 D0 红集登记的容器环境性；2026-09-22 CI 845cfbf
+    // 轮复现：Expected false / Received true）。断言本身一字未动。
+    await expect(dialog).toBeHidden({ timeout: 15000 })
+
     // 台账无该单；归档文件仍在（账物分离）
     const list = await page.evaluate(async () => (window as any).qihebox.quotes.list())
     expect(list.success).toBe(true)
