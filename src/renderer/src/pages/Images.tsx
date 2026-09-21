@@ -97,6 +97,15 @@ export default function Images() {
   });
 
   const imageFolders = () => workspaceConfig()?.image_subfolders || ["主图", "详情页", "白底图", "素材"];
+  /**
+   * v2.5.9（A9 刀1d）：筛选下拉用**跨产品集的盘上并集**（去重 + 名称序）。
+   * `imageFolders()` 仍保留：它是"新建产品集时的默认模板"那一份，不再是"这儿有什么"的答案。
+   */
+  const imageFolderUnion = () => {
+    const set = new Set<string>();
+    for (const ps of productSets()) for (const e of ps.image_folders ?? []) set.add(e.name);
+    return [...set].sort((a, b) => a.localeCompare(b, "zh"));
+  };
 
   const loadAllImages = async () => {
     if (!currentWorkspace()) return;
@@ -114,7 +123,9 @@ export default function Images() {
 
       const all: ImageItem[] = [];
       for (const ps of result.data) {
-        for (const sub of imageFolders()) {
+        // v2.5.9（A9 刀1d）：聚合页**按盘并集**——列某个产品集自己盘上有的图包子文件夹，
+        // 不再拿全站那一张模板表去每个集里问一遍（旧行为：表里没登记的目录，文件在这儿永远看不见）。
+        for (const sub of (ps.image_folders ?? []).map((e) => e.name)) {
           const fileResult = await api.files.list({
             product_set: ps.name,
             // v2.4.4：视频与图片同居图包目录（file_type 定目录），media_type 定「图片/视频」筛选
@@ -395,7 +406,7 @@ export default function Images() {
           ariaLabel="子文件夹筛选"
           options={[
             { value: "", label: "全部子文件夹" },
-            ...imageFolders().map((folder) => ({ value: folder, label: folder })),
+            ...imageFolderUnion().map((folder) => ({ value: folder, label: folder })),
           ]}
           value={subFolderFilter()}
           placeholder="全部子文件夹"

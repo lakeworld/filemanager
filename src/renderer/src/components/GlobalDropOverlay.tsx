@@ -62,6 +62,40 @@ export default function GlobalDropOverlay() {
     try { return decodeURIComponent(params.subFolder || ""); } catch { return params.subFolder || ""; }
   };
 
+  /**
+   * v2.5.9（A9 刀1d）：导入目标的子文件夹按**选中实体盘上实际有的**列。
+   * 旧行为是拿全站那一张模板表列一遍 ⇒ 用户在某个产品集里手工建的目录，拖进来时根本选不到；
+   * 没选实体之前仍显示模板那份（否则下拉是空的，用户不知道该选什么）。
+   */
+  const [diskTargetFolders, setDiskTargetFolders] = createSignal<string[] | null>(null);
+  createEffect(() => {
+    const ps = selectedProductSet();
+    const type = targetType();
+    if (!ps || (type !== "image" && type !== "cert")) {
+      setDiskTargetFolders(null);
+      return;
+    }
+    void (async () => {
+      const r = await api.files.listSubfolders({
+        product_set: ps,
+        file_type: type === "image" ? "image" : "cert",
+        scope: "productSet",
+      });
+      setDiskTargetFolders(
+        r.success ? (r.data ?? []).map((e) => e.name).sort((a, b) => a.localeCompare(b, "zh")) : [],
+      );
+    })();
+  });
+  const targetFolders = (): string[] =>
+    diskTargetFolders() ??
+    (targetType() === "image"
+      ? imageFolders()
+      : targetType() === "cert"
+        ? certFolders()
+        : targetType() === "supplier"
+          ? supplierFolders()
+          : customerFolders());
+
   const handleDialogImport = async () => {
     const ps = selectedProductSet();
     const type = targetType();
@@ -487,12 +521,7 @@ export default function GlobalDropOverlay() {
               <div>
                 <label class="block text-sm font-medium text-surface-700 mb-1">子文件夹</label>
                 <div class="flex bg-surface-100 rounded-lg p-1 flex-wrap gap-1">
-                  <For each={
-                    targetType() === "image" ? imageFolders()
-                      : targetType() === "cert" ? certFolders()
-                      : targetType() === "supplier" ? supplierFolders()
-                      : customerFolders()
-                  }>
+                  <For each={targetFolders()}>
                     {(folder) => (
                       <button
                         class={`seg-item ${subFolder() === folder ? "seg-item-on" : "text-surface-500"}`}

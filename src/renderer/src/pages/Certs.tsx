@@ -130,6 +130,12 @@ export default function Certs() {
   });
 
   const certFolders = () => workspaceConfig()?.cert_subfolders || ["3C", "质检", "专利"];
+  /** v2.5.9（A9 刀1d）：跨产品集的盘上并集（去重 + 名称序）——筛选下拉与聚合循环同源 */
+  const certFolderUnion = () => {
+    const set = new Set<string>();
+    for (const ps of productSets()) for (const e of ps.cert_folders ?? []) set.add(e.name);
+    return [...set].sort((a, b) => a.localeCompare(b, "zh"));
+  };
 
   // 筛选下拉选项（产品集/子文件夹/标签三族；排序档是常量，放模块顶层）
   const productSetOptions = createMemo<readonly SearchSelectOption[]>(() => [
@@ -138,7 +144,7 @@ export default function Certs() {
   ]);
   const subFolderOptions = createMemo<readonly SearchSelectOption[]>(() => [
     { value: "", label: "全部子文件夹" },
-    ...certFolders().map((f) => ({ value: f, label: f })),
+    ...certFolderUnion().map((f) => ({ value: f, label: f })),
   ]);
   const tagOptions = createMemo<readonly SearchSelectOption[]>(() => [
     { value: "", label: "全部标签" },
@@ -160,7 +166,8 @@ export default function Certs() {
 
       const all: CertItem[] = [];
       for (const ps of result.data) {
-        for (const sub of certFolders()) {
+        // v2.5.9（A9 刀1d）：同 Images——按盘并集，表里没登记的证书目录也要能在这儿看见
+        for (const sub of (ps.cert_folders ?? []).map((e) => e.name)) {
           const fileResult = await api.files.list({
             product_set: ps.name,
             file_type: "cert",
