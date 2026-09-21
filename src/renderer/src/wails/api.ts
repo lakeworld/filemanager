@@ -44,6 +44,10 @@ import type {
   QuoteRecord,
   QuoteCreateRequest,
   QuoteUpdateRequest,
+  // —— v2.5.9（A7 计算）——
+  CalcRecord,
+  CalcCreateRequest,
+  CalcUpdateRequest,
   InvoiceRecord,
   InboundRecord,
   InvoiceStatus,
@@ -172,6 +176,13 @@ export const api = {
       qb.quotes.docCopy(no, date, sourcePaths) as Promise<ApiResult<string[]>>,
     docCount: (no: string, date: string) =>
       qb.quotes.docCount(no, date) as Promise<ApiResult<number>>,
+  },
+  // v2.5.9（A7 计算）：计算台账（对齐 main core 服务契约；解析走 shared/calc，本层只存读）
+  calcs: {
+    list: () => qb.calcs.list() as Promise<ApiResult<CalcRecord[]>>,
+    add: (req: CalcCreateRequest) => qb.calcs.add(req as any) as Promise<ApiResult<CalcRecord>>,
+    update: (req: CalcUpdateRequest) => qb.calcs.update(req as any) as Promise<ApiResult<CalcRecord>>,
+    remove: (id: string) => qb.calcs.remove(id) as Promise<ApiResult<void>>,
   },
   invoices: {
     list: (filter?: InvoiceListFilter) =>

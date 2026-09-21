@@ -96,6 +96,13 @@ const api = {
       invoke('qihebox:quotes:docCopy', no, date, sourcePaths),
     docCount: (no: string, date: string) => invoke('qihebox:quotes:docCount', no, date),
   },
+  // v2.5.9（A7 计算）：计算台账（纯透传，业务在主进程 core/calcs）
+  calcs: {
+    list: () => invoke('qihebox:calcs:list'),
+    add: (req: unknown) => invoke('qihebox:calcs:add', req),
+    update: (req: unknown) => invoke('qihebox:calcs:update', req),
+    remove: (id: string) => invoke('qihebox:calcs:remove', id),
+  },
   invoices: {
     list: (filter?: unknown) => invoke('qihebox:invoices:list', filter),
     checkNumber: (number: string, excludeNumber?: string) =>

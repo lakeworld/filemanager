@@ -88,6 +88,13 @@ interface QiheboxApi {
     docCopy: (no: string, date: string, sourcePaths: string[]) => Promise<unknown>
     docCount: (no: string, date: string) => Promise<unknown>
   }
+  // v2.5.9（A7 计算）：计算台账（纯透传，通道 qihebox:calcs:*）
+  calcs: {
+    list: () => Promise<unknown>
+    add: (req: unknown) => Promise<unknown>
+    update: (req: unknown) => Promise<unknown>
+    remove: (id: string) => Promise<unknown>
+  }
   invoices: {
     list: (filter?: unknown) => Promise<unknown>
     checkNumber: (number: string, excludeNumber?: string | null) => Promise<unknown>

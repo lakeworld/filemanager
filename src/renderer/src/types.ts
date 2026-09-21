@@ -59,6 +59,10 @@ export type {
   ImportResult,
   DedupItem,
   SweepResult,
+  // —— v2.5.9（A7 计算）——
+  CalcRecord,
+  CalcCreateRequest,
+  CalcUpdateRequest,
 } from "../../shared/types";
 
 // —— v2.4.7：发票 / 入库请求类型（镜像 main core 契约；shared/types.ts 仅承载持久形态）——

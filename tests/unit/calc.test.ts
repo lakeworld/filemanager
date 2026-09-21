@@ -10,7 +10,7 @@
  * - 裸 B% = B/100。
  */
 import { describe, it, expect } from 'vitest'
-import { evaluateExpression, renderExpression, formatCalcNumber } from '../../src/shared/calc'
+import { evaluateExpression, renderExpression, formatCalcNumber, formatCalcTime } from '../../src/shared/calc'
 
 /** 断言成功并取 display（失败时把错误信息带进断言输出，便于定位） */
 function displayOf(input: string): string {
@@ -198,6 +198,38 @@ describe('计算解析器（v2.5.9/A7）', () => {
       expect(formatCalcNumber(0.1)).toBe('0.10')
       expect(formatCalcNumber(-1234.5)).toBe('-1,234.50')
       expect(formatCalcNumber(0)).toBe('0.00')
+    })
+  })
+
+  describe('formatCalcTime（历史行时间小灰字）', () => {
+    // 固定「现在」= 2026-09-22（周二）10:30 本地；断言全部相对它，不依赖运行时钟
+    const now = new Date(2026, 8, 22, 10, 30)
+    const at = (y: number, m: number, d: number, h = 12, min = 0): string =>
+      new Date(y, m - 1, d, h, min).toISOString()
+
+    it('同一天 → HH:MM（两位补零；含晚于此刻的未来偏移）', () => {
+      expect(formatCalcTime(at(2026, 9, 22, 9, 5), now)).toBe('09:05')
+      expect(formatCalcTime(at(2026, 9, 22, 23, 59), now)).toBe('23:59')
+    })
+
+    it('昨天按日历天差判：昨夜 23:00 只差 11.5 小时，仍算「昨天」', () => {
+      expect(formatCalcTime(at(2026, 9, 21, 23, 0), now)).toBe('昨天')
+      expect(formatCalcTime(at(2026, 9, 21, 0, 5), now)).toBe('昨天')
+    })
+
+    it('2–6 天前 → 周X', () => {
+      expect(formatCalcTime(at(2026, 9, 19), now)).toBe('周六') // 3 天前
+      expect(formatCalcTime(at(2026, 9, 16), now)).toBe('周三') // 6 天前（边界内）
+    })
+
+    it('7 天及更早 → YYYY-MM-DD', () => {
+      expect(formatCalcTime(at(2026, 9, 15), now)).toBe('2026-09-15') // 7 天前，刚好出界
+      expect(formatCalcTime(at(2026, 9, 12), now)).toBe('2026-09-12')
+    })
+
+    it('iso 非法 / 空串 → 空串（UI 不显示时间，不崩）', () => {
+      expect(formatCalcTime('not-a-date', now)).toBe('')
+      expect(formatCalcTime('', now)).toBe('')
     })
   })
 })

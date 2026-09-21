@@ -195,6 +195,30 @@ export function formatCalcDate(y: number, m: number, d: number): string {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
 
+const WEEKDAY_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
+/** 本地日历天序号（减时区偏移后取整，避开夏令时/跨时区造成的非整数天差） */
+function localDayIndex(dt: Date): number {
+  return Math.floor((dt.getTime() - dt.getTimezoneOffset() * 60000) / 86400000)
+}
+
+/**
+ * 记录时间展示（面板历史行的小灰字）：今天 → `HH:MM`、昨天 → `昨天`、2–6 天前 → `周X`、
+ * 更早 → `YYYY-MM-DD`。按**本地日历天差**而不是 24 小时差——今晨 8 点看昨夜 23 点的记录
+ * 只有 9 小时，但日历上属于「昨天」。`now` 可注入便于测试；iso 解析失败返回空串（UI 不显示时间）。
+ */
+export function formatCalcTime(iso: string, now: Date = new Date()): string {
+  const dt = new Date(iso)
+  if (Number.isNaN(dt.getTime())) return ''
+  const diff = localDayIndex(now) - localDayIndex(dt)
+  if (diff <= 0) {
+    return `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
+  }
+  if (diff === 1) return '昨天'
+  if (diff <= 6) return WEEKDAY_CN[dt.getDay()]
+  return formatCalcDate(dt.getFullYear(), dt.getMonth() + 1, dt.getDate())
+}
+
 /**
  * 展示态算式：`*`→`×`、`/`→`÷`，并把空格规整成「二元运算符两侧一个空格、
  * 一元运算符贴住操作数、括号内外不留空格、`%` 贴住前一 token」。
