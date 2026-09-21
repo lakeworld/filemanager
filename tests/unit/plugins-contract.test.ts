@@ -382,7 +382,9 @@ const CONTRACT: Record<string, ContractEntry> = {
       reject(deps.validateManifest, baseManifest({ ...withPages, commands: [{ ...okCmd, openPage: '/plugin/other' }] }), 'openPage')
       // 合法 openPage 通过（不因新字段误伤）
       const okM = baseManifest({ ...withPages, commands: [okCmd] })
-      expect(deps.validateManifest(okM).errors, okM.errors?.join()).toEqual([])
+      // 断言消息取校验结果自身的 errors（`okM` 是 Record<string, unknown>，其 `.errors` 是 unknown 不可 join）
+      const okRes = deps.validateManifest(okM)
+      expect(okRes.errors, okRes.errors?.join()).toEqual([])
       // 旧插件不声明 openPage → 行为零变化
       const legacy = baseManifest({ kind: ['ipc', 'commands'], commands: [{ id: 'c', label: 'x', scope: 'file' }] })
       expect(deps.validateManifest(legacy).errors).toEqual([])
