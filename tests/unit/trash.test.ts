@@ -119,7 +119,7 @@ describe('回收站（v2.3.1）', () => {
     expect(Object.keys(store.files)).not.toContain(`系列A/图包/主图/${file.name}`)
   })
 
-  it('删除/恢复子文件夹：config 移除后恢复加回', async () => {
+  it('删除/恢复子文件夹：**模板表全程不受影响**，恢复后由盘决定可见', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -132,7 +132,7 @@ describe('回收站（v2.3.1）', () => {
 
     await box.files.deleteSubfolder({ product_set: '系列A', file_type: 'image', name: '场景图' })
     const cfg2 = await box.workspace.loadConfig(ws)
-    expect(cfg2.image_subfolders).not.toContain('场景图')
+    expect(cfg2.image_subfolders).toContain('场景图') // A9 刀2a：删除只作用于本实体，**不动全站模板表**（旧断言钉的正是用户报的「删一个动全身」）
     // 目录已移走
     const dir = path.join(ws, '产品集', '系列A', '图包', '场景图')
     await expect(fsp.stat(dir)).rejects.toThrow()
@@ -145,6 +145,10 @@ describe('回收站（v2.3.1）', () => {
     await expect(fsp.stat(dir)).resolves.toBeTruthy()
     const cfg3 = await box.workspace.loadConfig(ws)
     expect(cfg3.image_subfolders).toContain('场景图')
+    // A9 刀2a：恢复不写表 ⇒ 这里"仍在表里"是**没被删掉**的结果，不是"被加回来"的结果；
+    // 真正的替代保证是盘上回来了就能看见：
+    const subs = await box.files.listSubfolders({ product_set: '系列A', file_type: 'image' })
+    expect(subs.map((x) => x.name)).toContain('场景图')
   })
 
   it('删除/恢复产品集：目录移走即消失，恢复后 tags/notes 保留', async () => {

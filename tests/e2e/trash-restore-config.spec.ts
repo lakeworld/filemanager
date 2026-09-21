@@ -9,6 +9,9 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 /**
+ * ⚠ v2.5.9（A9 刀2a）判据换过一次：本文件当年钉的是「恢复会把名字**写回 config**，界面要跟上新 config」。
+ *   现在删除/恢复都不再碰那张表（表的角色=新建模板），界面看的是盘 ⇒ 同名判据挪到「那一排 tab」上，
+ *   并且**反向**断言表没被改写。缺陷本体（恢复了却看不见）仍由第 5 步守着，只是守的是用户看得见的东西。
  * 回收站恢复被删子文件夹：磁盘 config 回填 + 界面标签条必须一起跟上。
  *
  * 起因为用户报的第二件事（产品集内删/建文件夹「牵动全身」）追出的一条**正确性假设**：
@@ -63,6 +66,9 @@ test.describe('回收站恢复子文件夹：界面与 config 同步', () => {
     }
   })
 
+  const imgTabs = () =>
+    page.evaluate(() => Array.from(document.querySelectorAll('.seg-item')).map((e) => (e.textContent ?? '').trim()))
+
   const imgFolders = () =>
     page.evaluate(async () => {
       const r = await (window as any).qihebox.config.get()
@@ -97,7 +103,17 @@ test.describe('回收站恢复子文件夹：界面与 config 同步', () => {
       if (!r.success) throw new Error(`删夹失败：${JSON.stringify(r).slice(0, 120)}`)
     })
     await page.waitForTimeout(600)
-    expect(await imgFolders()).not.toContain('恢复验证类')
+    // A9 刀2a 之后的口径：删除**不再**从 config 模板表里划名（那是用户报的「删一个动全身」），
+    // 所以这里判的必须是**用户真正看的那排 tab** 消失；表反而要原样留着（它只是新建模板）。
+    expect(await imgFolders(), '删除不该再动全站模板表').toContain('恢复验证类')
+    // 本步走的是裸 IPC（不是界面上的「删除当前子文件夹」按钮），所以路由不会自动跳走；
+    // 而 tab 名单的刷新时机是「进/换文件夹时重拉」（刀1b 定的口径，刻意不做轮询）。
+    // ⇒ 先像用户那样跳去「主图」，再判那排 tab 里已经没有它。
+    await page.evaluate(() => {
+      window.location.hash = decodeURIComponent('/files/image/恢复集/主图')
+    })
+    await page.waitForTimeout(600)
+    await expect.poll(imgTabs, { timeout: 10000, intervals: [300, 300, 300] }).not.toContain('恢复验证类')
 
     // 3) 从回收站恢复（走渲染层入口，与用户点「恢复」同一条代码路径）
     const restored = await page.evaluate(async () => {
@@ -112,17 +128,19 @@ test.describe('回收站恢复子文件夹：界面与 config 同步', () => {
     expect(restored).toBe(true)
     await page.waitForTimeout(800)
 
-    // 4) 判据：主进程侧磁盘 config 确实回填了（这条先立住，否则第 5 步可能是"主进程也没写"）
-    const onDisk = await imgFolders()
-    expect(onDisk, '主进程恢复时未回填 image_subfolders（那是另一个缺陷，先钉住现状）').toContain('恢复验证类')
+    // 4) A9 刀2a：表**全程不参与**恢复（既没被删掉，也不需要被回填）⇒ 这里判它仍是原样，
+    //    真正的保证挪到第 5 步的「tab 回来了没有」——那才是用户看的东西。
+    expect(await imgFolders(), '模板表被恢复动作改写').toContain('恢复验证类')
 
     // 5) ★ 本缺陷的主判据：进文件页看**子文件夹标签条**——恢复后它应当立刻回来。
-    //    不刷新信号时，标签条读的是旧的 workspaceConfig ⇒ 恢复了却看不见（要重启才出现）。
+    //    去一个**不同**的文件夹：真实用户是从「回收站」那页恢复完再走回文件页，路由必然变；
+    //    而 tab 名单的刷新时机就是路由变（刀1b 定的口径，刻意不做轮询）⇒ 若还跳回原文件夹
+    //    就是无操作，测出来的「没刷新」会是测试自己的假故障。
     await page.evaluate(() => {
-      window.location.hash = decodeURIComponent('/files/image/恢复集/主图')
+      window.location.hash = decodeURIComponent('/files/image/恢复集/白底图')
     })
     await page.waitForTimeout(1200)
     const tabs = await page.evaluate(() => Array.from(document.querySelectorAll('.seg-item')).map((b) => b.textContent?.trim()))
-    expect(tabs, `恢复后子文件夹标签没回来（渲染层 workspaceConfig 未同步）：当前 tabs=${JSON.stringify(tabs)}`).toContain('恢复验证类')
+    expect(tabs, `恢复后子文件夹标签没回来（tab 名单以盘为准，见 A9 刀1b/2a）：当前 tabs=${JSON.stringify(tabs)}`).toContain('恢复验证类')
   })
 })

@@ -198,7 +198,7 @@ describe('回收站（§4.4）', () => {
     expect(inv.invoices['INV-1'].customer).toBe('客户乙')
   })
 
-  it('客户子文件夹 restore 回填 cfg.customer_subfolders', async () => {
+  it('客户子文件夹 restore：盘上回来了（**不再回填** cfg 模板表）', async () => {
     const { box, ws } = await buildBox()
     await box.clients.create({ name: '客户丙' })
     const sub = path.join(ws, '客户', '客户丙', '对账单')
@@ -209,8 +209,11 @@ describe('回收站（§4.4）', () => {
     expect(entries[0].kind).toBe('subfolder')
 
     await box.trash.restore(entries[0].id)
+    // A9 刀2a：恢复不回填模板表；替代保证 = 盘上有 ⇒ tab 上有
     const cfg = await box.workspace.loadConfig(ws)
-    expect(cfg.customer_subfolders).toContain('对账单')
+    expect(cfg.customer_subfolders).not.toContain('对账单')
+    const subs = await box.files.listSubfolders({ product_set: '客户丙', scope: 'customer' })
+    expect(subs.map((x) => x.name)).toContain('对账单')
   })
 })
 

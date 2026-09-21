@@ -388,7 +388,15 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     await page.waitForFunction(() => !decodeURIComponent(location.hash).includes('/files/supplier/子夹供应商/样品'))
     const cfgRes2 = await page.evaluate(async () => (window as any).qihebox.config.get())
     expect(cfgRes2.success).toBe(true)
-    expect(cfgRes2.data.supplier_subfolders).not.toContain('样品')
+    // A9 刀2a：删除只作用于本供应商，**不再**从全站模板表里划名（旧断言钉的正是那个毛病）；
+    // 用户看的判据换成「那一排 tab 里没了」——它由盘驱动（刀1b）。
+    expect(cfgRes2.data.supplier_subfolders, '删除不该再动全站模板表').toContain('样品')
+    await expect
+      .poll(
+        () => page.evaluate(() => Array.from(document.querySelectorAll('.seg-item')).map((e) => (e.textContent ?? '').trim())),
+        { timeout: 10000, intervals: [300, 300, 300] },
+      )
+      .not.toContain('样品')
     // 目录已移入回收站（不真删）
     await expect(fsp.stat(path.join(wsDir, '供应商', '子夹供应商', '样品'))).rejects.toBeTruthy()
 

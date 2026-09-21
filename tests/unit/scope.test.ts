@@ -264,7 +264,7 @@ describe('v2.4.7 files scope（§4.6）', () => {
     expect(cfg.customer_subfolders).not.toContain('新图包')
   })
 
-  it('deleteSubfolder scope=customer：目录移入回收站 + config.customer_subfolders 移除', async () => {
+  it('deleteSubfolder scope=customer：目录移入回收站 ，config.customer_subfolders 模板**不受影响**', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -276,7 +276,7 @@ describe('v2.4.7 files scope（§4.6）', () => {
 
     await expect(fsp.stat(path.join(ws, '客户', '张三', '样品'))).rejects.toBeTruthy()
     const cfg = await box.workspace.loadConfig()
-    expect(cfg.customer_subfolders).not.toContain('样品')
+    expect(cfg.customer_subfolders).toContain('样品') // A9 刀2a：删除只作用于本实体，**不动全站模板表**（旧断言钉的正是用户报的「删一个动全身」）
     // 回收站条目（kind=subfolder，恢复逻辑按原路径首段回填 customer_subfolders）
     const items = await box.trash.list()
     expect(items.some((i) => i.kind === 'subfolder' && i.originalPath.includes('客户'))).toBe(true)
@@ -310,7 +310,7 @@ describe('v2.4.7 files scope（§4.6）', () => {
     expect(cfg.supplier_subfolders).not.toContain('新图包')
   })
 
-  it('deleteSubfolder scope=supplier：目录移入回收站 + config.supplier_subfolders 移除（v2.5.5 对齐客户）', async () => {
+  it('deleteSubfolder scope=supplier：目录移入回收站 ，config.supplier_subfolders 模板**不受影响**（v2.5.5 对齐客户）', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -322,7 +322,7 @@ describe('v2.4.7 files scope（§4.6）', () => {
 
     await expect(fsp.stat(path.join(ws, '供应商', '甲', '样品'))).rejects.toBeTruthy()
     const cfg = await box.workspace.loadConfig()
-    expect(cfg.supplier_subfolders).not.toContain('样品')
+    expect(cfg.supplier_subfolders).toContain('样品') // A9 刀2a：删除只作用于本实体，**不动全站模板表**（旧断言钉的正是用户报的「删一个动全身」）
     // 回收站条目（kind=subfolder）
     const items = await box.trash.list()
     expect(items.some((i) => i.kind === 'subfolder' && i.originalPath.includes('供应商'))).toBe(true)

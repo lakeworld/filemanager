@@ -744,21 +744,12 @@ export class FilesService {
     // v2.4.x：删除子文件夹 → 失效父目录与被删子目录的索引快照
     globalWorkspaceIndex.invalidate(path.dirname(dir))
     globalWorkspaceIndex.invalidate(dir)
-    // 从 config 移除（supplier 同 customer：v2.5.5 起可配置）
-    const cfg = await this.loadConfig(ws)
-    if (req.scope === 'customer') {
-      cfg.customer_subfolders = filterSlice(cfg.customer_subfolders ?? [], req.name)
-    } else if (req.scope === 'supplier') {
-      cfg.supplier_subfolders = filterSlice(cfg.supplier_subfolders ?? [], req.name)
-    } else if (req.file_type === 'doc') {
-      // v2.5.1（F1）：文档子文件夹从 config.doc_subfolders 移除
-      cfg.doc_subfolders = filterSlice(cfg.doc_subfolders ?? [], req.name)
-    } else if (req.file_type === 'image') {
-      cfg.image_subfolders = filterSlice(cfg.image_subfolders, req.name)
-    } else {
-      cfg.cert_subfolders = filterSlice(cfg.cert_subfolders, req.name)
-    }
-    await this.workspace.saveConfig(ws, cfg)
+    // v2.5.9（A9 刀2a）：**这里过去会把名字从全站那一份 config 表里划掉**，
+    // 于是「在甲集删一个文件夹」＝「乙集的 tab 也一起没」——用户原话
+    // 「可是它动的是全局的，这个问题你得解决一下」说的就是这个写侧。
+    // 现在表的角色是「新建产品集时的模板」（刀3 把文案也改成这个），
+    // 删某个实体下的一个目录**不该改模板**，所以本方法不再写 config。
+    // （显示侧自刀1b/1c 起一律看盘，删完即消失，不需要靠划表来"让它不见"。）
   }
 
   // —— FileRename ——

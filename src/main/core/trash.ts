@@ -155,41 +155,11 @@ export class TrashService {
     globalWorkspaceIndex.invalidate(path.dirname(target))
     globalWorkspaceIndex.invalidate(target)
 
-    // 子文件夹恢复：名字加回 config（产品集列表为目录扫描，无需额外注册）
-    if (meta.kind === 'subfolder') {
-      // v2.4.7（§4.4）：原路径首段为 客户 → 回填 cfg.customer_subfolders；否则走现有 image/cert 逻辑
-      const relRoot = path.relative(ws, meta.originalPath)
-      const rootParts = relRoot.split(path.sep)
-      const subName = rootParts[rootParts.length - 1]
-      if (rootParts[0] === CUSTOMERS_DIR && subName) {
-        const cfg = await this.workspace.loadConfig(ws)
-        if (!(cfg.customer_subfolders ?? []).includes(subName)) {
-          cfg.customer_subfolders = [...(cfg.customer_subfolders ?? []), subName]
-          await this.workspace.saveConfig(ws, cfg)
-        }
-      } else {
-        const rel = path.relative(path.join(ws, PRODUCT_SETS_DIR), meta.originalPath)
-        const parts = rel.split(path.sep)
-        // v2.5.1（F1）：文档 子文件夹恢复 → 回填 cfg.doc_subfolders
-        const type = parts[1] === IMAGES_DIR ? 'image' : parts[1] === CERTS_DIR ? 'cert' : parts[1] === DOCS_DIR ? 'doc' : null
-        if (type && subName) {
-          const cfg = await this.workspace.loadConfig(ws)
-          if (type === 'doc') {
-            if (!(cfg.doc_subfolders ?? []).includes(subName)) {
-              cfg.doc_subfolders = [...(cfg.doc_subfolders ?? []), subName]
-              await this.workspace.saveConfig(ws, cfg)
-            }
-          } else {
-            const list = type === 'image' ? cfg.image_subfolders : cfg.cert_subfolders
-            if (!list.includes(subName)) {
-              if (type === 'image') cfg.image_subfolders.push(subName)
-              else cfg.cert_subfolders.push(subName)
-              await this.workspace.saveConfig(ws, cfg)
-            }
-          }
-        }
-      }
-    }
+    // v2.5.9（A9 刀2a）：原子文件夹恢复**不再回填 config 表**。
+    // 旧逻辑与 `deleteSubfolder` 配对：删时从全站一份的表里划名、恢复时再加回去 ——
+    // 于是"在甲集删/恢复一个文件夹"会改写乙集乃至未来所有集的默认目录。
+    // 显示侧现已以盘为准（恢复的目录本身就回来了），表只作「新建模板」用途（刀3 定文案），
+    // 因此这一来一回都不该发生。
     // v2.4.9 S2：供应商恢复——按 config.supplier_subfolders 回填子文件夹结构（v2.5.5 起可配置，旧固定集默认 合同/对账单/往来文件）；
     // 档案条目在删除时保留（恢复即复原），若缺失（如目录为外部手工创建）则补回最小条目（参照客户对 customers.json 的处理）
     if (meta.kind === 'supplier') {

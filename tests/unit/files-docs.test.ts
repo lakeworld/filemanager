@@ -57,7 +57,7 @@ describe('产品集文档目录（v2.5.1 F1：文档/ 与图包/证书并列）'
     expect(cfg.doc_subfolders).toContain('安装手册')
   })
 
-  it('deleteSubfolder(file_type=doc)：移入回收站并从 config.doc_subfolders 移除', async () => {
+  it('deleteSubfolder(file_type=doc)：移入回收站，且**不动** config.doc_subfolders 模板表', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -69,7 +69,7 @@ describe('产品集文档目录（v2.5.1 F1：文档/ 与图包/证书并列）'
     // 目录已移入回收站（产品集下不再存在）
     await expect(fsp.stat(path.join(ws, '产品集', '系列A', '文档', '安装手册'))).rejects.toBeTruthy()
     const cfg = await box.workspace.loadConfig(ws)
-    expect(cfg.doc_subfolders).not.toContain('安装手册')
+    expect(cfg.doc_subfolders).toContain('安装手册') // A9 刀2a：删除只作用于本实体，**不动全站模板表**（旧断言钉的正是用户报的「删一个动全身」）
   })
 
   it('importFiles(target_type=doc)：落盘 产品集/<名>/文档/<子文件夹>/', async () => {

@@ -232,7 +232,7 @@ describe('客户服务（v2.4.7 §5）', () => {
     expect(await box.trash.list()).toHaveLength(0)
   })
 
-  it('客户子文件夹恢复：回填 config.customer_subfolders', async () => {
+  it('客户子文件夹恢复：目录回到盘上即可见（**不再回填** config 模板表）', async () => {
     const home = await tmp()
     const ws = await tmp()
     const box = buildTestBox(home)
@@ -246,7 +246,11 @@ describe('客户服务（v2.4.7 §5）', () => {
 
     await expect(fsp.stat(sub)).resolves.toBeTruthy()
     const cfg = await box.workspace.loadConfig(ws)
-    expect(cfg.customer_subfolders).toContain('特殊夹')
+    // A9 刀2a：恢复**不再回填模板表**（那是「改全局」的第二条腿）。旧断言钉的是机制本身，
+    // 这里改钉替代保证：目录回到盘上 ⇒ `listSubfolders` 就能看见它（界面 tab 自动回来）。
+    expect(cfg.customer_subfolders).not.toContain('特殊夹')
+    const subs = await box.files.listSubfolders({ product_set: '张三', scope: 'customer' })
+    expect(subs.map((x) => x.name)).toContain('特殊夹')
     // 默认子文件夹不受影响
     expect(cfg.customer_subfolders).toContain('报价')
   })
