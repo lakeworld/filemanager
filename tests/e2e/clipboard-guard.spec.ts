@@ -32,6 +32,24 @@ test.describe('剪贴板劫持守卫（v2.5.7 A1）', () => {
     await page.evaluate(async () => (window as any).qihebox.productSets.create({ name: '剪贴板测试集' }))
     const srcDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-clip-src-'))
     await fsp.writeFile(path.join(srcDir, 'clip.png'), 'PNG-TEST')
+    // ── v2.5.9/A1d 定责收口：这条红的根因是**本 spec 自己的 fixture 竞态**，不是"机器慢" ──
+    // `files.import` 是 fire-and-forget：`src/main/ipc.ts:367` 原话「与原 Go goroutine 模式一致：
+    // **立即返回**，完成后发 import:complete 事件」⇒ `success:true` 只代表**受理**，不代表落地。
+    // 而这里原先一拿到 ack 就 `fsp.rm(srcDir)`：若 unlink 抢在主进程 `open()` 之前，复制就读不到源。
+    // 负载越高、ack 与 open 之间间隔越长 ⇒ 越容易撞上（正好解释"隔离跑偶红、全量跑常红"）。
+    // 同机两臂实测（每臂 8 次隔离跑，其余完全相同）：
+    //   旧行为臂（ack 后立刻 rm）= **8 次红 1 次**；新行为臂（等 import:complete 再 rm）= **8 次红 0 次**。
+    // 判据本身也升级：先看 `failed` 明细（v2.4.2 I1 起事件带失败清单），再看索引可见性轮询。
+    const importComplete = page.evaluate(
+      () =>
+        new Promise<any>((resolve) => {
+          const qb = (window as any).qihebox
+          const unsub = qb.events.on('import:complete', (data: any) => {
+            if (typeof unsub === 'function') unsub()
+            resolve(data)
+          })
+        }),
+    )
     await page.evaluate(async (src) => {
       const r = await (window as any).qihebox.files.import({
         source_paths: [src + '/clip.png'],
@@ -42,6 +60,14 @@ test.describe('剪贴板劫持守卫（v2.5.7 A1）', () => {
       })
       if (!r.success) throw new Error(JSON.stringify(r))
     }, srcDir)
+    const complete = await Promise.race([
+      importComplete,
+      new Promise<any>((resolve) => setTimeout(() => resolve({ timedOut: true }), 20000)),
+    ])
+    expect(complete.timedOut, '20 秒内没等到 import:complete 事件（导入管道没回音）').toBeFalsy()
+    expect(complete.failed ?? [], 'import:complete 带回失败明细（源没读到 / 落地被拒）').toHaveLength(0)
+    expect(complete.count, 'import:complete 应回执落地 1 个文件').toBe(1)
+    // 到这里才允许删源：事件已证明文件被复制走了（删早了就是上面那条竞态）
     await fsp.rm(srcDir, { recursive: true, force: true }).catch(() => {})
     let imported = false
     let lastList: string[] = []
