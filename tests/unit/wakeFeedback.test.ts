@@ -1,3 +1,4 @@
+import { WAKE_SEARCH_ACCELERATOR_LABEL } from '../../src/shared/appSettings'
 import { describe, it, expect } from 'vitest'
 import { wakeOutcome, WAKE_OCCUPIED_HINT } from '../../src/renderer/src/lib/wakeFeedback'
 import { shouldRollbackWakeSetting } from '../../src/main/core/wakeShortcut'
@@ -24,7 +25,7 @@ describe('A6-1 唤醒快捷键的如实降级', () => {
   })
 
   it('文案自证：说清了"没注册上/为什么/下一步怎么办"，且不承诺没做的事', () => {
-    expect(WAKE_OCCUPIED_HINT).toContain('Ctrl+Alt+K')
+    expect(WAKE_OCCUPIED_HINT).toContain(WAKE_SEARCH_ACCELERATOR_LABEL) // 钉同源，不钉字面量（换键不再漂移）
     expect(WAKE_OCCUPIED_HINT).toContain('占用')
     expect(WAKE_OCCUPIED_HINT).toContain('已保持关闭') // 与实际退回后的开关状态一致，不能写"已开启"
     expect(WAKE_OCCUPIED_HINT).toContain('再试') // 开关可再试 = PLAN 原句

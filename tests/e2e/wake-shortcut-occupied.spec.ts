@@ -1,3 +1,4 @@
+import { WAKE_SEARCH_ACCELERATOR_LABEL } from '../../src/shared/appSettings'
 import { test, expect, _electron as electron } from '@playwright/test'
 import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page } from '@playwright/test'
@@ -79,7 +80,7 @@ test.describe('A6-1 唤醒快捷键占用时的如实降级', () => {
     // 反向实验里退回逻辑被接死了它却仍然通过（页面上另有带"占用"字样的段落撞上），
     // 是反向实验抓出来的，不是我想出来的。
     await expect(
-      page.getByText('未能注册：Ctrl+Alt+K 可能已被系统或其它程序占用'),
+      page.getByText(`未能注册：${WAKE_SEARCH_ACCELERATOR_LABEL} 可能已被系统或其它程序占用`),
       '注册失败却没在设置页说明 ⇒ 用户只看到一个自己弹回的开关',
     ).toBeVisible({ timeout: 5000 })
     // ② 开关：必须回到关（=可再试，而不是灰在那儿）

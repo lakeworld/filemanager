@@ -1,3 +1,4 @@
+import { WAKE_SEARCH_ACCELERATOR_LABEL } from '../../../shared/appSettings'
 /**
  * 全局唤醒快捷键（v2.5.9/A6-1）的用户侧反馈判据——**纯函数**，可单测。
  *
@@ -20,4 +21,4 @@ export function wakeOutcome(requested: boolean | undefined, effective: boolean):
 }
 
 /** 给用户看的那一句（文案住 lib 便于单测钉住，不让它散在 JSX 里） */
-export const WAKE_OCCUPIED_HINT = `未能注册：${'Ctrl+Alt+K'} 可能已被系统或其它程序占用。开关已保持关闭，释放该组合键后可再试一次。`
+export const WAKE_OCCUPIED_HINT = `未能注册：${WAKE_SEARCH_ACCELERATOR_LABEL} 可能已被系统或其它程序占用。开关已保持关闭，释放该组合键后可再试一次。`

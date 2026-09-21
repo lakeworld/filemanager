@@ -371,7 +371,7 @@ const api = {
       return () => ipcRenderer.removeListener('qihebox:event:window:restored', listener)
     },
     /**
-     * v2.5.9 A6-1：全局唤醒搜索（Ctrl+Alt+K）——主进程已把窗口唤到前面，渲染层只管导航 + 聚焦输入框。
+     * v2.5.9 A6-1：全局唤醒搜索（键位见 WAKE_SEARCH_ACCELERATOR）——主进程已把窗口唤到前面，渲染层只管导航 + 聚焦输入框。
      * 无 payload：唤醒只表达"用户想搜索"，携带状态反而会让渲染层与主进程就"搜什么"分叉。
      */
     onWakeSearch: (cb: () => void): (() => void) => {

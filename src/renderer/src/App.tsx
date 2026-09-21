@@ -261,7 +261,7 @@ export default function App(props: RouteSectionProps) {
       void window.qihebox.windowLifecycle.parked(msg.generation).catch(() => {});
     });
 
-    // v2.5.9 A6-1：全局唤醒搜索（Ctrl+Alt+K）——主进程已把窗口唤到前面并聚焦窗口，
+    // v2.5.9 A6-1：全局唤醒搜索（键位见 WAKE_SEARCH_ACCELERATOR）——主进程已把窗口唤到前面并聚焦窗口，
     // 渲染层负责"落到搜索页 + 光标进输入框"。聚焦用**轮询一次帧**而不是立即 focus：
     // 事件到达时可能还在别的路由上，等导航把搜索页挂载出来再聚焦（同一帧内 focus 会打空）。
     unsubWakeSearch = window.qihebox.windowLifecycle.onWakeSearch(() => {

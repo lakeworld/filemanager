@@ -17,7 +17,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
  *    这里补 Ctrl+K 与「输入框内不劫持」这条守卫——守卫从组件搬到 `shortcuts.ts` 时最容易搬丢）。
  *  - **新增能用且守得住**：Ctrl+, 进设置、Ctrl+1…6 直跳、Ctrl+A 全选、Delete 走既有确认弹窗。
  *
- * 说明：`Ctrl+Alt+K` 托盘全局唤醒属主进程 globalShortcut，**e2e 起不了真系统热键**
+ * 说明：`WAKE_SEARCH_ACCELERATOR` 托盘全局唤醒属主进程 globalShortcut，**e2e 起不了真系统热键**
  * （要装到 OS 会话里、且要与别的软件抢注），归 W2 真机手动项，本 spec 不假装能测。
  */
 test.describe('快捷键单注册点（v2.5.8 D11 / W6）', () => {

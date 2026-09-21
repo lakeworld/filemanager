@@ -742,7 +742,7 @@ export default function Settings() {
                 onChange={(v) => void savePref({ clipboardGuard: v })}
               />
               <SettingToggle
-                title="全局唤醒搜索（Ctrl+Alt+K）"
+                title={`全局唤醒搜索（${WAKE_SEARCH_ACCELERATOR_LABEL}）`}
                 desc="任何程序前台时按下都能把启禾唤到前面并直接进搜索页。默认关——它占用的是系统级按键，可能与你其它软件的快捷键撞车"
                 checked={pref().globalWakeShortcut}
                 disabled={!prefReady()}

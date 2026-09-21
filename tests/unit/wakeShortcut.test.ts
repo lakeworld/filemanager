@@ -63,8 +63,10 @@ describe('全局唤醒快捷键 applyWakeShortcut（v2.5.9 A6-1）', () => {
   })
 
   it('加速键常量与设置页展示同源（唯一真相在 shared/appSettings.ts）', () => {
-    // 展示形态是人读的 `Ctrl+Alt+K`，注册形态是 Electron 的 `Control+Alt+K`：两者必须指同一个键
-    expect(WAKE_SEARCH_ACCELERATOR).toBe('Control+Alt+K')
+    // 展示形态是人读的 `Ctrl+Alt+S`，注册形态是 Electron 的 `Control+Alt+S`：两者
+    // v2.5.9：键位从 K 换到 S（用户拍板"K 换别的吧"）。这里**两处都钉**：
+    //   ① 常量值本身（换键必须显式改这里，逼你看见）② LABEL 与 ACCELERATOR 的对应关系（防漂移）必须指同一个键
+    expect(WAKE_SEARCH_ACCELERATOR).toBe('Control+Alt+S')
   })
 })
 

@@ -1,3 +1,4 @@
+import { WAKE_SEARCH_ACCELERATOR } from '../../src/shared/appSettings'
 import { test, expect, _electron as electron } from '@playwright/test'
 import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page } from '@playwright/test'
@@ -66,7 +67,7 @@ test.describe('导航体验（v2.5.9 A6-2/A6-3）', () => {
   })
 
   test('A6-1：主进程广播唤醒事件 ⇒ 落到搜索页且光标进输入框', async () => {
-    // 先在别的路由上（模拟"用户在看产品集时按了 Ctrl+Alt+K"）
+    // 先在别的路由上（模拟"用户在看产品集时按了唤醒热键"）
     await page.evaluate(() => { window.location.hash = '#/product-sets' })
     await expect(page.getByRole('heading', { name: '产品集', exact: true }).first()).toBeVisible({ timeout: 15000 })
 
@@ -83,8 +84,15 @@ test.describe('导航体验（v2.5.9 A6-2/A6-3）', () => {
   })
 
   test('A6-1：设置里开启 ⇒ 主进程真注册；关闭 ⇒ 真注销（默认关）', async () => {
+    // Playwright 的 app.evaluate：pageFunction 第一参 = electron 模块，第二参 = 传进去的 arg。
+    // ⚠ 原写法把键位钉成字面量 `'Control+Alt+K'`：换键之后它会**永远去查一把没人注册的键**，
+    //  于是"关态未注册"这条断言静默常真 = 假绿。改成引用常量，才是真在查我们注册的那把。
     const isRegistered = () =>
-      app.evaluate(({ globalShortcut }) => globalShortcut.isRegistered('Control+Alt+K'))
+      app.evaluate(
+        (electronModule: typeof import('electron'), accel: string) =>
+          electronModule.globalShortcut.isRegistered(accel),
+        WAKE_SEARCH_ACCELERATOR,
+      )
 
     // 默认关：不得"升级后自动占用系统按键"
     const settings = await page.evaluate(async () => (window as any).qihebox.appSettings.get())

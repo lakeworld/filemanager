@@ -246,7 +246,7 @@ function setupCloseToTray(win: BrowserWindow): void {
 }
 
 /**
- * 全局唤醒搜索（v2.5.9 A6-1）：任何程序前台时按 Ctrl+Alt+K ⇒ 把窗口唤到前面并落到搜索页。
+ * 全局唤醒搜索（v2.5.9 A6-1）：任何程序前台时按 `WAKE_SEARCH_ACCELERATOR`（键位唯一真相在 shared/appSettings.ts） ⇒ 把窗口唤到前面并落到搜索页。
  * 判断逻辑全在 `core/wakeShortcut.ts`（可 node 直测）；这里只是 electron 薄壳。
  * 默认**不注册**（设置项 `globalWakeShortcut` 默认 false）——全局热键是抢系统按键的动作，
  * 这种"占别人的键"只能用户自己选，升级不得自动生效。
