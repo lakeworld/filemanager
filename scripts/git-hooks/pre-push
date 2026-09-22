@@ -1,11 +1,18 @@
 #!/bin/sh
-# 公开仓泄漏门禁（pre-push）—— 2026-09-12 隐私清洗事故固化
+# 公开仓两道推送前门禁（pre-push）
+#   ① 静态泄漏门禁（2026-09-12 隐私清洗事故固化）——规则面：凭据/本机路径/个人标识/提交身份
+#   ② 三子代理私密面深度校验留档闸（2026-09-23 立，用户指令「每次推公开仓必走」）——语义面：
+#      凭据与身份 / 商业与内部信息 / 隐私数据与产物生态（静态规则管不了的，由三路审计 + 留档管）
 #
 # 安装（一次性，克隆后必做）：
 #   git config core.hooksPath scripts/git-hooks
-# 跳过一次（不推荐，仅紧急救援）：git push --no-verify
+# 跳过一次（不推荐，仅紧急救援）：git push --no-verify（事后必须补审计记录）
 #
-# 规则与例外见 scripts/check-no-secrets.mjs / scripts/leak-allowlist.mjs。
+# 规则与例外见 scripts/check-no-secrets.mjs / scripts/leak-allowlist.mjs；
+# 审计流程见 AGENTS.md「推公开仓 SOP」与 scripts/check-push-audit.mjs。
 set -e
 root=$(git rev-parse --show-toplevel)
-exec node "$root/scripts/check-no-secrets.mjs" --pre-push
+# pre-push 的 refs 行只读一次，两道门禁复用（stdin 不可重读）
+refs=$(cat)
+printf '%s\n' "$refs" | node "$root/scripts/check-no-secrets.mjs" --pre-push
+printf '%s\n' "$refs" | node "$root/scripts/check-push-audit.mjs"
