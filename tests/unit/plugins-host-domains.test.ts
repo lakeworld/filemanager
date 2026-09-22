@@ -71,7 +71,7 @@ async function makeDeps(overrides: AdapterSet = {}) {
         listProductSets: async () => [],
         listCustomers: async () => [],
         listTree: async () => [],
-        getMetadata: async () => ({ tags: [], notes: '' }),
+        getMetadata: async () => ({ tags: [], notes: '', cert_type: '', expiry_date: '' }),
         statFile: async () => ({ size: 0, mtime: '' }),
         readFileChunk: async () => new Uint8Array(0),
         writePulledFile: async () => {},
@@ -276,7 +276,7 @@ describe('createPluginHost：host.share 能力域（v2.5.1 A2）', () => {
         listProductSets: async () => [{ name: 'PS1' }],
         listCustomers: async () => [{ name: '张三' }],
         listTree: async () => [{ name: '产品集', kind: 'dir', size: 0, mtime: '' }],
-        getMetadata: async () => ({ tags: ['t'], notes: 'n' }),
+        getMetadata: async () => ({ tags: ['t'], notes: 'n', cert_type: 'CE', expiry_date: '2027-01-05' }),
         statFile: async () => ({ size: 3, mtime: '2026-01-01T00:00:00.000Z' }),
         readFileChunk: async () => new Uint8Array([1, 2]),
         writePulledFile: async () => {},
@@ -305,7 +305,13 @@ describe('createPluginHost：host.share 能力域（v2.5.1 A2）', () => {
     expect(await h.share.listProductSets()).toEqual([{ name: 'PS1' }])
     expect(await h.share.listCustomers()).toEqual([{ name: '张三' }])
     expect(await h.share.listTree('产品集')).toEqual([{ name: '产品集', kind: 'dir', size: 0, mtime: '' }])
-    expect(await h.share.getMetadata('产品集/PS1')).toEqual({ tags: ['t'], notes: 'n' })
+    // D8：证书两字段随适配器原样透传（形状由 API surface 基线守护）
+    expect(await h.share.getMetadata('产品集/PS1')).toEqual({
+      tags: ['t'],
+      notes: 'n',
+      cert_type: 'CE',
+      expiry_date: '2027-01-05',
+    })
     expect(await h.share.statFile('x')).toEqual({ size: 3, mtime: '2026-01-01T00:00:00.000Z' })
     expect(await h.share.readFileChunk('x', 0, 2)).toEqual(new Uint8Array([1, 2]))
     await h.share.writePulledFile('产品集/PS1/图包/a.jpg', new Uint8Array([1]), 0)

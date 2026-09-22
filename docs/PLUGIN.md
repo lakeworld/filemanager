@@ -656,9 +656,10 @@ share: {
    *  **判别类型只认 `kind`**（曾有插件按不存在的 `type:'directory'|'file'` 判别 ⇒ 真宿主下清单恒空；
    *  context 插件 2026-09-22、cloud 插件同族缺陷均已修） */
   listTree(relPath?: string): Promise<{ name: string; kind: 'dir' | 'file'; size: number; mtime: string }[]>
-  /** tags/notes 元数据（无记录 → 空 tags + 空 notes）；文件路径 → metadata store；
-   *  产品集根路径 → product_sets.json（两级粒度） */
-  getMetadata(relPath: string): Promise<{ tags: string[]; notes: string }>
+  /** 元数据（无记录 → 空 tags/notes/证书字段）；文件路径 → metadata store；
+   *  产品集根路径 → product_sets.json（两级粒度；产品集根不是证书载体 ⇒ 证书两字段恒空串）。
+   *  v2.6 批7（D8）：形状 + `cert_type` / `expiry_date` 证书两字段 */
+  getMetadata(relPath: string): Promise<{ tags: string[]; notes: string; cert_type: string; expiry_date: string }>
   statFile(relPath: string): Promise<{ size: number; mtime: string }>
   /** Range 读：length ≤ 4MB/次；宿主侧定位读（fs.read position，禁止全量载入）；
    *  offset+length 越界截断到 EOF（返回短读） */
@@ -677,9 +678,11 @@ share: {
    *   界面直接可见，无需登记）。若插件此前依赖"注册后别的集也出现该文件夹"，那是旧缺陷而非契约。名称/holder 防穿越；kind 非法 → INVALID_NAME */
   ensureSubfolder(kind: 'image' | 'cert' | 'doc' | 'customer', holder: string, name: string): Promise<void>
   /** 元数据合并导入：path 粒度两级——文件路径 → metadata store；产品集根路径 → product_sets.json；
-   *  tags 并集；notes 本地为空采纳远端、本地非空且不同 → 保留本地（计入冲突清单）；
-   *  单批 ≤ 500 条；返回冲突清单供插件提示 */
-  mergePulledMetadata(entries: { path: string; tags: string[]; notes: string }[]): Promise<{ conflicts: string[] }>
+   *  tags 并集；notes / cert_type / expiry_date **逐字段**「本地为空采纳远端、本地非空且不同 → 保留本地（计入冲突清单）」；
+   *  v2.6 批7（D8）：文件级 + 可选 `cert_type` / `expiry_date`（缺省 = 不改动本地；`expiry_date` 落库前归一化为
+   *  `YYYY-MM-DD`，不可解析则原样保留）——**写入后宿主原生「证书到期提醒」即生效**（现行：到期日 ±30 天窗 + 文件存在校验）。
+   *  产品集根不是证书载体 ⇒ 该两字段不落、不计冲突。单批 ≤ 500 条；返回冲突清单供插件提示 */
+  mergePulledMetadata(entries: { path: string; tags: string[]; notes: string; cert_type?: string; expiry_date?: string }[]): Promise<{ conflicts: string[] }>
   /** 缩略图通道（v2.5.7 协议增量 E4）：relPath 工作区相对路径 → 缩略图 URL（qihebox:// 协议，可直接 <img src>）。
    *  size：256（默认，缩略档）| 2048（预览降采样副本）。图片按需生成；视频仅缓存命中
    *  （未缓存空串，不生成——帧缩略图由渲染层抓帧后写缓存）；非图片 → ''。
@@ -694,6 +697,7 @@ share: {
 
 - `listProductSets`：name / image_count / cert_count / doc_count / created_at / tags / notes（**不含** erp_ext / ocr_ext 命名空间）
 - `listCustomers`：name / file_count / alias / country / contact / source / type / phone / email / address / tags / notes / related_product_sets / created_at / updated_at（**不含** erp_ext）
+- `getMetadata`（v2.6 批7 D8 扩）：`{ tags, notes, cert_type, expiry_date }`——证书两字段**只有文件级路径有**（产品集根不是证书载体 ⇒ 恒空串）
 - `getThumb`（v2.5.7 E4 实装）：返回 `qihebox://thumb/<...>` URL（图片 256/2048 两档按需生成；视频仅缓存命中；非图片空串）——见上方 §share 方法签名
 
 **明确不做**（共享面边界）：

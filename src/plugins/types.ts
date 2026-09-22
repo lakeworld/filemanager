@@ -407,8 +407,9 @@ export interface PluginHost {
     listCustomers(): Promise<unknown[]>
     /** 目录树一层（名称/类型/大小/mtime）；relPath 缺省 = 工作区根；隐藏目录拒绝（HIDDEN） */
     listTree(relPath?: string): Promise<unknown[]>
-    /** tags/notes 元数据（无记录 → 空 tags + 空 notes）；文件路径 → metadata store；产品集根 → product_sets.json */
-    getMetadata(relPath: string): Promise<{ tags: string[]; notes: string }>
+    /** 元数据（无记录 → 空 tags/notes/证书字段）；文件路径 → metadata store；产品集根 → product_sets.json。
+     *  v2.6 批7（D8）：+ `cert_type` / `expiry_date` 证书两字段——产品集根不是证书载体 ⇒ 该两字段恒空串 */
+    getMetadata(relPath: string): Promise<{ tags: string[]; notes: string; cert_type: string; expiry_date: string }>
     statFile(relPath: string): Promise<{ size: number; mtime: string }>
     /** Range 读：≤4MB/次；host 侧定位读（fs.read position，禁止全量载入）；越界截断到 EOF（短读） */
     readFileChunk(relPath: string, offset: number, length: number): Promise<Uint8Array>
@@ -422,9 +423,10 @@ export interface PluginHost {
      *  kind=image|cert|doc → 产品集/<holder>/{图包|证书|文档}/<name>；kind=customer → 客户/<holder>/<name>。
      *  目录缺失 → 创建 + 注册；已存在 → 仅补注册；幂等去重。名称/holder 防穿越；kind 非法 → INVALID_NAME */
     ensureSubfolder(kind: 'image' | 'cert' | 'doc' | 'customer', holder: string, name: string): Promise<void>
-    /** 元数据合并导入：两级粒度；tags 并集；notes 本地为空采纳远端、本地非空且不同 → 保留本地（计入冲突清单）；
-     *  单批 ≤ 500 条；返回冲突清单供插件提示 */
-    mergePulledMetadata(entries: { path: string; tags: string[]; notes: string }[]): Promise<{ conflicts: string[] }>
+    /** 元数据合并导入：两级粒度；tags 并集；notes/cert_type/expiry_date 逐字段「本地为空采纳远端、
+     *  本地非空且不同 → 保留本地（计入冲突清单）」；单批 ≤ 500 条；返回冲突清单供插件提示。
+     *  v2.6 批7（D8）：文件级 + 可选 cert_type/expiry_date（缺省 = 不改动本地；expiry_date 进库前归一化 YYYY-MM-DD）。 */
+    mergePulledMetadata(entries: { path: string; tags: string[]; notes: string; cert_type?: string; expiry_date?: string }[]): Promise<{ conflicts: string[] }>
     /** 缩略图 URL（v2.5.7 协议增量 E4｜业务脉络 §四 增量4，契约 D11 实装）：
      *  relPath = 工作区相对路径；仅图片按需生成、视频仅缓存命中、非图片/无缩略图 → 空串。
      *  size: 256（默认，缩略档）| 2048（预览降采样副本）。返回可直接给 <img> 的 qihebox:// URL。

@@ -267,7 +267,7 @@ async function makeLoader(mainJs: string): Promise<{ loader: PluginLoader }> {
           listProductSets: async () => [],
           listCustomers: async () => [],
           listTree: async () => [],
-          getMetadata: async () => ({ tags: [], notes: '' }),
+          getMetadata: async () => ({ tags: [], notes: '', cert_type: '', expiry_date: '' }),
           statFile: async () => ({ size: 0, mtime: '' }),
           readFileChunk: async () => new Uint8Array(0),
           writePulledFile: async () => {},

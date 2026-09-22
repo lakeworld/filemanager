@@ -224,14 +224,14 @@ export interface PluginHostDeps {
     listProductSets(): Promise<unknown[]>
     listCustomers(): Promise<unknown[]>
     listTree(relPath?: string): Promise<unknown[]>
-    getMetadata(relPath: string): Promise<{ tags: string[]; notes: string }>
+    getMetadata(relPath: string): Promise<{ tags: string[]; notes: string; cert_type: string; expiry_date: string }>
     statFile(relPath: string): Promise<{ size: number; mtime: string }>
     readFileChunk(relPath: string, offset: number, length: number): Promise<Uint8Array>
     writePulledFile(targetRelPath: string, chunk: Uint8Array, offset: number): Promise<void>
     ensureProductSet(name: string): Promise<'created' | 'exists'>
     ensureCustomer(name: string): Promise<'created' | 'exists'>
     ensureSubfolder(kind: 'image' | 'cert' | 'doc' | 'customer', holder: string, name: string): Promise<void>
-    mergePulledMetadata(entries: { path: string; tags: string[]; notes: string }[]): Promise<{ conflicts: string[] }>
+    mergePulledMetadata(entries: { path: string; tags: string[]; notes: string; cert_type?: string; expiry_date?: string }[]): Promise<{ conflicts: string[] }>
     /** 缩略图 URL（v2.5.7 协议增量 E4）：装配层注入 ShareViewService.getThumb（内部转 thumbnailFileUrl） */
     getThumb(relPath: string, size?: 256 | 2048): Promise<string>
   }
@@ -575,7 +575,7 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
         listTree: async (): Promise<unknown[]> => {
           throw permissionDenied('share')
         },
-        getMetadata: async (): Promise<{ tags: string[]; notes: string }> => {
+        getMetadata: async (): Promise<{ tags: string[]; notes: string; cert_type: string; expiry_date: string }> => {
           throw permissionDenied('share')
         },
         statFile: async (): Promise<{ size: number; mtime: string }> => {
