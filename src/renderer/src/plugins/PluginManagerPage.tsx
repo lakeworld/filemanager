@@ -11,23 +11,38 @@
  *   —— 说明：PLAN §5.4 的「安装前权限确认对话框」需要安装前清单预览能力，v2.5 IPC 契约
  *      （install({ filePath }) 一步安装）未提供 inspect 入口，落地为「通用风险确认 + 安装后权限展示」，
  *      待 v2.6 提供预检 API 后升级为真实权限预览（见报告偏差说明）。
- * 官方目录区块：v2.6 实装，本版本「即将上线」占位说明。
+ * 官方目录区块（v2.6 批 2 实装，PLUGIN.md §5.3 / §七）：进入管理页时拉取一次（**不后台轮询**），
+ *   逐项展示 图标/名称/版本/体积/permissions 摘要/来源；已装插件与目录比对 →「可更新」标记；
+ *   不兼容条目置灰（宿主按 API/产品版本过滤掉不兼容版本，见 main/plugins/catalog.ts）；
+ *   未登录 / 未配置服务器 / 端点未部署 → 如实展示中文原因 + 出路（不谎报空目录）。
+ * 更新即重启（v2.6 批 2）：覆盖安装命中已有插件时弹「插件已更新 / 已重新安装」提示，
+ *   两按钮「立即重启」（qihebox:app:relaunch）/「稍后」——口径见 docs/INTERNAL/PLUGIN.md §七。
  */
-import { Show, For, createSignal, onMount } from 'solid-js'
+import { Show, For, createSignal, createMemo, onMount } from 'solid-js'
 import type { JSX } from 'solid-js'
-import type { ApiResult, PluginInfo } from '../../../shared/types'
+import { useNavigate } from '@solidjs/router'
+import type { ApiResult, PluginCatalogEntry, PluginInfo } from '../../../shared/types'
 import ConfirmDialog from '~/components/ConfirmDialog'
 import { showToast } from '~/stores/notifyBanner'
 import {
+  buildRestartNotice,
+  catalogErrorGuidance,
+  deriveCatalogRows,
+  fetchPluginCatalog,
+  formatPluginSize,
   initPluginRegistry,
   installPlugin,
   pluginModuleUrl,
   plugins,
   refreshPluginRegistry,
+  relaunchApp,
   setPluginEnabled,
+  summarizeCatalogPermissions,
   uninstallPlugin,
   getDevMode,
   setDevMode,
+  type PluginCatalogRow,
+  type PluginRestartNotice,
 } from './registry'
 
 // —— 状态标签 ——
@@ -56,6 +71,26 @@ function PluginIcon(props: { p: PluginInfo }): JSX.Element {
       <img
         src={url()!}
         alt={props.p.name}
+        class="w-8 h-8 shrink-0 object-contain"
+        onError={() => setFailed(true)}
+      />
+    </Show>
+  );
+}
+
+/** 目录项图标（v2.6：未下载，只有服务端给的 URL；缺图/加载失败回退占位） */
+function CatalogIcon(props: { entry: PluginCatalogEntry }): JSX.Element {
+  const [failed, setFailed] = createSignal(false)
+  return (
+    <Show
+      when={props.entry.icon && !failed()}
+      fallback={
+        <div class="w-8 h-8 shrink-0 flex items-center justify-center rounded-lg bg-surface-100 text-lg">📦</div>
+      }
+    >
+      <img
+        src={props.entry.icon!}
+        alt={props.entry.name}
         class="w-8 h-8 shrink-0 object-contain"
         onError={() => setFailed(true)}
       />
@@ -135,6 +170,7 @@ function MetricsView(props: { p: PluginInfo }): JSX.Element {
 }
 
 export default function PluginManagerPage(): JSX.Element {
+  const navigate = useNavigate()
   const [expanded, setExpanded] = createSignal<string | null>(null)
   const [uninstallTarget, setUninstallTarget] = createSignal<PluginInfo | null>(null)
   /** 待确认导入的 .qbox 路径（风险确认对话框） */
@@ -143,6 +179,38 @@ export default function PluginManagerPage(): JSX.Element {
   /** v2.5 增量（PLAN §3.5）：开发者模式（侧载入口门控，默认关） */
   const [devMode, setDevModeState] = createSignal(false)
   const [devModeLoaded, setDevModeLoaded] = createSignal(false)
+  /** v2.6 批 2：官方目录（进入时拉取一次；错误如实展示） */
+  const [catalog, setCatalog] = createSignal<PluginCatalogEntry[]>([])
+  const [catalogError, setCatalogError] = createSignal<string | null>(null)
+  const [catalogLoading, setCatalogLoading] = createSignal(false)
+  const [catalogLoaded, setCatalogLoaded] = createSignal(false)
+  /** 目录安装中的条目 id（按钮文案与禁用） */
+  const [installingId, setInstallingId] = createSignal<string | null>(null)
+  /** v2.6 批 2：覆盖安装后的「重启应用」提示 */
+  const [restartNotice, setRestartNotice] = createSignal<PluginRestartNotice | null>(null)
+
+  /** 目录行 = 目录条目 × 已装清单（响应式：安装完 plugins() 刷新即自动标「可更新」） */
+  const catalogRows = createMemo(() => deriveCatalogRows(catalog(), plugins()))
+  const catalogGuidance = createMemo(() => catalogErrorGuidance(catalogError() ?? ''))
+
+  /** 拉取官方目录（用户触发：进入管理页 / 点「刷新」/ 失败后重试；**不后台轮询**） */
+  const loadCatalog = async () => {
+    setCatalogLoading(true)
+    try {
+      const r = await fetchPluginCatalog()
+      if (r.success && r.data) {
+        setCatalog(r.data)
+        setCatalogError(null)
+      } else {
+        // 未登录 / 未配置服务器 / 端点未部署 → 如实报错；**不谎报空目录**
+        setCatalog([])
+        setCatalogError(r.error ?? 'CATALOG_UNAVAILABLE：官方插件目录获取失败')
+      }
+      setCatalogLoaded(true)
+    } finally {
+      setCatalogLoading(false)
+    }
+  }
 
   onMount(() => {
     // 幂等初始化 + 显式刷新兜底（事件路径与操作路径双保险）
@@ -152,6 +220,8 @@ export default function PluginManagerPage(): JSX.Element {
       setDevModeState(r.success && r.data === true)
       setDevModeLoaded(true)
     })
+    // v2.6 批 2：官方目录（进入时拉取一次）
+    void loadCatalog()
   })
 
   /** 切换开发者模式（userData/settings.json 持久化；ApiResult 包装，失败回退 + toast，P1-E2） */
@@ -220,16 +290,39 @@ export default function PluginManagerPage(): JSX.Element {
     setImportPath(null)
     if (!filePath) return
     setInstalling(true)
+    // v2.6 批 2：安装前清单快照（更新判定 = 同 id 已存在；同版本重装亦命中）
+    const before = plugins()
     try {
       const r = await installPlugin({ filePath })
       if (r.success && r.data) {
         showToast('success', `插件「${r.data.name}」已安装`, `可在下方列表查看其权限声明`)
+        setRestartNotice(buildRestartNotice(before, r.data))
       } else {
         showToast('error', '安装失败', r.error || '未知错误')
       }
       await refreshPluginRegistry()
     } finally {
       setInstalling(false)
+    }
+  }
+
+  /** 官方目录安装/更新（v2.6 批 2）：{ downloadUrl, sha256 } 形态 → 登录态下载 + SHA-256 校验 */
+  const installFromCatalog = async (row: PluginCatalogRow) => {
+    const selected = row.entry.selected
+    if (!selected) return
+    const before = plugins()
+    setInstallingId(row.entry.id)
+    try {
+      const r = await installPlugin({ downloadUrl: selected.downloadUrl, sha256: selected.sha256 })
+      if (r.success && r.data) {
+        showToast('success', `插件「${r.data.name}」已安装`, `v${r.data.version}`)
+        setRestartNotice(buildRestartNotice(before, r.data))
+      } else {
+        showToast('error', '安装失败', r.error || '未知错误')
+      }
+      await refreshPluginRegistry()
+    } finally {
+      setInstallingId(null)
     }
   }
 
@@ -242,18 +335,116 @@ export default function PluginManagerPage(): JSX.Element {
 
       {/* v2.5 增量（PLAN §3.5）：风险横幅（管理页常驻） */}
       <div class="mb-4 rounded-lg bg-warning-50 border border-warning-200 px-4 py-3 text-sm text-warning-800">
-        ⚠ 插件未经过官方审查，安装需自行承担风险。官方索引将于后续版本上线。
+        ⚠ 插件未经过官方审查，安装需自行承担风险。官方目录已上线：优先从上方目录安装；侧载仅限自研或可信来源。
       </div>
 
-      {/* 官方目录占位（v2.6 实装） */}
+      {/* 官方目录（v2.6 批 2 实装）：进入时拉取一次；未登录/未部署如实报错 + 出路 */}
       <div class="card p-6 mb-4">
         <div class="flex items-center justify-between mb-2">
           <h2 class="text-lg font-semibold">官方插件目录</h2>
-          <span class="text-xs text-surface-400">即将上线 · v2.6</span>
+          <button
+            class="link-btn text-xs text-surface-500 hover:text-primary-600"
+            disabled={catalogLoading()}
+            onClick={() => void loadCatalog()}
+          >
+            {catalogLoading() ? '获取中…' : '刷新'}
+          </button>
         </div>
-        <p class="text-sm text-surface-500">
-          官方索引与应用内勾选下载将在 v2.6 提供；本版本支持本地导入 .qbox 侧载安装。
-        </p>
+
+        <Show when={catalogError()}>
+          <div class="rounded-lg bg-warning-50 border border-warning-200 px-4 py-3 text-sm text-warning-800">
+            <div>{catalogGuidance().text}</div>
+            <div class="mt-2 flex items-center gap-3">
+              <Show when={catalogGuidance().loginRequired}>
+                <button
+                  class="link-btn text-xs text-primary-600 hover:text-primary-700"
+                  onClick={() => navigate('/profile')}
+                >
+                  去登录 →
+                </button>
+              </Show>
+              <Show when={catalogGuidance().retryable}>
+                <button
+                  class="link-btn text-xs text-surface-500 hover:text-primary-600"
+                  onClick={() => void loadCatalog()}
+                >
+                  重试
+                </button>
+              </Show>
+            </div>
+          </div>
+        </Show>
+
+        <Show when={!catalogError() && !catalogLoaded()}>
+          <p class="text-sm text-surface-500">正在获取官方目录…</p>
+        </Show>
+
+        <Show when={!catalogError() && catalogLoaded() && catalogRows().length === 0}>
+          <p class="text-sm text-surface-500">官方目录暂无插件。</p>
+        </Show>
+
+        <Show when={!catalogError() && catalogRows().length > 0}>
+          <div class="space-y-3">
+            <For each={catalogRows()}>
+              {(row) => (
+                <div class="border border-surface-100 rounded-lg p-4">
+                  <div class="flex items-start gap-3">
+                    <CatalogIcon entry={row.entry} />
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <span class="font-semibold text-surface-900">{row.entry.name}</span>
+                        <span class="text-xs font-mono text-surface-400">{row.entry.id}</span>
+                        <Show when={row.entry.selected}>
+                          <span class="text-[11px] px-1.5 py-0.5 rounded bg-surface-100 text-surface-500">
+                            v{row.entry.selected!.version}
+                          </span>
+                        </Show>
+                        <Show when={row.updateAvailable}>
+                          <span class="text-[11px] px-1.5 py-0.5 rounded bg-primary-50 text-primary-600">
+                            可更新
+                          </span>
+                        </Show>
+                        <Show when={!row.entry.compatible}>
+                          <span class="text-[11px] px-1.5 py-0.5 rounded bg-danger-50 text-danger-600">
+                            不兼容
+                          </span>
+                        </Show>
+                      </div>
+                      <div class="text-xs text-surface-400 mt-0.5">
+                        {row.entry.source ?? '启禾官方'}
+                        <Show when={row.entry.author}> · {row.entry.author}</Show>
+                        <Show when={row.entry.selected}> · {formatPluginSize(row.entry.selected?.size)}</Show>
+                        <Show when={row.installedVersion}> · 已装 v{row.installedVersion}</Show>
+                      </div>
+                      <Show when={row.entry.description}>
+                        <div class="text-sm text-surface-500 mt-1 line-clamp-2">{row.entry.description}</div>
+                      </Show>
+                      <Show when={!row.entry.compatible && row.entry.reason}>
+                        <div class="text-xs text-danger-600 mt-1">{row.entry.reason}</div>
+                      </Show>
+                      <div class="text-xs text-surface-500 mt-1.5">
+                        权限：{summarizeCatalogPermissions(row.entry.permissions)}
+                      </div>
+                    </div>
+                    <button
+                      class="btn-primary shrink-0"
+                      disabled={!row.entry.selected || installingId() === row.entry.id}
+                      onClick={() => void installFromCatalog(row)}
+                    >
+                      {installingId() === row.entry.id
+                        ? '安装中…'
+                        : row.updateAvailable
+                          ? '更新'
+                          : row.installedVersion
+                            ? '重装'
+                            : '安装'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
       </div>
 
       {/* v2.5 增量（PLAN §3.5）：开发者模式（侧载入口门控，默认关；IPC 层强制 + UI 层隐藏双保险） */}
@@ -308,7 +499,7 @@ export default function PluginManagerPage(): JSX.Element {
         when={sortedPlugins().length > 0}
         fallback={
           <div class="card p-12 text-center text-surface-400 text-sm">
-            未安装任何插件。可通过上方「导入本地插件包」侧载安装，或在 v2.6 从官方目录获取。
+            未安装任何插件。可从上方官方目录下载安装，或开启开发者模式后侧载本地 .qbox。
           </div>
         }
       >
@@ -420,6 +611,22 @@ export default function PluginManagerPage(): JSX.Element {
           danger
           onConfirm={() => void doInstall()}
           onCancel={() => setImportPath(null)}
+        />
+      </Show>
+
+      {/* v2.6 批 2：更新即重启提示（覆盖安装命中已有插件时；口径见 docs/INTERNAL/PLUGIN.md §七） */}
+      <Show when={restartNotice()}>
+        <ConfirmDialog
+          title={restartNotice()!.title}
+          message={restartNotice()!.message}
+          confirmLabel="立即重启"
+          cancelLabel="稍后"
+          onConfirm={() => {
+            setRestartNotice(null)
+            // 主进程 app.relaunch() + app.quit()：走正常退出路径（插件 dispose / 热键注销照跑）
+            void relaunchApp()
+          }}
+          onCancel={() => setRestartNotice(null)}
         />
       </Show>
     </div>

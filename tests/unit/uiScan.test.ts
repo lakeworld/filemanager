@@ -180,10 +180,19 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  *     走既有形状档 `.link-btn`（过渡由骨架自带，不重复写 transition）。同 D18 / A6-2 / A8 / A9 / A7
  *     口径：形状档归 handwritten 这一格不是收口指标 ⇒ `debt` 仍 6、`tint` 仍 0、`press` 仍 0、
  *     `noTransition` 仍 4（+1 = 多一个真按钮，不是谁各写各的）。
+ *   - `total 284 → 288` / `unified 143 → 144` / `handwritten 141 → 144`（**v2.6 批 2 官方插件目录**，2026-09-23）：
+ *     `plugins/PluginManagerPage.tsx` 的「官方插件目录」区块实装（原「即将上线 · v2.6」占位卡片删除）——
+ *     新增 **4 枚真按钮**：目录项「安装 / 更新 / 重装」钮走 `.btn-*` 五档（+1 unified），
+ *     区块「刷新」钮与失败态「去登录」「重试」三枚走形状具名档 `.link-btn`（+3 handwritten）。
+ *     更新后的重启提示弹窗复用既有 `ConfirmDialog`（`components/` 侧，非底座目录，但该文件的两枚按钮
+ *     在清点器口径里已计入既有数）⇒ 不额外增数。同前几次口径：**增数 = 多了 4 个真按钮**，
+ *     `debt` 仍 6、`tint` 仍 0、`press` 仍 0、`noTransition` 仍 4。
+ *     实测复核（`node scripts/scan-ui-inventory.mjs --write`）= 288 / 144 / 144 / noclass 0 / debt 6 /
+ *     tint 0 / press 0 / noTransition 4 / modal 22 framed 22，逐格与本行一致。
  */
 const BASE = {
   button: {
-    total: 284, unified: 143, handwritten: 141, noclass: 0,
+    total: 288, unified: 144, handwritten: 144, noclass: 0,
     tint: 0, debt: 6, baseInternal: 5, press: 0, noTransition: 4,
   },
   input: { total: 16, checkbox: 12, baseInternal: 3, debt: 0, exempt: 1, other: 0 },

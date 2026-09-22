@@ -37,7 +37,8 @@ export interface ApiSurface {
  * 测试用源码包含性断言（见 assertPreloadManifestMatchesSource）验证清单与源码一致，防清单凭空增删。
  */
 export const PRELOAD_MANIFEST: { plugins: string[]; settings: string[] } = {
-  plugins: ['list', 'call', 'setEnabled', 'install', 'uninstall', 'on'],
+  // v2.6 批 2：+ catalog（官方索引目录；install 已扩双形态，方法名不变）
+  plugins: ['list', 'call', 'setEnabled', 'install', 'catalog', 'uninstall', 'on'],
   settings: ['getDevMode', 'setDevMode'],
 }
 
@@ -47,6 +48,8 @@ export const IPC_CHANNELS: string[] = [
   'qihebox:plugins:call',
   'qihebox:plugins:setEnabled',
   'qihebox:plugins:install',
+  // v2.6 批 2：官方索引目录（进入管理页时拉取一次）
+  'qihebox:plugins:catalog',
   'qihebox:plugins:uninstall',
   'qihebox:settings:getDevMode',
   'qihebox:settings:setDevMode',

@@ -204,6 +204,7 @@
 ## preload
 
 - plugins.call
+- plugins.catalog
 - plugins.install
 - plugins.list
 - plugins.on
@@ -215,6 +216,7 @@
 ## ipc
 
 - qihebox:plugins:call
+- qihebox:plugins:catalog
 - qihebox:plugins:install
 - qihebox:plugins:list
 - qihebox:plugins:setEnabled

@@ -19,6 +19,8 @@ import { showFilesInExplorer } from './explorer'
 import { workspaceFileUrl, thumbnailFileUrl, externalFileUrl } from './protocol'
 import { checkUpdate, downloadUpdate, applyUpdate, getCachedUpdate, setCachedUpdate, UpdateInfo } from './updater'
 import { setAutoLaunch, isAutoLaunch } from './autoLaunchMain'
+// v2.6 批 2：应用内重启（插件更新后「立即重启」；判据在 core/relaunch.ts，此处只需薄壳入口）
+import { relaunchApp } from './relaunchMain'
 import { isPathInsideWorkspaceReal, isProtectedConfigPath, classifyFileType } from './core/paths'
 import { FilesService, ImportCancelledError } from './core/files'
 import { ZipCancelledError, compressToZip } from './core/archive'
@@ -897,6 +899,17 @@ export function registerIpc(
   ipcMain.handle('qihebox:app:isAutoLaunch', () => handle(() => isAutoLaunch()))
   // r3 P1-2 定稿：tray 为 index.ts 闭包变量、e2e/渲染层无法直接访问——查询 IPC 返回 tray !== null
   ipcMain.handle('qihebox:app:isTrayReady', () => ok(hooks.isTrayReady()))
+
+  // —— v2.6 批 2：应用内重启（插件更新后「立即重启」按钮的落点）——
+  // 语义 = app.relaunch() + app.quit()：新实例排定后走正常退出路径（before-quit 置 quitting →
+  // 窗口正常销毁 → will-quit 里插件 dispose / 热键注销照跑），不是 exit() 硬退。
+  // AppImage 取 env.APPIMAGE（判据复用 core/relaunch.ts，与自启同一份「该执行哪个文件」）。
+  ipcMain.handle('qihebox:app:relaunch', () =>
+    handle(() => {
+      relaunchApp()
+      return true
+    }),
+  )
 
   // —— 更新（占位）——
   // v2.5.3（P2-17）：手动检查命中新版同样写缓存——Profile 懒加载错过 update:available 事件时

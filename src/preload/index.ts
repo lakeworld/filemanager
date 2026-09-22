@@ -6,7 +6,9 @@
 import { contextBridge, ipcRenderer, webUtils, webFrame } from 'electron'
 import type {
   ApiResult,
+  PluginCatalogEntry,
   PluginInfo,
+  PluginInstallSource,
   WindowFirstFrameAckMessage,
   WindowParkedAckMessage,
   WindowPrepareHideMessage,
@@ -266,6 +268,8 @@ const api = {
     setAutoLaunch: (enabled: boolean) => invoke('qihebox:app:setAutoLaunch', enabled),
     isAutoLaunch: () => invoke('qihebox:app:isAutoLaunch'),
     isTrayReady: () => invoke('qihebox:app:isTrayReady'),
+    /** v2.6 批 2：应用内重启（插件更新后「立即重启」）——main 侧 app.relaunch() + app.quit() */
+    relaunch: () => invoke('qihebox:app:relaunch'),
   },
   // v2.5：插件宿主命名空间（PLAN §3.5 / 交叉契约）——纯透传，不 import 任何插件代码。
   // 全部经 qihebox:plugins:* 通道（宿主返回 ApiResult 包装，此处不拆包）；插件代码不进 preload bundle
@@ -279,9 +283,14 @@ const api = {
     /** 管理页：启停（即时生效 + 持久化 userData/plugins/config.json） */
     setEnabled: (pluginId: string, enabled: boolean): Promise<ApiResult<boolean>> =>
       invoke('qihebox:plugins:setEnabled', pluginId, enabled) as Promise<ApiResult<boolean>>,
-    /** 侧载安装本地 .qbox（JSON Schema + SHA-256 校验在宿主侧；需开发者模式开启，PLAN §3.5） */
-    install: (source: { filePath: string }): Promise<ApiResult<PluginInfo>> =>
+    /** 侧载安装本地 .qbox / 官方索引下载安装（JSON Schema + SHA-256 校验在宿主侧）
+     *  - `{ filePath }` 侧载：需开发者模式开启（PLAN §3.5），行为零变更
+     *  - `{ downloadUrl, sha256 }` 官方索引形态（v2.6）：需登录态，SHA-256 逐字节校验，不要求开发者模式 */
+    install: (source: PluginInstallSource): Promise<ApiResult<PluginInfo>> =>
       invoke('qihebox:plugins:install', source) as Promise<ApiResult<PluginInfo>>,
+    /** 官方索引目录（v2.6）：进入管理页时拉取一次（不后台轮询）；未登录/未部署 → 中文错误（不谎报空目录） */
+    catalog: (): Promise<ApiResult<PluginCatalogEntry[]>> =>
+      invoke('qihebox:plugins:catalog') as Promise<ApiResult<PluginCatalogEntry[]>>,
     /** 卸载（删除 userData/plugins/<id>/ 的代码与状态，UI 明示确认后调用） */
     uninstall: (pluginId: string): Promise<ApiResult<boolean>> =>
       invoke('qihebox:plugins:uninstall', pluginId) as Promise<ApiResult<boolean>>,

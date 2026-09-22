@@ -756,6 +756,64 @@ export interface PluginInfo {
   installedAt: string
 }
 
+// —— v2.6 批 2：官方索引目录（catalog）与下载安装形态（公开契约见 docs/PLUGIN.md §5.3）——
+
+/**
+ * 官方目录里的**单个插件版本**（`versions.json` 的一行）。
+ * 兼容映射判据见 `src/main/plugins/catalog.ts`：宿主按 `apiCompat` 与 `minHostVersion` 过滤后取最高版本。
+ */
+export interface PluginCatalogVersion {
+  /** 插件版本（语义化版本） */
+  version: string
+  /** 所需宿主 API 版本范围 [min, max]（缺省 [1,1]，与 manifest.apiCompat 同口径） */
+  apiCompat?: [number, number]
+  /** 宿主产品版本下限（如 '2.6.0'；缺省不限） */
+  minHostVersion?: string
+  /** 包体字节数（管理页展示「体积」；服务端不给时缺省） */
+  size?: number
+  /** .qbox 包整体 SHA-256（64 位十六进制；安装前逐字节校验） */
+  sha256: string
+  /** 包体下载地址（绝对 https；同源 http 仅用于自建/内网部署）。下载需登录态 */
+  downloadUrl: string
+}
+
+/**
+ * 官方目录条目（宿主 → 渲染层 `catalog()` 输出）。
+ * 纯 JSON 可序列化；`compatible` / `selected` / `reason` 为**宿主按自身 API/产品版本派生**的字段
+ * （服务端只给 id/name/... /versions，不判断宿主兼容性）。
+ */
+export interface PluginCatalogEntry {
+  /** 插件 id（域名倒序，与 manifest.id 一致） */
+  id: string
+  /** 展示名 */
+  name: string
+  /** 一句话描述 */
+  description?: string
+  /** 作者 / 组织名 */
+  author?: string
+  /** 图标 URL（https；插件未下载，包内路径不可用） */
+  icon?: string
+  /** 来源描述（缺省「启禾官方」，管理页逐项展示） */
+  source?: string
+  /** permissions 摘要（仅展示；与 manifest.permissions 同构，'*' 需服务端审查） */
+  permissions?: PluginInfo['permissions']
+  /** 版本列表（服务端全量；宿主不裁剪，供管理页展示「为什么不可用」） */
+  versions: PluginCatalogVersion[]
+  /** 宿主派生：存在与当前宿主兼容的版本 */
+  compatible: boolean
+  /** 宿主派生：选中可安装版本（最新兼容版本；不兼容时缺省） */
+  selected?: PluginCatalogVersion
+  /** 宿主派生：不兼容原因（中文；`compatible=false` 时给出） */
+  reason?: string
+}
+
+/**
+ * `install()` 双形态入参（docs/PLUGIN.md §5.3）：
+ * - `{ filePath }` 侧载：需开发者模式（DEV_MODE_REQUIRED），行为零变更；
+ * - `{ downloadUrl, sha256 }` 官方索引：需登录态，SHA-256 逐字节校验，不要求开发者模式。
+ */
+export type PluginInstallSource = { filePath: string } | { downloadUrl: string; sha256: string }
+
 // —— v2.5.3 常驻轻壳：窗口生命周期消息契约（设计 §五；shared/preload/ipc 三件套）——
 // main → renderer 事件（preload windowLifecycle.on* 白名单订阅，通道 qihebox:event:window:*)：
 //   prepare-hide / restored（generation 标记会话）

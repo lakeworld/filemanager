@@ -3,6 +3,9 @@
  *
  * 职责：`plugins.list()` 拉取已安装清单 → 派生 Sidebar 插件分组 / 动态路由表 / 右键命令集；
  * 订阅 `plugins:changed` 事件即时刷新（启停即时生效，不重启）。
+ * v2.6 批 2 增量：`plugins.catalog()` 官方索引目录 + `install()` 双形态 + **纯派生**三件
+ * （目录行「可更新」标记 `deriveCatalogRows` / 重启提示 `buildRestartNotice` / 错误码引导 `catalogErrorGuidance`）
+ * + `app.relaunch()` 应用内重启——判定全部落在纯函数里，管理页只负责画（PLUGIN.md §5.3）。
  *
  * 本文件为纯逻辑模块（无 JSX）：派生函数为纯函数（可单测、不触碰 window），
  * 与 preload 桥的接触集中在 getPluginsBridge() 一处。qihebox.d.ts 的 plugins 命名空间
@@ -11,7 +14,7 @@
  * 所有 IPC 返回均为 ApiResult 包装（主进程统一包裹，此处直读 success/error）。
  */
 import { createSignal } from 'solid-js'
-import type { ApiResult, PluginInfo } from '../../../shared/types'
+import type { ApiResult, PluginCatalogEntry, PluginInfo, PluginInstallSource } from '../../../shared/types'
 
 /** 插件管理页路由（Sidebar 系统组可引用；路由注册在 routes.tsx） */
 export const PLUGIN_MANAGER_PATH = '/settings/plugins'
@@ -78,9 +81,16 @@ interface PluginBridge {
   list(): Promise<ApiResult<PluginInfo[]>>
   call(pluginId: string, action: string, payload?: unknown): Promise<ApiResult<unknown>>
   setEnabled(pluginId: string, enabled: boolean): Promise<ApiResult<boolean>>
-  install(opts: { filePath: string }): Promise<ApiResult<PluginInfo>>
+  install(source: PluginInstallSource): Promise<ApiResult<PluginInfo>>
+  /** v2.6 批 2：官方索引目录（进入管理页时拉取一次） */
+  catalog(): Promise<ApiResult<PluginCatalogEntry[]>>
   uninstall(pluginId: string): Promise<ApiResult<boolean>>
   on(channel: string, cb: (data: unknown) => void): () => void
+}
+
+/** preload app 命名空间的最小本地类型（v2.6 批 2：应用内重启） */
+interface AppBridge {
+  relaunch(): Promise<unknown>
 }
 
 /** preload settings 命名空间的最小本地类型（v2.5 增量，PLAN §3.5：开发者模式；返回 ApiResult 包装） */
@@ -99,6 +109,11 @@ function getPluginsBridge(): PluginBridge {
 /** 取 preload settings 桥（同上双配置说明；v2.5 增量） */
 function getSettingsBridge(): SettingsBridge {
   return (window as unknown as { qihebox: { settings: SettingsBridge } }).qihebox.settings
+}
+
+/** 取 preload app 桥（v2.6 批 2：应用内重启；同上双配置说明） */
+function getAppBridge(): AppBridge {
+  return (window as unknown as { qihebox: { app: AppBridge } }).qihebox.app
 }
 
 // —— 模块级信号（未初始化前为空清单，派生函数返回空注入点）——
@@ -252,9 +267,139 @@ export function setPluginEnabled(pluginId: string, enabled: boolean): Promise<Ap
   return getPluginsBridge().setEnabled(pluginId, enabled)
 }
 
-/** 侧载安装本地 .qbox（主进程做 JSON Schema + SHA-256 校验后解压到 pkg/） */
-export function installPlugin(opts: { filePath: string }): Promise<ApiResult<PluginInfo>> {
-  return getPluginsBridge().install(opts)
+/** 侧载安装本地 .qbox（主进程做 JSON Schema + SHA-256 校验后解压到 pkg/）；
+ *  v2.6 批 2 起同一入口兼官方索引形态 `{ downloadUrl, sha256 }`（登录态下载 + SHA-256 逐字节校验，不需 devMode） */
+export function installPlugin(source: PluginInstallSource): Promise<ApiResult<PluginInfo>> {
+  return getPluginsBridge().install(source)
+}
+
+// —— v2.6 批 2：官方索引目录（catalog）/ 更新判定 / 应用内重启 ——
+
+/** 拉取官方索引目录（进入管理页时调用一次；**不后台轮询**）。失败原因见 `catalogErrorGuidance` */
+export function fetchPluginCatalog(): Promise<ApiResult<PluginCatalogEntry[]>> {
+  return getPluginsBridge().catalog()
+}
+
+/** 应用内重启（插件更新后「立即重启」）——main 侧 app.relaunch() + app.quit() */
+export function relaunchApp(): Promise<unknown> {
+  return getAppBridge().relaunch()
+}
+
+/** 目录行（目录条目 + 已装状态派生；管理页直接渲染） */
+export interface PluginCatalogRow {
+  entry: PluginCatalogEntry
+  /** 已装版本（未安装 = 缺省） */
+  installedVersion?: string
+  /** 可更新：已安装、且可选版本与已装版本不同（不兼容条目恒 false——没有可下载版本） */
+  updateAvailable: boolean
+}
+
+/**
+ * 纯派生：目录条目 × 已装清单 → 管理页行。
+ * 「已装」判据 = 清单里同 id 存在（禁用/broken 也算已装——更新检查不看启停态）。
+ */
+export function deriveCatalogRows(
+  entries: PluginCatalogEntry[],
+  installed: PluginInfo[],
+): PluginCatalogRow[] {
+  return entries.map((entry) => {
+    const hit = installed.find((p) => p.id === entry.id)
+    const selected = entry.selected?.version
+    return {
+      entry,
+      ...(hit ? { installedVersion: hit.version } : {}),
+      updateAvailable: !!(hit && selected && hit.version !== selected),
+    }
+  })
+}
+
+/** 更新重启提示（判定 = 安装前清单快照里同 id 已存在；同版本重装亦命中，措辞「已重新安装」） */
+export interface PluginRestartNotice {
+  id: string
+  name: string
+  fromVersion: string
+  toVersion: string
+  /** true = 同版本重装（措辞「已重新安装」）；false = 版本变化（措辞「已更新」） */
+  reinstalled: boolean
+  title: string
+  message: string
+}
+
+/**
+ * 纯派生：安装前快照 × 安装结果 → 重启提示；**新装返回 null（不提）**。
+ * 措辞口径 = `docs/INTERNAL/PLUGIN.md` §七（2026-09-22 用户拍板）：插件是热侧载非热刷新，
+ * 覆盖安装的新版本要重启应用才完全生效。
+ */
+export function buildRestartNotice(before: PluginInfo[], after: PluginInfo): PluginRestartNotice | null {
+  const prev = before.find((p) => p.id === after.id)
+  if (!prev) return null
+  const reinstalled = prev.version === after.version
+  return {
+    id: after.id,
+    name: after.name,
+    fromVersion: prev.version,
+    toVersion: after.version,
+    reinstalled,
+    title: reinstalled ? '插件已重新安装' : '插件已更新',
+    message: reinstalled
+      ? `插件已重新安装：v${after.version}，重启应用后新版本完全生效（${after.name}）`
+      : `插件已更新：v${prev.version} → v${after.version}，重启应用后新版本完全生效（${after.name}）`,
+  }
+}
+
+/** 目录拉取失败的展示引导（把主进程的中文错误码翻成 UI 该给什么路） */
+export interface CatalogErrorGuidance {
+  /** 错误码（`CODE：人话` 的 CODE 部分；无前缀 = 空串） */
+  code: string
+  /** 展示文本（已剥掉 CODE 前缀） */
+  text: string
+  /** 需要登录 → UI 给「去登录」入口 */
+  loginRequired: boolean
+  /** 服务端未就绪（端点未部署）→ 措辞「稍后再来」，不引导用户折腾网络 */
+  notDeployed: boolean
+  /** 可重试（除「需登录」外一律给「重试」按钮） */
+  retryable: boolean
+}
+
+/**
+ * 纯派生：主进程错误串 → 引导。判据按**错误码**（`NO_SERVER：…` 形态），不猜文案——
+ * 措辞改字不该让引导走偏（反例：靠 `includes('登录')` 会在「登录态已失效」与
+ * 「目录为空」之间误判）。
+ */
+export function catalogErrorGuidance(error: string): CatalogErrorGuidance {
+  const raw = String(error ?? '')
+  const m = /^([A-Z_]+)：/.exec(raw)
+  const code = m ? m[1] : ''
+  return {
+    code,
+    text: m ? raw.slice(m[0].length) : raw,
+    loginRequired: code === 'NOT_LOGGED_IN',
+    notDeployed: code === 'NOT_DEPLOYED',
+    retryable: code !== 'NOT_LOGGED_IN',
+  }
+}
+
+/** 体积展示（目录项的 `size` 字节数 → 人话；服务端没给 → '—'） */
+export function formatPluginSize(bytes?: number): string {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+/**
+ * permissions 摘要（目录行的「权限」一栏；`'*'` 醒目——装在本地跑的是同等系统权限，
+ * 目录页必须在下单前就把这条亮出来）。无声明 → 「未声明」。
+ */
+export function summarizeCatalogPermissions(perms?: PluginInfo['permissions']): string {
+  const parts: string[] = []
+  for (const d of perms?.network ?? []) parts.push(d === '*' ? '任意网络域名（⚠ 需说明理由）' : `网络 ${d}`)
+  if (perms?.clipboard) parts.push('剪贴板')
+  if (perms?.notification) parts.push('系统通知')
+  if (perms?.account) parts.push('账号登录态')
+  if (perms?.customers) parts.push('客户档案')
+  if (perms?.share) parts.push('局域网共享')
+  return parts.length > 0 ? parts.join('、') : '未声明'
 }
 
 /** 卸载（删除 pkg/ 与 state/；UI 明示确认后调用） */

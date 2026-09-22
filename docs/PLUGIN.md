@@ -56,7 +56,7 @@
 └── shared/            # 可选（公共类型/资源）
 ```
 
-- **安装**：管理页从官方索引勾选下载，或手动导入本地 `.qbox`（侧载）→ JSON Schema + SHA-256 校验 → 解压到 `userData/plugins/<id>/pkg/` → 登记。
+- **安装**：管理页从官方索引勾选下载（`catalog()` → `install({ downloadUrl, sha256 })`，需登录态，见 §5.3），或手动导入本地 `.qbox`（侧载）→ JSON Schema + SHA-256 校验 → 解压到 `userData/plugins/<id>/pkg/` → 登记。
 - **状态**：插件业务状态存 `userData/plugins/<id>/state/`（经 `host.storage` 访问）；启停覆盖存 `userData/plugins/config.json`。代码与状态分离。
 - **覆盖安装（v2.6 起）**：同 id 已安装时再次侧载同一插件 = **覆盖安装**——仅替换 `pkg/`，**保留 `state/`**（消息历史/配对/身份等数据不丢）；旧实例自动停用并重新激活；覆盖失败回滚旧包。需要"全新安装"（清空数据）须先卸载。**更新生效口径（2026-09-22 实测）**：已加载的插件模块/页面在进程内不热替换（见 §八「更新即重启」）——覆盖安装的新版本**重启应用后**完全生效。
 - **卸载**：删除 `pkg/` 与 `state/`；「禁用」两者都保留。
@@ -191,6 +191,8 @@ export interface PluginManifest {
 1. **只增不删**：同一 API 大版本内只新增；废弃字段标记 `@deprecated`，至少存活一个宿主大版本
 2. `apiCompat` 不相交 → broken + 管理页明确提示「需升级宿主 / 需升级插件」
 3. 官方索引维护「插件版本 → 所需宿主 API 版本」映射（versions.json），旧宿主自动选兼容旧版插件
+4. **宿主的选版口径（v2.6 实装）**：`catalog()` 对每个插件在全部兼容版本里取**语义化版本最高**者呈现与安装
+   （不取列表末位——服务端顺序不该改变宿主行为）；无兼容版本 → 管理页标「不兼容」并置灰，**不提供下载**（§5.3）
 
 <!-- contract:v1:api-version -->
 <!-- contract:v1:api-evolution -->
@@ -312,10 +314,12 @@ window.qihebox.plugins = {
   list(): Promise<ApiResult<PluginInfo[]>>            // 含禁用/broken
   call(pluginId: string, action: string, payload?: unknown): Promise<ApiResult<unknown>>
   setEnabled(pluginId: string, enabled: boolean): Promise<ApiResult<boolean>>
-  catalog(): Promise<ApiResult<PluginCatalogEntry[]>> // 官方索引目录（进入管理页时拉取，不后台轮询；v2.6/v2.7 实装，当前未实现）
-  install(source: { filePath: string }): Promise<ApiResult<PluginInfo>>
-  // v2.5 仅侧载 filePath 形态；侧载需开发者模式开启，关闭时拒绝（DEV_MODE_REQUIRED）
-  // install({ downloadUrl, sha256 }) 官方索引形态 v2.6+（当前未实现）
+  catalog(): Promise<ApiResult<PluginCatalogEntry[]>> // 官方索引目录（v2.6 实装；进入管理页时拉取，不后台轮询）
+  // PluginInstallSource = { filePath: string } | { downloadUrl: string; sha256: string }
+  install(source: PluginInstallSource): Promise<ApiResult<PluginInfo>>
+  // v2.6 起双形态：
+  //  { filePath } 侧载——需开发者模式开启，关闭时拒绝（DEV_MODE_REQUIRED）
+  //  { downloadUrl, sha256 } 官方索引——需登录态；下载后逐字节校验 SHA-256，不符拒绝安装（不落盘半包）
   uninstall(pluginId: string): Promise<ApiResult<boolean>>
   on(channel: string, cb: (data: unknown) => void): () => void  // 订阅函数，返回退订函数（非 Promise）
 }
@@ -326,12 +330,60 @@ window.qihebox.settings = {
   setDevMode(enabled: boolean): Promise<ApiResult<boolean>>
 }
 
+/** 应用内重启（v2.6 增量）：插件**覆盖安装（更新）后**新版本需重启应用才完全生效（见 §八「更新即重启」）；
+ *  通道内部落点 qihebox:app:relaunch（app.relaunch() + app.quit()，走正常退出路径） */
+window.qihebox.app = {
+  relaunch(): Promise<ApiResult<boolean>>
+}
+
 /** ApiResult<T> = { success: boolean; data: T | null; error: string | null }（对齐 src/shared/types.ts 实际定义） */
 ```
 
+`catalog()` 的条目形状（宿主按自身 `API_VERSION` 与产品版本判定兼容性后输出）：
+
+```ts
+export interface PluginCatalogEntry {
+  id: string            // 插件 id（域名倒序，与 manifest.id 一致）
+  name: string          // 展示名
+  description?: string
+  author?: string
+  icon?: string         // 图标 URL（https；插件尚未下载，包内路径不可用）
+  source?: string       // 来源描述（缺省「启禾官方」）
+  permissions?: { network?: string[]; clipboard?: boolean; notification?: boolean; account?: boolean; customers?: boolean; share?: boolean }  // permissions 摘要（仅展示）
+  versions: PluginCatalogVersion[]              // 版本列表（服务端全量，宿主不裁剪）
+  compatible: boolean   // 宿主派生：存在与当前宿主兼容的版本
+  selected?: PluginCatalogVersion               // 宿主派生：选中可安装版本（最新兼容版本）
+  reason?: string       // 宿主派生：不兼容原因（置灰时展示）
+}
+
+export interface PluginCatalogVersion {
+  version: string                    // 语义化版本
+  apiCompat?: [number, number]       // 所需宿主 API 版本范围（缺省 [1,1]，与 manifest.apiCompat 同口径）
+  minHostVersion?: string            // 宿主产品版本下限（如 '2.6.0'；缺省不限）
+  size?: number                      // 包体字节数（管理页展示体积）
+  sha256: string                     // .qbox 包整体 SHA-256（64 位十六进制）
+  downloadUrl: string                // 包体地址（绝对 https；同源 http 仅用于自建/内网部署）
+}
+```
+
+**目录链的失败口径（不谎报空目录）**：`catalog()` 的错误串形如 `CODE：人话`，管理页按 CODE 决定出路，
+**只有 200 + 空列表才显示「目录暂无插件」**；未登录 / 未配置服务器 / 端点未部署一律如实报错：
+
+| CODE | 触发 | 管理页出路 |
+|---|---|---|
+| `NOT_LOGGED_IN` | 未登录，或服务端 401/403 | 「去登录」 |
+| `NO_SERVER` | 宿主未配置云服务地址 | 提示改配置（重试） |
+| `NOT_DEPLOYED` | 端点 404（服务端未部署该功能） | 「重试」（稍后再来） |
+| `CATALOG_UNAVAILABLE` | 其余非 2xx / 网络不可达 | 「重试」 |
+| `CATALOG_BAD_PAYLOAD` | 回包形状非法（含 `code != 200`） | 「重试」 |
+
+下载链同理：`DOWNLOAD_NOT_LOGGED_IN`（未登录，**不发起下载**）/ `DOWNLOAD_URL_UNTRUSTED`（地址不在 https 与同源 http 之内）/
+`DOWNLOAD_BAD_SHA256`（校验值形状非法）/ `DOWNLOAD_FAILED`（HTTP 错误 / 无包体 / 写入中断）/
+`DOWNLOAD_HASH_MISMATCH`（下载完成但 SHA-256 与索引不符 → 已删包体、未进安装管线）。
+
 <!-- contract:v1:window.plugins -->
 <!-- contract:v1:window.settings -->
-<!-- contract:v2.7:window.plugins.catalog -->
+<!-- contract:v2.6:window.plugins.catalog -->
 
 > preload 为薄壳纯透传，不 import 任何插件代码。
 
@@ -799,4 +851,4 @@ window.qihebox.ui.openEntity(
 
 ---
 
-*协议版本：v1（API_VERSION = 1，随 v2.5 宿主生效；2026-08-14 增量：syncScope / permissions.account / host.account / host.files / host.entitlement / 侧载收紧，均为向后兼容新增；2026-09-22 补：§二/§八 加「更新即重启」生效口径——非协议变更，仅承诺口径补全；2026-09-23 补：§5.6 `listTree` 条目形状钉死（只认 `kind`）、`STALE` 抛错口径钉死、§三 规则计数勘正——均为口径澄清，非协议变更） · 本文档在公开仓库维护，契约修订与实现同步*
+*协议版本：v1（API_VERSION = 1，随 v2.5 宿主生效；2026-08-14 增量：syncScope / permissions.account / host.account / host.files / host.entitlement / 侧载收紧，均为向后兼容新增；2026-09-22 补：§二/§八 加「更新即重启」生效口径——非协议变更，仅承诺口径补全；2026-09-23 补：§5.6 `listTree` 条目形状钉死（只认 `kind`）、`STALE` 抛错口径钉死、§三 规则计数勘正——均为口径澄清，非协议变更；**同日 v2.6 批 2 实装**：§5.3 `catalog()` + `PluginCatalogEntry` 形状 + `install({ downloadUrl, sha256 })` 双形态与目录/下载链错误码、§二 安装链、§三.4 选版口径、§5.3 `app.relaunch()`——`catalog()` / 官方索引安装形态从「当前未实现」转为实装口径） · 本文档在公开仓库维护，契约修订与实现同步*

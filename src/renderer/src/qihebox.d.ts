@@ -241,13 +241,18 @@ interface QiheboxApi {
     setAutoLaunch: (enabled: boolean) => Promise<unknown>
     isAutoLaunch: () => Promise<unknown>
     isTrayReady: () => Promise<unknown>
+    /** v2.6 批 2：应用内重启（插件更新后「立即重启」） */
+    relaunch: () => Promise<unknown>
   }
   // v2.5：插件宿主命名空间（纯透传；宿主返回 ApiResult 包装，渲染层 registry 直读 success/error）
   plugins: {
     list: () => Promise<unknown>
     call: (pluginId: string, action: string, payload?: unknown) => Promise<unknown>
     setEnabled: (pluginId: string, enabled: boolean) => Promise<unknown>
-    install: (source: { filePath: string }) => Promise<unknown>
+    /** 侧载 `{ filePath }` / 官方索引 `{ downloadUrl, sha256 }` 双形态（v2.6 批 2） */
+    install: (source: { filePath: string } | { downloadUrl: string; sha256: string }) => Promise<unknown>
+    /** 官方索引目录（v2.6 批 2；进入管理页时拉取一次） */
+    catalog: () => Promise<unknown>
     uninstall: (pluginId: string) => Promise<unknown>
     on: (channel: string, cb: (data: unknown) => void) => () => void
   }

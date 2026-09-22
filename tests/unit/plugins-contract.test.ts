@@ -305,11 +305,13 @@ async function makeLoaderFixture(mainJs: string): Promise<{
 
 // ============================================================================
 // 映射表（锚点 id → self-check 函数）：key 全集 = 唯一权威 oracle
-// stage：v1 = API_VERSION=1 现在必须实现；v2.7 = 仅登记的未来承诺（无 check）。
+// stage：v1 = API_VERSION=1 现在必须实现；v2.6 = 已实装（必须带 self-check）；v2.7 = 仅登记的未来承诺（无 check）。
 // ============================================================================
 
 interface ContractEntry {
-  stage: 'v1' | 'v2.7'
+  // v1 = API_VERSION=1 现在必须实现；v2.6 = 已实装的承诺（必须带 self-check）；
+  // v2.7 = 仅登记的未来承诺（无 check）
+  stage: 'v1' | 'v2.6' | 'v2.7'
   check?: (deps: ContractDeps) => void | Promise<void>
 }
 
@@ -774,7 +776,8 @@ const CONTRACT: Record<string, ContractEntry> = {
   'contract:v1:window.plugins': {
     stage: 'v1',
     check: () => {
-      expect(PRELOAD_MANIFEST.plugins).toEqual(['list', 'call', 'setEnabled', 'install', 'uninstall', 'on'])
+      // v2.6 批 2：+ catalog（官方索引目录；install 方法名不变，入参扩双形态）
+      expect(PRELOAD_MANIFEST.plugins).toEqual(['list', 'call', 'setEnabled', 'install', 'catalog', 'uninstall', 'on'])
       assertPreloadManifestMatchesSource()
       // 签名口径（P1-E1/A3）：plugins 命名空间方法返回 ApiResult 包装；install 返回 ApiResult<PluginInfo>
       // （组 D 已把 PLUGIN.md §5.3 改为 ApiResult 口径，此处守护 preload 源码与文档一致）
@@ -783,7 +786,9 @@ const CONTRACT: Record<string, ContractEntry> = {
       expect(preload).toContain('list: (): Promise<ApiResult<PluginInfo[]>>')
       expect(preload).toContain('call: (pluginId: string, action: string, payload?: unknown): Promise<ApiResult<unknown>>')
       expect(preload).toContain('setEnabled: (pluginId: string, enabled: boolean): Promise<ApiResult<boolean>>')
-      expect(preload).toContain('install: (source: { filePath: string }): Promise<ApiResult<PluginInfo>>')
+      // v2.6 批 2：双形态入参（侧载 filePath / 官方索引 downloadUrl+sha256）
+      expect(preload).toContain('install: (source: PluginInstallSource): Promise<ApiResult<PluginInfo>>')
+      expect(preload).toContain('catalog: (): Promise<ApiResult<PluginCatalogEntry[]>>')
       expect(preload).toContain('uninstall: (pluginId: string): Promise<ApiResult<boolean>>')
     },
   },
@@ -807,6 +812,8 @@ const CONTRACT: Record<string, ContractEntry> = {
         'qihebox:plugins:call',
         'qihebox:plugins:setEnabled',
         'qihebox:plugins:install',
+        // v2.6 批 2：官方索引目录
+        'qihebox:plugins:catalog',
         'qihebox:plugins:uninstall',
         'qihebox:settings:getDevMode',
         'qihebox:settings:setDevMode',
@@ -1016,8 +1023,65 @@ const CONTRACT: Record<string, ContractEntry> = {
     },
   },
 
+  // —— v2.6 实装（批 2：官方目录与下载链）——
+  'contract:v2.6:window.plugins.catalog': {
+    stage: 'v2.6',
+    check: async () => {
+      // 文档形状 ↔ 实现形状：条目/版本字段名逐项落在公开契约里（改字段名不改文档即红）
+      const doc = fs.readFileSync(PUBLIC_PLUGIN_MD, 'utf-8')
+      const block = doc.slice(doc.indexOf('export interface PluginCatalogEntry'), doc.indexOf('export interface PluginCatalogVersion'))
+      for (const field of [
+        'id: string',
+        'name: string',
+        'description?: string',
+        'author?: string',
+        'icon?: string',
+        'source?: string',
+        'permissions?:',
+        'versions: PluginCatalogVersion[]',
+        'compatible: boolean',
+        'selected?: PluginCatalogVersion',
+        'reason?: string',
+      ]) {
+        expect(block, `PluginCatalogEntry 缺字段 ${field}`).toContain(field)
+      }
+      const docTypes = readSource('src/shared/types.ts')
+      for (const decl of [
+        'export interface PluginCatalogEntry',
+        'export interface PluginCatalogVersion',
+        'export type PluginInstallSource',
+      ]) {
+        expect(docTypes, `src/shared/types.ts 缺 ${decl}`).toContain(decl)
+      }
+
+      // 行为面：拉取/解析/选版/下载中文出路（细节用例在 plugins-catalog.test.ts / plugins-download.test.ts；
+      // 此处只钉「契约句句有实现」——每条 CODE 都能在实现里找到，且不谎报空目录）
+      const { fetchCatalog, CATALOG_ERRORS } = (await import('../../src/main/plugins/catalog')) as typeof import('../../src/main/plugins/catalog')
+      for (const code of ['NO_SERVER', 'NOT_LOGGED_IN', 'NOT_DEPLOYED', 'BAD_PAYLOAD']) {
+        expect(doc, `公开契约缺错误码 ${code}`).toContain(code)
+        expect(fetchCatalog, `${code} 无实现`).toBeTypeOf('function')
+      }
+      await expect(
+        fetchCatalog({ baseUrl: 'https://example.com/api', getToken: () => null, fetchImpl: (() => {
+          throw new Error('未登录不该发起请求')
+        }) as unknown as typeof fetch }, { apiVersion: API_VERSION, productVersion: '2.6.0' }),
+      ).rejects.toThrow(/NOT_LOGGED_IN/)
+      expect(CATALOG_ERRORS.NOT_DEPLOYED).toContain('HTTP 404')
+
+      // install 双形态：handler 源码必须同时认 filePath 与 downloadUrl（且官方分支不检查 devMode）
+      const ipc = readSource('src/main/plugins/ipc.ts')
+      expect(ipc).toContain("typeof downloadSrc.downloadUrl === 'string'")
+      expect(ipc).toContain('downloadPluginPackage')
+      expect(ipc).toContain('DEV_MODE_REQUIRED')
+
+      // 重启通道：preload 暴露 + main 注册 + 复用自启同一份「该执行哪个文件」判据
+      expect(readSource('src/preload/index.ts')).toContain("invoke('qihebox:app:relaunch')")
+      expect(readSource('src/main/ipc.ts')).toContain("'qihebox:app:relaunch'")
+      expect(readSource('src/main/relaunchMain.ts')).toContain('resolveRelaunchOptions')
+    },
+  },
+
   // —— v2.7 仅登记的未来承诺（无 check：self-check 只断言文档登记存在）——
-  'contract:v2.7:window.plugins.catalog': { stage: 'v2.7' },
   'contract:v2.7:customer.list': { stage: 'v2.7' },
   'contract:v2.7:customer.get': { stage: 'v2.7' },
   'contract:v2.7:customer.write-erp-ext': { stage: 'v2.7' },
@@ -1069,10 +1133,18 @@ describe('契约对账（docs/PLUGIN.md ↔ 实现）', () => {
     }
   })
 
-  // 每个 v1 锚点执行 self-check（注入真实实现，行为级断言）
+  it('映射表 v2.6 锚点全部具备 self-check（已实装的承诺不许只登记不验证）', () => {
+    for (const [id, entry] of Object.entries(CONTRACT)) {
+      if (id.startsWith('contract:v2.6:')) {
+        expect(typeof entry.check, `${id} 须有 self-check 函数`).toBe('function')
+      }
+    }
+  })
+
+  // 每个 v1 / v2.6 锚点执行 self-check（注入真实实现，行为级断言）
   for (const [id, entry] of Object.entries(CONTRACT)) {
-    if (id.startsWith('contract:v1:')) {
-      it(`v1 self-check: ${id}`, async () => {
+    if (id.startsWith('contract:v1:') || id.startsWith('contract:v2.6:')) {
+      it(`v1/v2.6 self-check: ${id}`, async () => {
         const ctx = await makeContractHost()
         try {
           await entry.check!(ctx.deps)

@@ -10,20 +10,25 @@
  */
 import { app, ipcMain, dialog, BrowserWindow, Notification } from 'electron'
 import path from 'node:path'
+import fsp from 'node:fs/promises'
 import type { BoxService } from '../core'
 import type { AccountService } from '../account'
 import type { SettingsService } from '../settings'
 import { log } from '../log'
 import { getMainWindow, windowShow } from '../window'
-import type { ApiResult } from '../../shared/types'
+import type { ApiResult, PluginInstallSource } from '../../shared/types'
 import { ok, fail, handle, sendTo } from '../ipc'
 import { thumbnailFileUrl } from '../protocol'
 import { PluginRegistry, PLUGINS_DIR, STATE_DIR } from './registry'
 import { PluginLoader } from './loader'
 import { PluginInstaller } from './installer'
+import type { InstallResult } from './installer'
+import { fetchCatalog } from './catalog'
+import { downloadPluginPackage } from './download'
 import { createPluginHost, HostEventBus, HOST_EVENT_WHITELIST, fileError, mapCoreError } from './host'
 import { makePluginSecretStore } from './secretStore'
 
+import { API_VERSION } from '../../plugins/types'
 import type { InboundProfile, InvoiceProfile } from '../../plugins/types'
 import { ShareViewService } from '../core/shareView'
 
@@ -318,14 +323,54 @@ export function registerPluginHost(
     }
     return ok(r)
   })
-  ipcMain.handle('qihebox:plugins:install', (_e, source: { filePath: string }) =>
+  // v2.6 批 2：官方索引目录（进入管理页时拉取一次，**不后台轮询**——网络常驻红线）。
+  // 数据源 = 启禾云账号 API（与账号/云通道同基址，走登录态 JWT）；端点契约见 main/plugins/catalog.ts 头注释。
+  // 未登录 / 未配置服务器 / 端点未部署 → 中文错误如实上报（不谎报空目录）。
+  ipcMain.handle('qihebox:plugins:catalog', () =>
+    handle(() =>
+      fetchCatalog(
+        {
+          baseUrl: cloudBaseUrl,
+          getToken: () => account.getToken(),
+          log: (level, msg) => void log(level, `[plugins] ${msg}`),
+        },
+        { apiVersion: API_VERSION, productVersion: app.getVersion() },
+      ),
+    ),
+  )
+  ipcMain.handle('qihebox:plugins:install', (_e, source: PluginInstallSource) =>
     handle(async () => {
-      // v2.5 增量（PLAN §3.5，r2-执行P1-4 落点定死）：侧载收紧——devMode 校验放 handler 层，
-      // 关闭时拒绝（默认关）；installer.ts 保持纯 TS 不感知 devMode
-      if (!settings.getDevMode()) {
-        throw new Error('DEV_MODE_REQUIRED：侧载安装需先在「设置 → 开发者模式」中开启开发者模式')
+      // v2.6 批 2：install 双形态（docs/PLUGIN.md §5.3）——
+      // ① { downloadUrl, sha256 } 官方索引形态：需登录态 + SHA-256 逐字节校验，**不要求 devMode**
+      //    （官方索引发的是审核过的包；devMode 是侧载那道门）；临时包体在 finally 里删除（不落盘半包）。
+      // ② { filePath } 侧载形态：devMode 校验放 handler 层，关闭时拒绝（默认关）；
+      //    installer.ts 保持纯 TS 不感知 devMode。**侧载语义零变更**。
+      const downloadSrc = source as { downloadUrl?: unknown; sha256?: unknown } | undefined
+      let r: InstallResult
+      if (downloadSrc && typeof downloadSrc.downloadUrl === 'string') {
+        const dl = await downloadPluginPackage(
+          {
+            baseUrl: cloudBaseUrl,
+            getToken: () => account.getToken(),
+            log: (level, msg) => void log(level, `[plugins] ${msg}`),
+          },
+          {
+            downloadUrl: downloadSrc.downloadUrl,
+            sha256: typeof downloadSrc.sha256 === 'string' ? downloadSrc.sha256 : '',
+            destDir: root,
+          },
+        )
+        try {
+          r = await installer.install(dl.filePath)
+        } finally {
+          await fsp.rm(dl.filePath, { force: true }).catch(() => {})
+        }
+      } else {
+        if (!settings.getDevMode()) {
+          throw new Error('DEV_MODE_REQUIRED：侧载安装需先在「设置 → 开发者模式」中开启开发者模式')
+        }
+        r = await installer.install((source as { filePath?: string } | undefined)?.filePath ?? '')
       }
-      const r = await installer.install(source?.filePath)
       broadcastPluginsChanged()
       // 覆盖安装（2026-08-16 方案 A）：旧实例的模块已被替换（pkg/ 换新），
       // 先 dispose 旧实例（停用回收订阅/端口），再重新激活新实例（state/ 保留，数据不丢）
