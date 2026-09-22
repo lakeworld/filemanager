@@ -12,7 +12,7 @@
  *
  * ⚠ 本文件只测主进程判据；渲染层"看不见盘上新建目录"那条 P2 的端到端反证在 `tests/e2e/`（刀 1b）。
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { buildTestBox } from './helpers'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -471,5 +471,58 @@ describe('悬案 · 就地改名后的元数据联动（P1-9）', () => {
     await box.workspace.renameSubfolderInEntity('image', '甲集', '首图', '新首图')
 
     expect(await fsp.stat(store).then(() => true).catch(() => false), '没得迁就不该凭空造出 metadata.json').toBe(false)
+  })
+
+  it('目标 key 被「回收站幽灵条目」占住时源侧优先：标签判给活文件，旧 key 不留悬空条目（v2.6 审查轮 1）', async () => {
+    // 复现链（逐环都是既有口径，不是构造的怪状态）：
+    //   ① 回收站**不清理元数据**（`trash.ts` trashItem 头注释：恢复要原样还原）⇒ 盘上不存在的路径
+    //      照样有条目，这是常态；
+    //   ② 目录改名要求**目标目录在盘上不存在**（renameSubfolderInEntity 的 `fsp.stat(to)` 守卫）
+    //      ⇒ 任何占用「新前缀/…」这个 key 的条目必然是幽灵（没有活文件）；
+    //   ③ 而迁移回调遇到「新 key 已有内容」就 `continue`（照 moveFiles 的保守语义搬来的）⇒ 活文件的
+    //      标签根本没跟过去，旧 key 悬空留在已不存在的目录上，界面按新路径读出来的是**已删文件**的标签。
+    // 家底：`moveFiles` 两个 key 都可能有活文件，保守跳过才合理；目录改名语境不同（②），该源侧优先。
+    // 目录名刻意避开默认模板（主图/详情页/白底图/素材）——本用例要自己掌控盘上目录的生死。
+    const home = await tmp()
+    const box = buildTestBox(home)
+    const ws = path.join(home, 'ws')
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '甲集' })
+    await box.files.createSubfolder({ product_set: '甲集', file_type: 'image', name: '存档A', scope: 'productSet' })
+
+    // ① 存档A/a.png 存在过、打过 T1，随后进回收站（条目按 trash 口径留在原地）
+    const ghost = path.join(ws, '产品集', '甲集', '图包', '存档A', 'a.png')
+    await fsp.writeFile(ghost, 'png')
+    await box.metadata.update({ file_path: ghost, tags: ['T1'] })
+    const del = await box.files.fileDelete([ghost])
+    expect(del.deleted, '前置：文件确实进了回收站').toBe(1)
+    expect(await fsp.stat(ghost).then(() => true).catch(() => false), '前置：盘上已无此文件').toBe(false)
+    expect((await box.metadata.get(ghost)).tags, '前置：幽灵条目仍带 T1（回收站不清元数据）').toEqual(['T1'])
+
+    // ② 存档A 整个删掉（盘上不存在）→ 建 存档B/a.png 打 T2
+    await box.files.deleteSubfolder({ product_set: '甲集', file_type: 'image', name: '存档A', scope: 'productSet' })
+    await box.files.createSubfolder({ product_set: '甲集', file_type: 'image', name: '存档B', scope: 'productSet' })
+    const live = path.join(ws, '产品集', '甲集', '图包', '存档B', 'a.png')
+    await fsp.writeFile(live, 'png')
+    await box.metadata.update({ file_path: live, tags: ['T2'] })
+
+    // ③ 存档B → 存档A（合法：目标目录盘的没有 ⇒ 占用 key 的只能是 ① 的幽灵）
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // ⚠ 调用记录必须在 mockRestore **之前**取走：vitest 的 mockRestore = mockReset + 还原实现，会清空 calls
+    let warned = ''
+    try {
+      await box.workspace.renameSubfolderInEntity('image', '甲集', '存档B', '存档A')
+    } finally {
+      warned = warnSpy.mock.calls.map((c) => c.map(String).join(' ')).join('\n')
+      warnSpy.mockRestore()
+    }
+
+    const renamed = path.join(ws, '产品集', '甲集', '图包', '存档A', 'a.png')
+    const got = await box.metadata.get(renamed)
+    expect(got.tags, '活文件的标签必须跟着目录走（不许被幽灵条目顶掉，否则界面把已删文件的标签显示给活文件）').toEqual(['T2'])
+    expect((await box.metadata.get(live)).tags ?? [], '旧 key 不许留悬空条目（否则元数据只会越积越脏）').toEqual([])
+    // 幽灵的占用不是静默丢弃：留一行可查（顶替是不可逆的，用户从回收站恢复时会看到标签换了主人）
+    expect(warned, '顶掉幽灵条目要留痕（不许静默）').toContain('幽灵条目')
+    expect(warned, '留痕要指名道姓，否则运维查不到是哪一条被顶掉').toContain('存档A/a.png')
   })
 })

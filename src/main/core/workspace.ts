@@ -383,9 +383,16 @@ export class WorkspaceService {
    * （`MetadataService.fileMetadataKey`），目录一改名，夹内每个文件的 key 全体换样 ⇒
    * 旧条目留在原地成僵尸、新路径读到空库 ⇒ 用户看到的是标签/备注/到期日在界面上凭空消失
    * （不是旧注释写的"无需迁移"）。
-   * 语义照 `files.ts` 的 renameFile / moveFiles 既有先例：**新 key 已有内容则保留、不覆盖**、
-   * 旧 key 无数据则不动它；事务口径同样照先例走 `mutateJsonFile` 锁内读改写
-   * （锁外读旧快照再整档替换会抹掉迁移窗口内的并发元数据更新）。
+   * 语义：**改名语境下源侧优先**——目标 key 被占住时源条目顶掉它（并删源 key）。为什么不是 moveFiles
+   * 那条「新 key 已有内容则保留、不覆盖」的保守语义：本函数只在**目录改名**时被调，而改名的前置守卫
+   * 要求目标目录在盘上**不存在**（`renameSubfolderInEntity` 的 `fsp.stat(to)`）⇒ 任何占用「新前缀/…」
+   * 的条目必然对应盘上不存在的路径 = **回收站幽灵条目**（`trash.ts` 不清理元数据，恢复要原样还原），
+   * 没有活文件；而源侧那条对应的是改名后**仍然活着**的文件。保守跳过会把活文件的标签留在已不存在的
+   * 旧路径上，界面按新路径读出来的是**已删文件**的标签（v2.6 审查轮 1 的缺陷：目标 key 被幽灵占住 ⇒
+   * 标签判给幽灵、真标签悬空）。`moveFiles` 的语境不同（两个 key 都可能有活文件），它走的是自己的
+   * `metadata.mutateKeys`，本改动不碰它。被顶掉的幽灵逐条 `console.warn` 留痕（core 层既有口径），
+   * 不做无痕的"标签换主人"。
+   * 事务口径照先例走 `mutateJsonFile` 锁内读改写（锁外读旧快照再整档替换会抹掉迁移窗口内的并发元数据更新）。
    * 缩略图缓存 key 同理由路径推导（`paths.thumbnailPath` 的 sha256），但缓存根在 userData/thumbs
    * （装配层只注入给 ThumbnailService），本服务拿不到 ⇒ 此处不搬：旧条目成孤儿由缩略图 GC
    * （超龄/超量）兜底，新路径首屏经 `files:thumbnailUrl` 按需重建，看不到破图。
@@ -410,6 +417,8 @@ export class WorkspaceService {
     if (moves.length === 0) return
     const store = metadataPath(ws)
     const mtimeBefore = await fsp.stat(store).then((s) => s.mtimeMs).catch(() => 0)
+    /** 被源侧顶掉的**幽灵** key（只作留痕用；Set 防 mutate 万一被复用重入时重复计数） */
+    const displaced = new Set<string>()
     const moved = await mutateJsonFile(store, {
       read: async () => ({ files: {} }), // 文件缺失按空库起步（与 metadata.ts 同口径）
       validate: validateMetadataStore, // 结构非法即视为损坏：拒绝覆盖并留证，不借改名之手抹掉整档案
@@ -419,7 +428,9 @@ export class WorkspaceService {
           for (const [key, meta] of Object.entries(store.files)) {
             if (!key.startsWith(from)) continue
             const next = to + key.slice(from.length)
-            if (store.files[next]) continue // 新 key 已有内容 → 保留（同 files.ts 迁移先例）
+            // 目标 key 被占住 → **源侧优先**（见方法头注释：改名语境下占用者必然是幽灵条目，没有活文件；
+            // 保守跳过会让活文件的标签悬空在旧路径、界面把已删文件的标签显示给活文件）
+            if (store.files[next]) displaced.add(next)
             store.files[next] = meta
             delete store.files[key]
             moved++
@@ -430,6 +441,15 @@ export class WorkspaceService {
       save: async (_value, moved) => moved > 0, // 没命中就一个字节都不动（不白重写整档 metadata.json）
     })
     if (moved === 0) return
+    if (displaced.size > 0) {
+      // 不静默（红线）：顶掉的每一条都是回收站里的幽灵条目——用户若从回收站恢复该文件，会发现标签已被
+      // 本轮改名顶替，所以留一行可查（core 层既有口径：[前缀] 说明，见 dedup/import 先例）。
+      const list = [...displaced]
+      console.warn(
+        `[metadata] 目录改名：${list.length} 条回收站幽灵条目被源侧顶掉（这些路径盘上已无文件）: ` +
+          `${list.slice(0, 5).join('、')}${list.length > 5 ? ' 等' : ''}`,
+      )
+    }
     // MetadataService 的读路径拿 metadata.json 的 **mtime** 当缓存判据（metadata.ts loadMetadataStore：
     // `hit.mtime === statMtime` 即认为缓存仍是磁盘最新）。两次写盘落在同一毫秒里会得到相同的 mtimeMs ⇒
     // 缓存会把迁移前的旧 store 继续供出去（界面上看着标签还是丢；本进程内实测约 30% 命中）——
