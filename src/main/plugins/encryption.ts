@@ -10,7 +10,7 @@
  *
  * 明文不落盘：解密后的 bundle 只在内存（Module._compile / Response body），进程退出即消。
  * 诚实口径（Kerckhoffs）：解密逻辑公开（box 开源），安全依赖密钥服务端化与取钥审计——
- * 打补丁的自编译宿主可在加载时转储明文，防的是静态提取与无账号分发，不防付费用户主动破解。
+ * 打补丁的自编译宿主可在加载时转储明文，防的是静态提取与无账号分发，不防有决心的用户主动破解。
  *
  * 本模块不 import electron（纯 TS，可在 node 直测）；密钥落盘加密走 secretStore 注入
  * （装配层传 safeStorage 封装，node 单测传 fake）。

@@ -236,7 +236,7 @@ describe('buildHelloPlugin --encrypt（F5b 加密构建）', () => {
     expect(mainEnc.toString('utf8')).not.toContain('module.exports')
   })
 
-  it('非法 entitlement 报错（fail-fast，防误构付费插件为 login）', async () => {
+  it('非法 entitlement 报错（fail-fast，防误构需门槛插件为 login）', async () => {
     await expect(
       buildHelloPlugin({ srcDir: await makeFixtureSrc(), outDir: await tmpOut(), encrypt: true, entitlement: 'free' as never, log: () => {} }),
     ).rejects.toThrow('--entitlement 仅支持 login/subscription')

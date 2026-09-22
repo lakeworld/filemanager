@@ -103,7 +103,7 @@ export interface PluginManifest {
     algo: 'aes-256-gcm'
     /** erp box_plugin_keys 登记的密钥版本号（构建期随机，每版本一钥） */
     keyId: string
-    /** 取钥权益门槛：'login'（免费官方插件登录即给）| 'subscription'（付费插件需订阅生效） */
+    /** 取钥权益门槛：'login'（登录态）| 'subscription'（权益生效态） */
     entitlement: 'login' | 'subscription'
   }
 }
@@ -426,7 +426,7 @@ export interface PluginHost {
   }
 
   /** 权益占位（v2.5 增量，PLAN §3.4）：恒 free、零逻辑（红线 4：本体不做任何订阅实现），
-   *  真实权益由官方订阅插件提供（v2.7 接通），插件须判空按 free 处理 */
+   *  真实权益由官方权益插件提供（v2.7 接通），插件须判空按 free 处理 */
   entitlement: {
     status(): EntitlementStatus
   }

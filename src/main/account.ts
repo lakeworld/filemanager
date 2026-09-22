@@ -324,7 +324,7 @@ export class AccountService {
 
   /**
    * 取一张图形码（`GET {base}/captcha`，不带 query = 登录桶）。
-   * 隐私口径（`PLAN-v2.6-box支付与账号体系.md` §三）：**不落盘、不进日志**——
+   * 隐私口径：**不落盘、不进日志**——
    * 所以本方法一条 log 都不写（图码属凭据类内容，进日志等于多开一份泄漏面）。
    */
   async fetchCaptcha(): Promise<({ ok: true } & CaptchaChallenge) | { ok: false; error: string }> {
