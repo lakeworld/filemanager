@@ -132,6 +132,14 @@ test.describe('A9 刀5b · 客户内部挪动（界面可达性）', () => {
     expect(clean).not.toContain('甲集')
     expect(clean.length).toBeGreaterThanOrEqual(3)
 
+    // ②b 批 2.5·P1-8：默认选中项 = **盘上真有的**那个子文件夹，且只选中一个。
+    //    病根：默认值取全站模板表（image_subfolders[0] = 「主图」），而实体内形态的候选来自盘
+    //    ⇒ 默认值不在候选里 ⇒ 一个 chip 都不高亮、按钮却是亮的；用户不点 chip 直接「移动」，
+    //    文件就落进一个**新建的幽灵目录**（客户/<名>/主图）。本行是该缺陷的运行时判据。
+    const selectedNow = await dialog.locator('.seg-item-on').allTextContents()
+    expect(selectedNow.map((t) => t.trim()), '打开时应有且只有一个子文件夹被默认选中').toHaveLength(1)
+    expect(clean, '默认选中项必须是候选列表（= 盘上名单）里的一员').toContain(selectedNow[0].trim())
+
     // —— 选目标 + 确认 ——
     await dialog.locator('.seg-item').filter({ hasText: new RegExp(`^${TO}$`) }).click()
     await dialog.getByRole('button', { name: /移动\s*1\s*个/ }).click()
@@ -143,5 +151,44 @@ test.describe('A9 刀5b · 客户内部挪动（界面可达性）', () => {
     }).toPass({ timeout: 15000 })
 
     await expect(dialog).toHaveCount(0)
+  })
+
+  // ⚠ 本条接着上一条的现场跑（文件此时在 `归档` 里）——与 `subfolders-from-disk.spec.ts` ①②③ 同一种
+  // 顺序共享状态写法（workers:1，同文件内用例按序执行）。
+  test('不点 chip 直接「移动」：落进盘上已有的子文件夹，不新建幽灵目录（P1-8）', async () => {
+    const entityDir = path.join(wsDir, '客户', CUSTOMER)
+    const dirsNow = async (): Promise<string[]> =>
+      (await fsp.readdir(entityDir, { withFileTypes: true }))
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name)
+        .sort()
+    expect(fileName, '上一条用例应已把文件挪进「归档」').not.toBe('')
+    await expect(fsp.stat(path.join(entityDir, TO, fileName))).resolves.toBeTruthy()
+    const before = await dirsNow()
+
+    await page.evaluate((h) => {
+      window.location.hash = h
+    }, `/clients/${encodeURIComponent(CUSTOMER)}`)
+    await expect(page.getByRole('heading', { name: CUSTOMER })).toBeVisible({ timeout: 15000 })
+    await page.locator('.seg-item').filter({ hasText: new RegExp(`^${TO}$`) }).click()
+    const card = page.locator('.card').filter({ hasText: FILE_HINT }).first()
+    await card.waitFor({ timeout: 20000 })
+
+    await card.click({ button: 'right' })
+    await page.locator('.row-btn').filter({ hasText: '移动到…' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible({ timeout: 10000 })
+
+    // 一个 chip 都不点，直接确认
+    const selected = (await dialog.locator('.seg-item-on').allTextContents()).map((t) => t.trim())
+    expect(selected, '默认选中项应恰好一个').toHaveLength(1)
+    await dialog.getByRole('button', { name: /移动\s*1\s*个/ }).click()
+
+    // 判据 A：文件落在那个默认目标里
+    await expect(async () => {
+      await expect(fsp.stat(path.join(entityDir, selected[0], fileName))).resolves.toBeTruthy()
+    }).toPass({ timeout: 15000 })
+    // 判据 B（根因判据）：实体的子文件夹集合一个都没多——幽灵目录（旧实现的「主图」）不许出现
+    expect(await dirsNow(), '移动不得凭空新建目标目录').toEqual(before)
   })
 })

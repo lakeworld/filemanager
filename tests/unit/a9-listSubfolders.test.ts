@@ -359,3 +359,117 @@ describe('悬案 · 就地改名 renameSubfolderInEntity', () => {
     expect(ws).toBeTruthy()
   })
 })
+
+// —— 刀6 补（批 2.5 · P1-9）：改名后的**数据面**联动 ——
+// 元数据 key 与缩略图缓存 key 都是「相对工作区路径」的单向推导（`metadata.fileMetadataKey` /
+// `paths.thumbnailPath` 的 sha256），目录一改名，夹内每个文件的 key 全体变样：
+// 旧条目留在原地成僵尸、新路径读到空 ⇒ 用户看到标签/备注/到期日"凭空消失"。
+// 这是数据面改动，判据必须逐条钉住「旧 key 不留、新 key 内容一字不差」。
+describe('悬案 · 就地改名后的元数据联动（P1-9）', () => {
+  it('改名把夹内文件的 metadata key 一起搬走：标签/备注跟到新路径，旧 key 不留僵尸', async () => {
+    const home = await tmp()
+    const box = buildTestBox(home)
+    const ws = path.join(home, 'ws')
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '甲集' })
+    await box.files.createSubfolder({ product_set: '甲集', file_type: 'image', name: '首图', scope: 'productSet' })
+
+    const oldDir = path.join(ws, '产品集', '甲集', '图包', '首图')
+    const oldFile = path.join(oldDir, 'a.png')
+    await fsp.writeFile(oldFile, 'png')
+    await box.metadata.update({ file_path: oldFile, tags: ['重点'], notes: '别删这行' })
+    expect((await box.metadata.get(oldFile)).tags).toEqual(['重点']) // 前置：改名前的 key 确实带数据
+
+    await box.workspace.renameSubfolderInEntity('image', '甲集', '首图', '新首图')
+
+    const newFile = path.join(ws, '产品集', '甲集', '图包', '新首图', 'a.png')
+    const after = await box.metadata.get(newFile)
+    expect(after.tags).toEqual(['重点'])
+    expect(after.notes).toBe('别删这行')
+    // 旧 key 不留僵尸条目（否则元数据只会越积越脏）
+    expect((await box.metadata.get(oldFile)).tags ?? []).toEqual([])
+  })
+
+  it('acrossEntities 改名（改所有实体）逐实体都迁：两个集里的标签都不丢', async () => {
+    const home = await tmp()
+    const box = buildTestBox(home)
+    const ws = path.join(home, 'ws')
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '甲集' })
+    await box.workspace.productSetCreate({ name: '乙集' })
+    for (const ps of ['甲集', '乙集']) {
+      const f = path.join(ws, '产品集', ps, '图包', '主图', `${ps}.png`)
+      await fsp.writeFile(f, 'png')
+      await box.metadata.update({ file_path: f, tags: ['重点'] })
+    }
+
+    await box.workspace.renameSubfolder('image', '主图', '首图', { acrossEntities: true })
+
+    for (const ps of ['甲集', '乙集']) {
+      const f = path.join(ws, '产品集', ps, '图包', '首图', `${ps}.png`)
+      expect((await box.metadata.get(f)).tags, `${ps} 的标签应跟到新目录`).toEqual(['重点'])
+      expect((await box.metadata.get(path.join(ws, '产品集', ps, '图包', '主图', `${ps}.png`))).tags ?? [])
+        .toEqual([])
+    }
+  })
+
+  it('客户区改名（key 相对工作区根）同样迁：标签不因目录名换了就丢', async () => {
+    // 键规则两分支：产品集内相对「产品集/」、其余相对工作区根（metadata.fileMetadataKey）。
+    // 上一条只钉住了产品集分支，这条钉客户分支——界面上的"就地改名"就发生在客户/供应商 tab 上。
+    const home = await tmp()
+    const box = buildTestBox(home)
+    const ws = path.join(home, 'ws')
+    await box.workspace.create(ws)
+    await box.clients.create({ name: '华东客户' })
+    // 客户模板默认就含「沟通」（customer_subfolders），直接用；再手建一个是为了证明迁的是盘上真目录
+    const oldFile = path.join(ws, '客户', '华东客户', '沟通', '合同.pdf')
+    await fsp.writeFile(oldFile, 'pdf')
+    await box.metadata.update({ file_path: oldFile, notes: '客户原件' })
+
+    await box.workspace.renameSubfolderInEntity('customer', '华东客户', '沟通', '往来')
+
+    const newFile = path.join(ws, '客户', '华东客户', '往来', '合同.pdf')
+    expect((await box.metadata.get(newFile)).notes).toBe('客户原件')
+    expect((await box.metadata.get(oldFile)).notes ?? '').toBe('')
+  })
+
+  it('metadata.json 损坏时不借改名之手抹档案：拒绝覆盖 + 留证，盘上目录照旧改名', async () => {
+    // 数据面改动的兜底判据：迁 key 是「读→改→写」整档重写，若把损坏档案当空库起步就会**一次性清空**
+    // 全部标签/备注。jsonStore 的写入路径对此有守卫（严格读 + 隔离备份 + 拒绝覆盖），本迁移显式带
+    // `validate` 走同一条路——这条钉住它别被后手拆掉。
+    const home = await tmp()
+    const box = buildTestBox(home)
+    const ws = path.join(home, 'ws')
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '甲集' })
+    await box.files.createSubfolder({ product_set: '甲集', file_type: 'image', name: '首图', scope: 'productSet' })
+    const junk = '{坏掉的json!!'
+    const storePath = path.join(ws, '.qihefilemanager', 'metadata.json')
+    await fsp.writeFile(storePath, junk, 'utf-8')
+
+    await expect(box.workspace.renameSubfolderInEntity('image', '甲集', '首图', '新首图')).rejects.toThrow()
+
+    const entries = await fsp.readdir(path.join(ws, '.qihefilemanager'))
+    const backup = entries.find((f) => f.startsWith('metadata.json.corrupt-'))
+    expect(backup, '损坏档案必须留证（.corrupt-*）').toBeTruthy()
+    expect(await fsp.readFile(path.join(ws, '.qihefilemanager', backup!), 'utf-8')).toBe(junk)
+    // 透明口径：目录改名在写元数据之前就落盘了（与 files.renameFile 同序），报错是"元数据没跟上"而不是"改名没做"
+    expect(await fsp.stat(path.join(ws, '产品集', '甲集', '图包', '新首图')).then(() => true).catch(() => false)).toBe(true)
+  })
+
+  it('夹里没有任何元数据时，改名不白写整档 metadata.json（没命中就一个字节都不动）', async () => {
+    const home = await tmp()
+    const box = buildTestBox(home)
+    const ws = path.join(home, 'ws')
+    await box.workspace.create(ws)
+    await box.workspace.productSetCreate({ name: '甲集' })
+    await box.files.createSubfolder({ product_set: '甲集', file_type: 'image', name: '首图', scope: 'productSet' })
+    await fsp.writeFile(path.join(ws, '产品集', '甲集', '图包', '首图', '无标签.png'), 'png')
+    const store = path.join(ws, '.qihefilemanager', 'metadata.json')
+    expect(await fsp.stat(store).then(() => true).catch(() => false), '前置：还没有人写过元数据').toBe(false)
+
+    await box.workspace.renameSubfolderInEntity('image', '甲集', '首图', '新首图')
+
+    expect(await fsp.stat(store).then(() => true).catch(() => false), '没得迁就不该凭空造出 metadata.json').toBe(false)
+  })
+})

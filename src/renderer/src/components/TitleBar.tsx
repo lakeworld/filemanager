@@ -6,17 +6,20 @@ export default function TitleBar() {
   const [isMaximized, setIsMaximized] = createSignal(false);
 
   onMount(async () => {
+    // v2.5.2（打磨）：订阅最大化态变化——双击标题栏/Win+方向键等系统路径不经 toggleMaximize IPC，
+    // 仅挂载时查询一次会不同步；返回的取消函数进 onCleanup。
+    // v2.6（批 2.5 · P2）：订阅与 onCleanup **必须先于第一个 await 注册**——Solid 的 onCleanup 只认
+    // 当前 Owner，await 之后的续体里注册等于丢弃（监听器泄漏；判据 tests/unit/rendererSubscriptionCleanup.test.ts）。
+    const unsubscribe = window.qihebox?.events?.on("window:maximized-changed", (v: unknown) => {
+      setIsMaximized(v === true);
+    });
+    onCleanup(() => unsubscribe?.());
+
     try {
       setIsMaximized(await api.window.isMaximised());
     } catch {
       // ignore
     }
-    // v2.5.2（打磨）：订阅最大化态变化——双击标题栏/Win+方向键等系统路径不经 toggleMaximize IPC，
-    // 仅挂载时查询一次会不同步；返回的取消函数进 onCleanup
-    const unsubscribe = window.qihebox?.events?.on("window:maximized-changed", (v: unknown) => {
-      setIsMaximized(v === true);
-    });
-    onCleanup(() => unsubscribe?.());
   });
 
   const handleMinimize = () => api.window.minimize();

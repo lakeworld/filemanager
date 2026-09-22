@@ -30,6 +30,8 @@ export default function MoveDialog(props: {
   /** 是否处于"实体内部挪动"形态 */
   const inEntity = () => Boolean(props.scope && props.entity);
   const [entityFolders, setEntityFolders] = createSignal<SubfolderEntry[]>([]);
+  /** 实体内形态的名单是否已从盘上取回（空态提示要区分"还在取"与"真的空"，否则开框即闪一句假话） */
+  const [entityFoldersLoaded, setEntityFoldersLoaded] = createSignal(false);
 
   /** 可选目标：实体内形态只列**这个实体盘上实际有**的子文件夹；否则按图包/证书取 */
   const folderChoices = (): string[] =>
@@ -51,6 +53,7 @@ export default function MoveDialog(props: {
     void (async () => {
       const r = await api.files.listSubfolders({ product_set: props.entity!, scope: props.scope });
       if (r.success) setEntityFolders(r.data ?? []);
+      setEntityFoldersLoaded(true);
     })();
   });
 
@@ -70,12 +73,23 @@ export default function MoveDialog(props: {
    * 用 effect 而不是把初值写成 `imageFolders()[0]`：`workspaceConfig()` 是异步加载的，
    * 初值求值时配置常常还没到，只会拿到兜底数组甚至空 ⇒ 依然灰按钮。
    * 用户手选过（subFolder 非空）就不插手；切换类型的既有行为（按类型重置为首个）一字未动。
+   *
+   * v2.6（批 2.5 · P1-8）：默认值必须取自**候选名单本身**（`folderChoices()`），不能另取全站模板表——
+   * 实体内形态的候选来自盘上名单，而模板表首个是「主图」（image_subfolders[0]）：两者不一致时
+   * 没有 chip 高亮却按钮可点，用户不点 chip 直接「移动」就把文件挪进**新建的幽灵目录**
+   * （客户/<名>/主图，2026-09-23 探针实测）。本形态的候选名单异步到 ⇒ 这里读 `folderChoices()`
+   * 顺带把「名单到了再选首个」的时序也接住（名单为空则保持未选，按钮保持灰）。
    */
   createEffect(() => {
     if (subFolder()) return;
-    const first = (targetType() === "image" ? imageFolders() : certFolders())[0];
+    const first = folderChoices()[0];
     if (first) setSubFolder(first);
   });
+
+  /** 候选名单是否已就绪（实体内形态要等盘上名单回来；非实体内形态是同步模板表，恒就绪） */
+  const choicesReady = () => !inEntity() || entityFoldersLoaded();
+  /** 名单真的空（不是"还没取"）——给用户一句人话，别只留一个灰按钮 */
+  const noChoices = () => choicesReady() && folderChoices().length === 0;
 
   // 收尾轮：Esc 关闭（移动进行中不允许，只能等待完成）
   onMount(() => {
@@ -250,6 +264,15 @@ export default function MoveDialog(props: {
                 )}
               </For>
             </div>
+            {/* v2.6（批 2.5 · P1-8）：名单真的空时给一句人话（此前只有一个灰按钮，用户不知道缺什么）。
+                只在"取回了且为空"时出现——名单还在路上时不说话，免得闪一句假话。 */}
+            <Show when={noChoices()}>
+              <div class="mt-1.5 text-sm text-surface-500">
+                {inEntity()
+                  ? `${props.entity} 的盘上还没有子文件夹，先在文件区新建一个再来移动`
+                  : "当前没有可选的子文件夹"}
+              </div>
+            </Show>
           </div>
         </div>
 

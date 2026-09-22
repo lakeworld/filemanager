@@ -242,6 +242,36 @@ describe('host.account.cloudFetch（v2.5.7 F4a）', () => {
     expect(seen[0].init?.method).toBe('POST')
   })
 
+  it('代签头覆盖大小写不敏感：插件传 Authorization / X-Qihe-Client 不得合并成双段', async () => {
+    // 病根（2026-09-22 审查 §四 P2·box 账号面）：宿主头写的是小写键（authorization / x-qihe-client），
+    // 插件按 HTTP 惯例传驼峰（erp-bridge `cloudClient.ts:39` 就是 `Authorization`）⇒ 两个键并存。
+    // HTTP 头名大小写不敏感，真 fetch（undici）按名归一后会把两份**合并**成
+    // `Bearer plugin-supplied, Bearer jwt-x` 双段 —— 服务端取第一段 = 代签完全失效。
+    // 判据用 `new Headers()` 归一后取值，正是真 fetch 的读法（比对原始对象更接近现场）。
+    const seen: { url: string; init?: RequestInit }[] = []
+    const fakeFetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push({ url: String(input), init })
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as typeof fetch
+    const { deps } = await makeDeps({
+      accountAccess: true,
+      account: { getToken: () => 'jwt-x', isLoggedIn: () => true },
+      cloudFetchImpl: { baseUrl: 'https://api.example.com', fetchImpl: fakeFetch },
+    })
+    const inst = await createPluginHost(deps as never)
+    const h = inst.host as unknown as CloudHost
+    await h.account.cloudFetch('/api/box/me', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer plugin-supplied', 'X-Qihe-Client': 'evil', 'Content-Type': 'text/plain' },
+      body: { a: 1 },
+    })
+    const sent = new Headers(seen[0].init?.headers as Record<string, string>)
+    expect(sent.get('authorization')).toBe('Bearer jwt-x') // 双段会读成 'Bearer plugin-supplied, Bearer jwt-x'
+    expect(sent.get('x-qihe-client')).toBe('box')
+    // 插件自带 Content-Type 时宿主不另写一份（原语义：仅缺失才补 application/json）
+    expect(sent.get('content-type')).toBe('text/plain')
+  })
+
   it('baseUrl 以 /api 结尾 + path 以 /api/ 开头 → 双段剥除（防 /api/api 401）', async () => {
     // 真实根因（2026-08-30 设备面板 401）：resolveApiBase() 返回 `…/api`（供 account.login 拼
     // /collections/...），而 cloudFetch path 以 /api/box/ 开头 → 原先拼成 …/api/api/box/me 双段。

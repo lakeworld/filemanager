@@ -157,7 +157,7 @@ export interface PluginManifest {
 | 阶段 | 时机 | 说明 |
 |---|---|---|
 | 发现 | 启动（app ready 后，同步微秒级） | 扫描已安装包清单 + 启停覆盖；不加载任何插件代码 |
-| 校验 | 发现后立即 | §三 七条规则 |
+| 校验 | 发现后立即 | §三 十条规则 |
 | 惰性加载 | **首次使用** | 动态 import 插件 main 入口 |
 | 握手 | 加载成功后 | 调用 `activate(host)`，校验返回的 registration；记录激活耗时 |
 | 运行 | 握手成功后 | IPC 路由、页面路由、命令注入、事件转发 |
@@ -425,7 +425,7 @@ interface CustomerProfile {
 <!-- contract:v2.5.4:customer-profile -->
 <!-- contract:v2.5.4:event.payloads -->
 
-**错误码**（v2.5.1 实装，全部带 code → 不计入熔断计数）：`PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / INVALID_NAME / FIELD_DENIED / STALE / IO_ERROR`；`syncProfile` 的 `{ applied: false }` 即 STALE（回显式乐观锁：请求方回填的 `updated_at` 须严大于档案值，「同时」亦判 STALE 不后写）。
+**错误码**（v2.5.1 实装，全部带 code → 不计入熔断计数）：`PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / INVALID_NAME / FIELD_DENIED / STALE / IO_ERROR`；**`syncProfile` 的 STALE 唯一口径 = 以带 `code` 的错误抛出**（2026-09-23 口径钉死；宿主 `ipc.ts` 适配器：内部 `applied:false` 即 `throw fileError('STALE', …)`，**不再以返回值形态出现**）——消费方按 `err.code === 'STALE'` 判定并续行，回显式乐观锁语义不变（请求方回填的 `updated_at` 须严大于档案值，「同时」亦判 STALE 不后写）。
 
 **字段归属规则**（v2.4.9 定稿，替换 v2.4.7「ERP 不可写本体字段」表述）：
 
@@ -593,8 +593,13 @@ share: {
   listProductSets(): Promise<unknown[]>
   listCustomers(): Promise<unknown[]>
   /** 目录树一层（名称/类型/大小/mtime）；relPath 缺省 = 工作区根；
-   *  .qihefilemanager/（含 trash）拒绝（HIDDEN）；5s 短缓存由插件侧自管 */
-  listTree(relPath?: string): Promise<unknown[]>
+   *  .qihefilemanager/（含 trash）拒绝（HIDDEN）；5s 短缓存由插件侧自管。
+   *  条目形状 2026-09-23 钉死（实现 `qihe-box/src/main/core/shareView.ts:150`）：
+   *  `{ name: string; kind: 'dir' | 'file'; size: number; mtime: string }`——
+   *  目录 size 恒 0、mtime 为 ISO 串（stat 失败条目 size 0 / mtime ''）；排序 = dir 全在 file 前、同类按名升序。
+   *  **判别类型只认 `kind`**（曾有插件按不存在的 `type:'directory'|'file'` 判别 ⇒ 真宿主下清单恒空；
+   *  context 插件 2026-09-22、cloud 插件同族缺陷均已修） */
+  listTree(relPath?: string): Promise<{ name: string; kind: 'dir' | 'file'; size: number; mtime: string }[]>
   /** tags/notes 元数据（无记录 → 空 tags + 空 notes）；文件路径 → metadata store；
    *  产品集根路径 → product_sets.json（两级粒度） */
   getMetadata(relPath: string): Promise<{ tags: string[]; notes: string }>
@@ -794,4 +799,4 @@ window.qihebox.ui.openEntity(
 
 ---
 
-*协议版本：v1（API_VERSION = 1，随 v2.5 宿主生效；2026-08-14 增量：syncScope / permissions.account / host.account / host.files / host.entitlement / 侧载收紧，均为向后兼容新增；2026-09-22 补：§二/§八 加「更新即重启」生效口径——非协议变更，仅承诺口径补全） · 本文档在公开仓库维护，契约修订与实现同步*
+*协议版本：v1（API_VERSION = 1，随 v2.5 宿主生效；2026-08-14 增量：syncScope / permissions.account / host.account / host.files / host.entitlement / 侧载收紧，均为向后兼容新增；2026-09-22 补：§二/§八 加「更新即重启」生效口径——非协议变更，仅承诺口径补全；2026-09-23 补：§5.6 `listTree` 条目形状钉死（只认 `kind`）、`STALE` 抛错口径钉死、§三 规则计数勘正——均为口径澄清，非协议变更） · 本文档在公开仓库维护，契约修订与实现同步*

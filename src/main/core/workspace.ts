@@ -28,11 +28,14 @@ import {
   overwriteJson,
   writeJsonAtomic,
   readJsonFile,
+  metadataPath,
   assertSafeFolderName,
   assertSafePathSegment,
   isReservedRootName,
 } from './paths'
 import { globalCountCache } from './scanCache'
+import { mutateJsonFile } from './jsonStore'
+import { validateMetadataStore } from './metadata'
 import type { WorkspaceInfo, ProductSetInfo, ProductSetStats, ProductSetCreateRequest, ProductSetUpdateRequest } from '../../shared/types'
 
 export type { WorkspaceInfo, ProductSetInfo, ProductSetStats, ProductSetCreateRequest, ProductSetUpdateRequest } from '../../shared/types'
@@ -245,7 +248,8 @@ export class WorkspaceService {
    * v2.5.1（F1）：type 扩展 'doc'——迁移所有 产品集/<名>/文档/<old> → <new>，config 操作对象为 doc_subfolders。
    * v2.5.5：type 扩展 'supplier'——迁移所有 供应商/<名>/<old> → <new>，config 操作对象为 supplier_subfolders。
    * - 目录迁移：{产品集}/{images|certs|doc}/{oldName} → {newName} 或 {客户}/{oldName} → {newName} 或 {供应商}/{oldName} → {newName}（目标存在跳过、源不存在跳过，幂等）
-   * - metadata 按相对工作区路径存储，无需迁移
+   * - metadata 按相对工作区路径存储 ⇒ **目录一改名夹内文件的 key 全变**，必须同步迁移（v2.6 批2.5·P1-9 修；
+   *   旧注释「无需迁移」是错的——真表现是标签/备注/到期日在界面上凭空消失，见 `migrateMetadataKeysForDirs`）
    * - 返回更新后的完整配置（Settings 页直接用于刷新）
    */
   async renameSubfolder(
@@ -302,6 +306,8 @@ export class WorkspaceService {
                 ? CERTS_DIR
                 : DOCS_DIR
         const entries = await fsp.readdir(parentDir, { withFileTypes: true }).catch(() => [] as fs.Dirent[])
+        // v2.6（批2.5·P1-9）：成功改名的目录先记账，循环后**一次事务**把夹内文件的元数据 key 搬到新前缀
+        const renamedDirs: { from: string; to: string }[] = []
         for (const e of entries) {
           if (!e.isDirectory()) continue
           const oldPath = path.join(parentDir, e.name, typeDir, oldName)
@@ -311,10 +317,12 @@ export class WorkspaceService {
             const exists = await fsp.stat(newPath).then(() => true).catch(() => false)
             if (exists) continue
             await fsp.rename(oldPath, newPath)
+            renamedDirs.push({ from: oldPath, to: newPath })
           } catch {
             // 源目录不存在（该产品集/客户未建此子目录）→ 跳过
           }
         }
+        await this.migrateMetadataKeysForDirs(renamedDirs)
     }
 
     // 更新配置（list 是 cfg 的引用，改后写回）
@@ -365,6 +373,73 @@ export class WorkspaceService {
     const { globalWorkspaceIndex } = await import('./indexCache')
     globalWorkspaceIndex.invalidate(base)
     globalWorkspaceIndex.invalidate(path.dirname(to))
+    // v2.6（批2.5·P1-9）：盘改完了，数据面跟上——夹内文件的元数据 key 按前缀搬到新目录名
+    await this.migrateMetadataKeysForDirs([{ from, to }])
+  }
+
+  /**
+   * v2.6（批 2.5 · P1-9）：目录改名后的**数据面联动**——把 `files` 里以旧目录相对路径开头的 key
+   * 原样搬到新前缀。为什么必须有：元数据 key 是「文件相对路径」的推导结果
+   * （`MetadataService.fileMetadataKey`），目录一改名，夹内每个文件的 key 全体换样 ⇒
+   * 旧条目留在原地成僵尸、新路径读到空库 ⇒ 用户看到的是标签/备注/到期日在界面上凭空消失
+   * （不是旧注释写的"无需迁移"）。
+   * 语义照 `files.ts` 的 renameFile / moveFiles 既有先例：**新 key 已有内容则保留、不覆盖**、
+   * 旧 key 无数据则不动它；事务口径同样照先例走 `mutateJsonFile` 锁内读改写
+   * （锁外读旧快照再整档替换会抹掉迁移窗口内的并发元数据更新）。
+   * 缩略图缓存 key 同理由路径推导（`paths.thumbnailPath` 的 sha256），但缓存根在 userData/thumbs
+   * （装配层只注入给 ThumbnailService），本服务拿不到 ⇒ 此处不搬：旧条目成孤儿由缩略图 GC
+   * （超龄/超量）兜底，新路径首屏经 `files:thumbnailUrl` 按需重建，看不到破图。
+   */
+  private async migrateMetadataKeysForDirs(pairs: { from: string; to: string }[]): Promise<void> {
+    const ws = this.currentWS
+    if (!ws || pairs.length === 0) return
+    // 键规则**镜像** `MetadataService.fileMetadataKey`（唯一权威，住 metadata.ts）：产品集内相对
+    // 「产品集/」、工作区内其余位置相对工作区根。之所以镜像而不是调用：键生成是 MetadataService 的
+    // 实例方法，而 WorkspaceService 手上没有该实例（装配在 main/index.ts，两边互不可见）。
+    // 规则若在那边变动，本文件的单测（a9-listSubfolders.test.ts 的 P1-9 两条，产品集/客户两分支）会红。
+    const psBase = path.join(path.resolve(ws), PRODUCT_SETS_DIR)
+    const toKey = (p: string): string => {
+      const resolved = path.resolve(p)
+      const psRel = path.relative(psBase, resolved)
+      const rel = !psRel.startsWith('..') && !path.isAbsolute(psRel) ? psRel : path.relative(path.resolve(ws), resolved)
+      return rel.split(path.sep).join('/')
+    }
+    const moves = pairs
+      .map((p) => ({ from: `${toKey(p.from)}/`, to: `${toKey(p.to)}/` }))
+      .filter((m) => !m.from.startsWith('..') && !m.to.startsWith('..') && m.from !== m.to)
+    if (moves.length === 0) return
+    const store = metadataPath(ws)
+    const mtimeBefore = await fsp.stat(store).then((s) => s.mtimeMs).catch(() => 0)
+    const moved = await mutateJsonFile(store, {
+      read: async () => ({ files: {} }), // 文件缺失按空库起步（与 metadata.ts 同口径）
+      validate: validateMetadataStore, // 结构非法即视为损坏：拒绝覆盖并留证，不借改名之手抹掉整档案
+      mutate: (store: { files: Record<string, { tags?: string[] }> }) => {
+        let moved = 0
+        for (const { from, to } of moves) {
+          for (const [key, meta] of Object.entries(store.files)) {
+            if (!key.startsWith(from)) continue
+            const next = to + key.slice(from.length)
+            if (store.files[next]) continue // 新 key 已有内容 → 保留（同 files.ts 迁移先例）
+            store.files[next] = meta
+            delete store.files[key]
+            moved++
+          }
+        }
+        return moved
+      },
+      save: async (_value, moved) => moved > 0, // 没命中就一个字节都不动（不白重写整档 metadata.json）
+    })
+    if (moved === 0) return
+    // MetadataService 的读路径拿 metadata.json 的 **mtime** 当缓存判据（metadata.ts loadMetadataStore：
+    // `hit.mtime === statMtime` 即认为缓存仍是磁盘最新）。两次写盘落在同一毫秒里会得到相同的 mtimeMs ⇒
+    // 缓存会把迁移前的旧 store 继续供出去（界面上看着标签还是丢；本进程内实测约 30% 命中）——
+    // 本服务拿不到 MetadataService 实例去主动清缓存，能做的最小手段就是把 mtime 明确推成
+    // 「严格晚于改名前那一份」，让下一次读必然判为未命中。utimes 失败（个别文件系统不支持）不阻断改名：
+    // 退回原状，最坏是缓存晚一拍，下一次元数据写入自愈。
+    const written = await fsp.stat(store).catch(() => null)
+    if (written && written.mtimeMs <= mtimeBefore) {
+      await fsp.utimes(store, written.atime, new Date(mtimeBefore + 1)).catch(() => {})
+    }
   }
 
   /**

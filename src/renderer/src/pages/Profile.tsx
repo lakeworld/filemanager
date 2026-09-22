@@ -54,19 +54,28 @@ export default function Profile() {
   const [logErr, setLogErr] = createSignal("");
 
   onMount(async () => {
+    // v2.4.0：后台定时/启动时发现新版 → 主进程推送 update:available 事件，直接切入可更新态并点亮菜单徽标
+    // v2.6（批 2.5 · P2）：订阅与 onCleanup **必须先于第一个 await 注册**——Solid 的 onCleanup 只认
+    // 当前 Owner（solid-js 的 onCleanup：Owner === null 即丢弃），await 之后的续体已不在 Owner 里
+    // ⇒ 注册被静默丢弃、取消订阅函数永远没人调用（preload 的 ipcRenderer 监听器逐次堆积，
+    // 事件还在为已卸载的组件写信号）。本条由 tests/unit/rendererSubscriptionCleanup.test.ts 常驻把关。
+    const unsubscribeAvailable = window.qihebox.events.on("update:available", (payload: any) => {
+      if (!payload?.version) return;
+      setLatestVersion(payload as UpdateInfo);
+      setUpdatePhase("available");
+    });
+    onCleanup(() => {
+      if (typeof unsubscribeAvailable === "function") {
+        unsubscribeAvailable();
+      }
+    });
+
     try {
       const v = await api.app.version();
       setVersion(v);
     } catch {
       setVersion("");
     }
-
-    // v2.4.0：后台定时/启动时发现新版 → 主进程推送 update:available 事件，直接切入可更新态并点亮菜单徽标
-    const unsubscribeAvailable = window.qihebox.events.on("update:available", (payload: any) => {
-      if (!payload?.version) return;
-      setLatestVersion(payload as UpdateInfo);
-      setUpdatePhase("available");
-    });
 
     // v2.4.7（评审 P1）：主进程缓存更新可用状态——Profile 懒加载可能错过启动时的 update:available 事件，
     // onMount 主动查一次兜底（缓存有值即切入可更新态）
@@ -79,12 +88,6 @@ export default function Profile() {
     } catch {
       // 查询失败静默（事件订阅与手动检查仍兜底）
     }
-
-    onCleanup(() => {
-      if (typeof unsubscribeAvailable === "function") {
-        unsubscribeAvailable();
-      }
-    });
   });
 
   const checkUpdate = async () => {

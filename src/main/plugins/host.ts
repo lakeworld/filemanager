@@ -630,10 +630,14 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
             signal?: unknown
           }
           // 用户头先录入，宿主头后写（覆盖同名头——Authorization/X-Qihe-Client 与 Content-Type 以宿主为准）
+          // 2026-09-22（审查 §四 P2·box 账号面）：HTTP 头名大小写不敏感，插件按惯例传驼峰
+          // （`Authorization` / `X-Qihe-Client` / `Content-Type`）时按原样录入就与宿主的小写键**并存**——
+          // 真 fetch（undici）按名归一后合并成 `Bearer 插件值, Bearer 宿主值` 双段，代签作废。
+          // 录入即归一为小写：宿主键恒为小写 ⇒ 覆盖与「Content-Type 缺失才补」两处判断天然大小写不敏感。
           const headers: Record<string, string> = {}
           if (typeof o.headers === 'object' && o.headers !== null) {
             for (const [k, v] of Object.entries(o.headers as Record<string, unknown>)) {
-              if (typeof v === 'string') headers[k] = v
+              if (typeof v === 'string') headers[k.toLowerCase()] = v
             }
           }
           headers['authorization'] = `Bearer ${token}`
