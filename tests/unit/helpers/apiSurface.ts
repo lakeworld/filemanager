@@ -1,5 +1,5 @@
 /**
- * API 兼容性守护——提取器（v2.5，Task 1 / PLAN-v2.5-测试.md §三.A）。
+ * API 兼容性守护——提取器（v2.5，Task 1 / 内部测试设计文档 §三.A）。
  *
  * 把三节公开面序列化成确定性 markdown 基线：
  *   1. types 节：用 TypeScript compiler API 解析 src/plugins/types.ts 的公开导出

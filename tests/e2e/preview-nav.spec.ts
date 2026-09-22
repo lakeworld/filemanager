@@ -11,7 +11,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 /**
  * 预览连续切换 e2e（v2.5.8 D18）。
  *
- * 权威 = `docs/INTERNAL/归档/PLAN-v2.5.8-预览连续切换与体验盘点.md` §六 e2e 清单（本 spec 逐条对应；卡已随 v2.5.8 交付归档）：
+ * 权威 = `内部预览切换设计文档（已归档，不进公开仓）` §六 e2e 清单（本 spec 逐条对应）：
  *   例 1 左右切换标题与图源变更 → 本文件 test 1
  *   例 2 到头绕回（**循环语义**，2026-09-13 用户拍板 #1）→ test 2
  *   例 3 元数据输入框聚焦守卫不切换 → test 3

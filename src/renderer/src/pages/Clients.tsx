@@ -61,7 +61,7 @@ export default function Clients() {
   const navigate = useNavigate();
   const params = useParams();
   const [showCreateModal, setShowCreateModal] = createSignal(false);
-  // v2.5.4 预填（PLAN-v2.5.4 §3.4）：预填载荷（null = 手动新建空表）
+  // v2.5.4 预填（内部设计文档 §3.4）：预填载荷（null = 手动新建空表）
   const [createInitial, setCreateInitial] = createSignal<CustomerPrefill | null>(null);
   // v2.5.1（T4）：列表加载守卫——初始 Skeleton 不闪空态（T0 坐实违规 Clients:337）
   const [loadingCustomers, setLoadingCustomers] = createSignal(true);
@@ -83,7 +83,7 @@ export default function Clients() {
   const [newTags, setNewTags] = createSignal<string[]>([]);
   const [newNotes, setNewNotes] = createSignal("");
 
-  // v2.5.4 预填消费（PLAN-v2.5.4 §3.3）：版本变化 → 有预填则开弹窗填表；只开不关（关闭走显式路径）
+  // v2.5.4 预填消费（内部设计文档 §3.3）：版本变化 → 有预填则开弹窗填表；只开不关（关闭走显式路径）
   createEffect(() => {
     prefillVersion("customer");
     const cur = currentPrefill("customer") as CustomerPrefill | null;

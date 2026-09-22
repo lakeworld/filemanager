@@ -43,7 +43,7 @@ export const ALLOW = [
   },
   {
     // 2026-09-12 隐私清洗的历史残留：这 4 个文件已在 1ea6ef6 迁出公开树（插件宿主测试搬到
-    // qihe-plugins 私有仓），只有旧 blob 里还留着网盘目录名；当前 tip 零残留。
+    // 私有插件仓），只有旧 blob 里还留着网盘目录名；当前 tip 零残留。
     // 用户名级路径（local-path）在历史里已随重写清零，故这里只豁免 sync-dir。
     file: /^(docs\/SUBSCRIPTION\.md|tests\/e2e\/zz-(cross-plugin|lan-home|pwa-launch-home)\.spec\.ts):/,
     rule: 'sync-dir',

@@ -1,4 +1,4 @@
-# 官方插件预装源目录（v2.6 批 3，PLAN-2026-09-23-批3-插件正式化 §四）
+# 官方插件预装源目录（v2.6 批 3，内部设计文档 §四）
 #
 # 用途：把官方 .qbox 放到本目录，打包时经 electron-builder 的 extraResources 注入到
 # 安装包内 resources/official-plugins/；应用首次启动扫描该目录，对每个包走标准安装管线

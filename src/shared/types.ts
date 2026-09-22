@@ -820,7 +820,7 @@ export type PluginInstallSource = { filePath: string } | { downloadUrl: string; 
 // renderer → main ACK（preload 两个固定方法，禁止暴露任意 channel send）：
 //   qihebox:window:parked / qihebox:window:first-frame
 // 2026-08-19 热修：prepare-show / FrameWitness 网格契约删除（托盘长时隐藏冻结事故根治，
-// 改「先显示、后验证」——PLAN-v2.5.3-托盘冻结根治.md）。
+// 改「先显示、后验证」——内部托盘冻结根治设计文档）。
 
 export type WindowHideSource = 'close' | 'minimize' | 'system-pause'
 export type WindowShowSource = 'startup' | 'tray' | 'activate' | 'second-instance' | 'wake'
@@ -848,7 +848,7 @@ export interface WindowRestoredMessage {
 }
 
 // —— v2.5.9（A7 计算）——
-// 一条计算记录（calcs.json 的 Record key = id）；权威 = docs/INTERNAL/PLAN-v2.6-计算.md §三。
+// 一条计算记录（calcs.json 的 Record key = id）；权威 = 内部计算设计文档（不进公开仓）§三。
 // expression/result 都是**展示态**（× ÷ 已渲染、数字已千分位两位）；resultKind 区分日期结果。
 // saved=false（暂存）也持久化——"临时"指身份还不是资料，不是"还没落盘"。
 

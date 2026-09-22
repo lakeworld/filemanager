@@ -80,7 +80,7 @@ export default function QuoteFormModal(props: {
   mode: "create" | "edit";
   /** edit 模式必传（status='已确认' 时明细行只读锁定） */
   record?: QuoteRecord;
-  /** v2.5.4 预填（PLAN-v2.5.4 §3.4）：仅 create 模式消费；组件随 Show 每次新开重挂载，初始化即 seed */
+  /** v2.5.4 预填（内部设计文档 §3.4）：仅 create 模式消费；组件随 Show 每次新开重挂载，初始化即 seed */
   initial?: QuotePrefill | null;
   customers: CustomerInfo[];
   onClose: () => void;

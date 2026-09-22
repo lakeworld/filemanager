@@ -101,7 +101,7 @@ test.describe('插件宿主 e2e（v2.5）', () => {
     expect(hello.state).toBe('enabled')
     expect(hello.version).toBe(HELLO_VERSION)
 
-    // 2.5 v2.5.1（再定位方案 A，动作-2026-08-15）：安装即激活——首次 IPC 调用前 activationMs 已落
+    // 2.5 v2.5.1（再定位方案 A，内部动作记录）：安装即激活——首次 IPC 调用前 activationMs 已落
     // （此前安装不激活，新装插件收不到 accountChanged 等宿主事件；异步激活，轮询等待）
     await expect
       .poll(

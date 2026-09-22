@@ -218,7 +218,7 @@ export function registerIpc(
   ipcMain.handle('qihebox:clients:rename', (_e, oldName: string, newName: string) =>
     handle(async () => {
       await box.renameCustomer(oldName, newName)
-      // D9：rename payload 带 oldName 防仓迹按旧名 find-or-create 建重复客户
+      // D9：rename payload 带 oldName 防 ERP 端按旧名 find-or-create 建重复客户
       hooks.onCustomerEvent?.('customerUpdated', { name: newName, oldName })
     }),
   )

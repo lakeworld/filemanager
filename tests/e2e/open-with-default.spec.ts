@@ -14,7 +14,7 @@ const INDEX_URL = 'file://' + ROOT.replace(/\\/g, '/') + '/out/renderer/index.ht
  * - 右键菜单「用默认程序打开」项存在并触发 IPC（QIHEBOX_E2E=1 时 open.ts 直接 resolve，不断言真打开）
  * - 双击分流：可预览类型（pdf）→ 预览弹窗；不可预览类型（docx/xlsx）→ 默认应用打开（无预览弹窗）
  * 说明：preload/渲染层 API 在 v2.5 已接线（ipc handler → preload:120 → api.files.openWithDefaultApp，
- * 4 页面 onOpenDefault 已传）——本 spec 只覆盖行为面；D25 审查误判已如实记录（见 审查-2026-08-14-4视角-PLANv251-r2.md 修订注记）。
+ * 4 页面 onOpenDefault 已传）——本 spec 只覆盖行为面；D25 审查误判已如实记录（见内部四视角审查记录 修订注记）。
  */
 test.describe('用默认应用打开（v2.5.1 F3）', () => {
   let app: ElectronApplication

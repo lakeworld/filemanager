@@ -1,5 +1,5 @@
 /**
- * 契约对账自动化（v2.5，Task 2 / PLAN-v2.5-测试.md §三.B）。
+ * 契约对账自动化（v2.5，Task 2 / 内部测试设计文档 §三.B）。
  *
  * 双向对账 docs/PLUGIN.md（公开契约）与实现（src/plugins/types.ts + 宿主）：
  *  1. 文档提取的锚点集合 === 映射表 key 全集（文档缺锚点 / 多锚点 / 无映射锚点 → 红）。
@@ -515,7 +515,7 @@ const CONTRACT: Record<string, ContractEntry> = {
     },
   },
 
-  // —— v2.5.1（A1/A2，PLAN-v2.6-v2.7 §3.1/§3.2）：customers / share 能力域 ——
+  // —— v2.5.1（A1/A2，内部设计文档 §3.1/§3.2）：customers / share 能力域 ——
   'contract:v1:host.customer': {
     stage: 'v1',
     check: async () => {
@@ -1114,9 +1114,9 @@ describe('契约对账（docs/PLUGIN.md ↔ 实现）', () => {
     expect(extra, `文档多锚点/无映射锚点：${extra.join(', ')}`).toEqual([])
   })
 
-  // 内部版（docs/INTERNAL/）为 gitignore 黑名单文件，CI checkout 后不存在 → CI 跳过；
+  // 内部版插件契约（不进公开仓）为 gitignore 黑名单文件，CI checkout 后不存在 → CI 跳过；
   // 本地双份同步验证（黑名单纪律：内部版本地保留不进仓库）
-  it.skipIf(!fs.existsSync(INTERNAL_PLUGIN_MD))('内部版 docs/INTERNAL/PLUGIN.md 锚点与公开版双份同步', () => {
+  it.skipIf(!fs.existsSync(INTERNAL_PLUGIN_MD))('内部版插件契约锚点与公开版双份同步', () => {
     const internal = extractAnchors(fs.readFileSync(INTERNAL_PLUGIN_MD, 'utf-8'))
     const publicAnchors = readPublicAnchors()
     const onlyInternal = [...internal].filter((k) => !publicAnchors.has(k))

@@ -1,5 +1,5 @@
 /**
- * 客户 erp 写路径单测（v2.5.1 A1：customers 能力域实装，PLAN-v2.6-v2.7 §3.1）
+ * 客户 erp 写路径单测（v2.5.1 A1：customers 能力域实装，内部设计文档 §3.1）
  * 覆盖：
  * - writeErpExt：整体替换 erp_ext / 目录有而 JSON 无条目 → 补最小条目（D8）/ 目录亦无 → NOT_FOUND / updated_at 刷新 / 原子写
  * - resolveSyncProfile 纯函数全分支（D6）：早于 → STALE / 同时 → STALE / 晚于 → 合并白名单差异字段 /
@@ -111,7 +111,7 @@ describe('resolveSyncProfile 纯函数（D6 记录级裁决）', () => {
     expect(next.phone).toBe('138')
   })
 
-  it('Date.parse 归一化：空格分隔格式（仓迹 PB）与 ISO 等价', () => {
+  it('Date.parse 归一化：空格分隔格式（ERP 端 PB）与 ISO 等价', () => {
     const r = resolveSyncProfile(base, { fields: { phone: '139' }, updated_at: '2026-01-03 00:00:00' })
     expect(r.applied).toBe(true)
   })

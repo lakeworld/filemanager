@@ -256,7 +256,7 @@ export default function Settings() {
     }
   });
 
-  // v2.5.2（PERF-SOP §四）：保存成功提示定时器句柄化 + 卸载清理（照 FileBrowserView 先例）
+  // v2.5.2（内部性能守则 §四）：保存成功提示定时器句柄化 + 卸载清理（照 FileBrowserView 先例）
   let savedTimer: number | undefined;
   onCleanup(() => window.clearTimeout(savedTimer));
   const handleSave = async () => {

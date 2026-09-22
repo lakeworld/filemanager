@@ -17,7 +17,7 @@
  *   探活，并发上限 8（仿 FileThumbnail 并发闸），结果存 missingFiles 信号。
  * - 文件预览：由台账记录构造 FileEntry（台账不含体积/修改时间，size=0/modified='' 仅影响
  *   预览页信息行）→ openPreview（图片走 previewUrl 降采样副本、PDF 走 qihebox:// 协议，
- *   符合渲染层纪律 PERF-SOP §四）。
+ *   符合渲染层纪律（内部性能守则 §四）。
  * - 归档：新建/编辑弹窗内选本地文件 → invoices.archiveFile / inbound.archiveFile（按日期年份
  *   归档到 发票/<YYYY>/、入库/<YYYY>/）→ 以返回的相对路径作 file_path 保存；已归档可预览/换绑。
  * - 深链：?dueSoon=1 进入即开启「30 天待办」筛选（仪表盘「发票待办」区块跳转用，PLAN §4.3）。
@@ -246,7 +246,7 @@ export default function Invoices() {
   // v2.5.6：单条「登记…」开弹窗消费的暂存草稿——取消/放弃时回填待确认区，保存成功不回填
   const [modalStagedDraft, setModalStagedDraft] = createSignal<BatchDraft | null>(null);
 
-  // —— v2.5.4 预填消费（PLAN-v2.5.4 §3.4）：版本变化 → 切 tab + seed 表单 + 开新建弹窗；只开不关 ——
+  // —— v2.5.4 预填消费（内部设计文档 §3.4）：版本变化 → 切 tab + seed 表单 + 开新建弹窗；只开不关 ——
   createEffect(() => {
     prefillVersion("invoice");
     const cur = currentPrefill("invoice") as InvoicePrefill | null;

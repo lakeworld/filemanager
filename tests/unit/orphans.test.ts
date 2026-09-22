@@ -15,7 +15,7 @@ async function writeFile(p: string, content = 'x'): Promise<void> {
 }
 
 /**
- * 孤儿档案比对（PLAN-v2.5.5 §二 修复3，B1 任务 C）：
+ * 孤儿档案比对（内部设计文档 §二 修复3，B1 任务 C）：
  * 扫 发票/、入库/、报价/ 目录全部文件相对路径 vs 各台账 file_path 集合 → 差集。
  * 历史孤儿（含 2026-08-24 用户误删那张——文件仍在 发票/<YYYY>/、台账无记录）必须能扫出。
  */

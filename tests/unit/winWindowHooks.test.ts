@@ -11,7 +11,7 @@
  * tests/unit/wake.test.ts 覆盖，此处不重复。
  *
  * 真机侧验证（WM_POWERBROADCAST 是否真被投递） wine 证不了（无真实电源事件源），
- * 已列入 docs/INTERNAL/WIN-真机清单.md。
+ * 已列入内部 Windows 真机清单。
  */
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'

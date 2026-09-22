@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * 版本一致性门禁（v2.5.9/A3 + A5 收口：唯一权威清单 = `docs/INTERNAL/RELEASE-RUNBOOK.md` §「版本号」）
+ * 版本一致性门禁（v2.5.9/A3 + A5 收口：唯一权威清单 = 内部发布手册（不进公开仓）§「版本号」）
  *
- * 为什么需要它：bump 的"四处"曾在三份文档里各写一份清单（`AGENTS.md` §三 / RUNBOOK / D20 动作卡），
+ * 为什么需要它：bump 的"四处"曾在三份文档里各写一份清单（`AGENTS.md` §三 / 内部发布手册 / D20 内部动作卡），
  * 结果实测 README badge 被漏在外面——**清单多源 = 必然漂移**。本脚本把那一条清单变成可执行的判据：
  *
  *   ① `package.json` version（唯一来源，electron-builder 读它）

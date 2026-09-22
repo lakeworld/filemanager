@@ -1,5 +1,5 @@
 /**
- * 全业务新建/编辑通用预填 store（PLAN-v2.5.4 §3.3 + 弹一 C-6）。
+ * 全业务新建/编辑通用预填 store（内部设计文档 §3.3 + 弹一 C-6）。
  *
  * 链路：preload `ui.openCreatePrefill` / `ui.openEditPrefill` → window CustomEvent → 本 store
  * normalize/入队/导航 → 目标页 `createEffect` 消费（填表单 + 开弹窗）。

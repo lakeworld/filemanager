@@ -1,5 +1,5 @@
 /**
- * 一致性套件 · Playwright `_electron` spec（v2.5，PLAN-v2.5-测试.md §四 Task 4）。
+ * 一致性套件 · Playwright `_electron` spec（v2.5，内部测试设计文档 §四 Task 4）。
  *
  * 第三方插件作者可用的「协议一致性体检」：manifest 校验 → 侧载安装 → 握手 → 页面/IPC/命令抽查 →
  * host API 语义往返 → 禁用 → 卸载清场。全程 manifest 驱动（插件 id / 能力声明一律读自 .qbox 内

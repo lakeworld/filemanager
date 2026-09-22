@@ -1,5 +1,5 @@
 /**
- * 一致性套件夹具构建脚本（v2.5，PLAN-v2.5-测试.md §四 Task 4）：
+ * 一致性套件夹具构建脚本（v2.5，内部测试设计文档 §四 Task 4）：
  * `tests/e2e/conformance/fixtures/` 下两个夹具（bad / full）→ `out/plugins/<id>.qbox`。
  *
  * 夹具源码为纯 JS（无 esbuild / 无 TS 编译，主入口直接手写 main/index.js + manifest.json）——

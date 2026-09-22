@@ -221,7 +221,7 @@ export function registerPluginHost(
         // v2.5.7（F4a）：cloudFetch 宿主代签——baseUrl 由装配层注入（公开仓不写死服务器地址）
         cloudFetchImpl: { baseUrl: cloudBaseUrl },
         accountAccess: manifest.permissions?.account === true,
-        // v2.5.1（A1/A2，PLAN-v2.6-v2.7 §3.1/§3.2）：customers/share 能力域适配器 + 门控
+        // v2.5.1（A1/A2，内部设计文档 §3.1/§3.2）：customers/share 能力域适配器 + 门控
         // core 裸错误经 mapCoreError 映射为契约错误码（不计熔断）
         customers: {
           list: (since) => mapReject(box.clients.listSince(since)),
@@ -418,7 +418,7 @@ export function registerPluginHost(
         loader.deactivate(r.id)
         broadcastPluginsChanged()
       }
-      // v2.5.1（再定位方案 A，动作-2026-08-15）：安装成功且启用 → 立即激活（装完即用）。
+      // v2.5.1（再定位方案 A，内部动作记录）：安装成功且启用 → 立即激活（装完即用）。
       // 此前新装插件在用户登录时收不到 accountChanged（事件只达已激活订阅者，安装不激活、
       // onStartupFinished 已过）→「装插件后登录没反映」；activate 自检登录态可兜底起服务。
       if (registry.get(r.id)?.enabled) {

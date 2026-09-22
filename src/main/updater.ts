@@ -4,7 +4,7 @@
  * - downloadUpdate / applyUpdate：v2.6 批 4 起**应用内落地**（判据在 core/updatePlan.ts，
  *   electron-updater 只在 src/main/updaterMain.ts 薄壳里）：
  *   下载 → 更新面申报的 sha512 逐字节复算 → 交安装器（NSIS / AppImage）/ deb 抛不支持走直链。
- *   三平台口径与决策见 docs/INTERNAL/PLAN-2026-09-23-批4-客户端内更新.md（D-UP1/D-UP3）。
+ *   三平台口径与决策见内部设计文档（D-UP1/D-UP3）。
  */
 import fs from 'node:fs'
 import {

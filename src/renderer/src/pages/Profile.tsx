@@ -222,7 +222,7 @@ export default function Profile() {
 
   // v2.4.9：用户群邮箱反馈（复制到剪贴板；不调外部 API，红线合规）
   const [emailCopied, setEmailCopied] = createSignal(false);
-  // v2.5.2（PERF-SOP §四）：复制提示定时器句柄化 + 卸载清理
+  // v2.5.2（内部性能守则 §四）：复制提示定时器句柄化 + 卸载清理
   let copiedTimer: number | undefined;
   onCleanup(() => window.clearTimeout(copiedTimer));
   const copyEmail = async () => {

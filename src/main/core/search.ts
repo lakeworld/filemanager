@@ -102,7 +102,7 @@ export class SearchService {
         // v2.5.3（P1-4）：搜索结果缩略图由渲染层按 file.path 按需取（FileThumbnail），thumbnail_path 零消费 → resolveThumb:false
         this.files.listDirFilesRecursive(path.join(setsDir, setName, IMAGES_DIR), { resolveThumb: false }),
         this.files.listDirFilesRecursive(path.join(setsDir, setName, CERTS_DIR), { resolveThumb: false }),
-        // v2.5.2（D7）：产品集「文档」目录纳入全局搜索（v2.5.1 文档域新增后遗漏，动作-2026-08-15-删除崩溃与登录事件再定位）
+        // v2.5.2（D7）：产品集「文档」目录纳入全局搜索（v2.5.1 文档域新增后遗漏，内部动作记录）
         this.files.listDirFilesRecursive(path.join(setsDir, setName, DOCS_DIR), { resolveThumb: false }),
       ])
       for (const f of [...imgFiles, ...certFiles, ...docFiles]) {

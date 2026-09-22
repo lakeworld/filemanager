@@ -53,7 +53,7 @@ export default function Search() {
   let clickTimer: number | undefined;
   const toggleSelection = (path: string) =>
     setSelectedPaths((prev) => (prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]));
-  // v2.5.2（PERF-SOP §四）：点击防抖定时器句柄化 + 卸载清理（照 Search:69 先例）
+  // v2.5.2（内部性能守则 §四）：点击防抖定时器句柄化 + 卸载清理（照 Search:69 先例）
   onCleanup(() => window.clearTimeout(clickTimer));
   // v2.5.3（P2-12）：卸载时递增 searchSeq——在途搜索响应作废，防触碰已销毁组件
   onCleanup(() => {

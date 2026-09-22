@@ -1,5 +1,5 @@
 /**
- * host customers/share 能力域单测（v2.5.1 A1+A2，PLAN-v2.6-v2.7 §3.1/§3.2）
+ * host customers/share 能力域单测（v2.5.1 A1+A2，内部设计文档 §3.1/§3.2）
  * 覆盖：
  * - PERMISSION_DENIED 门控（permissions.customers/share !== true → 全部方法抛业务错误）
  * - 错误码透传（NOT_FOUND / STALE / FIELD_DENIED 映射，不计熔断——带 code 属性）

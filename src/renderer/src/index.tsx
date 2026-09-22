@@ -45,7 +45,7 @@ const QuoteDetail = lazy(() => import("./pages/QuoteDetail"));
 const Notes = lazy(() => import("./pages/Notes"));
 
 function RootApp(props: RouteSectionProps) {
-  // v2.5.4：注册全业务新建预填监听（PLAN-v2.5.4 §3.3；幂等，重复挂载不重复注册）
+  // v2.5.4：注册全业务新建预填监听（内部设计文档 §3.3；幂等，重复挂载不重复注册）
   const navigate = useNavigate();
   initCreatePrefill((path) => navigate(path));
   return <App {...props} />;

@@ -16,7 +16,7 @@
  *   压到不可能：真在用的目录 mtime 一直在动。通用名（`sel-inv-` / `mvx-` / `pdf-reg-` / `outside.txt`）
  *   无所有权标记 → 永远只按本轮窗口判，绝不越界删他人在用的。
  * - 不解析「无插值的纯字面量」（`'v257-shots'` / `'v258-time-fields'` 这类探针**给人看的**产物目录），
- *   故意留白：删了会把走查证据抹掉。已知残留类别，见 DEBUG-SOP §三 卫生批条末。
+ *   故意留白：删了会把走查证据抹掉。已知残留类别，见内部调试守则 §三 卫生批条末。
  */
 import fsSync from 'node:fs'
 import os from 'node:os'

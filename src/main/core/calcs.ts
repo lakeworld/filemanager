@@ -1,6 +1,6 @@
 /**
  * 计算台账（v2.5.9/A7「计算」）：`calcs.json` + 暂存/已标记两态。
- * 权威 = `docs/INTERNAL/PLAN-v2.6-计算.md` §三 对象模型与存储。纯 TS 业务层：不 import electron，node 直测。
+ * 权威 = `内部计算设计文档（不进公开仓）` §三 对象模型与存储。纯 TS 业务层：不 import electron，node 直测。
  *
  * 数据：<ws>/.qihefilemanager/calcs.json —— Record<id, CalcRecord>（key = id，新文件无迁移问题）
  * - 写入一律走 jsonStore 的 mutateJsonFile（按路径串行锁 + 损坏隔离 + 原子写）；

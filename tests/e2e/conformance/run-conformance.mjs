@@ -1,5 +1,5 @@
 /**
- * 一致性套件 CLI 入口（v2.5，PLAN-v2.5-测试.md §四 Task 4）：
+ * 一致性套件 CLI 入口（v2.5，内部测试设计文档 §四 Task 4）：
  *
  *   node tests/e2e/conformance/run-conformance.mjs [<插件路径>]
  *   （npm run conformance -- [<插件路径>]；preconformance 钩子已先构建 hello）

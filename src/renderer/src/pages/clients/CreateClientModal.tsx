@@ -14,7 +14,7 @@ import type { CustomerPrefill } from "~/stores/createPrefillNormalize";
 /**
  * 新建客户弹窗（v2.5.1 T3 波1 拆分 + overlay→Modal 迁移）：
  * 字段信号与提交逻辑从 Clients.tsx 纯搬迁（信号仅本弹窗使用）；成功回调 onCreated。
- * v2.5.4 预填（PLAN-v2.5.4 §3.4）：可选 initial（打开时 seed 全字段；不传 = 空表，照旧）+
+ * v2.5.4 预填（内部设计文档 §3.4）：可选 initial（打开时 seed 全字段；不传 = 空表，照旧）+
  * 可选 onCancel（批量预填取消语义 P1-1：取消/X 走 onCancel；不传退回 onClose，行为零变化）。
  */
 /** 客户类型选项（v2.5.8 弹窗专项：空值 = 未分类，与客户列表筛选口径一致） */

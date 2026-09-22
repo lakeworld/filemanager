@@ -3,7 +3,7 @@ import { WindowLifecycle } from '../../src/main/core/windowLifecycle'
 
 /**
  * 窗口生命周期状态机（v2.5.3 热修：删 FrameWitness 隐藏预检，改「先显示、后验证」）
- * 设计依据 `docs/INTERNAL/PLAN-v2.5.3-托盘冻结根治.md`（2026-08-19 事故：隐藏 2.6h 后
+ * 设计依据 `内部托盘冻结根治设计文档`（2026-08-19 事故：隐藏 2.6h 后
  * 软渲染合成器休眠，隐藏态 capturePage 永远抓不到帧 → 预检永远 unknown → 无限弹框唤不醒）。
  *
  * 新语义：starting 双闸门 → visible ↔ parking/parked（show-requested 直接 show，无预检）；

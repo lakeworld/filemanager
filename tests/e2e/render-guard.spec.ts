@@ -17,7 +17,7 @@ const INDEX_URL = 'file://' + ROOT.replace(/\\/g, '/') + '/out/renderer/index.ht
  * 快照基线跨机抖动会造出永久 flaky，故这里只固化两类可长期稳定的断言：
  *   ① 新面遍历期间零未捕获异常（pageerror）与零 console.error（渲染崩溃的硬信号）；
  *   ② 发布日修掉的三处真实缺陷的 UI 级回归守卫（默认落点、旧档标签不隐身、侧边栏笔记库位置）。
- * 布局像素级走查不在此处（由发布轮多分辨率截图走查承担，见 动作-2026-08-31-发布v2.5.7）。
+ * 布局像素级走查不在此处（由发布轮多分辨率截图走查承担，见内部发布轮记录）。
  */
 test.describe('v2.5.7 渲染守卫（异常零容忍 + 新面回归）', () => {
   let app: ElectronApplication
@@ -188,7 +188,7 @@ test.describe('v2.5.7 渲染守卫（异常零容忍 + 新面回归）', () => {
     expect(await editor.locator('table th').count()).toBeGreaterThanOrEqual(2)
     expect(await editor.locator('table td').count()).toBeGreaterThanOrEqual(2)
     expect(await editor.locator('hr').count()).toBeGreaterThanOrEqual(1)
-    // 任务列表两态都渲染出文本来（Crepe 用自绘 label，不用原生 input[type=checkbox]——见缺陷台账 P2）
+    // 任务列表两态都渲染出文本来（Crepe 用自绘 label，不用原生 input[type=checkbox]——见内部缺陷台账 P2）
     const liTexts = await editor.locator('li').allTextContents()
     expect(liTexts.join('|')).toContain('待办未完成')
     expect(liTexts.join('|')).toContain('待办已完成')

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * 宿主 UI 截图走查（精致化轮，PLAN §5.2）：起真应用（QIHEBOX_E2E=1 + 独立 userdata）→
+ * 宿主 UI 截图走查（精致化轮，内部设计文档 §5.2）：起真应用（QIHEBOX_E2E=1 + 独立 userdata）→
  * 种最小数据 → 逐路由截图，交人工目视裁决。首批只覆盖壳层可见场景（D4 硬停点素材），
  * 后续里程碑（D5/D6）逐批扩到 §5.2 的 ≥10 场景。
  *
  * 用法：node scripts/ui-preview/shot.mjs [输出目录]
- *   输出目录缺省 docs/INTERNAL/assets/v2.5.8/D4-壳层对比/after
+ *   输出目录缺省内部证据归档（不进公开仓）
  *   QIHE_SHOT_BASELINE=1 → 只抓路由态，跳过改造后才存在的交互点位（抓「改前」基线用）
  * 前置：先 npm run build（out/renderer）；node_modules 含 @playwright/test（e2e 环境自带）。
  * 退出码：0 全部截图完成；1 有失败；2 前置缺失。

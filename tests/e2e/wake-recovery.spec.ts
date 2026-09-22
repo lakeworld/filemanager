@@ -9,7 +9,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 
 /**
  * 系统暂停/唤醒回归（v2.5.3 常驻轻壳 T5 + 2026-08-19 托盘冻结热修）。
- * 新语义（设计 §4.4 系统睡眠 + PLAN-v2.5.3-托盘冻结根治.md）：暂停/锁屏信号到达即隐藏窗口
+ * 新语义（设计 §4.4 系统睡眠 + 内部托盘冻结根治设计文档）：暂停/锁屏信号到达即隐藏窗口
  * （渲染常驻），唤醒后仅在「暂停前可见」（wasVisibleBeforeSystemPause）时自动恢复——
  * **直接 show + 显示后白屏自检兜底**（FrameWitness 隐藏预检已废止：长时隐藏后合成器休眠
  * 抓不到帧，预检 unknown 反而堵死唤醒，2026-08-19 事故定案）。崩溃 render-process-gone →

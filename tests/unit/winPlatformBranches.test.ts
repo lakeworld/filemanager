@@ -7,7 +7,7 @@
  * 手法：stub `process.platform` + mock `electron` / `node:child_process`，
  * 断言「命令名 + 参数 + 转义 + 降级路径」，不真起进程。
  * 真实 Windows 运行时行为（PowerShell 是否真在、SHOpenFolderAndSelectItems 是否真选中）
- * 由 W1b wine 冒烟与 W2 真机清单分别承担，见 docs/INTERNAL/WINTEST-SOP.md。
+ * 由 W1b wine 冒烟与 W2 真机清单分别承担，见内部 Windows 测试守则。
  *
  * 注：`autoLaunchMain.ts` 的 win32 分支由 tests/unit/autoLaunch.test.ts（platform 参数化注入）覆盖；
  *     WM_POWERBROADCAST 的 wParam 解析由 tests/unit/wake.test.ts 覆盖；本文件不重复。
@@ -282,7 +282,7 @@ describe('open.ts Windows 分支：shell.openPath 的 resolve/reject 与 e2e 短
   })
 
   it('⚠️ 台账锚：QIHEBOX_E2E=1 时 win32 分支被整体短路（wine 冒烟测不到真 openPath）', async () => {
-    // spike-2026-09-08 §三.2 的发现：e2e 隔离模式为防子进程残留，在平台分支之前 return。
+    // 内部 spike 记录 §三.2 的发现：e2e 隔离模式为防子进程残留，在平台分支之前 return。
     // ⇒ W1b 冒烟不得声称「已验证用默认应用打开文件」；该面由本例 + W2 真机清单负责。
     process.env.QIHEBOX_E2E = '1'
     await expect(openFileWithDefaultApp('C:\\ws\\e2e.jpg')).resolves.toBeUndefined()

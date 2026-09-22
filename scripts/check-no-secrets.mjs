@@ -101,6 +101,13 @@ const HARD_RULES = [
   { name: 'sync-dir', re: /Nutstore Files|我的坚果云/, why: '网盘同步目录名（提示开发机目录布局）' },
   // 私钥**材料**本体；文件名提及（`*.pfx` 忽略模式、签名脚本的输出路径）不算
   { name: 'private-key', re: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----|\bid_rsa\b/, why: '私钥材料' },
+  // 平台令牌**形状**（2026-09-23 补：第 1 路反向实验实测「sk- / ghp_ / AKIA / JWT 四种形状无规则」盲区）。
+  // 一律「固定前缀 + 足够长的随机体」两段式：只认前缀会把 `disk-space` 这类普通词刷红（前缀前要求词边界，
+  // 前缀后要求 ≥16–36 位随机体），因此这三条是**形状**判据，不写任何具体凭据值。
+  { name: 'openai-key', re: /\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}/, why: 'OpenAI 形密钥（sk- 前缀 + 长随机体）' },
+  { name: 'github-token', re: /\bgh[pousr]_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{30,}/, why: 'GitHub 令牌（ghp_/gho_/ghu_/ghs_/ghr_ 或 github_pat_）' },
+  { name: 'aws-key-id', re: /\bAKIA[0-9A-Z]{16}\b/, why: 'AWS 访问密钥 ID（AKIA + 16 位大写字母数字）' },
+  { name: 'jwt', re: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/, why: 'JWT 形状（三段点分 base64url）' },
   {
     name: 'server-config',
     re: /["']apiBase["']\s*:\s*["']https?:\/\/\S/i,
@@ -125,16 +132,18 @@ const SOFT_RULES = [
 
 // 前后不接词字符或点：把 `12.0.1.7z`、`1.2.3.4.5`、哈希片段这类四段数字排除掉
 const IPV4_RE = /(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])/g
-/** 回环 / 未指定 / 广播 / 文档保留 / 组播：不算泄漏；其余（含公网与 192.168 内网）一律算 */
+/** 回环 / 未指定 / 广播 / 组播 / RFC 5737 规范示例地址：不算泄漏；其余（含公网与 192.168 内网）一律算 */
 function isBenignIp(ip) {
   const o = ip.split('.').map(Number)
   if (o.some((n) => n > 255)) return true // 版本号形状，非 IP
   if (ip === '0.0.0.0' || ip === '255.255.255.255') return true
   if (o[0] === 127) return true // 回环
   if (o[0] === 224 || o[0] === 239 || (o[0] === 223 && o[1] === 255)) return true // 组播/SSM
-  if (o[0] === 192 && o[1] === 0 && o[2] === 2) return true // RFC 5737 文档段
-  if (o[0] === 198 && o[1] === 51 && o[2] === 100) return true
-  if (o[0] === 203 && o[1] === 0 && o[2] === 113) return true
+  // RFC 5737 文档段：**只认规范示例地址本身**（末位 1），不再整段放过。
+  // 2026-09-23 收紧：此前 3 个 /24 被无条件豁免（768 个地址在门禁眼里不存在，第 1 路反向实验实测
+  // `203.0.113.x`（x≠1）照样绿）——现在只放过 192.0.2.1 / 198.51.100.1 / 203.0.113.1 三个规范示例地址。
+  const TEST_NET = (o[0] === 192 && o[1] === 0 && o[2] === 2) || (o[0] === 198 && o[1] === 51 && o[2] === 100) || (o[0] === 203 && o[1] === 0 && o[2] === 113)
+  if (TEST_NET && o[3] === 1) return true
   return false
 }
 

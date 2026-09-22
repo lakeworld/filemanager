@@ -181,7 +181,7 @@ if (!fs.existsSync(serverJson)) {
   const txt = fs.readFileSync(serverJson, 'utf8').trim()
   const placeholder = !txt || txt === '{}' || !/https?:\/\//.test(txt)
   if (placeholder && !ALLOW_PLACEHOLDER) {
-    fail(`server.json 是占位（${txt || '空'}）⇒ 对外发布的包必须注入真实地址（RELEASE-RUNBOOK ③ 前置）；CI 占位包用 --allow-placeholder`)
+    fail(`server.json 是占位（${txt || '空'}）⇒ 对外发布的包必须注入真实地址（内部发布手册 ③ 前置）；CI 占位包用 --allow-placeholder`)
   } else if (placeholder) ok('server.json 占位（CI 包，已 --allow-placeholder 放行）')
   else ok('server.json 含真实服务地址')
 }

@@ -312,7 +312,7 @@ const api = {
     setDevMode: (enabled: boolean): Promise<ApiResult<boolean>> =>
       invoke('qihebox:settings:setDevMode', enabled) as Promise<ApiResult<boolean>>,
   },
-  // v2.5.4：全业务新建通用预填（PLAN-v2.5.4 §3.1/§3.2）——纯渲染层 UI 钩子，不过 IPC、永不自动建档；
+  // v2.5.4：全业务新建通用预填（内部设计文档 §3.1/§3.2）——纯渲染层 UI 钩子，不过 IPC、永不自动建档；
   // 内部传输 = window CustomEvent（contextIsolation 下 preload 与主世界共享 DOM），渲染层 stores/createPrefill 监听。
   // 契约面只有本方法（类型见 qihebox.d.ts）；事件名为内部实现细节，不进公开契约。
   ui: {

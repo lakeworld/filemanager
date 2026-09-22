@@ -1,5 +1,5 @@
 /**
- * API 兼容性守护——基线更新入口（v2.5，Task 1 / PLAN-v2.5-测试.md §三.A）。
+ * API 兼容性守护——基线更新入口（v2.5，Task 1 / 内部测试设计文档 §三.A）。
  *
  * `npm run api:update` → 本脚本 spawn `vitest run tests/unit/plugins-api-surface.test.ts`，
  * env 带 API_UPDATE=1（spawn 形式跨平台，不内联 `VAR=1 cmd` 前缀），透传退出码。

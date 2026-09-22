@@ -65,7 +65,7 @@ const KIND_META: Record<TrashEntry["kind"], { icon: string; label: string }> = {
   supplier: { icon: "🏭", label: "供应商" },
 };
 
-// v2.4.7（评审 P2，PERF-SOP §四）：回收站无上限——条目数超阈值改走 VirtualGrid 虚拟滚动（固定行高）
+// v2.4.7（评审 P2，内部性能守则 §四）：回收站无上限——条目数超阈值改走 VirtualGrid 虚拟滚动（固定行高）
 const TRASH_VIRTUAL_THRESHOLD = 200;
 // 卡片高 ≈ 93px（p-4 上下 32px + 三行文本 61px，高于缩略图 56px）+ 行间距 8px，取整防重叠
 const TRASH_ROW_HEIGHT = 104;
@@ -99,7 +99,7 @@ export default function Trash() {
     if (currentWorkspace()) loadTrash();
   });
 
-  // v2.4.7（PERF-SOP §四）：setTimeout 存句柄 + onCleanup 清理——防卸载后 setActionMsg 触碰已销毁组件
+  // v2.4.7（内部性能守则 §四）：setTimeout 存句柄 + onCleanup 清理——防卸载后 setActionMsg 触碰已销毁组件
   let actionTimer: number | undefined;
   const flash = (msg: string) => {
     setActionMsg(msg);

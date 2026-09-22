@@ -1,5 +1,5 @@
 /**
- * 计算台账服务单测（v2.5.9/A7；权威 = docs/INTERNAL/PLAN-v2.6-计算.md §三 对象模型与存储）
+ * 计算台账服务单测（v2.5.9/A7；权威 = 内部计算设计文档（不进公开仓）§三 对象模型与存储）
  * 覆盖：落账默认值（saved=false / created=updated / 可选字段缺省）/ 入参校验（含类型面）/
  * 列表顺序（先记的在先）/ update 补丁语义（title·note·saved 互不打扰、'' 清空、undefined 不动）/
  * 取消标记（saved true→false）/ 未知 id 与原型链假 id（`__proto__` / `toString`）拒绝 / remove / 持久化（重开工作区仍在）/

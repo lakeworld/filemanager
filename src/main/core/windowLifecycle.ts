@@ -2,7 +2,7 @@
  * 窗口生命周期状态机（v2.5.3 热修：删 FrameWitness 隐藏预检，改「先显示、后验证」）
  *
  * 纯 TS 状态机，不依赖 electron、无定时器：事件 → 动作列表返回给 Electron 适配层
- * （src/main/window.ts）执行。设计依据 `PLAN-v2.5.3-托盘冻结根治.md`。
+ * （src/main/window.ts）执行。设计依据 `内部托盘冻结根治设计文档`。
  *
  * 状态：starting → visible → parking → parked → visible（隐藏/直接恢复）
  *                    ↘ recovering（崩溃 L4 / 无响应 L2 / blank L2）→ visible（收口直接 show）
