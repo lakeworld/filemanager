@@ -154,8 +154,10 @@ export interface PluginHostDeps {
   notify(title: string, body: string): boolean
   /** 插件事件 → 渲染层：向所有窗口发 qihebox:event:<channel>（装配层注入，带销毁守卫） */
   emitToRenderer(channel: string, data: unknown): void
-  /** 账号服务同步接口（PLAN §3.2 接线层④）：装配层注入 AccountService 的 getToken/isLoggedIn */
-  account: { getToken(): string | null; isLoggedIn(): boolean }
+  /** 账号服务同步接口（PLAN §3.2 接线层④）：装配层注入 AccountService 的 getToken/isLoggedIn；
+   *  v2.6（批 1）：可选 `getDeviceId`（本机设备标识，与心跳同源）——装配层漏接/旧桩未提供时
+   *  由本文件兜底为恒 null（插件侧本就按能力探测消费，见 `src/plugins/types.ts` host.account） */
+  account: { getToken(): string | null; isLoggedIn(): boolean; getDeviceId?(): string | null }
   /** manifest.permissions.account === true 时才接通真实账号；否则 host.account 恒 null/false（PLAN §3.2） */
   accountAccess: boolean
   /** customers 能力域适配器（v2.5.1 A1，PLAN-v2.6-v2.7 §3.1）：装配层注入 ClientsService 委托。
@@ -606,6 +608,9 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
   const account = deps.accountAccess
     ? {
         ...deps.account,
+        // v2.6（批 1）：本机设备标识（与心跳同源）——装配层未提供时兜底恒 null；
+        // 插件侧按能力探测消费（缺席 → 不传 current_device_id，如实降级，不猜不自造）
+        getDeviceId: () => deps.account.getDeviceId?.() ?? null,
         // v2.5.7（F4a）：宿主代签中继——插件不拿裸 JWT，路径白名单 + 代签头由宿主完成。
         // 相对路径强制 + 前缀白名单（/api/box/*、/api/ai/*）；未登录拒绝；body 非字符串时 JSON 序列化。
         async cloudFetch(path: unknown, init: unknown): Promise<Response> {
@@ -671,6 +676,8 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
     : {
         getToken: (): string | null => null,
         isLoggedIn: (): boolean => false,
+        // v2.6（批 1）：未声明 permissions.account → 恒 null（与 getToken 同门控口径）
+        getDeviceId: (): string | null => null,
         async cloudFetch(): Promise<Response> {
           throw fileError('PERMISSION_DENIED', '插件未声明 permissions.account 权限')
         },

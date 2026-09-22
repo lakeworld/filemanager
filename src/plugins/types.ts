@@ -296,6 +296,13 @@ export interface PluginHost {
     /** @deprecated v2.5.7（F4a）：裸 JWT 勿外传，请改用 cloudFetch(path, init) 宿主代签。保留不删（只增不删红线） */
     getToken(): string | null
     isLoggedIn(): boolean
+    /** v2.6 增量（批 1 设备绑定）：本机设备标识（与心跳 `device_id` 同源）；不可读 → null。
+     *  用途：向 erp `/api/box/me` 附 `current_device_id` 查询参数，服务端据此在设备清单里
+     *  标记「本机」（`is_current`）。**非凭据**（随机 UUID，服务端心跳同值）；插件**不得自造 id**：
+     *  编出来的值与心跳不同源，会把本机显示成另一台设备——拿不到就按「本机未知」如实降级。
+     *  **可选成员**：旧宿主（2.5.x）无此方法 ⇒ 插件请能力探测
+     *  （`typeof host.account.getDeviceId === 'function'`），缺席时按「本机未知」降级。 */
+    getDeviceId?(): string | null
   }
 
   /** 工作区文件能力域（v2.5 增量，PLAN §3.3）：受限读写，错误为带 code 的业务错误（不触发熔断计数）。

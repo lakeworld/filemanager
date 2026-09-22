@@ -2,7 +2,7 @@
   qihe-box API 兼容性守护基线（API_VERSION=1 · 只增不删）
   生成器：tests/unit/helpers/apiSurface.ts · 更新：npm run api:update
   TypeScript: 5.9.3
-  break-reason: commands[] 增加可选 openPage 字段（v2.5.9 增量，语义只增不改：旧插件不声明行为零变化；旧符号文本因 inline 类型追加字段而被判定为变更）
+  break-reason: host.account 增可选成员 getDeviceId（v2.6 批 1 设备绑定 ③）：既有成员签名零变更、无删除；旧宿主缺席时插件按能力探测降级
 -->
 
 # qihe-box 插件协议 API 面（types / preload / ipc）
@@ -54,9 +54,10 @@
 - InvoiceProfile.updated_at: string
 - PluginBusinessError.code: string
 - PluginHost.account.cloudFetch(path: string, init?: { method?: string; headers?: Record<string, string>; body?: unknown; signal?: AbortSignal; }): Promise<Response>
+- PluginHost.account.getDeviceId(): string | null
 - PluginHost.account.getToken(): string | null
 - PluginHost.account.isLoggedIn(): boolean
-- PluginHost.account: { cloudFetch(path: string, init?: { method?: string; headers?: Record<string, string>; body?: unknown; signal?: AbortSignal; }): Promise<Response>; getToken(): string | null; isLoggedIn(): boolean; }
+- PluginHost.account: { cloudFetch(path: string, init?: { method?: string; headers?: Record<string, string>; body?: unknown; signal?: AbortSignal; }): Promise<Response>; getToken(): string | null; isLoggedIn(): boolean; getDeviceId?(): string | null; }
 - PluginHost.apiVersion: number
 - PluginHost.customer.get(name: string): Promise<CustomerProfile | null>
 - PluginHost.customer.list(since?: string): Promise<CustomerProfile[]>
