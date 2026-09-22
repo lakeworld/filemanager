@@ -1,5 +1,7 @@
 # 启禾文件管理
 
+> 面向电商与销售的**本地产品资料工作台**：产品图包、证书、质检报告、发票按「产品集」归档，找图几秒、拖一下就发给客户。开源免费，数据不上云。
+
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 [![Version](https://img.shields.io/badge/Version-v2.5.9-green.svg)]()
@@ -12,6 +14,14 @@
 产品图片、证书、说明书散落在微信、钉钉、邮件和各个文件夹里，要用时翻半天，发给客户还怕拿错版本——**启禾文件管理**把散落的产品资料按「产品集」归拢到一处，几秒找到、一键发给客户。
 
 **谁适合用**：电商卖家、品牌运营、供应链销售、线下客户经理——凡是经常要给客户发产品图、发证书的人。
+
+**常见场景**（对照看是不是你）：
+
+- 做电商（Temu、亚马逊、独立站、国内平台）要频繁给客户发主图、详情页图、白底图，图包散在多个文件夹
+- 供应商发来的图片和证书堆在微信、钉钉、邮件里，下载下来就更找不到是哪家哪个型号的了
+- 客户临时要 3C 证或质检报告，得在几秒内翻出来，而不是重开网盘从头搜
+- 证书快到期没人提醒，等客户问起来才发现过期
+- 产品资料不想上传到任何云端，但换电脑时希望整个文件夹拷走就能接着用
 
 **怎么组织资料**：`产品集`（一个客户 / 一个产品系列 / 一个项目）→ `图包 / 证书` → 子文件夹（主图、详情页、白底图、3C、质检…）。跟着业务习惯走，不需要学新概念。
 
@@ -71,6 +81,7 @@
 ## 更多
 
 - 与 [启禾 OS](https://www.qihebook.cloud/)（AI 原生 ERP）同生态：文件管理是独立的免费桌面工具，不依赖启禾 OS 账号即可使用
+- 还在选管理方法：[电商产品资料管理工具对比：文件夹、网盘、专用软件](https://www.qihebook.cloud/compare/product-file-management)
 - 详细功能说明见 [HELP.md](HELP.md)；版本更新记录见 [CHANGELOG.md](CHANGELOG.md)；最新版发布说明见 [docs/RELEASE-2.5.9.md](docs/RELEASE-2.5.9.md)
 
 ---
@@ -80,7 +91,7 @@
 技术栈：Electron + TypeScript + SolidJS + Tailwind CSS（Windows / Linux 桌面应用）。
 
 - **理念**：本地优先、工作区自包含（文件 + 配置 + 元数据同一文件夹），无数据库，纯 JSON 持久化
-- **插件体系**：v2.5 起公开插件协议（API_VERSION=1，冻结只增不删），教学插件 15 分钟上手 → [docs/PLUGIN.md](docs/PLUGIN.md)
+- **插件体系**：v2.5 起公开插件协议（API_VERSION=1，冻结只增不删），教学插件 15 分钟上手 → [docs/PLUGIN.md](docs/PLUGIN.md)；v2.5.7 起支持官方插件加密分发（manifest `encryption` 块 + AES-256-GCM 内存解密 + 服务器取钥），明文不落盘
 - **登录服务地址**：应用内置可选账号登录（仅匿名活跃统计，不登录不影响任何本地功能）。源码不写死服务器地址，地址由安装包随包携带（`resources/server.json`）；自建部署可在应用数据目录放 `server.json`（`{"apiBase": "https://your-server/api"}`）覆盖
 - **数据兼容性**：工作区数据格式与 v1.x（Wails 版）完全兼容，零迁移直接打开
 
