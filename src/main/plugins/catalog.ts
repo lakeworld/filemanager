@@ -5,7 +5,9 @@
  * 数据源 = 启禾云账号 API（与账号/云通道同基址，登录态 JWT），端点约定：
  *
  *   GET {base}/api/box/plugin-catalog              Authorization: Bearer <JWT>
- *   200 → { code: 200, data: { catalog_version: 1, plugins: [ <原始目录项> ] } }
+ *   200 → { code: 200, data: { generatedAt: <RFC3339>, plugins: [ <原始目录项> ] } }
+ *   服务端实际发 `generatedAt`；宿主只认 `code` 与 `data.plugins`，既没有也不校验 `catalog_version`
+ *   （2026-09-23 勘正：旧注释写的 `catalog_version: 1` 服务端从未发过）。
  *
  * **未部署 ≠ 空目录**（本模块最重要的一条纪律）：只有 200 + 空列表才返回 `[]`；
  * 404 / 401 / 5xx / 网络不可达 / 形状非法一律抛中文错误，由管理页如实展示（不得谎报"暂无插件"）。

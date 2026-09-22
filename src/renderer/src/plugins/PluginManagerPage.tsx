@@ -5,6 +5,8 @@
  * 卸载按钮（明示确认：删除代码与状态）。
  * broken 展示：原因（apiCompat 不兼容 → 「需升级宿主/插件」、不提供开关；其余可重试，
  * 重试 = setEnabled(id, true)，宿主清 failCount 并重新激活）。
+ * 加载失败提示（v2.6 批 7，审查轮 2 缺口①）：`p.lastError` = 最近一次激活/加载失败原因
+ * （启用态插件展示；如加密插件取钥失败的原因与出路——需要订阅 / 版本未登记 / 密文不符被拒 / 云端故障可重试）。
  * 可观测：激活耗时 / IPC 调用次数 / 失败计数（仿 VS Code Running Extensions 简化版）。
  * permissions 展示：network 域名白名单 / '*' 醒目 + description 作 reasoning / 剪贴板 / 通知。
  * 侧载导入：选择 .qbox → 风险确认 → 安装（主进程 JSON Schema + SHA-256 校验）；安装后权限醒目展示。
@@ -528,6 +530,12 @@ export default function PluginManagerPage(): JSX.Element {
                     </Show>
                     <Show when={p.state === 'broken' && p.brokenReason}>
                       <div class="text-xs text-danger-600 mt-1">原因：{p.brokenReason}</div>
+                    </Show>
+                    {/* v2.6 批 7（审查轮 2 缺口①）：最近一次激活/加载失败原因（加密插件取钥失败：
+                        需要订阅 / 版本未登记 / 密文不符被拒 / 云端故障可重试——文案自带出路）。
+                        与 broken 原因分开展示：插件仍在「启用」态、后续触发即重试，不占熔断之名 */}
+                    <Show when={p.state === 'enabled' && p.lastError}>
+                      <div class="text-xs text-warning-700 mt-1">最近一次加载失败：{p.lastError}</div>
                     </Show>
                   </div>
 

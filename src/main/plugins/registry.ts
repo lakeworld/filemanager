@@ -78,6 +78,10 @@ export interface PluginEntry {
   state: PluginState
   /** broken 原因（管理页展示；熔断原因以「熔断：」开头，setEnabled(true) 可重置） */
   brokenReason?: string
+  /** 最近一次激活/加载失败原因（管理页展示；激活成功清零）。
+   *  v2.6 批 7（审查轮 2 缺口①）：取钥失败这类「装上但用不了」的原因当场落到这里，
+   *  不再只有「连续失败 3 次熔断后」才可见——用户能立刻看到原因与出路。 */
+  lastError?: string
   /** 安装时间（ISO 字符串） */
   installedAt: string
   /** 最近一次激活耗时（毫秒，管理页可观测，loader 写入） */
@@ -325,9 +329,10 @@ export class PluginRegistry {
       const circuit = entry.brokenReason?.startsWith(CIRCUIT_BROKEN_PREFIX)
       if (!enabled) throw new Error(`插件处于 broken 状态，无法禁用（原因：${entry.brokenReason ?? '未知'}）`)
       if (!circuit) throw new Error(`插件校验失败无法启用（原因：${entry.brokenReason ?? '未知'}；apiCompat 不兼容时需升级宿主或插件）`)
-      // 熔断重置：清 failCount 重新启用
+      // 熔断重置：清 failCount 重新启用（「重试」语义：上一次失败原因同点清掉，防管理页展示陈旧原因）
       entry.brokenReason = undefined
       entry.failCount = 0
+      entry.lastError = undefined
       entry.state = 'enabled'
       entry.enabled = true
       this.configOverrides[id] = true
@@ -337,7 +342,10 @@ export class PluginRegistry {
     if (entry.enabled === enabled) return // 幂等
     entry.enabled = enabled
     entry.state = enabled ? 'enabled' : 'disabled'
-    if (enabled) entry.failCount = 0 // 重新启用清零连续失败（重试语义）
+    if (enabled) {
+      entry.failCount = 0 // 重新启用清零连续失败（重试语义）
+      entry.lastError = undefined // 同上：上一次失败原因不当陈旧展示
+    }
     this.configOverrides[id] = enabled
     await this.persistConfig()
   }
@@ -378,6 +386,18 @@ export class PluginRegistry {
   resetFailCount(id: string): void {
     const e = this.entries.get(id)
     if (e) e.failCount = 0
+  }
+
+  /** 记录最近一次激活/加载失败原因（loader 在激活失败时写入；管理页展示 + 由 loader 触发广播） */
+  recordLoadError(id: string, message: string): void {
+    const e = this.entries.get(id)
+    if (e) e.lastError = message
+  }
+
+  /** 清空最近一次激活失败原因（激活成功时与 failCount 同点清零） */
+  clearLoadError(id: string): void {
+    const e = this.entries.get(id)
+    if (e) e.lastError = undefined
   }
 
   // —— config.json 读写（启停覆盖，插件代码/状态/启停三处分离，PLUGIN.md §3.4）——
@@ -423,6 +443,8 @@ function toInfo(e: PluginEntry): PluginInfo {
     enabled: e.enabled,
     state: e.state,
     ...(e.brokenReason !== undefined ? { brokenReason: e.brokenReason } : {}),
+    // v2.6 批 7：最近一次激活失败原因（取钥失败等「装上但用不了」的原因当场可见）
+    ...(e.lastError !== undefined ? { lastError: e.lastError } : {}),
     ...(m?.description !== undefined ? { description: resolvePluginText(m.description) } : {}),
     ...(m?.author !== undefined ? { author: m.author } : {}),
     ...(m?.icon !== undefined ? { icon: m.icon } : {}),

@@ -17,7 +17,7 @@ import os from 'node:os'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { PluginRegistry, PKG_DIR, resolvePluginText, versionAtLeast } from '../../src/main/plugins/registry'
-import { PluginLoader, BREAK_THRESHOLD } from '../../src/main/plugins/loader'
+import { PluginLoader, BREAK_THRESHOLD, PluginKeyUnavailableError } from '../../src/main/plugins/loader'
 import { PluginInstaller, sha256OfFile } from '../../src/main/plugins/installer'
 import { createPluginHost, HostEventBus, HOST_EVENT_WHITELIST } from '../../src/main/plugins/host'
 import { createSettings } from '../../src/main/settings'
@@ -351,11 +351,15 @@ describe('PluginRegistry：发现与校验', () => {
     registry2.recordFail('com.qihe.y')
     registry2.recordFail('com.qihe.y')
     registry2.markBroken('com.qihe.y', '熔断：连续失败 3 次')
+    // v2.6 批 7：最近一次加载失败原因经 PluginInfo 投影给管理页（取钥失败等「装上但用不了」当场可见）
+    registry2.recordLoadError('com.qihe.y', '加密插件密钥不可用：该插件需要订阅后才能使用——请在官方插件「启禾云」…')
+    expect(registry2.info('com.qihe.y')!.lastError).toContain('该插件需要订阅')
     expect(registry2.get('com.qihe.y')!.state).toBe('broken')
     await registry2.setEnabled('com.qihe.y', true)
     expect(registry2.get('com.qihe.y')!.state).toBe('enabled')
     expect(registry2.get('com.qihe.y')!.failCount).toBe(0)
     expect(registry2.get('com.qihe.y')!.brokenReason).toBeUndefined()
+    expect(registry2.info('com.qihe.y')!.lastError).toBeUndefined() // 「重试」同点清掉上次失败原因（不陈旧展示）
   })
 
   it('resolvePluginText / versionAtLeast 工具', () => {
@@ -489,8 +493,131 @@ describe('PluginLoader：惰性加载 / 握手 / 熔断', () => {
       // 二次调用命中密钥缓存（不再取钥）
       await loader.call('com.qihe.enc', 'echo', { again: true })
       expect(fetchCalled).toBe(1)
+      // v2.6 批 7：成功路径不带失败原因（管理页不显示 lastError）
+      expect(registry.info('com.qihe.enc')!.lastError).toBeUndefined()
     } finally {
       ;(globalThis as unknown as { fetch: typeof fetch }).fetch = origGlobalFetch
+    }
+  })
+
+  /** v2.6 批 7：加密插件包夹具（manifest 声明 encryption；main/index.js.enc 为密文、无明文） */
+  async function writeEncryptedPlugin(id: string, keyHex = 'a'.repeat(64)): Promise<string> {
+    const { encryptForBundle } = await import('../../src/main/plugins/encryption')
+    const pkg = path.join(root, id, PKG_DIR)
+    fs.mkdirSync(path.join(pkg, 'main'), { recursive: true })
+    fs.writeFileSync(
+      path.join(pkg, 'manifest.json'),
+      JSON.stringify(manifestFor(id, { encryption: { algo: 'aes-256-gcm', keyId: 'k1', entitlement: 'subscription' } })),
+    )
+    fs.writeFileSync(path.join(pkg, 'main', 'index.js.enc'), encryptForBundle(Buffer.from(OK_MAIN_JS), keyHex)!)
+    return pkg
+  }
+
+  /** v2.6 批 7：临时替换全局 fetch（encryption 缺省取全局 fetch）；返回还原函数 */
+  function stubGlobalFetch(impl: typeof fetch): () => void {
+    const orig = (globalThis as unknown as { fetch: typeof fetch }).fetch
+    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = impl
+    return () => {
+      ;(globalThis as unknown as { fetch: typeof fetch }).fetch = orig
+    }
+  }
+
+  function makeKeyLoader(registry: PluginRegistry): PluginLoader {
+    return new PluginLoader({
+      registry,
+      root,
+      createHost: makeCreateHost(new HostEventBus()),
+      log: () => {},
+      keyDeps: { baseUrl: 'https://api.test.dev', getToken: () => 'tok', cacheDir: path.join(root, 'keys') },
+    })
+  }
+
+  it('加密插件取钥被拒（TAMPERED）→ fail-closed 拒绝激活 + 原因落到管理页（v2.6 批 7）', async () => {
+    const pkg = await writeEncryptedPlugin('com.qihe.enc2')
+    const registry = makeRegistry()
+    // fake fetch 拒绝（403 TAMPERED 模拟调包拦截）
+    const restore = stubGlobalFetch((async (): Promise<Response> =>
+      new Response(JSON.stringify({ code: 'TAMPERED', message: 'hash mismatch' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      })) as unknown as typeof fetch)
+    const loader = makeKeyLoader(registry)
+    try {
+      const err = (await loader.call('com.qihe.enc2', 'echo', {}).catch((e: unknown) => e)) as PluginKeyUnavailableError
+      expect(err).toBeInstanceOf(PluginKeyUnavailableError)
+      expect(err.code).toBe('PLUGIN_KEY_UNAVAILABLE')
+      expect(err.keyFailure.code).toBe('TAMPERED') // 服务端 code 原样带出（不折叠）
+      expect(err.keyFailure.httpStatus).toBe(403)
+      expect(err.message).toContain('插件包内容与云端登记不一致') // 具体原因
+      expect(err.message).toContain('重新安装该插件') // 出路
+      expect(g.__pluginAct).toBe(0) // fail-closed：激活从未发生（beforeEach 重置后保持 0）
+      // 原因落到登记条目 → 管理页（PluginInfo.lastError）当场可见，不再只有主进程日志
+      const info = registry.info('com.qihe.enc2')!
+      expect(info.state).toBe('enabled') // 一次失败不熔断
+      expect(info.failCount).toBe(1)
+      expect(info.lastError).toContain('插件包内容与云端登记不一致')
+      expect(fs.existsSync(path.join(pkg, 'main', 'index.js'))).toBe(false) // 明文仍不存在
+    } finally {
+      restore()
+    }
+  })
+
+  it('加密插件取钥被拒（SUBSCRIPTION_REQUIRED）→ 明说「需要订阅」并指出去哪开（审查轮 2 缺口①）', async () => {
+    // 复现：免费用户能装下 subscription 档插件（下载面只要登录），激活时才失败——旧实现把 6 种
+    // 非 200 结局一律折叠成「加密插件密钥不可用或解密失败」，用户装上后只有报错、没有出路。
+    await writeEncryptedPlugin('com.qihe.enc3')
+    const registry = makeRegistry()
+    const restore = stubGlobalFetch((async (): Promise<Response> =>
+      new Response(JSON.stringify({ code: 'SUBSCRIPTION_REQUIRED', message: '该插件需要有效订阅' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      })) as unknown as typeof fetch)
+    const loader = makeKeyLoader(registry)
+    try {
+      const err = (await loader.call('com.qihe.enc3', 'echo', {}).catch((e: unknown) => e)) as Error
+      expect(err.message).toContain('该插件需要订阅')
+      expect(err.message).toContain('「启禾云」') // 去哪开：应用内既有订阅入口
+      expect(err.message).toContain('「订阅 VIP」')
+      expect(registry.get('com.qihe.enc3')!.lastError).toContain('该插件需要订阅')
+      expect(g.__pluginAct).toBe(0) // fail-closed 不变：取钥失败照样拒绝加载
+      // 熔断口径不变（非业务码，不计豁免）：连续 3 次 → broken，原因里带同一句话
+      await loader.call('com.qihe.enc3', 'echo', {}).catch(() => {})
+      await loader.call('com.qihe.enc3', 'echo', {}).catch(() => {})
+      const entry = registry.get('com.qihe.enc3')!
+      expect(entry.state).toBe('broken')
+      expect(entry.brokenReason).toContain('该插件需要订阅')
+    } finally {
+      restore()
+    }
+  })
+
+  it('取钥恢复（订阅后重试）激活成功 → lastError 清零（管理页不展示陈旧原因）', async () => {
+    const keyHex = 'a'.repeat(64)
+    await writeEncryptedPlugin('com.qihe.enc4', keyHex)
+    const registry = makeRegistry()
+    let allow = false
+    const restore = stubGlobalFetch((async (): Promise<Response> =>
+      allow
+        ? new Response(JSON.stringify({ code: 200, data: { key_hex: keyHex } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        : new Response(JSON.stringify({ code: 'SUBSCRIPTION_REQUIRED', message: 'no sub' }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' },
+          })) as unknown as typeof fetch)
+    const loader = makeKeyLoader(registry)
+    try {
+      await expect(loader.call('com.qihe.enc4', 'echo', {})).rejects.toThrow('该插件需要订阅')
+      expect(registry.get('com.qihe.enc4')!.lastError).toContain('该插件需要订阅')
+      allow = true // 订阅生效后：同一条触发路径重试
+      await expect(loader.call('com.qihe.enc4', 'echo', { ok: 1 })).resolves.toEqual({ pong: { ok: 1 } })
+      const info = registry.info('com.qihe.enc4')!
+      expect(info.lastError).toBeUndefined()
+      expect(info.failCount).toBe(0)
+      expect(info.state).toBe('enabled')
+    } finally {
+      restore()
     }
   })
 
