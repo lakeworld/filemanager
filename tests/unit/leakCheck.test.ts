@@ -104,6 +104,25 @@ describe('check-no-secrets —— 公开仓泄漏门禁', () => {
     })
   }
 
+  // 2026-09-23 补：四条「平台令牌形状」硬规则（openai-key / github-token / aws-key-id / jwt）
+  // 当日只做过一次性反向实验，无常驻用例 ⇒ 规则被改哑不会有人知道。
+  // 样本值一律**运行时拼接**（源码里不出现连续字面量）：本文件没有为这四条开豁免，
+  // 连续写出来会当场把本仓 `check:leaks` 打红——豁免面越窄，门禁越可信。
+  const tokenShapes: Array<[string, string, string]> = [
+    ['openai-key', 'src/ai.ts', `const k = "${['sk', 'proj', 'abcdefghijklmnopqrstuvwxyz012345'].join('-')}"\n`],
+    ['github-token', 'src/gh.ts', `const t = "${'ghp_' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'}"\n`],
+    ['aws-key-id', 'src/s3.ts', `const id = "${'AKIA' + 'ABCDEFGHIJKLMNOP'}"\n`],
+    ['jwt', 'src/token.ts', `const t = "${['eyJmYWtlIjoxfQ', 'eyJmYWtlIjoyfQ', 'abcdefghij'].join('.')}"\n`],
+  ]
+  for (const [rule, rel, content] of tokenShapes) {
+    it(`反向实验（令牌形状规则）：注入 ${rule} 必红`, () => {
+      const dir = mkRepo({ [rel]: content })
+      const r = runLeak(dir, ['--all'])
+      expect(r.status).toBe(1)
+      expect(r.all).toContain(`rule=${rule}`)
+    })
+  }
+
   it('反向实验：提交身份不在允许清单时 --history 必红', () => {
     const dir = mkRepo({ 'a.md': 'hi\n' }, { name: 'lake', email: 'someone@example.org' })
     const r = runLeak(dir, ['--history'])
