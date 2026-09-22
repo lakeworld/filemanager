@@ -707,6 +707,9 @@ export interface PluginInfo {
   state: 'enabled' | 'disabled' | 'broken'
   /** broken 原因（管理页展示，如 apiCompat 不兼容 / id 冲突 / 缺入口 / 熔断失败计数） */
   brokenReason?: string
+  /** 最近一次激活/加载失败原因（管理页展示；激活成功清零。如加密插件取钥失败：需要订阅 / 版本未登记 /
+   *  密文不符被拒 / 云端故障可重试——原因与出路在同一句里，v2.6 批 7） */
+  lastError?: string
   /** 描述（manifest.description 解析后的字符串） */
   description?: string
   /** 作者 */

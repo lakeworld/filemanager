@@ -4,6 +4,7 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -21,6 +22,7 @@ const HELLO_VERSION = JSON.parse(
  * - hello 侧载全链路：安装 → 清单/页面渲染/IPC 调用 → 禁用 → 启用 → 卸载（清单清空、调用报未安装）
  * - 插件管理页 UI：风险横幅 / 开发者模式开关（无侧载入口 ↔ 有入口）/ 安装确认框文案（含"系统权限"告知语）/
  *   已安装清单展示（版本动态断言）
+ * - 加密插件取钥失败的用户可见面（v2.6 批 7）：管理页「最近一次加载失败」+ IPC 错误信封都带具体原因与出路，fail-closed 不变
  * - 重启持久化：devMode 开关重启后保持
  * 说明：右键命令触发（hello.greet）不在此处 UI 触发（loader 命令路由有单测覆盖），本 spec 覆盖协议全链路 + 管理页可观测面。
  * QIHEBOX_E2E=1 隔离 userData，但跨运行持久——每用例前置清场（卸载 + devMode 关回），从空态开始。
@@ -229,5 +231,46 @@ test.describe('插件宿主 e2e（v2.5）', () => {
     await setDevMode(false)
     const list = await page.evaluate(async () => (window as any).qihebox.plugins.list())
     expect(list.data.some((p: any) => p.id === HELLO_ID)).toBe(false)
+  })
+
+  test('加密插件取钥失败 → 管理页当场显示原因与出路，fail-closed 不变（v2.6 批 7，审查轮 2 缺口①）', async () => {
+    // 夹具：--encrypt 构建的 hello（密文 .enc 代替明文 JS + manifest 注入 encryption 块）
+    const encOut = path.join(ROOT, 'out', 'plugins-enc')
+    const encQbox = path.join(encOut, 'com.qihe.hello.qbox')
+    execFileSync(
+      'node',
+      [path.join(ROOT, 'scripts', 'build-hello-plugin.mjs'), '--src', path.join(ROOT, 'src', 'plugins', 'hello'), '--out', encOut, '--encrypt'],
+      { cwd: ROOT, stdio: 'ignore' },
+    )
+    await uninstallAll()
+    await setDevMode(true)
+    try {
+      // 先停在管理页（后续断言不靠导航/刷新——必须由 plugins:changed 广播把文案送到 UI）
+      await gotoRoute('/settings/plugins')
+      await expect(page.getByRole('heading', { name: '插件', exact: true })).toBeVisible({ timeout: 15000 })
+      // e2e userData 每次运行清场（无登录态）⇒ 取钥在本地即判 NOT_LOGGED_IN，不发网络
+      const ins = await page.evaluate(async (p) => (window as any).qihebox.plugins.install({ filePath: p }), encQbox)
+      expect(ins.success).toBe(true)
+      // 管理页当场可见：旧实现只有主进程一行 warn，用户装上后既无原因也无出路
+      await expect(page.getByText(/最近一次加载失败：/)).toBeVisible({ timeout: 15000 })
+      await expect(page.getByText(/加密插件密钥不可用：未登录启禾云账号/)).toBeVisible()
+      await expect(page.getByText(/请在「我的 → 账号」登录后重试/)).toBeVisible()
+      // fail-closed 一字未改：取钥失败照旧拒绝激活，IPC 调用拿到失败信封
+      const call = await page.evaluate(async (id) => (window as any).qihebox.plugins.call(id, 'ping', {}), HELLO_ID)
+      expect(call.success).toBe(false)
+      expect(String(call.error)).toContain('未登录启禾云账号') // 具体原因（旧实现是「密钥不可用或解密失败」通用话术）
+      expect(String(call.error)).toContain('我的 → 账号') // 出路（指到应用内既有入口）
+      // 一次失败不熔断（熔断仍要连续 3 次）：插件保持「启用」，可重试
+      const info = await page.evaluate(async (id) => {
+        const l = await (window as any).qihebox.plugins.list()
+        return l.data.find((p: any) => p.id === id)
+      }, HELLO_ID)
+      expect(info.state).toBe('enabled')
+      expect(info.failCount).toBeGreaterThanOrEqual(1)
+    } finally {
+      await uninstallAll()
+      await setDevMode(false)
+      await fsp.rm(encOut, { recursive: true, force: true })
+    }
   })
 })

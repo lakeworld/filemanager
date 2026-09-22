@@ -16,7 +16,7 @@ import Module from 'node:module'
 import type { PluginHost, PluginManifest, PluginRegistration } from '../../plugins/types'
 import type { PluginHostInstance } from './host'
 import { PKG_DIR, MAIN_ENTRY, CIRCUIT_BROKEN_PREFIX, type PluginRegistry } from './registry'
-import { getPluginKey, decryptEnc, type KeyDeps } from './encryption'
+import { getPluginKeyResult, decryptEnc, pluginKeyFailureText, type KeyDeps, type PluginKeyFailure } from './encryption'
 
 /** 熔断阈值：握手/调用连续失败 3 次 → 自动 broken（PLUGIN.md §2.3.2） */
 export const BREAK_THRESHOLD = 3
@@ -44,6 +44,23 @@ export const BUSINESS_ERROR_CODES = new Set([
   'INVALID_NAME',
   'IO_ERROR',
 ])
+
+/**
+ * 加密插件密钥不可用 / 解密失败（v2.6 批 7，审查轮 2 缺口①）：fail-closed 拒绝加载（语义不变），
+ * 但**不再是一句通用话术**——`keyFailure` 带云端 code 与 HTTP 状态，message 是用户可见的原因 + 出路
+ * （服务端 6 种非 200 结局各有出路：需要订阅 / 版本未登记 / 密文不符被拒 / 云端故障可重试）。
+ * 非业务码 → 照旧计入熔断（BUSINESS_ERROR_CODES 白名单不含本码）。
+ */
+export class PluginKeyUnavailableError extends Error {
+  readonly code = 'PLUGIN_KEY_UNAVAILABLE'
+  readonly keyFailure: PluginKeyFailure
+
+  constructor(message: string, keyFailure: PluginKeyFailure) {
+    super(message)
+    this.name = 'PluginKeyUnavailableError'
+    this.keyFailure = keyFailure
+  }
+}
 
 /** 激活期间被停用（setEnabled(false)/uninstall 竞态）的内部信号——不计熔断（非插件失败，P1-A2） */
 class ActivationCancelledError extends Error {
@@ -205,11 +222,12 @@ export class PluginLoader {
       let mod: Record<string, unknown> | undefined
       if (entry.manifest.encryption && this.keyDeps) {
         const kd = this.keyDeps
-        const keyHex = await getPluginKey(
+        const acquired = await getPluginKeyResult(
           { baseUrl: kd.baseUrl, getToken: kd.getToken, cacheDir: kd.cacheDir, secretStore: kd.secretStore, log: this.log },
           entry.manifest,
           await sha256Hex(encFile).catch(() => ''),
         )
+        const keyHex = acquired.keyHex
         if (keyHex) {
           const enc = await fsp.readFile(encFile).catch(() => null)
           const code = enc ? decryptEnc(enc, keyHex) : null
@@ -220,9 +238,17 @@ export class PluginLoader {
           }
         }
         if (!mod) {
-          // 取钥失败/解密失败 → 拒绝加载（fail-closed；锁云端插件入口）
-          this.log('error', `加密插件加载失败（${id}@${entry.manifest.version}）：密钥不可用或解密失败`)
-          throw new Error('加密插件密钥不可用或解密失败')
+          // 取钥失败/解密失败 → 拒绝加载（fail-closed；锁云端插件入口）。
+          // v2.6 批 7（审查轮 2 缺口①）：按云端 code 给用户具体原因与出路——通用话术会让
+          // 「需要订阅」「版本未登记」「密文被拒」「云端故障」四类结局全部无解，且管理页无从展示。
+          const failure: PluginKeyFailure = acquired.failure ?? { code: 'DECRYPT_FAILED' }
+          const { text, guidance } = pluginKeyFailureText(failure)
+          const message = `加密插件密钥不可用：${text}——${guidance}`
+          this.log(
+            'error',
+            `加密插件加载失败（${id}@${entry.manifest.version}，code=${failure.code}${failure.httpStatus ? ` HTTP ${failure.httpStatus}` : ''}）：${message}`,
+          )
+          throw new PluginKeyUnavailableError(message, failure)
         }
       } else {
         mod = (await this.importer(url)) as Record<string, unknown> | undefined
@@ -264,9 +290,15 @@ export class PluginLoader {
       created = null // 归属已移交 rt
       this.registry.recordActivationMs(id, Date.now() - t0)
       this.registry.resetFailCount(id) // 握手成功清零连续失败
+      this.registry.clearLoadError(id) // v2.6 批 7：激活成功即清掉上一次失败原因（管理页不展示陈旧原因）
     } catch (err) {
       created?.dispose() // 部分初始化（createHost 成功但 activate 抛错）也要清理订阅/缓存
-      if (!(err instanceof ActivationCancelledError)) this.fail(id, err)
+      if (!(err instanceof ActivationCancelledError)) {
+        // v2.6 批 7（审查轮 2 缺口①）：失败原因落登记条目 → 管理页当场可见（此前只有主进程日志，
+        // 用户「装上但用不了」看不出原因与出路）；未熔断时补一次广播让管理页即时刷新。
+        this.registry.recordLoadError(id, err instanceof Error ? err.message : String(err))
+        if (!this.fail(id, err)) this.onChanged?.()
+      }
       throw err
     }
   }

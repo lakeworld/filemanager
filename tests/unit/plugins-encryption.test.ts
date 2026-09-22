@@ -12,7 +12,10 @@ import {
   encryptForBundle,
   decryptEnc,
   getPluginKey,
+  getPluginKeyResult,
   fetchKeyOnline,
+  fetchKeyOnlineResult,
+  pluginKeyFailureText,
   type KeyDeps,
   type SecretStore,
 } from '../../src/main/plugins/encryption'
@@ -267,5 +270,157 @@ describe('fetchKeyOnline 网络行为', () => {
     await fetchKeyOnline(deps, baseManifest(), 'sha-xyz', fetchImpl as unknown as typeof fetch)
     expect(JSON.parse(sentBody).cipher_sha256).toBe('sha-xyz')
     expect(JSON.parse(sentBody).plugin_id).toBe('com.qihe.test')
+  })
+})
+
+/**
+ * v2.6 批 7（2.6 放行审查轮 2 跨仓契约对账缺口①）：服务端 `/api/box/plugin-key` 的 6 种非 200 结局
+ * 各有出路，宿主此前一律折叠成 null + 一行 warn，用户装上订阅档插件后只有报错、没有出路。
+ * 本组三件事：① code → (原因, 出路) 纯函数映射逐码不折叠；② 失败原因原样带出（code/HTTP 状态）；
+ * ③ fail-closed 一字不变（拿不到钥就 null，且不写缓存）。
+ */
+describe('取钥失败原因与出路（审查轮 2 缺口①）', () => {
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'f5-enc-'))
+  })
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  /** 服务端 6 种非 200 结局（box_plugin_key.go）：code → 期望的「原因关键词 / 出路关键词」 */
+  const SERVER_CODES: Array<{ code: string; status: number; text: string; guidance: string }> = [
+    { code: 'SUBSCRIPTION_REQUIRED', status: 403, text: '需要订阅', guidance: '订阅 VIP' },
+    { code: 'PLUGIN_KEY_NOT_FOUND', status: 404, text: '未在云端登记', guidance: '联系插件发布方' },
+    { code: 'PLUGIN_KEY_MISSING', status: 404, text: '密钥缺失', guidance: '联系插件发布方' },
+    { code: 'TAMPERED', status: 403, text: '与云端登记不一致', guidance: '重新安装' },
+    { code: 'ENTITLEMENT_UNKNOWN', status: 403, text: '门槛云端无法识别', guidance: '联系插件发布方' },
+    { code: 'INTERNAL', status: 500, text: '临时故障', guidance: '稍后重试' },
+  ]
+
+  it('六种服务端 code：原因与出路逐码不同（不折叠成一句通用话）', () => {
+    const seen = new Set<string>()
+    for (const c of SERVER_CODES) {
+      const t = pluginKeyFailureText({ code: c.code, httpStatus: c.status })
+      expect(t.text, c.code).toContain(c.text)
+      expect(t.guidance, c.code).toContain(c.guidance)
+      seen.add(t.text)
+    }
+    // 六条原因互不相同（折叠回归会立刻让这条红）
+    expect(seen.size).toBe(SERVER_CODES.length)
+    // 订阅档要指到应用内既有入口（去哪开），不是自创入口
+    const sub = pluginKeyFailureText({ code: 'SUBSCRIPTION_REQUIRED', httpStatus: 403 })
+    expect(sub.guidance).toContain('启禾云')
+    expect(sub.guidance).toContain('订阅 VIP')
+  })
+
+  it('宿主侧码 + 未知 code + 网络异常：各有归因，未知码走通用文案', () => {
+    expect(pluginKeyFailureText({ code: 'NETWORK' }).guidance).toContain('检查网络')
+    expect(pluginKeyFailureText({ code: 'NETWORK' }).text).toContain('网络')
+    expect(pluginKeyFailureText({ code: 'NOT_LOGGED_IN' }).guidance).toContain('登录')
+    expect(pluginKeyFailureText({ code: 'HTTP_ERROR', httpStatus: 500 }).text).toContain('HTTP 500')
+    expect(pluginKeyFailureText({ code: 'HTTP_ERROR', httpStatus: 401 }).guidance).toContain('重新登录')
+    expect(pluginKeyFailureText({ code: 'BAD_RESPONSE' }).guidance).toContain('重试')
+    expect(pluginKeyFailureText({ code: 'DECRYPT_FAILED' }).text).toContain('解密失败')
+    // 未知 code（服务端将来新增）：通用文案 + 原文可见 + 可重试
+    const unknown = pluginKeyFailureText({ code: 'BRAND_NEW_CODE', httpStatus: 418 })
+    expect(unknown.text).toContain('BRAND_NEW_CODE')
+    expect(unknown.guidance).toContain('重试')
+  })
+
+  it('文案零商务口径（公开仓红线：禁用词表在文案里一字不出现）', () => {
+    // 禁用词在源码里拆开拼——本文件自身也不许出现这些字（否则公开面禁词自查 grep 会把自己扫出来）
+    const banned = ['价' + '格', '收' + '费', '计' + '价', '定' + '价', '付' + '费', '抽' + '成']
+    const blob = [...SERVER_CODES.map((c) => c.code), 'NETWORK', 'NOT_LOGGED_IN', 'HTTP_ERROR', 'BAD_RESPONSE', 'DECRYPT_FAILED', 'UNKNOWN_X']
+      .map((code) => {
+        const t = pluginKeyFailureText({ code, httpStatus: 403 })
+        return `${t.text}｜${t.guidance}`
+      })
+      .join('\n')
+    for (const w of banned) expect(blob.includes(w), w).toBe(false)
+  })
+
+  it('六种服务端 code 原样带出（code + HTTP 状态不丢），且 fail-closed 不变（不写缓存）', async () => {
+    for (const c of SERVER_CODES) {
+      const deps = makeDeps()
+      const fetchImpl = async (): Promise<Response> =>
+        new Response(JSON.stringify({ code: c.code, message: 'server says' }), {
+          status: c.status,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      const r = await getPluginKeyResult(deps, baseManifest(), 'sha', fetchImpl as unknown as typeof fetch)
+      expect(r.keyHex, c.code).toBeNull() // fail-closed：拿不到钥
+      expect(r.failure?.code, c.code).toBe(c.code) // code 原样（不折叠成 null/通用码）
+      expect(r.failure?.httpStatus, c.code).toBe(c.status)
+      expect(r.failure?.serverMessage, c.code).toBe('server says')
+      // 旧入口（既有调用方）语义一字不变：null
+      const k = await getPluginKey(deps, baseManifest(), 'sha', fetchImpl as unknown as typeof fetch)
+      expect(k, c.code).toBeNull()
+      // 失败不写缓存（下次触发重新取钥，订阅生效后即可自愈）
+      expect(fs.existsSync(path.join(tmpDir, 'keys', 'com.qihe.test.key')), c.code).toBe(false)
+    }
+  })
+
+  it('网络异常 / 未登录 / 2xx 形状不对：归因正确（不误报成服务端拒绝码）', async () => {
+    const net = await fetchKeyOnlineResult(
+      makeDeps(),
+      baseManifest(),
+      'sha',
+      (async () => {
+        throw new Error('ECONNREFUSED')
+      }) as unknown as typeof fetch,
+    )
+    expect(net.keyHex).toBeNull()
+    expect(net.failure?.code).toBe('NETWORK')
+    // 未登录：不发请求
+    let called = false
+    const noToken = await getPluginKeyResult(
+      makeDeps({ getToken: () => null }),
+      baseManifest(),
+      'sha',
+      (async () => {
+        called = true
+        return new Response('{}', { status: 200 })
+      }) as unknown as typeof fetch,
+    )
+    expect(noToken.failure?.code).toBe('NOT_LOGGED_IN')
+    expect(called).toBe(false)
+    // 200 但无 key_hex → BAD_RESPONSE（回包形状问题，不是服务端拒绝）
+    const badShape = await fetchKeyOnlineResult(
+      makeDeps(),
+      baseManifest(),
+      'sha',
+      (async () => new Response(JSON.stringify({ code: 200, data: {} }), { status: 200 })) as unknown as typeof fetch,
+    )
+    expect(badShape.failure?.code).toBe('BAD_RESPONSE')
+    // 非 2xx 且回包无可用 code（数字码不算 code）→ HTTP_ERROR + 状态
+    const bare = await fetchKeyOnlineResult(
+      makeDeps(),
+      baseManifest(),
+      'sha',
+      (async () => new Response(JSON.stringify({ code: '500' }), { status: 502 })) as unknown as typeof fetch,
+    )
+    expect(bare.failure?.code).toBe('HTTP_ERROR')
+    expect(bare.failure?.httpStatus).toBe(502)
+    // 未识别的大写 code 原样透传（日志留原文、映射走通用文案）
+    const unknownCode = await fetchKeyOnlineResult(
+      makeDeps(),
+      baseManifest(),
+      'sha',
+      (async () => new Response(JSON.stringify({ code: 'NEW_SERVER_CODE' }), { status: 400 })) as unknown as typeof fetch,
+    )
+    expect(unknownCode.failure?.code).toBe('NEW_SERVER_CODE')
+  })
+
+  it('成功取钥不带 failure；命中缓存也不带（对照失败路径必有 failure）', async () => {
+    const deps = makeDeps()
+    const ok = async (): Promise<Response> =>
+      new Response(JSON.stringify({ code: 200, data: { key_hex: 'k9' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    const r1 = await getPluginKeyResult(deps, baseManifest(), 'sha', ok as unknown as typeof fetch)
+    expect(r1).toEqual({ keyHex: 'k9' })
+    const r2 = await getPluginKeyResult(deps, baseManifest(), 'sha', ok as unknown as typeof fetch)
+    expect(r2).toEqual({ keyHex: 'k9' })
   })
 })
