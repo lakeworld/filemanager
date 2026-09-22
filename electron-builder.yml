@@ -43,6 +43,11 @@ electronLanguages:
 extraResources:
   - from: build/server.json
     to: server.json
+  # v2.6 批 3：官方插件预装（离线可用）——源目录里的 `.qbox` 由发布者本地注入
+  # （`build/official-plugins/*.qbox` 已 .gitignore，不进公开仓；目录本身带受跟踪占位文件保证存在）；
+  # 开源自建构建该目录为空 ⇒ 打包产物零预装，宿主首启优雅跳过（加载器 = src/main/plugins/preinstall.ts）。
+  - from: build/official-plugins
+    to: official-plugins
 
 # sharp 为 N-API 模块，无需 rebuild；跳过以加速构建
 npmRebuild: false
