@@ -251,9 +251,7 @@ export class PluginRegistry {
     usedPrefixes.add(manifest.ipcPrefix)
     for (const p of pagePaths) usedPagePaths.add(p)
 
-    const enabled = Object.prototype.hasOwnProperty.call(this.configOverrides, manifest.id)
-      ? this.configOverrides[manifest.id]
-      : manifest.enabled
+    const enabled = this.hasConfigOverride(manifest.id) ? this.configOverrides[manifest.id] : manifest.enabled
     let installedAt = new Date().toISOString()
     try {
       installedAt = fs.statSync(manifestPath).mtime.toISOString()
@@ -305,6 +303,15 @@ export class PluginRegistry {
     return [...this.entries.values()]
   }
 
+  /**
+   * 是否存在**显式启停覆盖**（config.json 里为该 id 写过条目）。
+   * 「无配置」（回退 manifest.enabled）与「显式 false」（用户关过）是两个态——官方预装
+   * （v2.6 批 3，preinstall.ts）据此决定「新装条目置 enabled」还是「既有配置一律不动」。
+   */
+  hasConfigOverride(id: string): boolean {
+    return Object.prototype.hasOwnProperty.call(this.configOverrides, id)
+  }
+
   // —— 启停（管理页操作；config.json 持久化）——
 
   /**
@@ -345,7 +352,7 @@ export class PluginRegistry {
 
   /** 卸载时清除启停覆盖并落盘 */
   async forgetConfig(id: string): Promise<void> {
-    if (Object.prototype.hasOwnProperty.call(this.configOverrides, id)) {
+    if (this.hasConfigOverride(id)) {
       delete this.configOverrides[id]
       await this.persistConfig()
     }

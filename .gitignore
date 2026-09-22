@@ -5,6 +5,13 @@ node_modules/
 # 登录服务地址（发布者私有配置，打包注入 resources/server.json；公开仓不写死服务器地址）
 build/server.json
 
+# 官方插件预装源目录（v2.6 批 3）：.qbox 内容随安装包分发，不进公开仓；
+# 目录本身由受跟踪的 .gitkeep 占位保证存在（开源自建构建该目录为空 ⇒ 零预装条目）
+build/official-plugins/*.qbox
+
+# 本仓并行批次 worktree（.tmp-*/：各批次隔离开发用，不进库）
+.tmp-*/
+
 # Build outputs (electron-vite)
 out/
 src/renderer/dist/
