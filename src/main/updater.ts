@@ -1,10 +1,21 @@
 /**
  * 自动更新（对照原 Go internal/updater）
- * 阶段 8 完善：保留 /version.json 检查机制。
  * - checkUpdate：拉取发布源对比版本，有新版返回 UpdateInfo，无更新返回 null
- * - downloadUpdate / applyUpdate：应用内安装尚未就绪，仍抛「尚未就绪」
- *   引导用户前往官网下载全新安装包（Profile 页已提供入口）
+ * - downloadUpdate / applyUpdate：v2.6 批 4 起**应用内落地**（判据在 core/updatePlan.ts，
+ *   electron-updater 只在 src/main/updaterMain.ts 薄壳里）：
+ *   下载 → 更新面申报的 sha512 逐字节复算 → 交安装器（NSIS / AppImage）/ deb 抛不支持走直链。
+ *   三平台口径与决策见 docs/INTERNAL/PLAN-2026-09-23-批4-客户端内更新.md（D-UP1/D-UP3）。
  */
+import fs from 'node:fs'
+import {
+  UpdateUnsupportedError,
+  canInstallInApp,
+  verifyDownloadedFile,
+  type UpdateChannel,
+  type UpdateEngine,
+  type UpdateProgress,
+} from './core/updatePlan'
+
 export interface UpdateInfo {
   version: string
   download_url: string
@@ -95,12 +106,71 @@ export async function checkUpdate(
   }
 }
 
-export async function downloadUpdate(_info: UpdateInfo): Promise<string> {
-  // 应用内下载安装尚未就绪：引导用户前往官网下载全新安装包
-  throw new Error('更新下载尚未就绪，请前往官网下载最新安装包')
+/**
+ * 下载与安装的账目（v2.6 批 4）：**只有校验过的包才能进这一格**——applyUpdate 只认它，
+ * 不认渲染层递上来的路径（渲染层手上的 `checksum` 是 /version.json 的 deb 口径，
+ * 与 win/AppImage 包不是同一条哈希，拿它当安装前校验必然假红）。
+ */
+let pendingUpdate: { file: string; version: string } | null = null
+
+export interface UpdateRunOptions {
+  /** 注入引擎（单测替身）；缺省 = 真实薄壳 updaterMain.ts（动态 import，单测不碰 electron） */
+  engine?: UpdateEngine
+  /** 下载/校验进度回流（IPC 层转成事件推给渲染层） */
+  onProgress?: (progress: UpdateProgress) => void
 }
 
-export async function applyUpdate(_installerPath: string, _checksum: string): Promise<void> {
-  // 应用内下载安装尚未就绪：引导用户前往官网下载全新安装包
-  throw new Error('更新安装尚未就绪，请前往官网下载最新安装包')
+async function engineOf(opts: UpdateRunOptions): Promise<UpdateEngine> {
+  if (opts.engine) return opts.engine
+  const shell = await import('./updaterMain')
+  return shell.createUpdateEngine()
+}
+
+/** 本机更新形态（供「检查更新」页决定分支：能装 → 「退出并安装」；不能装 → 提示 + 一键直链） */
+export interface UpdateCapability {
+  channel: UpdateChannel
+  canInstallInApp: boolean
+}
+
+export async function updateCapability(opts: UpdateRunOptions = {}): Promise<UpdateCapability> {
+  const engine = await engineOf(opts)
+  return { channel: engine.channel, canInstallInApp: canInstallInApp(engine.channel) }
+}
+
+/**
+ * 下载更新包（更新面全量包），完成后**逐字节复算哈希**再记账。
+ * - deb / unsupported：抛可判别的 UpdateUnsupportedError（零下载；UI 落 D-UP1 直链分支）
+ * - 校验不通过：删残包 + 抛（不留半截包等着被装）
+ * @returns 已落盘并通过校验的更新包路径
+ */
+export async function downloadUpdate(
+  info: UpdateInfo,
+  opts: UpdateRunOptions = {},
+): Promise<string> {
+  const engine = await engineOf(opts)
+  if (!canInstallInApp(engine.channel)) throw new UpdateUnsupportedError(engine.channel)
+  const done = await engine.download((progress) => opts.onProgress?.(progress))
+  // 哈希那一段也要给渲染层回声（115MB 的包复算不是瞬时的，别让界面看着像卡住）
+  opts.onProgress?.({ phase: 'verifying', percent: 100, transferred: 0, total: 0 })
+  await verifyDownloadedFile(done.file, done.sha512)
+  pendingUpdate = { file: done.file, version: done.version || info.version }
+  return done.file
+}
+
+/**
+ * 退出并安装（进程会退出）：nsis 交 NSIS 安装器、appimage 替换本体后走既有重启通道。
+ * 账清在**安装动作交出去且成功之后**——安装失败（如 AppImage 本体所在目录不可写）时账还在，
+ * 用户可原地重试，不必为一个已经下好并校验过的包再走一次 110MB 下载。
+ */
+export async function applyUpdate(opts: UpdateRunOptions = {}): Promise<void> {
+  const engine = await engineOf(opts)
+  if (!canInstallInApp(engine.channel)) throw new UpdateUnsupportedError(engine.channel)
+  const pending = pendingUpdate
+  if (!pending) throw new Error('没有已下载的更新包，请先下载更新')
+  if (!fs.existsSync(pending.file)) {
+    pendingUpdate = null
+    throw new Error('更新包已不存在（可能被清理），请重新下载')
+  }
+  engine.install(pending.file)
+  pendingUpdate = null
 }

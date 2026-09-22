@@ -17,7 +17,15 @@ import { AccountService } from './account'
 import { copyFilesToClipboard, readClipboardFilePaths } from './clipboard'
 import { showFilesInExplorer } from './explorer'
 import { workspaceFileUrl, thumbnailFileUrl, externalFileUrl } from './protocol'
-import { checkUpdate, downloadUpdate, applyUpdate, getCachedUpdate, setCachedUpdate, UpdateInfo } from './updater'
+import {
+  checkUpdate,
+  downloadUpdate,
+  applyUpdate,
+  updateCapability,
+  getCachedUpdate,
+  setCachedUpdate,
+  UpdateInfo,
+} from './updater'
 import { setAutoLaunch, isAutoLaunch } from './autoLaunchMain'
 // v2.6 批 2：应用内重启（插件更新后「立即重启」；判据在 core/relaunch.ts，此处只需薄壳入口）
 import { relaunchApp } from './relaunchMain'
@@ -913,7 +921,7 @@ export function registerIpc(
     }),
   )
 
-  // —— 更新（占位）——
+  // —— 更新（v2.6 批 4 起应用内落地：检查 → 下载（进度）→ 退出并安装）——
   // v2.5.3（P2-17）：手动检查命中新版同样写缓存——Profile 懒加载错过 update:available 事件时
   // updater:state 查询兜底一致（照 index.ts runUpdateCheck 后台路径 setCachedUpdate 先例）
   ipcMain.handle('qihebox:updater:check', () =>
@@ -925,8 +933,18 @@ export function registerIpc(
   )
   // v2.4.7（评审 P1）：查询主进程缓存的更新可用状态（Profile 懒加载错过 update:available 事件时兜底）
   ipcMain.handle('qihebox:updater:state', () => ok(getCachedUpdate()))
-  ipcMain.handle('qihebox:updater:download', (_e, info: UpdateInfo) => handle(() => downloadUpdate(info)))
-  ipcMain.handle('qihebox:updater:apply', (_e, installerPath: string, checksum: string) =>
-    handle(() => applyUpdate(installerPath, checksum)),
+  // v2.6 批 4：本机更新形态（nsis / appimage / deb / unsupported）——UI 据此决定是给
+  // 「退出并安装」还是「提示 + 一键直链 /file-manager」（D-UP1：deb 不自更新，不许假装能装）
+  ipcMain.handle('qihebox:updater:capability', () => handle(() => updateCapability()))
+  // 下载：进度经 update:progress 事件回流（渲染层画进度条）；deb/unsupported 一律在下载口被拒
+  ipcMain.handle('qihebox:updater:download', (_e, info: UpdateInfo) =>
+    handle(() =>
+      downloadUpdate(info, {
+        onProgress: (p) => sendTo(getMainWindow(), 'qihebox:event:update:progress', p),
+      }),
+    ),
   )
+  // 安装：只认主进程账上那份「已下载 + 已校验」的包（渲染层不递路径、更不递校验值——
+  // /version.json 的 checksum 是 deb 口径，与 win/AppImage 包不是同一条哈希）
+  ipcMain.handle('qihebox:updater:apply', () => handle(() => applyUpdate()))
 }

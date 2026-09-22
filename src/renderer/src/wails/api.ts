@@ -25,6 +25,7 @@ import type {
   FileRenameRequest,
   MoveFilesRequest,
   UpdateInfo,
+  UpdateCapability,
   TagInfo,
   TrashEntry,
   ApiResult,
@@ -364,8 +365,10 @@ export const api = {
     check: () => qb.updater.check() as Promise<ApiResult<UpdateInfo | null>>,
     // v2.4.7（评审 P1）：主进程缓存的更新可用状态（Profile 懒加载错过 update:available 事件时兜底）
     state: () => qb.updater.state() as Promise<ApiResult<UpdateInfo | null>>,
+    // v2.6 批 4：本机更新形态（决定「退出并安装」按钮给不给；deb 走提示 + 直链）
+    capability: () => qb.updater.capability() as Promise<ApiResult<UpdateCapability>>,
     download: (info: UpdateInfo) => qb.updater.download(info as any) as Promise<ApiResult<string>>,
-    apply: (installerPath: string, checksum: string) =>
-      qb.updater.apply(installerPath, checksum) as Promise<ApiResult<boolean>>,
+    // v2.6 批 4：安装不接参数（主进程账上的包才是唯一可信来源）
+    apply: () => qb.updater.apply() as Promise<ApiResult<boolean>>,
   },
 };

@@ -289,8 +289,11 @@ interface QiheboxApi {
   updater: {
     check: () => Promise<unknown>
     state: () => Promise<unknown>
+    // v2.6 批 4：本机更新形态（能否应用内安装；deb/未打包实例走「提示 + 直链」）
+    capability: () => Promise<unknown>
     download: (info: unknown) => Promise<unknown>
-    apply: (installerPath: string, checksum: string) => Promise<unknown>
+    // v2.6 批 4：安装不接参数（主进程只认自己账上那份已下载且已校验的包）
+    apply: () => Promise<unknown>
   }
   getPathForFile: (file: File) => string
   clearCache: () => void

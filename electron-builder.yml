@@ -47,6 +47,17 @@ extraResources:
 # sharp 为 N-API 模块，无需 rebuild；跳过以加速构建
 npmRebuild: false
 
+# v2.6 批 4：应用内更新（electron-updater generic provider）。
+# url = 匿名更新面 feed 根，**必须逐字符**等于 erp 侧
+# scripts/publish-box-installer.sh 的 PUBLIC_UPDATES_URL 与 nginx 的 `location ^~ /updates/box/`
+# （客户端按「feed 根 + latest*.yml 里的相对 path」拼包 URL）；运行时常量同源由
+# tests/unit/updaterInstall.test.ts 锚定。
+# 构建仍 `--publish never`：产物落本地 release/（latest.yml / latest-linux.yml / blockmap），
+# 上传与 version.json 由 erp 侧发布脚本做——此处只声明 feed 形状。
+publish:
+  - provider: generic
+    url: https://www.qihebook.cloud/updates/box/
+
 linux:
   target:
     - AppImage

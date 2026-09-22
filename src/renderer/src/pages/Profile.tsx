@@ -3,11 +3,12 @@ import { api } from "~/wails/api";
 import { simpleMarkdownToHtml } from "~/utils/markdown";
 import { accountStatus, confirmEmailCode, fetchCaptcha, loginAccount, logoutAccount, registerAccount, requestEmailCode } from "~/stores/account";
 import { showToast } from "~/stores/notifyBanner";
+import { updateSectionRequested } from "~/stores/updateSection";
 import Input from "~/components/ui/Input";
 import Button from "~/components/ui/Button";
 import helpMarkdown from "../../../../HELP.md?raw";
 import privacyMarkdown from "../../../../PRIVACY.md?raw";
-import type { UpdateInfo } from "~/types";
+import type { UpdateInfo, UpdateCapability, UpdateProgress } from "~/types";
 // v2.4.9：加入用户群（点按钮打开官网活码页 /wechat-group，群码过期只换官网图）
 
 type SectionKey = "account" | "update" | "help" | "log" | "privacy";
@@ -42,12 +43,22 @@ const menuItems: { key: SectionKey; label: string; desc: string }[] = [
 export default function Profile() {
   // v2.4.7（评审 P4）：默认激活 Section 改为 account（更新页是低频入口，首屏先看到账号）
   const [active, setActive] = createSignal<SectionKey>("account");
+  // v2.6 批 4：系统通知点击等外部请求 → 切到「检查更新」分区（请求计数见 stores/updateSection.ts）
+  createEffect(() => {
+    if (updateSectionRequested() > 0) setActive("update");
+  });
   const [version, setVersion] = createSignal("");
+  // v2.6 批 4：更新流程五态 + 安装中
+  // idle → checking → （latest | available）→ downloading → ready → installing（进程即将退出）
   const [updatePhase, setUpdatePhase] = createSignal<
-    "idle" | "checking" | "latest" | "available" | "error"
+    "idle" | "checking" | "latest" | "available" | "downloading" | "ready" | "error"
   >("idle");
   const [latestVersion, setLatestVersion] = createSignal<UpdateInfo | null>(null);
   const [updateError, setUpdateError] = createSignal("");
+  // v2.6 批 4：本机形态由主进程判（deb 官方不支持自更新 → 不给「退出并安装」，只给直链）
+  const [updateCapability, setUpdateCapability] = createSignal<UpdateCapability | null>(null);
+  const [downloadProgress, setDownloadProgress] = createSignal<UpdateProgress | null>(null);
+  const [installing, setInstalling] = createSignal(false);
   // v2.4.9（S6-2）：日志卡片状态（导出中 / 成功提示保存路径 / 失败）
   const [logBusy, setLogBusy] = createSignal(false);
   const [logMsg, setLogMsg] = createSignal("");
@@ -64,9 +75,19 @@ export default function Profile() {
       setLatestVersion(payload as UpdateInfo);
       setUpdatePhase("available");
     });
+    // v2.6 批 4：下载/校验进度（主进程 updater:download 期间逐条推）
+    const unsubscribeProgress = window.qihebox.events.on("update:progress", (payload: any) => {
+      const p = payload as UpdateProgress | null;
+      if (!p || typeof p.phase !== "string") return;
+      setDownloadProgress(p);
+      if (p.phase === "downloading") setUpdatePhase("downloading");
+    });
     onCleanup(() => {
       if (typeof unsubscribeAvailable === "function") {
         unsubscribeAvailable();
+      }
+      if (typeof unsubscribeProgress === "function") {
+        unsubscribeProgress();
       }
     });
 
@@ -87,6 +108,15 @@ export default function Profile() {
       }
     } catch {
       // 查询失败静默（事件订阅与手动检查仍兜底）
+    }
+
+    // v2.6 批 4：本机形态（nsis/appimage 给「退出并安装」；deb/未打包实例给提示 + 直链）
+    try {
+      const cap = await api.updater.capability();
+      if (cap.success && cap.data) setUpdateCapability(cap.data);
+    } catch {
+      // 取不到形态：UI 按「能装」渲染会误导（deb 用户会看到一个必然失败的按钮），
+      // 故保持 null ⇒ 界面只显示「检查更新」，不露出下载/安装按钮
     }
   });
 
@@ -111,6 +141,55 @@ export default function Profile() {
       setUpdatePhase("error");
     }
   };
+
+  // v2.6 批 4：应用内下载（进度经 update:progress 事件回流；主进程落盘后还会复算哈希）
+  const startDownload = async () => {
+    const info = latestVersion();
+    if (!info) return;
+    setUpdateError("");
+    setDownloadProgress(null);
+    setUpdatePhase("downloading");
+    try {
+      const r = await api.updater.download(info);
+      if (!r.success) throw new Error(r.error || "下载更新失败");
+      setUpdatePhase("ready");
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err));
+      setUpdatePhase("error");
+    }
+  };
+
+  // v2.6 批 4：退出并安装（AppImage 替换本体后重启 / Windows 交 NSIS 安装器；进程随即退出）
+  const installNow = async () => {
+    setUpdateError("");
+    setInstalling(true);
+    try {
+      const r = await api.updater.apply();
+      if (!r.success) throw new Error(r.error || "启动安装失败");
+      // 成功即交给主进程退出并安装（界面不再有后续；安装失败会留在「就绪」态可重试）
+    } catch (err) {
+      setInstalling(false);
+      setUpdateError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /** 「就绪」态的人话提示：deb 与未打包实例说清为什么没有应用内安装 */
+  const installHint = (): string => {
+    const cap = updateCapability();
+    if (!cap) return "未能读到本机更新形态，请前往官网下载新版本安装包";
+    if (cap.channel === "nsis") return "退出后自动安装新版本并重启应用";
+    if (cap.channel === "appimage") return "退出后替换当前 AppImage 并重启应用";
+    if (cap.channel === "deb")
+      return "当前为 deb 安装版：官方不支持 deb 的应用内自动更新，请前往官网下载新版本安装包（或用 AppImage 版）";
+    return "当前为开发/预览实例（非安装版），应用内更新在安装版可用";
+  };
+
+  /** 下载进度百分比（0–100；校验阶段恒显示 100） */
+  const downloadPercent = (): number =>
+    Math.max(0, Math.min(100, Math.round(downloadProgress()?.percent ?? 0)));
+
+  /** 字节 → MiB 人话（下载的是 110MB 量级的包，不该只给百分比） */
+  const mib = (bytes: number): string => (bytes / (1024 * 1024)).toFixed(1);
 
   const openDownloadPage = () => {
     // 触发主进程 setWindowOpenHandler → 系统浏览器打开官网文件管理页
@@ -303,10 +382,10 @@ export default function Profile() {
                   <div class="rounded-xl bg-success-50 px-4 py-3 text-sm text-success-700">
                     <div class="font-semibold">当前已是最新版本 v{displayVersion()} 🎉</div>
                     <p class="mt-1 text-xs text-success-600">
-                      自动更新安装通道尚未开放，需要全新安装包请前往官网下载。
+                      需要全新安装包（换机器 / 重装）可前往官网下载。
                     </p>
                     <button
-                      class="btn-primary mt-3 gap-1 rounded-md px-3 py-1.5 text-xs font-semibold"
+                      class="btn-secondary mt-3 gap-1 rounded-md px-3 py-1.5 text-xs font-semibold"
                       onClick={openDownloadPage}
                     >
                       📦 前往官网下载
@@ -314,18 +393,74 @@ export default function Profile() {
                   </div>
                 </Show>
 
+                {/* v2.6 批 4：应用内接管——能自更新的形态给「下载更新 → 退出并安装」，
+                    deb / 未打包实例给「提示 + 一键直链 /file-manager」（D-UP1，不显示「退出并安装」） */}
                 <Show when={updatePhase() === "available" && latestVersion()}>
                   <div class="rounded-xl bg-primary-50 px-4 py-3 text-sm text-primary-700">
                     <div class="font-semibold">发现新版本：v{latestVersion()?.version}</div>
                     <Show when={latestVersion()?.release_notes}>
-                      <div class="mt-1 text-primary-600">{latestVersion()?.release_notes}</div>
+                      <div class="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap text-primary-600">
+                        {latestVersion()?.release_notes}
+                      </div>
                     </Show>
-                    {/* v2.4.7（评审 P4）：应用内下载通道未就绪，统一引导前往官网下载全新安装包 */}
-                    <button
-                      class="btn-primary mt-3 gap-1 rounded-md px-3 py-1.5 text-xs font-semibold"
-                      onClick={openDownloadPage}
+                    <Show
+                      when={updateCapability()?.canInstallInApp}
+                      fallback={
+                        <>
+                          <p class="mt-2 text-xs text-primary-600">{installHint()}</p>
+                          <button
+                            class="btn-primary mt-3 gap-1 rounded-md px-3 py-1.5 text-xs font-semibold"
+                            onClick={openDownloadPage}
+                          >
+                            前往官网下载
+                          </button>
+                        </>
+                      }
                     >
-                      前往官网下载
+                      <p class="mt-2 text-xs text-primary-600">
+                        下载完成后点「退出并安装」——应用会自动退出、装上并重启。
+                      </p>
+                      <button
+                        class="btn-primary mt-3 gap-1 rounded-md px-3 py-1.5 text-xs font-semibold"
+                        onClick={() => void startDownload()}
+                      >
+                        下载更新
+                      </button>
+                    </Show>
+                  </div>
+                </Show>
+
+                <Show when={updatePhase() === "downloading"}>
+                  <div class="rounded-xl bg-primary-50 px-4 py-3 text-sm text-primary-700">
+                    <div class="font-semibold">正在下载更新 v{latestVersion()?.version}…</div>
+                    <div class="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-surface-200">
+                      <div
+                        class="h-full rounded-full bg-primary-500 transition-[width] duration-200"
+                        style={{ width: `${downloadPercent()}%` }}
+                      />
+                    </div>
+                    <div class="mt-1.5 flex items-center justify-between gap-3 text-xs text-primary-600">
+                      <span>{downloadProgress()?.phase === "verifying" ? "正在校验完整性…" : `已下载 ${downloadPercent()}%`}</span>
+                      <span class="shrink-0">
+                        {downloadProgress() && downloadProgress()?.phase !== "verifying"
+                          ? `${mib(downloadProgress()!.transferred)} / ${mib(downloadProgress()!.total)} MB`
+                          : ""}
+                      </span>
+                    </div>
+                    <p class="mt-1 text-xs text-primary-500">下载期间可以继续用应用，下完再点「退出并安装」。</p>
+                  </div>
+                </Show>
+
+                <Show when={updatePhase() === "ready"}>
+                  <div class="rounded-xl bg-success-50 px-4 py-3 text-sm text-success-700">
+                    <div class="font-semibold">更新已下载并通过校验：v{latestVersion()?.version}</div>
+                    <p class="mt-1 text-xs text-success-600">{installHint()}</p>
+                    <button
+                      class="btn-primary mt-3 gap-1 rounded-md px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                      onClick={() => void installNow()}
+                      disabled={installing()}
+                    >
+                      {installing() ? "正在退出并安装…" : "退出并安装"}
                     </button>
                   </div>
                 </Show>
