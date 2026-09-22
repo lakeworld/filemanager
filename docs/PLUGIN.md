@@ -235,6 +235,10 @@ export interface PluginHost {
     /** @deprecated v2.5.7（F4a）：请用 cloudFetch 中继；getToken 存活一个宿主大版本后移除（§四.1） */
     getToken(): string | null
     isLoggedIn(): boolean
+    /** v2.6 增量（批 1）：本机设备标识（与心跳 `device_id` 同源）；不可读 → null。
+     *  向 erp `/api/box/me` 附 `current_device_id` 即得设备清单里的「本机」标记（`is_current`）；
+     *  非凭据、不得自造；**可选成员**——旧宿主（2.5.x）无此方法，请能力探测（缺席按「本机未知」降级）。 */
+    getDeviceId?(): string | null
     cloudFetch(path: string, init?: {
       method?: string
       headers?: Record<string, string>

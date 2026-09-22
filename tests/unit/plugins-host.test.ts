@@ -1471,6 +1471,18 @@ describe('createPluginHost：host.account 权限门控与 entitlement 占位（v
     expect(inst.host.account.isLoggedIn()).toBe(false)
   })
 
+  it('v2.6 增量：getDeviceId 经装配层接通（与心跳同源）；装配层未提供时兜底 null，不炸', async () => {
+    const inst = await createPluginHost(
+      makeDeps({ account: { getToken: () => 'jwt', isLoggedIn: () => true, getDeviceId: () => 'dev-1' }, accountAccess: true }),
+    )
+    expect(inst.host.account.getDeviceId?.()).toBe('dev-1')
+    const inst2 = await createPluginHost(
+      makeDeps({ account: { getToken: () => 'jwt', isLoggedIn: () => true }, accountAccess: true }),
+    )
+    expect(typeof inst2.host.account.getDeviceId).toBe('function')
+    expect(inst2.host.account.getDeviceId?.()).toBeNull()
+  })
+
   it('entitlement：恒 free 占位 + 字段形状（红线 4：本体零订阅逻辑）', async () => {
     const inst = await createPluginHost(makeDeps())
     expect(inst.host.entitlement.status()).toEqual({ tier: 'free', expiresAt: null, quota: null })

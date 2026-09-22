@@ -236,6 +236,16 @@ describe('AccountService', () => {
     expect(urls.some((u) => u.includes('/collections/users/auth-with-password'))).toBe(true)
   })
 
+  it('getDeviceId：与落盘状态同源（登录后读回落盘值；登出/文件缺失 → null）', async () => {
+    expect(svc.getDeviceId()).toBeNull()
+    await svc.login('a@b.com', 'pw')
+    const persisted = JSON.parse(fs.readFileSync(accountFile, 'utf8')) as { deviceId: string }
+    expect(persisted.deviceId).toBeTruthy()
+    expect(svc.getDeviceId()).toBe(persisted.deviceId)
+    await svc.logout()
+    expect(svc.getDeviceId()).toBeNull()
+  })
+
   it('baseUrl 可配置：登录请求发往注入的服务器地址（公开仓不写死真实地址）', async () => {
     const fetchImpl = mockFetchOk('jwt-token')
     svc = new AccountService({ ...deps, fetchImpl })

@@ -402,6 +402,14 @@ export class AccountService {
     return this.loggedInCache
   }
 
+  /** v2.6（批 1 · 设备绑定 ③ 客户端半边）：同步返回本机设备标识——与心跳 `device_id` **同源**
+   *  （同一份落盘状态，登录沿用既有 UUID）；状态不可读/文件缺失 → null。
+   *  用途：插件经 `host.account.getDeviceId()` 取值，向 erp `/api/box/me` 传 `current_device_id`，
+   *  服务端据此在设备清单里标出「本机」（`is_current`）。**不得自造 id**（自造即另一台设备）。 */
+  getDeviceId(): string | null {
+    return this.load()?.deviceId ?? null
+  }
+
   status(): AccountStatus {
     const acc = this.load()
     if (!acc) {

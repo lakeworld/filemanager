@@ -144,7 +144,7 @@ export interface PluginHostHandle {
  */
 export function registerPluginHost(
   box: BoxService,
-  account: Pick<AccountService, 'getToken' | 'isLoggedIn'>,
+  account: Pick<AccountService, 'getToken' | 'isLoggedIn' | 'getDeviceId'>,
   settings: Pick<SettingsService, 'getDevMode'>,
   /** v2.5.7（F4a）：云 API 服务地址（resolveApiBase()，公开仓不写死地址）；空 = 云能力不可用 */
   cloudBaseUrl = '',
@@ -195,6 +195,9 @@ export function registerPluginHost(
         account: {
           getToken: () => account.getToken(),
           isLoggedIn: () => account.isLoggedIn(),
+          // v2.6（批 1）：本机设备标识（与心跳同源）——插件用它向 /api/box/me 传 current_device_id，
+          // 服务端据此在设备清单标「本机」（is_current）；旧插件不调用即无影响（只增不删）
+          getDeviceId: () => account.getDeviceId(),
         },
         // v2.5.7（F4a）：cloudFetch 宿主代签——baseUrl 由装配层注入（公开仓不写死服务器地址）
         cloudFetchImpl: { baseUrl: cloudBaseUrl },
