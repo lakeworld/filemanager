@@ -186,4 +186,62 @@ test.describe('笔记编辑器（v2.5.7 A2）', () => {
       await fsp.rm(wsDir, { recursive: true, force: true })
     }
   })
+
+  test('关闭的笔记不许被 Ctrl+S 写空、也不许吞掉当前笔记的保存（v2.6 审查轮 1：陈旧 note.save 处理器）', async () => {
+    // 修前形状（探针实测取证，2026-09-23）：Ctrl+S 处理器在 `initEditor` 的首个 await **之后**注册，
+    // `onCleanup(offSave)` 拿到的 Owner 已是 null ⇒ Solid 静默丢弃注销函数 ⇒ 组件卸载后处理器仍留在
+    // shortcuts 表里，而且**按注册序先于新笔记自己的处理器**被派发到（`shortcuts.ts` 首个 true 即止）：
+    //   ① 陈旧处理器 `serialize()` 见 editor===null → 返回 ""（把"取不到内容"当成"内容为空"）
+    //   ② `props.saveRelPath` 是父组件作用域的活 getter ⇒ 解引用到**当前**预览文件（B）的路径
+    //   ③ 于是 **A 的陈旧处理器把 B 的文件原子替换成 0 字节**，并且吞掉 B 自己的 Ctrl+S
+    // 探针读数（修前）：`handler fired; editorAlive=false … relPath="产品集/MD系列/文档/说明书/另一份.md"`
+    // + `writeText result={"success":true} contentLen=0` ⇒ B 被清空。
+    // 这条 e2e 钉两个后果：B 的内容/字节数必须原样在、A 也不许被碰；工作区里不许凭空多条目
+    // （旧实现还会把工作区外文件的绝对路径当相对路径喂给 writeText，在工作区里造出镜像伪目录树）。
+    const { wsDir, mdFile } = await setup('# A 的正文\n\nA 不许被写空')
+    const mdFileB = path.join(path.dirname(mdFile), '另一份.md')
+    await fsp.writeFile(mdFileB, Buffer.from('# B 的正文\n\nB 不许被写空'))
+    /** 工作区内条目清单（递归 + 目录尾斜杠），用于"一个条目都不许多"的断言 */
+    const treeOf = async (dir: string, base = dir): Promise<string[]> => {
+      const out: string[] = []
+      for (const e of await fsp.readdir(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name)
+        if (e.isDirectory()) out.push(path.relative(base, p) + '/', ...(await treeOf(p, base)))
+        else out.push(path.relative(base, p))
+      }
+      return out.sort()
+    }
+    try {
+      await navigateTo('/files/doc/MD系列/说明书')
+      await expect(page.getByText('说明.md')).toBeVisible({ timeout: 15000 })
+      // ① 打开 A 再关掉：这一步把「修前形状」的陈旧处理器留在 shortcuts 表里
+      const editableA = await openEditor()
+      await expect(editableA).toContainText('A 的正文', { timeout: 20000 })
+      await page.keyboard.press('Escape')
+      await expect(page.locator('[data-note-editor]')).toHaveCount(0, { timeout: 15000 })
+      // ② 打开 B、编辑、等防抖保存落盘（B 的内容先在盘上成立）
+      await page.getByText('另一份.md').dblclick()
+      const editableB = page.locator('[data-note-editor] [contenteditable="true"]').first()
+      await expect(editableB).toBeVisible({ timeout: 20000 })
+      await expect(editableB).toContainText('B 的正文', { timeout: 20000 })
+      await editableB.click()
+      await editableB.press('End')
+      await page.keyboard.type('——B 的新增段落')
+      await page.waitForTimeout(1500) // 防抖 500ms 串行保存窗口
+      const aBytes = await fsp.readFile(mdFile)
+      const bBytes = await fsp.readFile(mdFileB)
+      expect(bBytes.toString('utf-8'), '前置：B 的新增段落必须已经落盘').toContain('B 的新增段落')
+      const treeBefore = await treeOf(wsDir)
+      // ③ 此刻按 Ctrl+S：修前这一步被 A 的陈旧处理器接管 → B 被写成 0 字节
+      await page.keyboard.press('Control+s')
+      await page.waitForTimeout(1500)
+      const bAfter = await fsp.readFile(mdFileB)
+      expect(bAfter.length, 'B 的文件不许被陈旧处理器清空（0 字节）').toBe(bBytes.length)
+      expect(bAfter, 'B 的内容必须一字不差').toEqual(bBytes)
+      expect(await fsp.readFile(mdFile), 'A 的文件同样一个字节都不许动').toEqual(aBytes)
+      expect(await treeOf(wsDir), '工作区内不许凭空多出条目（旧实现的绝对路径回落会造镜像伪目录树）').toEqual(treeBefore)
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true })
+    }
+  })
 })

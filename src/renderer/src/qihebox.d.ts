@@ -136,7 +136,8 @@ interface QiheboxApi {
     showFilesInExplorer: (paths: string[]) => Promise<unknown>
     saveTextFile: (filePath: string, content: string) => Promise<unknown>
     // v2.5.7（A2 笔记）：工作区相对路径原子文本写（2MB 上限）
-    writeText: (relPath: string, content: string) => Promise<unknown>
+    // v2.6（审查轮 1）：opts.allowEmpty = 清空意图的显式声明（默认拒绝空串覆盖非空文件）
+    writeText: (relPath: string, content: string, opts?: { allowEmpty?: boolean }) => Promise<unknown>
     createSubfolder: (req: unknown) => Promise<unknown>
     deleteSubfolder: (req: unknown) => Promise<unknown>
     /** v2.5.9（A9 刀1）：某实体某域下**实际存在**的子文件夹 = tab 名单唯一来源；

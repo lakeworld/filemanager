@@ -488,8 +488,10 @@ export function registerIpc(
     }),
   )
   // v2.5.7（A2 笔记）：工作区相对路径原子文本写（tmp+rename 原子 + 2MB 上限）。校验面对照 saveTextFile：
-  // 工作区内 + 保护路径拒绝 + 名称防穿越；与既存裸写 writeFileUtf8 及其调用方隔离（防染模板导出回归面）
-  ipcMain.handle('qihebox:files:writeText', (_e, relPath: string, content: string) =>
+  // 工作区内 + 保护路径拒绝 + 名称防穿越；与既存裸写 writeFileUtf8 及其调用方隔离（防染模板导出回归面）。
+  // v2.6（审查轮 1）：`opts.allowEmpty` 是调用方对「我确实要清空这个文件」的显式声明——透传给
+  // writeTextAtomic 的第二道防线（默认拒绝空串覆盖非空文件）。渲染层只在内容取自**存活**编辑器时声明。
+  ipcMain.handle('qihebox:files:writeText', (_e, relPath: string, content: string, opts?: { allowEmpty?: boolean }) =>
     handle(async () => {
       const ws = box.workspace.currentWorkspacePath()
       if (!ws) throw new Error('未打开工作区')
@@ -498,7 +500,7 @@ export function registerIpc(
       const p = path.join(ws, ...relPath.split('/').filter(Boolean))
       if (!p.startsWith(ws + path.sep)) throw new Error('写入路径须在工作区内')
       if (isProtectedConfigPath(ws, p)) throw new Error('不能直接写入配置文件（.qihefilemanager）')
-      return FilesService.writeTextAtomic(p, content)
+      return FilesService.writeTextAtomic(p, content, { allowEmpty: opts?.allowEmpty === true })
     }),
   )
   ipcMain.handle('qihebox:files:createSubfolder', (_e, req) => handle(() => box.files.createSubfolder(req)))

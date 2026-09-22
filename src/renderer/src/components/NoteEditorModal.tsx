@@ -14,8 +14,14 @@ import { registerShortcut } from "~/shortcuts";
  * - 保存契约：getMarkdown() → files.writeText（原子写 + 2MB 上限）。
  *   dirty 判定 = 仅用户编辑置脏——加载时快照初始序列化值，Crepe round-trip 规范化差异不触发写盘；
  *   防抖 500ms / Ctrl+S / 关闭脏守卫 三路共用一条串行保存链（promise 序列化，无并发写窗口）。
+ *   **写契约只认「工作区相对路径」**（`props.saveRelPath`，由 `FilePreviewModal.mdSaveRelPath()` 判定）：
+ *   空值 = 工作区外文件只读预览，一个字节都不落盘——绝不回落到绝对路径（会在工作区里造出镜像伪目录树）。
+ *   **空内容**只有「内容取自存活编辑器」时才写（`allowEmpty`）：取不到内容来源（编辑器已销毁）一律拒写并报错。
  * - 三态：加载 Skeleton / >2MB tooLarge（引导系统程序打开）/ 错误。
- * - 生命周期：onCleanup = editor.destroy() + 清防抖计时器 + 释放 DOM。
+ * - 生命周期：onCleanup = editor.destroy() + 清防抖计时器 + 释放 DOM + **注销 Ctrl+S 处理器与任务键委托**。
+ *   ⚠ 注销的注册点必须在**组件体**（渲染期 Owner 非空）：写进 async 续体里会被 Solid 静默丢弃，
+ *   组件卸载后处理器仍留在 shortcuts 表里，Ctrl+S 打到已销毁的编辑器（v2.6 审查轮 1 的数据丢失路径；
+ *   门禁 `tests/unit/rendererSubscriptionCleanup.test.ts` 是扩面口径 = 任意 async 函数体内零 late onCleanup）。
  * - 图片：编辑器内相对路径图片不渲染（v2.5.7 目标外；XML 注入防御由 ProseMirror 不外链 raw HTML 保证）。
  */
 
@@ -202,12 +208,32 @@ export default function NoteEditorModal(props: {
   };
   // 加载代际守卫（文件切换/卸载 → 旧续体作废）
   const seq = ++editorSeq;
+  /** 编辑器已创建完成（首个 Ctrl+S 可能早于 Crepe 懒加载 chunk 就绪） */
+  let editorReady = false;
+  /** 任务键委托的卸载函数（在 initEditor 的 await 续体里赋值，卸载时由组件体那条 onCleanup 调用） */
+  let uninstallTaskKeys: (() => void) | null = null;
 
-  const relPath = () =>
-    props.saveRelPath && props.saveRelPath.length > 0 ? props.saveRelPath : relPathFromAbs(props.filePath);
+  /**
+   * 保存用的工作区相对路径；`null` = **无写契约**（工作区外文件，只读预览）。
+   * 为什么不再回落到绝对路径：`files.writeText` 的契约是「工作区相对路径」，主进程按
+   * `path.join(ws, relPath.split("/"))` 解析——喂绝对路径会在工作区里造出一棵 `home/…` 镜像伪目录树
+   * （v2.6 审查轮 1 发现）。调用方 `FilePreviewModal.mdSaveRelPath()` 只在文件确实位于工作区内时才给值，
+   * 空值本就是「不落盘」的明文契约（见该组件挂载 NoteEditorModal 处的注释）。
+   */
+  const relPath = (): string | null => {
+    const rp = props.saveRelPath;
+    if (!rp || rp.length === 0) return null;
+    // 兜底：即便有人塞进绝对路径（含 Windows 形状），也不许当相对路径写下去
+    return /^([a-zA-Z]:[\\/]|\/)/.test(rp) ? null : rp;
+  };
 
-  const serialize = async (): Promise<string> => {
-    if (!editor) return "";
+  /**
+   * 序列化当前内容；`null` = **无内容来源**（编辑器已销毁），与「内容为空」是两回事。
+   * v2.6 审查轮 1：旧实现把「编辑器没了」也返回 `""`，于是组件卸载后的陈旧 Ctrl+S 把笔记原地
+   * 改写成 0 字节（`writeTextAtomic` 的 rename 替换丢掉全部内容）——数据丢失级。
+   */
+  const serialize = async (): Promise<string | null> => {
+    if (!editor) return null;
     const md = await editor.getMarkdown();
     return md ?? "";
   };
@@ -230,7 +256,18 @@ export default function NoteEditorModal(props: {
     setSaveState("saving");
     saveQueue = saveQueue.then(async () => {
       const content = await serialize();
-      const r = await api.files.writeText(relPath(), content);
+      const rel = relPath();
+      if (content === null || rel === null) {
+        // 无内容来源（编辑器已销毁）/ 无写契约（工作区外文件）⇒ **一个字节都不写**，如实报「保存失败」
+        // 红线：宁可拒绝 + 报错，不许静默写坏。挂脏标只在「有来源但写不了」以外的情形——没来源说明
+        // 这份内容本就取不回来，再重试也是同一个结果（避免每次编辑都重试一次必败的写）。
+        dirty = content === null;
+        setSaveState("error");
+        return;
+      }
+      // allowEmpty：内容取自**存活**编辑器 ⇒ 空串是「用户把笔记清空了」的合法表达，显式声明意图；
+      // 主进程侧对「空串覆盖非空文件」默认拒绝（v2.6 审查轮 1 第二道防线，两处互为兜底、都不静默）。
+      const r = await api.files.writeText(rel, content, { allowEmpty: true });
       if (r.success) {
         props.onSaved?.(props.filePath);
         // 保存成功后基线更新（防抖内二次编辑不重复判定）
@@ -243,6 +280,21 @@ export default function NoteEditorModal(props: {
       }
     });
   };
+
+  // v2.5.8 D11（W6）：Ctrl+S 收进 shortcuts.ts 单注册点。守卫档位 = `none`
+  // （编辑器里也要能存盘，与收编前一致：原本就不做任何输入态豁免）。
+  // **注册与注销都必须发生在组件体（渲染期 Owner 非空）**：写进 `initEditor` 的首个 await 之后，
+  // `onCleanup` 拿到的 Owner 已是 null ⇒ Solid 只打一句 warning 然后**静默丢弃**注销函数 ⇒ 组件卸载后
+  // 处理器仍留在 `shortcuts.handlers` 里，Ctrl+S 打到已销毁的编辑器上（历史后果：把笔记写成 0 字节，
+  // 数据丢失级，v2.6 审查轮 1）。门禁：tests/unit/rendererSubscriptionCleanup.test.ts（口径 = 任意
+  // async 函数体内、首个 await 之后的 onCleanup 一律零命中）。
+  const offSave = registerShortcut("note.save", () => {
+    if (!editorReady) return false; // Crepe 懒加载 chunk 未就绪：不消费本键、也不写盘
+    dirty = true;
+    enqueueSave(true);
+    return true;
+  });
+  onCleanup(offSave);
 
   const initEditor = async (md: string) => {
     const mod = await loadCrepe();
@@ -262,7 +314,8 @@ export default function NoteEditorModal(props: {
     baselineMd = (await editor.getMarkdown()) ?? "";
     // D-08：拿 ProseMirror view（任务项键盘勾选走事务，与鼠标同链）+ 首屏补 aria
     const pmView = editor.editor.action((ctx) => ctx.get(editorViewCtx) as unknown as PmLikeView);
-    const uninstallTaskKeys = rootRef ? installTaskKeys(rootRef, pmView, () => syncTaskA11y(rootRef!, pmView)) : null;
+    // 卸载函数存进**组件体**变量（不能就地 onCleanup——此处已在 await 续体里，Owner 为 null，注册会被丢弃）
+    uninstallTaskKeys = rootRef ? installTaskKeys(rootRef, pmView, () => syncTaskA11y(rootRef!, pmView)) : null;
     if (rootRef) syncTaskA11y(rootRef, pmView);
     // 监听 markdown 更新 → 用户编辑判定
     editor.on((listener) => {
@@ -275,17 +328,8 @@ export default function NoteEditorModal(props: {
         })();
       });
     });
-    // v2.5.8 D11（W6）：Ctrl+S 收进 shortcuts.ts 单注册点。守卫档位 = `none`
-    // （编辑器里也要能存盘，与收编前一致：原本就不做任何输入态豁免）
-    const offSave = registerShortcut("note.save", () => {
-      dirty = true;
-      enqueueSave(true);
-      return true;
-    });
-    onCleanup(() => {
-      offSave();
-      uninstallTaskKeys?.();
-    });
+    // 就绪闸门放最后：组件体注册的 Ctrl+S 处理器（:283）此后才允许消费本键并写盘
+    editorReady = true;
   };
 
   onMount(async () => {
@@ -314,8 +358,12 @@ export default function NoteEditorModal(props: {
 
   onCleanup(() => {
     // 卸载兜底：先同步抽出 Markdown（editor 存活时），再 destroy；未保存的脏内容尝试落盘（不阻塞）
+    editorReady = false; // 先关闸：此刻起组件体那条 Ctrl+S 处理器一律不消费本键、不写盘
+    uninstallTaskKeys?.(); // 任务键委托的监听挂在编辑器根上；旧写法在 await 续体里注册，注销被静默丢弃
+    uninstallTaskKeys = null;
+    const rel = relPath();
     let pendingContent: string | null = null;
-    if (dirty && props.saveRelPath && editor) {
+    if (dirty && rel && editor) {
       try {
         pendingContent = editor.getMarkdown() ?? "";
       } catch {
@@ -326,12 +374,13 @@ export default function NoteEditorModal(props: {
     if (savedAtTimer) clearTimeout(savedAtTimer);
     editor?.destroy();
     editor = null;
-    if (pendingContent !== null && props.saveRelPath) {
+    if (pendingContent !== null && rel) {
       // 兜底写也必须排进同一条串行链：与「在飞的那一次写」并发落同一文件时，
       // 完成顺序不确定 → 可能旧内容后落盘盖掉新内容（乱序丢写）。排队保证最后写的是最新内容。
       saveQueue = saveQueue
         .then(async () => {
-          await api.files.writeText(relPath(), pendingContent);
+          // 内容刚才取自存活编辑器，空串同样是「用户清空了笔记」的合法表达 → 显式声明意图（同 saveQueue）
+          await api.files.writeText(rel, pendingContent ?? "", { allowEmpty: true });
         })
         .catch(() => {});
     }
@@ -368,7 +417,9 @@ export default function NoteEditorModal(props: {
           </Show>
         </div>
         <div class="flex shrink-0 items-center gap-2">
-          <span class="text-xs text-surface-400">编辑即保存 · Ctrl+S 立即保存</span>
+          <span class="text-xs text-surface-400">
+            {relPath() === null ? "工作区外文件 · 不落盘（仅供查看）" : "编辑即保存 · Ctrl+S 立即保存"}
+          </span>
           <button
             class="btn-secondary text-xs"
             onClick={() => props.onOpenWithSystem?.(props.filePath)}
@@ -412,15 +463,4 @@ export default function NoteEditorModal(props: {
       </div>
     </div>
   );
-}
-
-/** 绝对路径 → 工作区相对路径（writeText 契约；三域前缀 + 产品集） */
-function relPathFromAbs(abs: string): string {
-  const idx = abs.indexOf("/产品集/");
-  if (idx >= 0) return abs.slice(idx + 1);
-  const i2 = abs.indexOf("/客户/");
-  if (i2 >= 0) return abs.slice(i2 + 1);
-  const i3 = abs.indexOf("/供应商/");
-  if (i3 >= 0) return abs.slice(i3 + 1);
-  return abs;
 }

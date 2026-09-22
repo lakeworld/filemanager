@@ -1026,4 +1026,36 @@ describe('writeText 原子写（v2.5.7 A2：tmp+rename + 2MB 上限）', () => {
     const leftovers = (await fsp.readdir(ws)).filter((f) => f.endsWith('.tmp'))
     expect(leftovers).toEqual([])
   })
+
+  it('空内容覆盖非空文件默认拒绝（v2.6 审查轮 1 第二道防线：防"陈旧处理器把笔记写成 0 字节"）', async () => {
+    // 复现的原始路径：编辑器组件卸载后 note.save 处理器仍挂在 shortcuts 表里，Ctrl+S 打到已销毁的
+    // 编辑器上 → 取不到内容被当成"内容为空" → 原子替换把整份笔记换成 0 字节（不留备份）。第一道防线
+    // 在渲染层（serialize 无来源即拒写），这里是主进程侧的兜底：**宁可报错，不许静默清零**。
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+    const target = path.join(ws, '笔记.md')
+    await FilesService.writeTextAtomic(target, '# 一个字都不能少\n\n正文')
+    const before = await fsp.stat(target)
+
+    await expect(FilesService.writeTextAtomic(target, '')).rejects.toThrow(/拒绝用空内容覆盖非空文件/)
+    // 拒绝要彻底：内容、字节数、mtime 一个都不许动（连 tmp 都不建）
+    const after = await fsp.stat(target)
+    expect(after.size).toBe(before.size)
+    expect(after.mtimeMs).toBe(before.mtimeMs)
+    expect(await fsp.readFile(target, 'utf-8')).toBe('# 一个字都不能少\n\n正文')
+    expect((await fsp.readdir(ws)).filter((f) => f.endsWith('.tmp'))).toEqual([])
+
+    // 合法的"清空"（用户在编辑器里把笔记删空）走显式声明：内容取自存活编辑器，调用方签字放行
+    await FilesService.writeTextAtomic(target, '', { allowEmpty: true })
+    expect((await fsp.stat(target)).size).toBe(0)
+    // 空文件再写空串不算"覆盖非空"（没有既有内容可丢），无须声明
+    await FilesService.writeTextAtomic(target, '')
+    expect((await fsp.stat(target)).size).toBe(0)
+    // 新建文件写空串同理放行（此前不存在 → 无覆盖）
+    const fresh = path.join(ws, '新建空笔记.md')
+    await FilesService.writeTextAtomic(fresh, '')
+    expect((await fsp.stat(fresh)).size).toBe(0)
+  })
 })

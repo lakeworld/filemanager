@@ -151,8 +151,9 @@ const api = {
     saveTextFile: (filePath: string, content: string) =>
       invoke('qihebox:files:saveTextFile', filePath, content),
     // v2.5.7（A2 笔记）：工作区相对路径原子文本写（2MB 上限，tmp+rename）
-    writeText: (relPath: string, content: string) =>
-      invoke('qihebox:files:writeText', relPath, content),
+    // v2.6（审查轮 1）：`opts.allowEmpty` = 「我确实要清空这个文件」的显式声明（默认拒绝空串覆盖非空文件）
+    writeText: (relPath: string, content: string, opts?: { allowEmpty?: boolean }) =>
+      invoke('qihebox:files:writeText', relPath, content, opts),
     createSubfolder: (req: unknown) => invoke('qihebox:files:createSubfolder', req),
     deleteSubfolder: (req: unknown) => invoke('qihebox:files:deleteSubfolder', req),
     // v2.5.9（A9 刀1）：列该实体该域下实际存在的子文件夹（以盘为准）

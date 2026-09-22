@@ -974,10 +974,24 @@ export class FilesService {
 
   /** v2.5.7（A2 笔记，写契约）：原子文本写——tmp 同目录写入 + rename 替换；2MB 写上限（与读同值）。
    *  崩溃/中断不留半文件；替换保持原 inode 关联（索引快照/缩略图引用不因替换而失效）。
-   *  调用方（渲染层笔记保存/未来插件薄透传）负责路径白名单校验；本函数只保证原子性 + 上限。 */
-  static async writeTextAtomic(filePath: string, content: string): Promise<void> {
+   *  调用方（渲染层笔记保存/未来插件薄透传）负责路径白名单校验；本函数只保证原子性 + 上限。
+   *
+   *  v2.6（审查轮 1 第二道防线）：**空内容覆盖非空文件默认拒绝**。原子替换会把既有内容一次性换成
+   *  0 字节且不留备份——而笔记保存链路上出现过"取不到内容"被当成"内容为空"的写法（陈旧 Ctrl+S
+   *  处理器打到已销毁的编辑器），一路写下来就是文件静默清零。这里宁可直接抛错：确要清空的调用方
+   *  （用户把笔记删空了）必须显式声明 `allowEmpty: true`，让"清空"成为一个有人签字的行为。 */
+  static async writeTextAtomic(filePath: string, content: string, opts?: { allowEmpty?: boolean }): Promise<void> {
     if (Buffer.byteLength(content, 'utf-8') > MAX_TEXT_READ_BYTES) {
       throw new Error(`文本超过大小上限（${MAX_TEXT_READ_BYTES} 字节）`)
+    }
+    if (content.length === 0 && opts?.allowEmpty !== true) {
+      const existing = await fsp.stat(filePath).then((s) => s.size).catch(() => 0)
+      if (existing > 0) {
+        // 不静默、不留半成品：连 tmp 都不建，直接拒绝（红线：宁可报错也不写坏）
+        throw new Error(
+          `拒绝用空内容覆盖非空文件（现有 ${existing} 字节）：${path.basename(filePath)}（确要清空请显式声明 allowEmpty）`,
+        )
+      }
     }
     const dir = path.dirname(filePath)
     await fsp.mkdir(dir, { recursive: true })

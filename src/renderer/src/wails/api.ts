@@ -242,8 +242,9 @@ export const api = {
     saveTextFile: (path: string, content: string) =>
       qb.files.saveTextFile(path, content) as Promise<ApiResult<boolean>>,
     // v2.5.7（A2 笔记）：工作区相对路径原子文本写
-    writeText: (relPath: string, content: string) =>
-      qb.files.writeText(relPath, content) as Promise<ApiResult<boolean>>,
+    // v2.6（审查轮 1）：opts.allowEmpty = 「我确实要清空这个文件」的显式声明（主进程默认拒绝空串覆盖非空文件）
+    writeText: (relPath: string, content: string, opts?: { allowEmpty?: boolean }) =>
+      qb.files.writeText(relPath, content, opts) as Promise<ApiResult<boolean>>,
     createSubfolder: (req: SubfolderCreateRequest) =>
       qb.files.createSubfolder(req as any) as Promise<ApiResult<boolean>>,
     deleteSubfolder: (req: DeleteSubfolderRequest) =>
