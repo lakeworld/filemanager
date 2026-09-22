@@ -1,5 +1,5 @@
 /**
- * API 兼容性守护（v2.5，Task 1 / PLAN-v2.5-测试.md §三.A）。
+ * API 兼容性守护（v2.5，Task 1 / 内部测试设计文档 §三.A）。
  *
  * 守护插件协议公开面「只增不删」（API_VERSION=1）：
  *   - 常规：extractApiSurface() 序列化 === 基线文件内容；不一致 → 行级 diff 摘要。

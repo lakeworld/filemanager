@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 /**
- * 全业务新建通用预填 e2e（v2.5.4，PLAN-v2.5.4 §4.2）：
+ * 全业务新建通用预填 e2e（v2.5.4，内部设计文档 §4.2）：
  * - 6 实体经 window.qihebox.ui.openCreatePrefill 跳转 + 开弹窗 + 字段预填（真实走 preload 桥 → DOM 事件 → store → 页面）
  * - 批量逐条：创建推进下一条（P1-1）；取消清空队列、剩余条目不建档
  * - 回归锚点：手动新建空表；非法 entity 不崩不跳

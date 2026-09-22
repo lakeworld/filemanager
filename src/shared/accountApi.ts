@@ -8,13 +8,13 @@
  *
  * 服务端契约出处（逐字段核过 erp 现网代码，2026-09-21）：
  * - 出图：`GET {base}/captcha` → `{ code, captcha_id, image }`，`image` 已是 `data:image/png;base64,…`
- *   （`qihe-erp/backend/routes/captcha.go:168-173`）；不带 `?for=download` = 登录桶。
- * - 登录带码：头 `X-Captcha-Id` / `X-Captcha-Value`（`auth_login_gate_test.go:78-79`），
+ *   （服务端验证码中继实现，闭源仓）；不带 `?for=download` = 登录桶。
+ * - 登录带码：头 `X-Captcha-Id` / `X-Captcha-Value`（服务端登录网关测试，闭源仓），
  *   与既有 `X-Qihe-Client: box` 并存；**本版不切服务端**，现网对 `box` 头最优先豁免 ⇒ 带不带码都能登录。
  * - 注册：`POST {base}/collections/users/records`，字段 `email / username / password / passwordConfirm`
  *   （照 erp `web/tests/e2e/password.spec.ts:46-49` 的可用形状）；
  *   邮箱认证：`POST {base}/auth/email-verification/request` `{email}` → `…/confirm` `{email, code}`
- *   （`email_verification.go:163/247`，6 位数字码 5 分钟）。
+ *   （服务端邮箱验证实现，闭源仓；6 位数字码 5 分钟）。
  * - `{base}` 已含 `/api`（登录既有实现就是 `${baseUrl}/collections/users/auth-with-password`）。
  */
 

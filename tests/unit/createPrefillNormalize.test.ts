@@ -1,5 +1,5 @@
 /**
- * createPrefillNormalize 单测（PLAN-v2.5.4 §4.1）。
+ * createPrefillNormalize 单测（内部设计文档 §4.1）。
  * 全业务 6 实体预填载荷归一化：已知键通过 / 未知键忽略 / trim / 枚举与类型校验 /
  * 批量上限 50 / 自然键去重。纯模块，不依赖 electron。
  */

@@ -158,7 +158,7 @@ describe('batchRenameTargets（v2.4.9 S5 模板化签名）', () => {
 })
 
 describe('resolveConflictName', () => {
-  /** 用例自带临时目录并在 finally 删除（本仓历史用例把 mkdtemp 目录留在 /tmp，见 DEBUG-SOP §三收工清残留） */
+  /** 用例自带临时目录并在 finally 删除（本仓历史用例把 mkdtemp 目录留在 /tmp，见内部调试守则 §三收工清残留） */
   async function withDir(fn: (dir: string) => Promise<void>): Promise<void> {
     const dir = await fsp.mkdtemp('/tmp/qihebox-naming-')
     try {

@@ -28,7 +28,7 @@ import type {
 import { EXPORTS_DIR, assertSafeFileName, isPathInsideWorkspaceReal, writeJsonAtomic } from '../core/paths'
 
 /** 宿主事件白名单（插件 host.events.on 仅可订阅这些通道；装配层在此发事件）。
- *  v2.5.1 A1（PLAN-v2.6-v2.7 §3.1）：+ customerCreated / customerUpdated / fileArchived */
+ *  v2.5.1 A1（内部设计文档 §3.1）：+ customerCreated / customerUpdated / fileArchived */
 export const HOST_EVENT_WHITELIST = [
   'workspaceChanged',
   'importComplete',
@@ -160,7 +160,7 @@ export interface PluginHostDeps {
   account: { getToken(): string | null; isLoggedIn(): boolean; getDeviceId?(): string | null }
   /** manifest.permissions.account === true 时才接通真实账号；否则 host.account 恒 null/false（PLAN §3.2） */
   accountAccess: boolean
-  /** customers 能力域适配器（v2.5.1 A1，PLAN-v2.6-v2.7 §3.1）：装配层注入 ClientsService 委托。
+  /** customers 能力域适配器（v2.5.1 A1，内部设计文档 §3.1）：装配层注入 ClientsService 委托。
    *  业务错误抛带 code 的 Error（NOT_FOUND/STALE/FIELD_DENIED 等），薄壳原样透传 */
   customers: {
     list(since?: string): Promise<CustomerProfile[]>
@@ -219,7 +219,7 @@ export interface PluginHostDeps {
     /** 代签后发起真实请求（默认全局 fetch；装配层可注入替身便于测试） */
     fetchImpl?: typeof fetch
   }
-  /** share 能力域适配器（v2.5.1 A2，PLAN-v2.6-v2.7 §3.2）：装配层注入 ShareViewService 委托 */
+  /** share 能力域适配器（v2.5.1 A2，内部设计文档 §3.2）：装配层注入 ShareViewService 委托 */
   share: {
     listProductSets(): Promise<unknown[]>
     listCustomers(): Promise<unknown[]>
@@ -450,7 +450,7 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
     },
   }
 
-  // —— v2.5.1（A1/A2，PLAN-v2.6-v2.7 §3.1/§3.2）：customers / share 能力域薄壳 ——
+  // —— v2.5.1（A1/A2，内部设计文档 §3.1/§3.2）：customers / share 能力域薄壳 ——
   // 门控：manifest.permissions.customers/share !== true → 全部方法抛 PERMISSION_DENIED（读方法亦抛，
   // 与 account 恒 null 静默不同——customers 含写，显式拒绝更诚实，PLAN §3.1 附录明示差异）
 

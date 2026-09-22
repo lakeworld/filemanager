@@ -29,7 +29,7 @@ import type { PluginManifest } from '../../src/plugins/types'
 let root = ''
 
 beforeEach(async () => {
-  root = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihe-plugins-test-'))
+  root = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihe-plugin-host-test-'))
 })
 
 const g = globalThis as Record<string, unknown>
@@ -299,7 +299,7 @@ describe('PluginRegistry：发现与校验', () => {
   })
 
   it('页面路径校验与冲突：非 /plugin/ 前缀拒绝（协议收紧） / 插件间重叠', () => {
-    // ① 非 '/plugin/' 前缀 → 清单校验失败（v2.5 协议收紧：宿主统一 /plugin/* 通配分发，PLAN-v2.5）
+    // ① 非 '/plugin/' 前缀 → 清单校验失败（v2.5 协议收紧：宿主统一 /plugin/* 通配分发，内部设计文档）
     writePlugin('com.qihe.a', {
       kind: ['ipc', 'pages'],
       pages: [{ path: '/settings/blocked', label: 'x', icon: 'i', group: 'g', component: 'renderer/Main.js' }],

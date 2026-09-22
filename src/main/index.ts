@@ -171,7 +171,7 @@ function setupCrashRecovery(win: BrowserWindow): void {
   win.webContents.on('render-process-gone', (_e, details) => {
     // 取证管道（v2.5.7 线程B 阶段1）：QIHEBOX_E2E=1 下把 reason/exitCode 打到主进程日志 + console
     // （FileLogger 双通道；e2e 用 --enable-logging 捕获）。含 clean-exit——取证期要区分「自愈销毁」
-    // 与「真实崩溃」，全部采样；验收后随诊断 spec 一并清理（PLAN-v2.5.7-preview-lifecycle §三）。
+    // 与「真实崩溃」，全部采样；验收后随诊断 spec 一并清理（内部设计文档 §三）。
     if (process.env.QIHEBOX_E2E === '1') {
       void log('error', `[e2e-crash-diag] render-process-gone reason=${details.reason} exitCode=${details.exitCode}`)
     }

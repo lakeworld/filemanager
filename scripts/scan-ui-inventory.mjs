@@ -10,7 +10,7 @@
  *
  * 用法：
  *   node scripts/scan-ui-inventory.mjs            # 打印人类可读汇总 + markdown 到 stdout
- *   node scripts/scan-ui-inventory.mjs --write    # 另外把 markdown 落盘到 docs/INTERNAL/
+ *   node scripts/scan-ui-inventory.mjs --write    # 另外把 markdown 落盘到内部文档目录（不进公开仓）
  *
  * 作为库使用（主线程的门禁 tests/unit/uiScan.test.ts 走这条路）：
  *   import { collectUiInventory } from '../../scripts/scan-ui-inventory.mjs'

@@ -115,7 +115,7 @@ export class DashboardService {
       console.warn(`[cert] ${badDates} 条证书到期日期无法解析，已跳过（可在元数据中重新填写）`)
     }
     // C2：文件不存在的条目（回收站内 / 外部删除 / 迁移后未匹配）不提醒
-    // v2.5.2：全量并发 stat → 8 并发 worker（PERF-SOP §四「Promise.all 批量即嫌疑」，照渲染层探活先例）
+    // v2.5.2：全量并发 stat → 8 并发 worker（内部性能守则 §四「Promise.all 批量即嫌疑」，照渲染层探活先例）
     const alive: boolean[] = new Array(rows.length).fill(false)
     const queue = rows.map((_, i) => i)
     const workers = Array.from({ length: 8 }, async () => {

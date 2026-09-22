@@ -1,5 +1,5 @@
 /**
- * hello 示例插件构建脚本（v2.5，PLAN §七）：源码 → 自包含 `.qbox` 包（不进安装包，e2e 侧载夹具）。
+ * hello 示例插件构建脚本（v2.5，内部设计文档 §七）：源码 → 自包含 `.qbox` 包（不进安装包，e2e 侧载夹具）。
  *
  * 零新增依赖：esbuild 为 vite 内置依赖（仅本脚本 import）；zip 打包用 node 内置 zlib 手写容器
  * （格式与 src/main/core/archive.ts 的 extractZip 解压器兼容——local header + central directory + EOCD，
@@ -28,7 +28,7 @@
  *   main/index.js 与 renderer/**.js 以 AES-256-GCM 加密为 <name>.enc（QHENC1 魔数 + iv + tag + body），
  *   明文不落包；manifest 自动注入 encryption 块（algo/keyId 随机/entitlement）。
  *   --key-out 输出内容密钥 hex 到指定文件（默认 out/<id>.key，仅构建人持有，不进包不进仓）；
- *   同时打印密文 sha256（登记 erp box_plugin_keys 用）。entitlement 默认 'login'。
+ *   同时打印密文 sha256（登记平台侧插件密钥表 用）。entitlement 默认 'login'。
  */
 import { build } from 'esbuild'
 import zlib from 'node:zlib'

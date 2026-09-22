@@ -1,5 +1,5 @@
 /**
- * shareView 单测（v2.5.1 A2：share 能力域 core，PLAN-v2.6-v2.7 §3.2）
+ * shareView 单测（v2.5.1 A2：share 能力域 core，内部设计文档 §3.2）
  * 覆盖：
  * - 实体视图字段白名单（不含 erp_ext / ocr_ext 命名空间）
  * - mergeTagsNotes 全分支（并集/本地空采纳/冲突保留本地，D10）

@@ -14,7 +14,7 @@ import { STATUSES, statusChipClass, fmtMoney, isDueSoon, baseNameOf } from "./ut
 import type { InvoiceRecord, InvoiceStatus } from "./types";
 
 /**
- * 发票台账卡片网格（PLAN-v2.5.5 §一 任务1，B3 任务 A 卡片化——去表格）：
+ * 发票台账卡片网格（内部设计文档 §一 任务1，B3 任务 A 卡片化——去表格）：
  * 2~3 列紧凑网格，卡片 = 金额主视觉 / 号码+日期 / 开票方→购买方（ellipsis+title 悬浮全文）/
  * 状态徽章（点击弹出改状态，合并旧「徽章+下拉」两段式）/ 悬停操作（预览·编辑·删除）。
  * 多选：卡片左上角复选框 + 选中边框（selectedIds 由页面传入，Images.tsx 同款模式）。

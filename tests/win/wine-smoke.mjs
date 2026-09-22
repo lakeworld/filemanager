@@ -7,7 +7,7 @@
  * → 剪贴板与资源管理器通道 → 主日志体检。
  *
  * 为什么不能复用现成 e2e：Playwright 的 `_electron.launch` 驱动不了 wine 里的 .exe（它要接管应用内嵌
- * Node），只能「打包产物 + --remote-debugging-port + connectOverCDP」（spike-2026-09-08 §一）。
+ * Node），只能「打包产物 + --remote-debugging-port + connectOverCDP」（内部 spike 记录 §一）。
  *
  * 判定纪律（防假绿灯，spike §三）：
  *   - 视觉只取证不判绿：wine 缺 emoji 字体时 Chromium 字形宽度回退 32768px 会挤坏排版 ⇒ 截图仅归档。

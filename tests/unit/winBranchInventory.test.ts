@@ -6,7 +6,7 @@
  *   2. **新点位必须带测试**：win32-branch / path-win32 两类点位若没有任何测试引用其模块（UNCOVERED）→ 红
  *
  * 机制与 tests/unit/plugins-api-surface.test.ts 同构（同一套 update/break 环境变量约定）。
- * 背景：win32 分支在 Linux 宿主上永不执行，过去全靠「发版后真机挂账」——见 docs/INTERNAL/WINTEST-SOP.md。
+ * 背景：win32 分支在 Linux 宿主上永不执行，过去全靠「发版后真机挂账」——见内部 Windows 测试守则。
  */
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'

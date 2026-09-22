@@ -69,7 +69,7 @@ export default function Suppliers() {
 
   // —— 新建 ——
 
-  // v2.5.4 预填消费（PLAN-v2.5.4 §3.4）：版本变化 → seed 内联表单 + 打开新建区；只开不关
+  // v2.5.4 预填消费（内部设计文档 §3.4）：版本变化 → seed 内联表单 + 打开新建区；只开不关
   createEffect(() => {
     prefillVersion("supplier");
     const cur = currentPrefill("supplier") as SupplierPrefill | null;

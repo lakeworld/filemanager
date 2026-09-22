@@ -119,7 +119,7 @@ export default function FileBrowserView(props: FileBrowserViewProps) {
   // v2.4.7（UI 反馈统一）：删除确认弹窗状态（替代 window.confirm）——kind=files 批量删文件 / kind=subfolder 删子文件夹
   const [confirmDelete, setConfirmDelete] = createSignal<{ kind: "files"; paths: string[] } | { kind: "subfolder"; folder: string } | null>(null);
 
-  // v2.4.7（PERF-SOP §四）：组件级 setTimeout 进 onCleanup——防卸载后 setActionMessage 触碰已销毁组件
+  // v2.4.7（内部性能守则 §四）：组件级 setTimeout 进 onCleanup——防卸载后 setActionMessage 触碰已销毁组件
   let actionMessageTimer: number | undefined;
   const showActionMessage = (msg: string) => {
     setActionMessage(msg);

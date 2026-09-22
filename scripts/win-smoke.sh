@@ -17,7 +17,7 @@
 #   docker（默认，目标形态）  —— 镜像 qihe-win 里的 WineHQ wine。
 #   --host-wine（应急旁路）   —— 本机已装好的 wine（$QIHE_HOST_WINE，默认 ~/bin/wine）+ $QIHE_HOST_WINEPREFIX。
 #     为什么要这条：2026-09-08 实测宿主 deepin-wine 10.14 上 27 项全绿，而容器内 WineHQ wine 起包后
-#     DevTools 的 HTTP/WS 永不回包（已排除项与排查表见 WINTEST-SOP §七/§八）。
+#     DevTools 的 HTTP/WS 永不回包（已排除项与排查表见内部 Windows 测试守则 §七/§八）。
 #     ⚠ 旁路只让门禁今天能跑，**不等于** Docker 形态已通；留证与播报必须分清两条（SOP §二 红线）。
 set -euo pipefail
 

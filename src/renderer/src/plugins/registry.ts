@@ -327,7 +327,7 @@ export interface PluginRestartNotice {
 
 /**
  * 纯派生：安装前快照 × 安装结果 → 重启提示；**新装返回 null（不提）**。
- * 措辞口径 = `docs/INTERNAL/PLUGIN.md` §七（2026-09-22 用户拍板）：插件是热侧载非热刷新，
+ * 措辞口径 = `内部版插件契约（不进公开仓）` §七（2026-09-22 用户拍板）：插件是热侧载非热刷新，
  * 覆盖安装的新版本要重启应用才完全生效。
  */
 export function buildRestartNotice(before: PluginInfo[], after: PluginInfo): PluginRestartNotice | null {

@@ -172,7 +172,7 @@ jobs:
             crash-diag-run.log
           if-no-files-found: ignore
 
-      # v2.5（PLAN-v2.5-测试 Task 4）：一致性套件自检（hello 自检 = 套件健康证明）——
+      # v2.5（内部测试设计文档 Task 4）：一致性套件自检（hello 自检 = 套件健康证明）——
       # hello 构建产物已由上一步「Build hello plugin (e2e fixture)」就位；套件内部自建正负夹具
       # v2.5.9/A1c：加 if: always()——此前 e2e 一红就连坐跳过 conformance（本步与报告同病）
       - name: Run conformance suite (hello self-check)

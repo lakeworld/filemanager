@@ -1,5 +1,5 @@
 /**
- * transport 解耦契约测试（v2.5 打磨轮 T5 / PLAN-v2.5-polish.md §四）。
+ * transport 解耦契约测试（v2.5 打磨轮 T5 / 内部打磨设计文档 §四）。
  *
  * 守护承诺（docs/PLUGIN.md §十）：插件协议 v1 的 transport 仅有 'inproc'（进程内），
  * 但协议语义应与传输层解耦——未来 'process'（独立进程）/ 'http'（loopback 桥接）下

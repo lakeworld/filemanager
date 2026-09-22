@@ -271,7 +271,7 @@ interface QiheboxApi {
   events: {
     on: (channel: string, callback: (data: unknown) => void) => () => void
   }
-  // v2.5.4：全业务新建通用预填（PLAN-v2.5.4 §3.1；纯渲染层 UI 钩子，不过 IPC、不自动建档；
+  // v2.5.4：全业务新建通用预填（内部设计文档 §3.1；纯渲染层 UI 钩子，不过 IPC、不自动建档；
   // payload 全字段可选、传啥填啥；数组 = 批量逐条确认（创建推进 / 取消清空），单批 ≤50、自然键去重）
   ui: {
     openCreatePrefill: (

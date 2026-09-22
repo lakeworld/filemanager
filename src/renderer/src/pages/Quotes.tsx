@@ -103,7 +103,7 @@ export default function Quotes() {
   // v2.5.5（打磨 2）：报价文档文件夹文件数（行 📎 探活；单号 → 文档数）
   const [docCounts, setDocCounts] = createSignal<Record<string, number>>({});
   const [creating, setCreating] = createSignal(false);
-  // v2.5.4 预填（PLAN-v2.5.4 §3.4）：预填载荷（null = 手动新建空表）
+  // v2.5.4 预填（内部设计文档 §3.4）：预填载荷（null = 手动新建空表）
   const [createInitial, setCreateInitial] = createSignal<QuotePrefill | null>(null);
   // 预填消费：版本变化 → 有预填则开弹窗填表；只开不关
   createEffect(() => {

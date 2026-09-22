@@ -29,7 +29,7 @@ const INDEX_URL = 'file://' + ROOT.replace(/\\/g, '/') + '/out/renderer/index.ht
  *   2. render-process-gone 崩溃 reason / exitCode（主进程 log + --enable-logging 输出，
  *      采集 [e2e-crash-diag] 行；用例尾部 dump 到 crash-diag-results/）
  * 目的：拿到 276 首跑失败的崩溃 reason 分布（phase 1 输出，供 phase 2/3 根因裁决）。
- * 验收后整文件清理（PLAN-v2.5.7-preview-lifecycle §三）。
+ * 验收后整文件清理（内部设计文档 §三）。
  */
 
 /** 主进程日志文件名 = 本地日期（logger.ts dateStr 语义，同 wake-recovery.spec.ts 注释） */

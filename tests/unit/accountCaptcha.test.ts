@@ -3,7 +3,7 @@
  *
  * 全部依赖注入（fetch / 加解密 / 临时文件），不依赖 Electron——沿用 `account.test.ts` 的口径。
  * 这里钉的是**契约**：请求打去哪个路径、带哪两个头、注册重试用什么 username、失败文案从哪来。
- * 服务端真实行为不在本文件职责内（本版不切服务端，见 PLAN-v2.5.9 §一 A8）。
+ * 服务端真实行为不在本文件职责内（本版不切服务端，见内部设计文档 §一 A8）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'

@@ -215,7 +215,7 @@ const UNFRAMED_ALLOWED: readonly string[] = [];
  *  **D14 收口后 7 处全部消失**（收进 `ui/Input`，为此给底座补了 `compact` 与 `autoFocus`）。
  *  这里不再钉行号——点位已经不存在了，钉行号只会逼后来人"为了让测试绿而保留旧写法"；
  *  留成**文件级回归锚**：这批文件里再冒出一处手搓材质文本框就红。原始 7 处清单见
- *  `docs/INTERNAL/清点-2026-09-12-样式统一收口.md` §四。 */
+ *  `内部样式收口清点报告（不进公开仓）` §四。 */
 const DEBT_FILES: ReadonlyArray<string> = [
   'src/renderer/src/pages/Search.tsx',
   'src/renderer/src/components/PdfPreview.tsx',

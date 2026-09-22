@@ -5,7 +5,7 @@
  * - 子文件夹默认集来自 config.customer_subfolders（旧 config 缺省由 loadConfig 合并默认值）
  * - erp_ext 为 v2.7 erp-bridge 预留命名空间：本体只读不校验、API 面不含入参
  *   （CustomerUpdateRequest 无此字段 → 物理不可写；读写档案时原样保留）
- * - v2.5.1（A1，PLAN-v2.6-v2.7 §3.1）：customers 能力域实装——writeErpExt / syncProfile
+ * - v2.5.1（A1，内部设计文档 §3.1）：customers 能力域实装——writeErpExt / syncProfile
  *   （resolveSyncProfile 纯函数，D6 记录级裁决 + D7 tags 归属 + D8 目录基准）
  * 纯 TS：不 import electron，可在 node 环境直接测试。
  */
@@ -46,7 +46,7 @@ export interface SyncProfileResult {
 /**
  * D6 记录级裁决纯函数：req.updated_at ≤ 档案 updated_at → STALE（不写）；
  * 较新 → 仅合并白名单差异字段 + erp_ext；白名单外字段入参 → denied。
- * Date.parse 归一化为毫秒（仓迹 PB 空格格式兼容）；非法时间 → STALE。
+ * Date.parse 归一化为毫秒（ERP 端 PB 空格格式兼容）；非法时间 → STALE。
  */
 export function resolveSyncProfile(
   local: CustomerExtraInfo,
@@ -392,7 +392,7 @@ export class ClientsService {
     })
   }
 
-  // —— v2.5.1（A1，PLAN-v2.6-v2.7 §3.1）：customers 能力域写路径（host.customer.* 的 core 委托）——
+  // —— v2.5.1（A1，内部设计文档 §3.1）：customers 能力域写路径（host.customer.* 的 core 委托）——
 
   /** 目录基准（D8）：目录不存在 → 抛「客户不存在」（NOT_FOUND 由 host 层映射） */
   private async assertCustomerDir(ws: string, name: string): Promise<string> {

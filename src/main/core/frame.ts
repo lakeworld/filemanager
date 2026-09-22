@@ -11,7 +11,7 @@
  *
  * 应用点（2026-08-19 热修）：显示后白屏自检（window.ts runPostShowCheck，可见态抓帧）。
  * 原 FrameWitness 新鲜帧见证（5×5 网格 token 编解码）已随隐藏预检链整体删除——
- * 「隐藏态必能抓到帧」前提被托盘长时隐藏冻结事故证伪（PLAN-v2.5.3-托盘冻结根治.md）。
+ * 「隐藏态必能抓到帧」前提被托盘长时隐藏冻结事故证伪（内部托盘冻结根治设计文档）。
  *
  * 纯逻辑模块：不依赖 electron（调用方传结构兼容的 NativeImage / 任何 {isEmpty,getSize,toBitmap}），
  * 可 node 直测（tests/unit/frame.test.ts）。

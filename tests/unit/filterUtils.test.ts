@@ -51,7 +51,7 @@ function inb(partial: Partial<InboundRecord>): InboundRecord {
 }
 
 /**
- * 发票/入库筛选纯函数（PLAN-v2.5.5 §一 任务4，B3 任务 C）：
+ * 发票/入库筛选纯函数（内部设计文档 §一 任务4，B3 任务 C）：
  * 组合筛选（状态/客户/待办/搜索 + 日期范围/金额范围/有无归档文件）+ 孤儿数据注入（未建档）。
  */
 describe('发票/入库筛选纯函数（B3 任务 C）', () => {

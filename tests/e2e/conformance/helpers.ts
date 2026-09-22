@@ -1,5 +1,5 @@
 /**
- * 一致性套件 · 共享工具（v2.5，PLAN-v2.5-测试.md Task 4）。
+ * 一致性套件 · 共享工具（v2.5，内部测试设计文档 Task 4）。
  * 自包含的最小 zip 读取器：从 .qbox（zip 容器）读取 manifest.json，供 conformance.spec.ts 步骤 a 使用。
  * 不依赖 src/main/core/archive.ts（解耦第三方可用的体检工具与本体内核，仅保留协议契约 types.ts 一处耦合）。
  * 仅处理 method 8（deflate）/ method 0（store）条目，与 build-hello-plugin.mjs 的 packQbox 产物兼容。

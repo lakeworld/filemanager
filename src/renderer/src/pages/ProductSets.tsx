@@ -32,7 +32,7 @@ export default function ProductSets() {
   const navigate = useNavigate();
   const params = useParams();
   const [showCreateModal, setShowCreateModal] = createSignal(false);
-  // v2.5.4 预填（PLAN-v2.5.4 §3.4）：预填载荷（null = 手动新建空表）
+  // v2.5.4 预填（内部设计文档 §3.4）：预填载荷（null = 手动新建空表）
   const [createInitial, setCreateInitial] = createSignal<ProductSetPrefill | null>(null);
   // 预填消费：版本变化 → 有预填则开弹窗填表；只开不关
   createEffect(() => {

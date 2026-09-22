@@ -122,7 +122,7 @@ export interface PluginManifest {
    *  宿主在线取钥 + 内存解密加载；第三方插件不得声明（明文开放平台口径） */
   encryption?: {
     algo: 'aes-256-gcm'          // 加密算法（当前唯一）
-    keyId: string                // erp box_plugin_keys 登记的密钥版本号（构建期随机，每版本一钥）
+    keyId: string                // 平台侧插件密钥表 登记的密钥版本号（构建期随机，每版本一钥）
     entitlement: 'login' | 'subscription' // 取钥权益门槛（login = 登录态 / subscription = 权益生效态）
   }
 }

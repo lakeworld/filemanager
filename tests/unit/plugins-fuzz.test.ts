@@ -1,5 +1,5 @@
 /**
- * 插件协议模糊测试（v2.5，PLAN-v2.5-测试 §三.C）：fast-check 三套模糊。
+ * 插件协议模糊测试（v2.5，内部测试设计文档 §三.C）：fast-check 三套模糊。
  * - manifest 结构模糊（纯内存）：fc.anything() 任意嵌套 → validateManifest 永不抛异常、
  *   返回值恒 { ok: boolean; errors: string[] }；定向生成器（9 违规 + 合法 record + 单字段破坏）
  *   → 规则①–⑨专属关键词确定性断言（不依赖随机命中）。

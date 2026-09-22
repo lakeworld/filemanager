@@ -7,7 +7,7 @@
  * 任何 Windows 侧会炸的输入，在 Linux 上就必须先被拒——不能"这边能用那边崩"。
  *
  * 与平台无关（纯字符串/纯函数），不依赖 wine；真实 Windows 运行时行为由 W1b 冒烟承担
- * （见 docs/INTERNAL/WINTEST-SOP.md、spike-2026-09-08-windows-docker-wine.md）。
+ * （见内部 Windows 测试守则、内部 Windows Docker/wine spike 记录）。
  */
 import { describe, expect, it } from 'vitest'
 import path from 'node:path'
@@ -64,7 +64,7 @@ describe('assertSafeFolderName：Windows 非法字符集与首尾点/空格', ()
     expect(() => assertSafeFolderName('名字.')).toThrow(/\. 或空格开头\/结尾/)
     // 实际行为：段层先 name.trim() ⇒ 尾随空格到不了 endsWith(' ') 判断，该分支不可达，
     // 错误文案里的「空格」对文件夹/文件名校验都永不生效（与 Windows 静默裁剪结果一致，无线上影响）。
-    // 台账 W-02（docs/INTERNAL/缺陷台账-windows平台面.md）；将来若改为「显式拒尾随空格」，此例改判抛错。
+    // 台账 W-02（内部 Windows 缺陷台账）；将来若改为「显式拒尾随空格」，此例改判抛错。
     expect(assertSafeFolderName('名字 ')).toBe('名字')
   })
 
@@ -73,7 +73,7 @@ describe('assertSafeFolderName：Windows 非法字符集与首尾点/空格', ()
     expect(assertSafeFolderName('3C-质检 v2.0')).toBe('3C-质检 v2.0')
   })
 
-  // 台账 W-01（docs/INTERNAL/缺陷台账-windows平台面.md）：文件夹名未拦 Windows 保留名。
+  // 台账 W-01（内部 Windows 缺陷台账）：文件夹名未拦 Windows 保留名。
   // 现状如实钉住（不假装已修）：产品集/客户/供应商名会直接 mkdir 成文件夹，
   // Windows 上 CON/NUL/COM1 属设备名，建出来即为「资源管理器里删不掉」的幽灵目录。
   it('现状锚：文件夹保留名未被拦截（台账 W-01，修复后此例应改判为抛错）', () => {

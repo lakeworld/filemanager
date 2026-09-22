@@ -1,7 +1,7 @@
 /**
  * 插件协议同源定义（v2.5，P0）：
  * 权威来源 = docs/PLUGIN.md（公开契约：§三 PluginManifest / §五 双向 API PluginHost·PluginRegistration）；
- * 内部版 docs/INTERNAL/PLUGIN.md 与之双处同步，冲突时以公开版 + 实现为准。
+ * 内部版插件契约（不进公开仓）与之双处同步，冲突时以公开版 + 实现为准。
  * 本文件为纯类型模块 + 清单校验函数：不 import electron / node / 任何模块，
  * 编译后不产生运行时依赖（src/plugins/** 仅入 tsconfig.node.json，供主进程侧复用）。
  * 渲染层可见的运行时类型（PluginInfo 等）收敛于 src/shared/types.ts。
@@ -47,13 +47,13 @@ export interface PluginManifest {
     notification?: boolean
     /** 账号能力（v2.5 增量，PLAN §3.2）：声明后 host.account 返回真实登录态；未声明恒 null */
     account?: boolean
-    /** customers 能力域（v2.5.1 A1，PLAN-v2.6-v2.7 §3.1）：声明后 host.customer.* 可用；
+    /** customers 能力域（v2.5.1 A1，内部设计文档 §3.1）：声明后 host.customer.* 可用；
      *  未声明 → 全部方法抛 PERMISSION_DENIED（含读方法，与 account 恒 null 静默不同） */
     customers?: boolean
     /** suppliers 能力域（v2.5.4 弹一 C-2，云桥 M3）：声明后 host.supplier.* 可用；
      *  独立位（不复用 customers——不同数据域显式声明更诚实）；未声明 → PERMISSION_DENIED */
     suppliers?: boolean
-    /** share 能力域（v2.5.1 A2，PLAN-v2.6-v2.7 §3.2）：声明后 host.share.* 可用；未声明 → PERMISSION_DENIED */
+    /** share 能力域（v2.5.1 A2，内部设计文档 §3.2）：声明后 host.share.* 可用；未声明 → PERMISSION_DENIED */
     share?: boolean
   }
   /** 激活事件（惰性加载的触发点补充）：onView/onCommand 由 pages/commands 声明自动推断，无需手写；
@@ -101,7 +101,7 @@ export interface PluginManifest {
   encryption?: {
     /** 加密算法（当前唯一 'aes-256-gcm'） */
     algo: 'aes-256-gcm'
-    /** erp box_plugin_keys 登记的密钥版本号（构建期随机，每版本一钥） */
+    /** 平台侧插件密钥表 登记的密钥版本号（构建期随机，每版本一钥） */
     keyId: string
     /** 取钥权益门槛：'login'（登录态）| 'subscription'（权益生效态） */
     entitlement: 'login' | 'subscription'
@@ -316,7 +316,7 @@ export interface PluginHost {
     writeExport(fileName: string, data: string | Uint8Array): Promise<void>
   }
 
-  /** customers 能力域（v2.5.1 A1，PLAN-v2.6-v2.7 §3.1）：客户档案读 + erp 写 + 关联。
+  /** customers 能力域（v2.5.1 A1，内部设计文档 §3.1）：客户档案读 + erp 写 + 关联。
    *  权限门控：manifest.permissions.customers !== true → 全部方法（含读）抛 PERMISSION_DENIED。
    *  错误码：PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / INVALID_NAME / FIELD_DENIED / STALE / IO_ERROR */
   customer: {
@@ -398,7 +398,7 @@ export interface PluginHost {
     get(id: string): Promise<InboundProfile | null>
   }
 
-  /** share 能力域（v2.5.1 A2，PLAN-v2.6-v2.7 §3.2）：工作区只读实体视图 + 拉取写（局域网共享契约通道）。
+  /** share 能力域（v2.5.1 A2，内部设计文档 §3.2）：工作区只读实体视图 + 拉取写（局域网共享契约通道）。
    *  权限门控：manifest.permissions.share !== true → 全部方法抛 PERMISSION_DENIED。
    *  错误码：PERMISSION_DENIED / NO_WORKSPACE / NOT_FOUND / INVALID_NAME / HIDDEN / OUT_OF_WORKSPACE / IO_ERROR */
   share: {
@@ -636,7 +636,7 @@ export function validateManifest(input: unknown): { ok: boolean; errors: string[
       if (permissions.account !== undefined && typeof permissions.account !== 'boolean') {
         errors.push('permissions.account 须为布尔值')
       }
-      // —— 规则 ⑩（v2.5.1 A1/A2 + v2.5.4 弹一 C-2，PLAN-v2.6-v2.7 §3.1/§3.2）：customers / suppliers / share 布尔校验 ——
+      // —— 规则 ⑩（v2.5.1 A1/A2 + v2.5.4 弹一 C-2，内部设计文档 §3.1/§3.2）：customers / suppliers / share 布尔校验 ——
       if (permissions.customers !== undefined && typeof permissions.customers !== 'boolean') {
         errors.push('permissions.customers 须为布尔值')
       }
@@ -653,7 +653,7 @@ export function validateManifest(input: unknown): { ok: boolean; errors: string[
   // —— 规则 ④：pages[].component 包内相对路径（拒绝绝对路径与 '..' 逃逸）+ pages[].path 必须带 '/plugin/' 前缀——
   // v2.5 实施收紧（2026-08-11）：插件页面路由统一经宿主「/plugin/*rest 通配 + 运行时查表」分发
   // （@solidjs/router 对 mount 后新增 Route 的响应式重注册不可靠），故 path 前缀收窄为 '/plugin/'，
-  // 与本体路由（/product-sets、/settings 等）无冲突可能；PLAN-v2.5 已注明此协议决策。
+  // 与本体路由（/product-sets、/settings 等）无冲突可能；内部设计文档已注明此协议决策。
   if (Array.isArray(input.pages)) {
     input.pages.forEach((p, i) => {
       const where = `pages[${i}]`

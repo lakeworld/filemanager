@@ -28,7 +28,7 @@ function makeFrame(width: number, height: number, pixel: (i: number, j: number) 
 const SIZE = 1000 // 100 万像素，采样步长 ~500，覆盖 ~2000 采样点
 
 // 应用点（2026-08-19 热修）：显示后白屏自检（window.ts runPostShowCheck，可见态抓帧）。
-// 原 FrameWitness 网格分类用例随隐藏预检链整体删除（PLAN-v2.5.3-托盘冻结根治.md）。
+// 原 FrameWitness 网格分类用例随隐藏预检链整体删除（内部托盘冻结根治设计文档）。
 describe('isBlankFrameLike（显示后白屏像素检测）', () => {
   it('空图 / 尺寸 0 / buffer 过短 → 空白', () => {
     expect(isBlankFrameLike({ isEmpty: () => true, getSize: () => ({ width: 1, height: 1 }), toBitmap: () => Buffer.alloc(0) })).toBe(true)

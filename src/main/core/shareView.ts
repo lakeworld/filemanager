@@ -1,5 +1,5 @@
 /**
- * share 能力域 core（v2.5.1 A2，PLAN-v2.6-v2.7 §3.2）：把工作区发布为只读实体视图 + 拉取写。
+ * share 能力域 core（v2.5.1 A2，内部设计文档 §3.2）：把工作区发布为只读实体视图 + 拉取写。
  * - 实体视图字段白名单：不含 erp_ext / ocr_ext 命名空间（D10 附录白名单）
  * - 两级元数据粒度：文件路径 → metadata store；产品集根路径 → product_sets.json
  * - v2.6 批7 D8：元数据读写扩证书两字段 cert_type/expiry_date（文件级；产品集根恒空）——

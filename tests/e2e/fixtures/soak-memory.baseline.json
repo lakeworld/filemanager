@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "frozenAt": "2026-09-05",
-  "basis": "2026-09-05 环境漂移重冻结（程序同 2026-08-17：跨运行合并中位数 ×1.25，scripts/summarize-memory-runs.mjs thresholdSuggestion 原样采纳）：hardening-b@828b877 当日 3 次完整运行（11:50/11:59/14:24 本地，各 20 正式轮，共 60 轮）合并 → heap 14,463,716×1.25=18,079,645；nodes 主窗口径中位 1294×1.25=1618；virtualImagesMax 维持 100。触发原因：soak 于 9-05 出现环境级读数漂移——五点二分（hardening-b/dfa4df0/52733e/5e103c4/738e3cf）当天全红，其中 8-31 发布原树 738e3cf 在 8-31 当天 07:31 全绿；而依赖（package-lock 自 738e3cf 零 diff）、electron 31.7.7（8-11 安装，早于旧基线冻结）、node v22.23.2（与 8-17 记录一致）、系统包（8-29~31 dpkg/apt 零升级）均无变化；漂移时间线与 8-31 16:10 重启及本机内存/IO 环境变化（swap 10G、坚果云同步盘 IO）一致，取证与裁决机制详见 docs/INTERNAL/assets/v2.5.8/D2-G-B-G-C-证据.md。nodesMedian 1618 低于旧值 1820 系 A5 口径变更（parked 采样排除 iframe document、门禁换主窗口径）所致，非收紧预算：旧值为进程级旧口径读数，与新口径不可比。旧基线（2026-08-17：heap 14,846,952 / nodes 1820，当时中位约 11.3MB/1426）随本次重冻结作废。冻结后不得为让本轮通过而放宽。",
+  "basis": "2026-09-05 环境漂移重冻结（程序同 2026-08-17：跨运行合并中位数 ×1.25，scripts/summarize-memory-runs.mjs thresholdSuggestion 原样采纳）：hardening-b@828b877 当日 3 次完整运行（11:50/11:59/14:24 本地，各 20 正式轮，共 60 轮）合并 → heap 14,463,716×1.25=18,079,645；nodes 主窗口径中位 1294×1.25=1618；virtualImagesMax 维持 100。触发原因：soak 于 9-05 出现环境级读数漂移——五点二分（hardening-b/dfa4df0/52733e/5e103c4/738e3cf）当天全红，其中 8-31 发布原树 738e3cf 在 8-31 当天 07:31 全绿；而依赖（package-lock 自 738e3cf 零 diff）、electron 31.7.7（8-11 安装，早于旧基线冻结）、node v22.23.2（与 8-17 记录一致）、系统包（8-29~31 dpkg/apt 零升级）均无变化；漂移时间线与 8-31 16:10 重启及本机内存/IO 环境变化（swap 10G、坚果云同步盘 IO）一致，取证与裁决机制详见内部证据归档（不进公开仓）。nodesMedian 1618 低于旧值 1820 系 A5 口径变更（parked 采样排除 iframe document、门禁换主窗口径）所致，非收紧预算：旧值为进程级旧口径读数，与新口径不可比。旧基线（2026-08-17：heap 14,846,952 / nodes 1820，当时中位约 11.3MB/1426）随本次重冻结作废。冻结后不得为让本轮通过而放宽。",
   "heapMedianBytes": 18079645,
   "nodesMedian": 1618,
   "virtualImagesMax": 100

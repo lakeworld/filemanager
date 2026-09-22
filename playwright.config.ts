@@ -20,8 +20,8 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   // 一致性与内存 soak 均独立运行，不混入默认全量 e2e：
-  // 防 workers:1 串行多跑 + 与 plugins.spec 重复侧载 hello（PLAN-v2.5-测试 Task 4）。
-  // preview-lifecycle-crash-diag 为 v2.5.7 线程B 阶段1 取证管道，独立配置跑（见 PLAN，验收后清理）
+  // 防 workers:1 串行多跑 + 与 plugins.spec 重复侧载 hello（内部测试设计文档 Task 4）。
+  // preview-lifecycle-crash-diag 为 v2.5.7 线程B 阶段1 取证管道，独立配置跑（见内部设计文档，验收后清理）
   // probe-*.spec.ts：一次性度量/走查探针（内存两新面、发布轮渲染截图），须人工判读，不入默认套件——
   // 用通配以杜绝「新增探针忘登记 → 污染默认套件」这类坑（2026-08-31 发布轮踩过同类共享态污染）
   testIgnore: ['**/conformance/**', '**/memory-soak.spec.ts', '**/preview-lifecycle-crash-diag.spec.ts', '**/probe-*.spec.ts'],

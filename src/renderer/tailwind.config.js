@@ -7,7 +7,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // v2.5.2（视觉升级，参考仓迹 ERP）：主色对齐 Fluent 蓝 #0078D4（accent 梯度，色相不变仅亮度调整）
+        // v2.5.2（视觉升级，参考 ERP 端）：主色对齐 Fluent 蓝 #0078D4（accent 梯度，色相不变仅亮度调整）
         primary: {
           50: '#f0f7fc',
           100: '#dceef9',

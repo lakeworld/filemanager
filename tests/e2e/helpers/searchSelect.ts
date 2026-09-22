@@ -14,7 +14,7 @@ import { expect, type Locator, type Page } from '@playwright/test'
  *   （原生 option 是常驻 hidden，所以「某选项在不在列表里」这类断言必须先开面板再断言）；
  * - 选项 = `[role="option"][data-option="<值>"]`，按**值**点，与 `selectOption(value)` 一一对应。
  *
- * 纪律：只换定位方式，不改任何断言语义（PLAN-REVIEW-SOP §三.3）。
+ * 纪律：只换定位方式，不改任何断言语义（内部评审守则 §三.3）。
  */
 
 /** 弹层根节点（同时最多开一个：组件里点外/滚动都会先收起） */

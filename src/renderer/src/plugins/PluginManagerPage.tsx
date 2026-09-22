@@ -16,7 +16,7 @@
  *   不兼容条目置灰（宿主按 API/产品版本过滤掉不兼容版本，见 main/plugins/catalog.ts）；
  *   未登录 / 未配置服务器 / 端点未部署 → 如实展示中文原因 + 出路（不谎报空目录）。
  * 更新即重启（v2.6 批 2）：覆盖安装命中已有插件时弹「插件已更新 / 已重新安装」提示，
- *   两按钮「立即重启」（qihebox:app:relaunch）/「稍后」——口径见 docs/INTERNAL/PLUGIN.md §七。
+ *   两按钮「立即重启」（qihebox:app:relaunch）/「稍后」——口径见内部版插件契约（不进公开仓）§七。
  */
 import { Show, For, createSignal, createMemo, onMount } from 'solid-js'
 import type { JSX } from 'solid-js'
@@ -614,7 +614,7 @@ export default function PluginManagerPage(): JSX.Element {
         />
       </Show>
 
-      {/* v2.6 批 2：更新即重启提示（覆盖安装命中已有插件时；口径见 docs/INTERNAL/PLUGIN.md §七） */}
+      {/* v2.6 批 2：更新即重启提示（覆盖安装命中已有插件时；口径见内部版插件契约（不进公开仓）§七） */}
       <Show when={restartNotice()}>
         <ConfirmDialog
           title={restartNotice()!.title}

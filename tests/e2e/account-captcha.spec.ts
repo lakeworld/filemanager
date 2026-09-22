@@ -16,8 +16,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
  * 桩服务打在 127.0.0.1 的随机端口，经 `QIHE_API_BASE` 注入主进程（三级回退的第一级），
  * 所以走的是**真实主进程 HTTP 客户端**，不是 mock 掉的渲染层——这是本用例的价值所在。
  *
- * 服务端字段形状照 `qihe-erp/backend/routes/captcha.go:168-173` 与
- * `web/tests/e2e/password.spec.ts:46-56` 逐字抄，桩改得跟现网不一样就等于自证自。
+ * 服务端字段形状照闭源仓的验证码中继实现与客户端登录 e2e 逐字抄，桩改得跟现网不一样就等于自证自。
  */
 const CAPTCHA_ID = 'e2e-cap-1'
 /** 1×1 透明 PNG（现网返回的就是带前缀的 data URL，桩照同一形状） */

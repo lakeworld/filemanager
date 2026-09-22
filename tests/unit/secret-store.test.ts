@@ -23,9 +23,9 @@ describe('plugins/secretStore（D-09 单点实现）', () => {
     isEncryptionAvailable.mockReturnValue(false)
     const store = makePluginSecretStore()
     const secret = Buffer.from('你好密钥')
-    const s = store.encrypt(secret, 'box_plugin_keys')
+    const s = store.encrypt(secret, 'plugin_keys')
     expect(s.startsWith('raw:')).toBe(true)
-    expect(store.decrypt(s, 'box_plugin_keys')?.toString('utf8')).toBe('你好密钥')
+    expect(store.decrypt(s, 'plugin_keys')?.toString('utf8')).toBe('你好密钥')
   })
 
   it('safeStorage 可用 → enc: 前缀，解密走 decryptString', () => {
@@ -33,9 +33,9 @@ describe('plugins/secretStore（D-09 单点实现）', () => {
     encryptString.mockImplementation((plain: string) => Buffer.from(plain, 'utf8'))
     decryptString.mockImplementation((b: Buffer) => b.toString('utf8'))
     const store = makePluginSecretStore()
-    const s = store.encrypt(Buffer.from('密钥内容'), 'box_plugin_keys')
+    const s = store.encrypt(Buffer.from('密钥内容'), 'plugin_keys')
     expect(s.startsWith('enc:')).toBe(true)
-    expect(store.decrypt(s, 'box_plugin_keys')?.toString('utf8')).toBe('密钥内容')
+    expect(store.decrypt(s, 'plugin_keys')?.toString('utf8')).toBe('密钥内容')
   })
 
   it('encrypt 内部抛错 → 不炸，退化 raw:', () => {

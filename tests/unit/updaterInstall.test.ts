@@ -4,7 +4,7 @@
  * 与 `updater.test.ts`（checkUpdate 网络/解析/超时）分工：本文件只测「发现新版之后」那半条链。
  * 真实引擎（electron-updater）住 `src/main/updaterMain.ts`（只有它 import electron），
  * 本文件一律注入替身——单测环境既没有 electron 也没有更新面；真链证据归发布验收
- * （PLAN-2026-09-23 批 4 §四：2.5.x 装机 → 应用内检查 → 下载 → 校验 → 退出安装）。
+ * （内部设计文档 §四：2.5.x 装机 → 应用内检查 → 下载 → 校验 → 退出安装）。
  *
  * 门下三件事（每条都对应卡上一条验收）：
  *   ① 形态判据 deb / AppImage / NSIS 三分，deb 抛**可判别**的「不支持」（D-UP1 走直链分支）；

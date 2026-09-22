@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 /**
- * 发票/入库 卡片化 + 多选/批量 + 筛选 + 孤儿未建档通道（PLAN-v2.5.5 §一，B3 任务 A/B/C/D）e2e 冒烟：
+ * 发票/入库 卡片化 + 多选/批量 + 筛选 + 孤儿未建档通道（内部设计文档 §一，B3 任务 A/B/C/D）e2e 冒烟：
  * - 卡片化：金额主视觉/号码可见（去表格后卡片渲染）
  * - 多选 + 批量工具条：勾选 → 工具条浮现 → 全选可见 → 批量改状态（待报销→已报销）
  * - 孤儿未建档：直接写盘未登记文件 → qihebox:orphans:scan 扫出 → 未建档视图可见 → 补建打开预填弹窗

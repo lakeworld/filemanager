@@ -4,7 +4,7 @@ import { WAKE_SEARCH_ACCELERATOR, applyWakeShortcut, reconcileWakeShortcut, type
 /**
  * 全局唤醒快捷键（v2.5.9 A6-1）纯逻辑单测——不起 Electron。
  *
- * 反向实验口径（`DEBUG-SOP.md` §三）：每条分支都要能被打动——包括"注册失败"这条**最容易被
+ * 反向实验口径（内部调试守则 §三）：每条分支都要能被打动——包括"注册失败"这条**最容易被
  * 写成静默通过**的路径（真实场景 = 键被别的程序占了）。
  */
 function port(overrides: Partial<WakeShortcutPort> = {}): WakeShortcutPort & {

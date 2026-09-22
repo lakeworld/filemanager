@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 /**
- * A6-1 全局唤醒快捷键「注册失败要如实降级」的端到端判据（PLAN-v2.5.9 A6-1 验收原句：
+ * A6-1 全局唤醒快捷键「注册失败要如实降级」的端到端判据（内部设计文档 A6-1 验收原句：
  * 设置页显示「被占用」+ 开关可再试）。
  *
  * 为什么需要专门一条：本批 A6-1 原先只做到"主进程 log 一句 warn"，评审 Spec 轴抓到
