@@ -23,6 +23,7 @@ import { PluginRegistry, PLUGINS_DIR, STATE_DIR } from './registry'
 import { PluginLoader } from './loader'
 import { PluginInstaller } from './installer'
 import type { InstallResult } from './installer'
+import { resolveOfficialPluginsDir, runOfficialPreinstall } from './preinstall'
 import { fetchCatalog } from './catalog'
 import { downloadPluginPackage } from './download'
 import { createPluginHost, HostEventBus, HOST_EVENT_WHITELIST, fileError, mapCoreError } from './host'
@@ -139,6 +140,19 @@ export interface PluginHostHandle {
   emitHostEvent(channel: string, data: unknown): void
   /** 退出清理：同步触发全部已激活插件 dispose + 事件总线清理（无泄漏） */
   dispose(): Promise<void>
+}
+
+/**
+ * v2.6（批 3）：官方插件预装源目录解析——打包态 = 安装包内 `resources/official-plugins/`
+ * （electron-builder `extraResources` 由发布侧注入，内容不进公开仓）；开发/未打包态回退仓库内
+ * `build/official-plugins/`。开源构建两处皆空 ⇒ 预装零条目（宿主侧目录缺失优雅跳过）。
+ */
+function officialPluginsDir(): string {
+  return resolveOfficialPluginsDir({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    devFallbackDir: path.join(app.getAppPath(), 'build', 'official-plugins'),
+  })
 }
 
 /**
@@ -295,6 +309,29 @@ export function registerPluginHost(
     const payload = registry.list()
     for (const win of BrowserWindow.getAllWindows()) sendTo(win, 'qihebox:event:plugins:changed', payload)
   }
+
+  // —— v2.6（批 3）：官方插件预装（PLAN §四）——装配期**一次**、启动早期、异步 fire-and-forget。
+  // 整函数吞异常（单包失败只 warn + 进报告）⇒ 不进「app ready → 窗口可交互」关键路径，失败不阻断启动；
+  // 开源自建构建不带预装目录 ⇒ 目录缺失优雅跳过、零预装条目（runOfficialPreinstall 内部判定）。
+  void runOfficialPreinstall({
+    dir: officialPluginsDir(),
+    root,
+    registry,
+    installer,
+    log: (level, msg) => void log(level, msg),
+  })
+    .then((report) => {
+      if (report.installed + report.updated === 0) return
+      // 首启零操作即可见：管理页/侧栏派生自 plugins:changed 广播（渲染层首拉清单 + 本广播双保险）
+      broadcastPluginsChanged()
+      // 与 install handler 同口径「装完即用」：预装且启用 → 立即激活（不等下一次触发）
+      for (const e of report.entries) {
+        if ((e.action === 'installed' || e.action === 'updated') && e.id && registry.get(e.id)?.enabled) {
+          void loader.ensureActive(e.id).catch((err) => void log('warn', `预装插件激活失败（${e.id}）: ${String(err)}`))
+        }
+      }
+    })
+    .catch((err) => void log('warn', `[plugins] 官方插件预装编排异常（已忽略）: ${String(err)}`))
 
   // —— IPC（全部 ApiResult 包装，交叉契约 §三）——
   ipcMain.handle('qihebox:plugins:list', () => handle(() => registry.list()))
