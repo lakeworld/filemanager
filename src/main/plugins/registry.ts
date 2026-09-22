@@ -17,6 +17,8 @@ import { writeJsonAtomic } from '../core/paths'
 export const PLUGINS_DIR = 'plugins'
 export const PKG_DIR = 'pkg'
 export const STATE_DIR = 'state'
+/** 安装时写下的整包校验记录（installer 落 `<id>/.qbox.sha256`）；也是「覆盖安装残骸」的三条判据之一（见 scan） */
+export const SHA256_FILE = '.qbox.sha256'
 export const CONFIG_FILE = 'config.json'
 export const MANIFEST_FILE = 'manifest.json'
 /** 主进程入口（相对 pkg/）；登记期校验存在性（缺入口 → broken，PLAN §1.4） */
@@ -160,15 +162,25 @@ export class PluginRegistry {
         .filter((d) => d.isDirectory())
         .map((d) => d.name)
         .filter((d) => !d.startsWith('.')) // 隐藏/临时目录（.tmp-install-*、.pkg-old-* 覆盖备份等）不是插件目录
-        // 批 2.5 P1-3：白名单化——目录须含 pkg/ 子目录才算插件候选。宿主自建 userData/plugins/keys/
-        // （encryption 密钥缓存）与非插件残留此前一律进 addBroken → 幽灵条目，且对它「卸载」= rm -rf
-        // 掉全部密钥缓存。无 pkg 的目录直接跳过；pkg 在而 manifest 缺的真损坏安装照旧登记 broken。
+        // 批 2.5 P1-3：白名单化——宿主自建 userData/plugins/keys/（encryption 密钥缓存）与非插件残留
+        // 此前一律进 addBroken → 幽灵条目，且对它「卸载」= rm -rf 掉全部密钥缓存。
+        // 判据（v2.6 审查轮 1 修）：含 `pkg/`、`state/`、`.qbox.sha256` **任一**才算插件候选——
+        // 只认 pkg/ 会把「覆盖安装中途被打断/被安全软件隔离」的残骸（installer：先 rename 走 pkg、
+        // 再 rename 回来，两步之间中断 ⇒ 只剩 state/ 与 .qbox.sha256）静默吞掉：该插件从管理页**彻底
+        // 消失**，Uninstall 入口没了（installer.uninstall 要求 registry.get(id)），state/ 与启停覆盖
+        // 永久残留，用户只看到"插件没了"。pkg 在而 manifest 缺/坏的真损坏安装照旧登记 broken。
+        // keys/ 三者皆无 ⇒ 仍被挡（回归用例：plugins-host.test.ts「无 pkg 的非插件目录不进清单」）。
         .filter((d) => {
-          try {
-            return fs.statSync(path.join(this.root, d, PKG_DIR)).isDirectory()
-          } catch {
-            return false
+          const dirPath = path.join(this.root, d)
+          const has = (rel: string, kind: 'dir' | 'file'): boolean => {
+            try {
+              const st = fs.statSync(path.join(dirPath, rel))
+              return kind === 'dir' ? st.isDirectory() : st.isFile()
+            } catch {
+              return false
+            }
           }
+          return has(PKG_DIR, 'dir') || has(STATE_DIR, 'dir') || has(SHA256_FILE, 'file')
         })
     } catch {
       return // plugins 目录不存在（默认未安装任何插件）→ 空清单

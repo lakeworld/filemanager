@@ -227,6 +227,30 @@ describe('PluginRegistry：发现与校验', () => {
     expect(makeRegistry().get('com.qihe.broken1')!.state).toBe('broken')
   })
 
+  it('pkg/ 被清掉的真损坏安装仍登记 broken，不被白名单静默吞掉（v2.6 审查轮 1）', () => {
+    // 残骸形状的真实来源：覆盖安装（installer.ts）先 `rename(pkgDir, .pkg-old-…)` 再
+    // `rename(tmpDir, pkgDir)`——两次 rename 之间中断/被安全软件隔离 ⇒ 插件目录只剩 state/ 与
+    // .qbox.sha256。批 2.5 P1-3 的白名单只认「含 pkg/」，这种**真损坏安装**于是被静默吞掉：
+    // 插件从管理页彻底消失（Uninstall 入口没了——installer.uninstall 要求 registry.get(id)），
+    // state/ 与启停覆盖永久残留，用户只看到"插件没了"。
+    fs.mkdirSync(path.join(root, 'com.qihe.half', 'state'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'com.qihe.half', '.qbox.sha256'), 'x')
+    expect(makeRegistry().get('com.qihe.half')!.state).toBe('broken')
+    // 只有 state/（连 .qbox.sha256 都没来得及写）同样是残骸
+    fs.mkdirSync(path.join(root, 'com.qihe.half2', 'state'), { recursive: true })
+    expect(makeRegistry().get('com.qihe.half2')!.state).toBe('broken')
+    // 只有 .qbox.sha256 亦然（state/ 可能在覆盖安装前就还没建、或被清过）
+    fs.mkdirSync(path.join(root, 'com.qihe.half3'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'com.qihe.half3', '.qbox.sha256'), 'x')
+    expect(makeRegistry().get('com.qihe.half3')!.state).toBe('broken')
+    // 反向（不许把幽灵条目放回来）：宿主自建的 keys/ 三者皆无 ⇒ 仍不进清单
+    fs.mkdirSync(path.join(root, 'keys'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'keys', 'com.qihe.a.key'), '{"key":"raw:xx","fetchedAt":1}')
+    const list = makeRegistry().list()
+    expect(list.some((x) => x.id === 'keys'), 'keys/ 仍不得进清单（否则对它卸载会 rm -rf 掉密钥缓存）').toBe(false)
+    expect(list.map((x) => x.id).sort()).toEqual(['com.qihe.half', 'com.qihe.half2', 'com.qihe.half3'])
+  })
+
   it('manifest 非法 JSON → broken（解析失败）', () => {
     const pkg = path.join(root, 'com.qihe.x', PKG_DIR)
     fs.mkdirSync(pkg, { recursive: true })

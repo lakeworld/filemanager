@@ -16,6 +16,7 @@ import type { PluginManifest } from '../../plugins/types'
 import { extractZip } from '../core/archive'
 import {
   PKG_DIR,
+  SHA256_FILE,
   MAIN_ENTRY,
   MANIFEST_FILE,
   type PluginRegistry,
@@ -94,7 +95,7 @@ export class PluginInstaller {
         await fsp.mkdir(path.dirname(pkgDir), { recursive: true })
         await fsp.rename(tmpDir, pkgDir)
         await fsp
-          .writeFile(path.join(idDir, '.qbox.sha256'), sha256, { encoding: 'utf-8', mode: 0o644 })
+          .writeFile(path.join(idDir, SHA256_FILE), sha256, { encoding: 'utf-8', mode: 0o644 })
           .catch(() => {})
         await this.reload()
         const entry = this.registry.get(manifest.id)
@@ -124,7 +125,7 @@ export class PluginInstaller {
       await fsp.rename(tmpDir, pkgDir)
       // 防篡改记录：原始 .qbox 的 SHA-256（PLAN §4.1；官方索引比对 2.6）
       await fsp
-        .writeFile(path.join(this.root, manifest.id, '.qbox.sha256'), sha256, { encoding: 'utf-8', mode: 0o644 })
+        .writeFile(path.join(this.root, manifest.id, SHA256_FILE), sha256, { encoding: 'utf-8', mode: 0o644 })
         .catch(() => {})
       await this.reload()
       const entry = this.registry.get(manifest.id)
