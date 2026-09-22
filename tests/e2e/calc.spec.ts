@@ -75,9 +75,9 @@ const kill = async (app: ElectronApplication): Promise<void> => {
  *  1. **计算页**——渲染层主链：入口（侧栏「工具 → 计算」换页 / `Ctrl+=` 跳页）、双栏版式
  *     （左栏新→旧且行内含结果、点左栏行右栏定位高亮）、记一条（展示态 × ÷、正序落底、空输入忽略）、
  *     解析失败不落账、`%` 与日期插入钮（含输入条不溢出这条布局回归）、条目卡交互（点结果复制 /
- *     点算式回填 / 常驻「存为资料」）、右键动词表、编辑标题备注、删除走确认弹窗；
+ *     点算式回填 / 常驻「标记一下」）、右键动词表、编辑标题备注、删除走确认弹窗；
  *  2. **计算台账跨重启**——§十 那条「重启应用历史仍在」：同 userData **真杀进程**重启，
- *     条目 / 顺序 / 「已存资料」态都在，且以盘上 `calcs.json` 为证。
+ *     条目 / 顺序 / 「已标记」态都在，且以盘上 `calcs.json` 为证。
  *
  * 几条写法口径：
  * - 启动走 `helpers/launch.ts` 的 userData 夹具（label 隔离），launch/kill 抄 app-settings.spec.ts；
@@ -254,7 +254,7 @@ test.describe('计算页（v2.5.9 A7 整页化）', () => {
     await input().fill('')
   })
 
-  test('条目卡交互：点结果复制、点算式回填、常驻「存为资料」转正（chip 两态唯一差异）', async () => {
+  test('条目卡交互：点结果复制、点算式回填、常驻「标记一下」标记（chip 两态唯一差异）', async () => {
     await ensurePage()
     const before = await entries().count()
 
@@ -278,17 +278,17 @@ test.describe('计算页（v2.5.9 A7 整页化）', () => {
     await expect(input()).toBeFocused()
     await input().fill('')
 
-    // ③ 常驻「存为资料」：两态唯一视觉差异 = 「已存资料」chip（chip 只该出现在转正的那一条上）
-    await entry.getByRole('button', { name: '存为资料', exact: true }).click()
-    await expect(entry.getByText('已存资料')).toHaveCount(1, { timeout: 5000 })
-    await expect(entries().getByText('已存资料')).toHaveCount(1)
-    // 转正后按钮文案随状态切换「存为资料」⇄「取消转正」
-    await entry.getByRole('button', { name: '取消转正', exact: true }).click()
-    await expect(entry.getByText('已存资料')).toHaveCount(0, { timeout: 5000 })
-    await expect(page.getByText('已存资料')).toHaveCount(0)
+    // ③ 常驻「标记一下」：两态唯一视觉差异 = 「已标记」chip（chip 只该出现在标记的那一条上）
+    await entry.getByRole('button', { name: '标记一下', exact: true }).click()
+    await expect(entry.getByText('已标记')).toHaveCount(1, { timeout: 5000 })
+    await expect(entries().getByText('已标记')).toHaveCount(1)
+    // 标记后按钮文案随状态切换「标记一下」⇄「取消标记」
+    await entry.getByRole('button', { name: '取消标记', exact: true }).click()
+    await expect(entry.getByText('已标记')).toHaveCount(0, { timeout: 5000 })
+    await expect(page.getByText('已标记')).toHaveCount(0)
   })
 
-  test('右键动词表（含转正后「取消转正」）＋ 编辑标题备注 ＋ 删除走确认弹窗', async () => {
+  test('右键动词表（含标记后「取消标记」）＋ 编辑标题备注 ＋ 删除走确认弹窗', async () => {
     await ensurePage()
     await input().fill('99*9')
     await page.keyboard.press('Enter')
@@ -298,7 +298,7 @@ test.describe('计算页（v2.5.9 A7 整页化）', () => {
     // 右键动词表（菜单在 #ctx-menu-root 里，与弹窗同名按钮区分开）
     const menu = page.locator('#ctx-menu-root')
     await entry.click({ button: 'right' })
-    for (const label of ['复制结果', '复制算式', '编辑标题备注', '存为资料']) {
+    for (const label of ['复制结果', '复制算式', '编辑标题备注', '标记一下']) {
       await expect(menu.getByRole('button', { name: label })).toBeVisible({ timeout: 5000 })
     }
 
@@ -313,12 +313,12 @@ test.describe('计算页（v2.5.9 A7 整页化）', () => {
     await expect(entry.getByText('走查毛利')).toBeVisible({ timeout: 5000 })
     await expect(entry.getByText('e2e 备注')).toBeVisible()
 
-    // 转正走右键（菜单项）⇒ 菜单里变「取消转正」
+    // 标记走右键（菜单项）⇒ 菜单里变「取消标记」
     await entry.click({ button: 'right' })
-    await menu.getByRole('button', { name: '存为资料' }).click()
-    await expect(entry.getByText('已存资料')).toHaveCount(1, { timeout: 5000 })
+    await menu.getByRole('button', { name: '标记一下' }).click()
+    await expect(entry.getByText('已标记')).toHaveCount(1, { timeout: 5000 })
     await entry.click({ button: 'right' })
-    await expect(menu.getByRole('button', { name: '取消转正' })).toBeVisible({ timeout: 5000 })
+    await expect(menu.getByRole('button', { name: '取消标记' })).toBeVisible({ timeout: 5000 })
 
     // 删除：菜单项（带 🗑️ 图标 ⇒ 非 exact）→ 弹窗内确认（同名按钮，这里可 exact）
     const countBefore = await entries().count()
@@ -338,21 +338,21 @@ test.describe('计算页（v2.5.9 A7 整页化）', () => {
 })
 
 /**
- * PLAN §十 那条「重启应用历史还在」：计算页里记两条（第一条转正）→ 真杀进程 → 同 userData 重启，
- * 条目 / 顺序 / 「已存资料」态都还在，并以盘上 `calcs.json` 为证（UI 与磁盘两头对得上才算数）。
+ * PLAN §十 那条「重启应用历史还在」：计算页里记两条（第一条标记）→ 真杀进程 → 同 userData 重启，
+ * 条目 / 顺序 / 「已标记」态都还在，并以盘上 `calcs.json` 为证（UI 与磁盘两头对得上才算数）。
  * 「最近工作区自动恢复」不在这里当被测对象（那是 sidebar.spec 的口径）：本用例只保证第二个实例
  * 跑在同一工作区上——并发/串行的其他 spec 也会往真实家目录的 recents 里写，靠自动恢复等于把断言
  * 押在别人身上，故不同就显式 `workspace.open`。
  */
 test.describe('计算台账跨重启（v2.5.9 A7 整页化）', () => {
-  test('重启后历史、顺序与「已存资料」态都在（真杀进程，盘上 calcs.json 为证）', async () => {
+  test('重启后历史、顺序与「已标记」态都在（真杀进程，盘上 calcs.json 为证）', async () => {
     const label = 'calc-restart'
     await fsp.rm(userDataDir(label), { recursive: true, force: true }).catch(() => {})
     const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-e2e-calc-ws-'))
     let persisted = ''
 
     try {
-      // —— 实例一：记两条 + 把第一条转正 ——
+      // —— 实例一：记两条 + 把第一条标记 ——
       const first = await launch(label)
       try {
         const created = await first.page.evaluate((dir) => (window as any).qihebox.workspace.create(dir), wsDir)
@@ -373,10 +373,10 @@ test.describe('计算台账跨重启（v2.5.9 A7 整页化）', () => {
         await expect(entries1.filter({ hasText: '2026-11-15' })).toHaveCount(1, { timeout: 5000 })
         await expect(entries1).toHaveCount(2)
 
-        // 第一条转正（右栏正序 = 录入序 ⇒ first() 即第一条）
+        // 第一条标记（右栏正序 = 录入序 ⇒ first() 即第一条）
         const firstEntry = entries1.first()
-        await firstEntry.getByRole('button', { name: '存为资料', exact: true }).click()
-        await expect(firstEntry.getByText('已存资料')).toHaveCount(1, { timeout: 5000 })
+        await firstEntry.getByRole('button', { name: '标记一下', exact: true }).click()
+        await expect(firstEntry.getByText('已标记')).toHaveCount(1, { timeout: 5000 })
 
         // 盘上台账：两条、顺序、两态、展示态、时间戳形状（轮询到落盘，不 sleep）
         await expect
@@ -398,7 +398,7 @@ test.describe('计算台账跨重启（v2.5.9 A7 整页化）', () => {
         for (const r of recs) {
           expect(Number.isFinite(Date.parse(r.created)), `created 不是可解析时间：${r.created}`).toBe(true)
           expect(Number.isFinite(Date.parse(r.updated)), `updated 不是可解析时间：${r.updated}`).toBe(true)
-          // 记一条时 created=updated；转正只刷 updated ⇒ updated 不早于 created
+          // 记一条时 created=updated；标记只刷 updated ⇒ updated 不早于 created
           expect(Date.parse(r.updated), `${r.expression} 的 updated 早于 created`).toBeGreaterThanOrEqual(
             Date.parse(r.created),
           )
@@ -437,10 +437,10 @@ test.describe('计算台账跨重启（v2.5.9 A7 整页化）', () => {
         expect(texts[0], '第一条结果').toContain('4,117.00')
         expect(texts[1], '第二条算式').toContain('2026-09-16 + 60')
         expect(texts[1], '第二条结果').toContain('2026-11-15')
-        // 「已存资料」态跟着条目回来，且只挂在第一条上
-        await expect(entries2.getByText('已存资料')).toHaveCount(1)
-        await expect(entries2.nth(0).getByText('已存资料')).toHaveCount(1)
-        await expect(entries2.nth(1).getByText('已存资料')).toHaveCount(0)
+        // 「已标记」态跟着条目回来，且只挂在第一条上
+        await expect(entries2.getByText('已标记')).toHaveCount(1)
+        await expect(entries2.nth(0).getByText('已标记')).toHaveCount(1)
+        await expect(entries2.nth(1).getByText('已标记')).toHaveCount(0)
 
         // 读路径不改盘：重启 + 进计算页（挂载即跑一遍 calcs.list）之后，文件逐字未变
         expect(await fsp.readFile(calcsFile(wsDir), 'utf-8'), '重启后的读路径把 calcs.json 改写了').toBe(persisted)

@@ -29,8 +29,8 @@ import type { CalcRecord } from "~/types";
  * - **右栏 = 计算区**：上方记录条目流（**旧的在上、新的在下**——输入条贴底，回车记的新条目
  *   就在输入条上方，提交后自动滚到底）+ 底部输入条（一行框 + `%` + 日期）。
  * - **条目卡 = 大号记录条目**（不是聊天气泡）：标题 / 算式（点一下回填输入框「改着再算」，
- *   链式引用就从这里长出来）/ 结果大字 + 相对时间（点一下复制）/ 备注浅字 / 「已存资料」小 chip
- *   （转正后两态唯一视觉差异）/ 常驻动作钮「复制」「存为资料 ⇄ 取消转正」。
+ *   链式引用就从这里长出来）/ 结果大字 + 相对时间（点一下复制）/ 备注浅字 / 「已标记」小 chip
+ *   （标记后两态唯一视觉差异）/ 常驻动作钮「复制」「标记一下 ⇄ 取消标记」。
  *   hover 隐藏按钮是窄条面板时代的版式，整宽大卡放得下常驻钮 ⇒ 不再藏。
  * - **没有数字键盘**——用户直接敲键盘（§九 明确不做）。
  *
@@ -62,11 +62,11 @@ function CalcHistoryRow(props: {
         </Show>
         <div class="text-xs text-surface-400 truncate">{props.rec.expression}</div>
         <Show when={props.rec.saved}>
-          <span class="chip mt-1 bg-success-50 text-success-700">已存资料</span>
+          <span class="chip mt-1 bg-success-50 text-success-700">已标记</span>
         </Show>
       </div>
       {/* 结果大字是左栏扫读的主信息（新→旧 + 行内含结果：一屏扫最多历史）；时间取 created 而不是
-          updated——历史索引是「什么时候记的」时间线，updated 会被「编辑标题备注 / 转正」刷成当下，
+          updated——历史索引是「什么时候记的」时间线，updated 会被「编辑标题备注 / 标记」刷成当下，
           用它会让三天前记的一条在今天冒头。 */}
       <div class="shrink-0 text-right">
         <div class="text-base font-semibold leading-tight tabular-nums text-surface-900">
@@ -127,10 +127,10 @@ function CalcEntryCard(props: {
           <div class="text-xs tabular-nums text-surface-400 mt-0.5">{formatCalcTime(props.rec.created)}</div>
         </div>
       </div>
-      {/* 常驻动作行：chip（转正态）+ 复制 / 存为资料 ⇄ 取消转正 */}
+      {/* 常驻动作行：chip（已标记）+ 复制 / 标记一下 ⇄ 取消标记 */}
       <div class="mt-3 flex items-center gap-2">
         <Show when={props.rec.saved}>
-          <span class="chip bg-success-50 text-success-700">已存资料</span>
+          <span class="chip bg-success-50 text-success-700">已标记</span>
         </Show>
         <div class="ml-auto flex items-center gap-3">
           <button
@@ -142,11 +142,11 @@ function CalcEntryCard(props: {
           </button>
           <button
             class="link-btn px-1.5 py-0.5 text-xs text-surface-500 hover:text-primary-600"
-            title={props.rec.saved ? "取消转正（回到暂存）" : "存为资料"}
+            title={props.rec.saved ? "取消标记" : "标记一下"}
             onClick={() => props.onToggleSaved(props.rec)}
           >
-            {/* 文案跟着状态走：已转正的条目点下去是**取消转正**（toggleSaved） */}
-            {props.rec.saved ? "取消转正" : "存为资料"}
+            {/* 文案跟着状态走：已标记的条目点下去是**取消标记**（toggleSaved） */}
+            {props.rec.saved ? "取消标记" : "标记一下"}
           </button>
         </div>
       </div>
@@ -298,7 +298,7 @@ export default function Calc() {
   const toggleSaved = async (rec: CalcRecord) => {
     const res = await api.calcs.update({ id: rec.id, saved: !rec.saved });
     if (!res.success) {
-      reportError(res.error, rec.saved ? "取消转正失败" : "存为资料失败");
+      reportError(res.error, rec.saved ? "取消标记失败" : "标记失败");
       return;
     }
     await reload();
@@ -335,7 +335,7 @@ export default function Calc() {
     await reload();
   };
 
-  /** 右键动词表对齐既有菜单措辞（§五）：复制结果 📋 / 复制算式 / 编辑标题备注 ✏️ / 存为资料（转正后变「取消转正」）/ 删除 🗑️（danger） */
+  /** 右键动词表对齐既有菜单措辞（§五）：复制结果 📋 / 复制算式 / 编辑标题备注 ✏️ / 标记一下（标记后变「取消标记」）/ 删除 🗑️（danger） */
   const menuItems = (): ContextMenuItem[] => {
     const rec = ctxMenu.payload();
     if (!rec) return [];
@@ -344,7 +344,7 @@ export default function Calc() {
       { label: "复制算式", icon: "📋", action: () => void copyText(rec.expression, "算式") },
       { label: "编辑标题备注", icon: "✏️", action: () => openEdit(rec) },
       {
-        label: rec.saved ? "取消转正" : "存为资料",
+        label: rec.saved ? "取消标记" : "标记一下",
         action: () => void toggleSaved(rec),
       },
       { label: "删除", icon: "🗑️", danger: true, action: () => setDeleting(rec) },

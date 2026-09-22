@@ -280,7 +280,7 @@ for (const [key, act] of extraShots) {
 }
 
 // v2.5.9 A7 整页化（2026-09-22 深夜）：计算页「三条历史 + 点左栏行定位高亮」两态走查。
-// 空态已在 ROUTES.calc 抓过（那时台账还空着）；这里先直种三条（含标题/备注与一条已转正），
+// 空态已在 ROUTES.calc 抓过（那时台账还空着）；这里先直种三条（含标题/备注与一条已标记），
 // 再进页抓有数据态，最后点左栏第 2 行验「滚入视野 + 高亮 1.2s」这条定位交互。
 try {
   await page.evaluate(async () => {
@@ -292,7 +292,7 @@ try {
       expression: '13800 ÷ 1.13 × 0.13', result: '1,589.38', resultKind: 'number',
     })
     await window.qihebox.calcs.add({ expression: '2026-09-16 + 60', result: '2026-11-15', resultKind: 'date' })
-    // 中间那条转正：「已存资料」chip 是两态唯一视觉差异，走查要看得见
+    // 中间那条标记：「已标记」chip 是两态唯一视觉差异，走查要看得见
     if (mid?.data?.id) await window.qihebox.calcs.update({ id: mid.data.id, saved: true })
   })
   await goto('/calc')

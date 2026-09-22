@@ -2,7 +2,7 @@
  * 计算台账服务单测（v2.5.9/A7；权威 = docs/INTERNAL/PLAN-v2.6-计算.md §三 对象模型与存储）
  * 覆盖：落账默认值（saved=false / created=updated / 可选字段缺省）/ 入参校验（含类型面）/
  * 列表顺序（先记的在先）/ update 补丁语义（title·note·saved 互不打扰、'' 清空、undefined 不动）/
- * 取消转正（saved true→false）/ 未知 id 与原型链假 id（`__proto__` / `toString`）拒绝 / remove / 持久化（重开工作区仍在）/
+ * 取消标记（saved true→false）/ 未知 id 与原型链假 id（`__proto__` / `toString`）拒绝 / remove / 持久化（重开工作区仍在）/
  * 工作区隔离（各自 calcs.json）/ 损坏文件拒绝覆盖（jsonStore 守卫）/
  * Logger 注入（add/update/remove 各调一次 info）。
  */
@@ -153,7 +153,7 @@ describe('计算台账服务（v2.5.9/A7）', () => {
     await box.workspace.create(ws)
     const rec = await box.calcs.add(REQ)
 
-    // 旧口径 `req.saved === true` 把字符串 'true' 判成 false ⇒ 悄悄取消转正（还报成功）
+    // 旧口径 `req.saved === true` 把字符串 'true' 判成 false ⇒ 悄悄取消标记（还报成功）
     await expect(box.calcs.update({ id: rec.id, saved: 'true' as unknown as boolean })).rejects.toThrow('布尔')
     await expect(box.calcs.update({ id: rec.id, title: 123 as unknown as string })).rejects.toThrow('标题')
     await expect(box.calcs.update({ id: rec.id, note: {} as unknown as string })).rejects.toThrow('备注')

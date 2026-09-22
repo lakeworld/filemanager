@@ -805,7 +805,7 @@ export interface CalcRecord {
   title?: string
   /** 备注（可选，如「XX客户的报价，含15个点毛利」；update 传 '' 清空） */
   note?: string
-  /** false=暂存，true=已存资料（转正；两态唯一视觉差异 = 历史行上的「已存资料」小标签） */
+  /** false=暂存，true=已标记（两态唯一视觉差异 = 历史行上的「已标记」小标签） */
   saved: boolean
   created: string
   updated: string

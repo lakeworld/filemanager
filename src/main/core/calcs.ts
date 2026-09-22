@@ -1,11 +1,11 @@
 /**
- * 计算台账（v2.5.9/A7「计算」）：`calcs.json` + 暂存/转正两态。
+ * 计算台账（v2.5.9/A7「计算」）：`calcs.json` + 暂存/已标记两态。
  * 权威 = `docs/INTERNAL/PLAN-v2.6-计算.md` §三 对象模型与存储。纯 TS 业务层：不 import electron，node 直测。
  *
  * 数据：<ws>/.qihefilemanager/calcs.json —— Record<id, CalcRecord>（key = id，新文件无迁移问题）
  * - 写入一律走 jsonStore 的 mutateJsonFile（按路径串行锁 + 损坏隔离 + 原子写）；
  *   读取走 readJsonFile 宽容降级（缺失/结构非法 → 空台账；同 quotes 口径）。
- * - 暂存（saved:false）也持久化——「临时」指身份还不是资料，不是「还没落盘」（§三）。
+ * - 暂存（saved:false）也持久化——「未标记」指还没打标记，不是「还没落盘」（§三）。
  * - 解析与格式化**不在这里做**：渲染层用 `shared/calc.ts`（双端同一份实现）先算好，
  *   台账只存展示态（expression/result/resultKind）；服务端不重新求值，避免两份真相。
  * - 删除 = 直接删记录（条目无盘上文件实体，不进回收站；按报价/发票账物分离先例，
@@ -103,7 +103,7 @@ export class CalcsService {
 
   /**
    * 补丁式更新（§七：update(标题·备注·saved)）：只有出现的字段被改动；
-   * title/note 传 ''（或纯空格）清空；saved 双向可切（true=存为资料，false=取消转正）。
+   * title/note 传 ''（或纯空格）清空；saved 双向可切（true=标记，false=取消标记）。
    * 三个字段都没出现 = no-op（不改盘、不刷 updated）。
    */
   async update(req: CalcUpdateRequest, ws?: string): Promise<CalcRecord> {
@@ -111,7 +111,7 @@ export class CalcsService {
     const hasTitle = req.title !== undefined
     const hasNote = req.note !== undefined
     const hasSaved = req.saved !== undefined
-    // 类型校验放在动盘之前：`saved: 'true'`（字符串）旧写法会被 `=== true` 静默当 false —— 等于悄悄取消转正
+    // 类型校验放在动盘之前：`saved: 'true'`（字符串）旧写法会被 `=== true` 静默当 false —— 等于悄悄取消标记
     if (hasTitle && typeof req.title !== 'string') throw new Error('标题必须是文本')
     if (hasNote && typeof req.note !== 'string') throw new Error('备注必须是文本')
     if (hasSaved && typeof req.saved !== 'boolean') throw new Error('saved 必须是布尔值')

@@ -162,7 +162,7 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  *     **拆掉重复的标题与页脚**、不是"多空一层头"。用户 09-12 复拍「推平 21 个」⇒ 未迁名额清零。
  *   - `total 275 → 283` / `unified 141 → 143` / `handwritten 134 → 140`（**v2.5.9 A7 计算面板**）：
  *     `components/CalcPanel.tsx` 新增 **8 枚真按钮**——头部 ✕ 与底部 `%` 插入钮走形状具名档 `.icon-btn`，
- *     算式回填钮与 hover 两枚（复制 / 存为资料）走 `.link-btn`，共 6 处（清点器口径里形状档仍归 handwritten）；
+ *     算式回填钮与 hover 两枚（复制 / 存为资料〔后改名「标记一下」〕）走 `.link-btn`，共 6 处（清点器口径里形状档仍归 handwritten）；
  *     编辑标题备注弹窗页脚「取消 / 保存」走 `.btn-*` 五档（+2 unified，先例 = `ui/ConfirmDialog.tsx` 裸 button）。
  *     与 D18 / A6-2 / A8 / A9 同口径：**形状档归 handwritten 这一格本就不是收口指标** ⇒
  *     `debt` 仍 6、`tint` 仍 0、`press` 仍 0、`noTransition` 仍 4（增数 = 多了 8 个真按钮，不是谁各写各的）。
@@ -170,7 +170,7 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  *     `.dlg-field` 字段区 + `.btn-*` 页脚）——面板内唯一一个 Modal 调用点，未 framed 名单仍为空。
  *   - **`total 283 / handwritten 140 不变**（**v2.5.9 A7 整页化修订**，2026-09-22 深夜）：`CalcPanel.tsx`
  *     悬浮面板删除、`pages/Calc.tsx` 整页双栏上线——按钮 8 换 8（头部 ✕ 关闭钮没了，多了左栏历史
- *     索引行那一枚整行可点钮 `data-calc-side="history"`；算式回填 / 结果复制 / 复制 / 存为资料 /
+ *     索引行那一枚整行可点钮 `data-calc-side="history"`；算式回填 / 结果复制 / 复制 / 标记一下（原「存为资料」） /
  *     `%` / 编辑弹窗页脚两枚全部平移），分类一格未动 ⇒ 本基线按纪律**不动数**，只在此登记成因
  *     （`node scripts/scan-ui-inventory.mjs` 实测复核：283 / 143 / 140 / noclass 0 / debt 6 /
  *     tint 0 / press 0 / noTransition 4 / modal 22 framed 22，逐格与上一条 A7 快照全等）。

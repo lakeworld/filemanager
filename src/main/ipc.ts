@@ -299,7 +299,7 @@ export function registerIpc(
     handle(() => box.quotes.quoteDocCount(no, date)),
   )
 
-  // —— v2.5.9（A7 计算）：计算台账（calcs.json；暂存 saved:false / 转正 saved:true，纯本地零网络）——
+  // —— v2.5.9（A7 计算）：计算台账（calcs.json；暂存 saved:false / 已标记 saved:true，纯本地零网络）——
   ipcMain.handle('qihebox:calcs:list', () => handle(() => box.calcs.list()))
   ipcMain.handle('qihebox:calcs:add', (_e, req) => handle(() => box.calcs.add(req)))
   ipcMain.handle('qihebox:calcs:update', (_e, req) => handle(() => box.calcs.update(req)))

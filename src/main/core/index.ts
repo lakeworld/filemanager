@@ -24,7 +24,7 @@ import { ExchangeService } from './exchange'
 import { ClientsService } from './clients'
 import { SuppliersService } from './suppliers'
 import { QuotesService } from './quotes'
-// v2.5.9（A7 计算）：计算台账（calcs.json，暂存/转正两态）
+// v2.5.9（A7 计算）：计算台账（calcs.json，暂存/已标记两态）
 import { CalcsService } from './calcs'
 import type { Logger } from './logger'
 import path from 'node:path'
@@ -48,7 +48,7 @@ export class BoxService {
   suppliers: SuppliersService
   /** v2.4.9 S3：报价单台账（报价.json + 报价/<YYYY>/ 归档，对齐启禾 OS 报价单 Quotation） */
   quotes: QuotesService
-  /** v2.5.9（A7 计算）：计算台账（calcs.json；暂存 saved:false 也落盘，转正 saved:true） */
+  /** v2.5.9（A7 计算）：计算台账（calcs.json；暂存 saved:false 也落盘，已标记 saved:true） */
   calcs: CalcsService
   /** v2.4.7：入库单（PLAN §7） */
   inbound: InboundService
