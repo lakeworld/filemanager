@@ -2,6 +2,8 @@
  * share 能力域 core（v2.5.1 A2，PLAN-v2.6-v2.7 §3.2）：把工作区发布为只读实体视图 + 拉取写。
  * - 实体视图字段白名单：不含 erp_ext / ocr_ext 命名空间（D10 附录白名单）
  * - 两级元数据粒度：文件路径 → metadata store；产品集根路径 → product_sets.json
+ * - v2.6 批7 D8：元数据读写扩证书两字段 cert_type/expiry_date（文件级；产品集根恒空）——
+ *   写进 expiry_date 后由 dashboard.checkExpiringCerts 原生证书到期提醒消费（提醒侧本文件不碰）
  * - 拉取写拒绝清单（D18）：.qihefilemanager/（含 trash）、导出/、交换区/；realpath 逃逸 → 拒绝
  * - readFileChunk：host 侧定位读（fs.read position），≤4MB/次，越界截断到 EOF（短读）
  * 纯 TS：不 import electron（ThumbnailProvider 由装配层注入，getThumb 薄壳在 host 层），node 可直测。
@@ -24,6 +26,7 @@ import {
   assertSafePathSegment,
 } from './paths'
 import { classifyFileType } from './paths'
+import { normalizeExpiryDate } from './metadata'
 import type { BoxService } from './index'
 
 /** 单 chunk 上限（对端 4MB 对齐，PLAN §3.2 readFileChunk/writePulledFile） */
@@ -41,17 +44,62 @@ export function isHiddenRelPath(relPath: string): boolean {
   return HIDDEN_TOP.has(first)
 }
 
-/** D10 元数据合并纯函数：tags 并集；notes 本地为空采纳远端、本地非空且不同 → 保留本地（计入冲突） */
+/** D10 单文本字段合并口径（notes / cert_type / expiry_date 同规则；v2.6 批7 D8 抽为共用出口）：
+ *  本地空 → 采纳远端；相同 → 保持本地；本地非空且不同 → 保留本地（计入冲突） */
+export function mergeTextField(local: string, remote: string): { value: string; conflict: boolean } {
+  const l = (local ?? '').trim()
+  const r = (remote ?? '').trim()
+  if (!l) return { value: r, conflict: false }
+  return l === r ? { value: l, conflict: false } : { value: l, conflict: true }
+}
+
+/** D10 元数据合并纯函数：tags 并集；notes 走 mergeTextField（本地为空采纳远端、本地非空且不同 → 保留本地（计入冲突）） */
 export function mergeTagsNotes(
   local: { tags: string[]; notes: string },
   remote: { tags: string[]; notes: string },
 ): { tags: string[]; notes: string; conflict: boolean } {
   const tags = [...new Set([...(local.tags ?? []), ...(remote.tags ?? [])])]
-  const localNotes = (local.notes ?? '').trim()
-  const remoteNotes = (remote.notes ?? '').trim()
-  if (!localNotes) return { tags, notes: remoteNotes, conflict: false }
-  if (localNotes === remoteNotes) return { tags, notes: localNotes, conflict: false }
-  return { tags, notes: localNotes, conflict: true }
+  const notes = mergeTextField(local.notes, remote.notes)
+  return { tags, notes: notes.value, conflict: notes.conflict }
+}
+
+/** 证书元数据（D8）：产品集根不是证书载体，故只有文件级路径带这两个字段 */
+export interface CertMeta {
+  cert_type?: string
+  expiry_date?: string
+}
+
+/** 归一化为 YYYY-MM-DD；空/不可解析 → 空串/原样（复用 metadata 侧同一函数，不另写一套解析） */
+function normalizedExpiry(s: string | undefined): string {
+  const v = (s ?? '').trim()
+  return v ? (normalizeExpiryDate(v) ?? v) : ''
+}
+
+/**
+ * D8（v2.6 批7）证书两字段合并纯函数（文件级）——与 notes 同规则，逐字段：
+ * - `cert_type`：mergeTextField（本地空采纳远端 / 相同保持 / 本地非空且不同 → 保留本地 + conflict）
+ * - `expiry_date`：**归一化后再比**（复用 `metadata.update` 写入口径）——同一天的不同写法
+ *   （`2027/1/5` vs `2027-01-05`）不算差异；不可解析则原样比较、原样保留
+ * - 远端**缺字段**（undefined）= 不表态：不改动本地、不计冲突（显式给空串才按「本地空采纳远端」）
+ */
+export function mergeCertMeta(
+  local: CertMeta,
+  remote: CertMeta,
+): { cert_type: string; expiry_date: string; conflict: boolean } {
+  let certType = (local.cert_type ?? '').trim()
+  let expiry = normalizedExpiry(local.expiry_date)
+  let conflict = false
+  if (remote.cert_type !== undefined) {
+    const r = mergeTextField(local.cert_type ?? '', remote.cert_type)
+    certType = r.value
+    conflict = conflict || r.conflict
+  }
+  if (remote.expiry_date !== undefined) {
+    const r = mergeTextField(normalizedExpiry(local.expiry_date), normalizedExpiry(remote.expiry_date))
+    expiry = r.value
+    conflict = conflict || r.conflict
+  }
+  return { cert_type: certType, expiry_date: expiry, conflict }
 }
 
 interface TreeEntry {
@@ -153,8 +201,9 @@ export class ShareViewService {
     return out
   }
 
-  /** 两级元数据：文件路径 → metadata store；产品集根路径 → product_sets.json（D10） */
-  async getMetadata(relPath: string): Promise<{ tags: string[]; notes: string }> {
+  /** 两级元数据（D8 起含证书两字段）：文件路径 → metadata store；产品集根路径 → product_sets.json（D10）。
+   *  cert_type/expiry_date 只有文件级有（产品集根不是证书载体）→ 产品集根恒回空串。 */
+  async getMetadata(relPath: string): Promise<{ tags: string[]; notes: string; cert_type: string; expiry_date: string }> {
     const ws = this.requireWS()
     const norm = relPath.replace(/\\/g, '/').replace(/^\/+/, '')
     if (!norm) throw new Error('非法路径')
@@ -168,7 +217,7 @@ export class ShareViewService {
           await fsp.stat(abs)
           const extra = await this.box.workspace.loadProductSetsInfo()
           const ex = extra[rest] ?? { tags: [], notes: '' }
-          return { tags: ex.tags ?? [], notes: ex.notes ?? '' }
+          return { tags: ex.tags ?? [], notes: ex.notes ?? '', cert_type: '', expiry_date: '' }
         } catch {
           // 目录不存在 → 落文件级路径（下方 resolve 会抛）
         }
@@ -176,7 +225,12 @@ export class ShareViewService {
     }
     const abs = this.resolveInWs(norm)
     const meta = await this.box.metadata.get(abs)
-    return { tags: meta.tags ?? [], notes: meta.notes ?? '' }
+    return {
+      tags: meta.tags ?? [],
+      notes: meta.notes ?? '',
+      cert_type: meta.cert_type ?? '',
+      expiry_date: meta.expiry_date ?? '',
+    }
   }
 
   /** 文件信息（大小/mtime） */
@@ -295,10 +349,14 @@ export class ShareViewService {
 
   /**
    * 元数据合并导入（D10 两级粒度）：文件路径 → metadata store；产品集根路径 → product_sets.json；
-   * tags 并集；notes 本地为空采纳远端、本地非空且不同 → 保留本地（计入冲突清单）；单批 ≤500。
+   * tags 并集；notes/cert_type/expiry_date 逐字段「本地为空采纳远端、本地非空且不同 → 保留本地」；
+   * 单批 ≤500；返回冲突清单（冲突 = 该 path 有任一字段口径冲突）。
+   *
+   * D8（v2.6 批7）：文件级路径扩证书两字段读写（cert_type/expiry_date 可选，缺省 = 不改动本地）——
+   * 写进 expiry_date 即被 box 原生证书到期提醒（dashboard.checkExpiringCerts）消费。
    */
   async mergePulledMetadata(
-    entries: { path: string; tags: string[]; notes: string }[],
+    entries: { path: string; tags: string[]; notes: string; cert_type?: string; expiry_date?: string }[],
   ): Promise<{ conflicts: string[] }> {
     if (entries.length > MAX_MERGE_BATCH) throw new Error(`单批超过 ${MAX_MERGE_BATCH} 条上限`)
     const ws = this.requireWS()
@@ -322,6 +380,8 @@ export class ShareViewService {
             )
             psStore[rest] = { tags: merged.tags, notes: merged.notes }
             psStoreDirty = true
+            // D8：product_sets.json 无证书两字段（产品集根不是证书载体）⇒ 这里只落 tags/notes；
+            // 条目带了 cert_type/expiry_date 也**不处理、更不计冲突**（那不是"说不拢"，是落点不存在）
             if (merged.conflict) conflicts.push(norm)
             continue
           } catch {
@@ -336,14 +396,18 @@ export class ShareViewService {
         { tags: local.tags ?? [], notes: local.notes ?? '' },
         { tags: e.tags ?? [], notes: e.notes ?? '' },
       )
+      const cert = mergeCertMeta(
+        { cert_type: local.cert_type, expiry_date: local.expiry_date },
+        { cert_type: e.cert_type, expiry_date: e.expiry_date },
+      )
       await this.box.metadata.update({
         file_path: abs,
         tags: merged.tags,
         notes: merged.notes,
-        cert_type: local.cert_type ?? '',
-        expiry_date: local.expiry_date ?? '',
+        cert_type: cert.cert_type,
+        expiry_date: cert.expiry_date, // store 写入侧再归一化一次（同函数，幂等）
       })
-      if (merged.conflict) conflicts.push(norm)
+      if (merged.conflict || cert.conflict) conflicts.push(norm)
     }
     if (psStoreDirty) await this.box.workspace.saveProductSetsInfo(ws, psStore)
     return { conflicts }
