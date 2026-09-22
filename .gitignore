@@ -68,8 +68,8 @@ docs/INTERNAL
 AGENTS.md
 # 内部运维文档与部署配置（v2.4.3 起从公开仓库移出，本地保留）
 # v2.4.6 起 PERF.md / PERFORMANCE.md 重新纳入公开仓库（内存与性能实测数据与基线，随版本维护）
-docs/OPS.md
-docs/PACKAGING.md
+# v2.6 收口（2026-09-23）：OPS.md / PACKAGING.md / SUBSCRIPTION.md 已迁入 docs/INTERNAL/ ——
+# 不再逐份点名内部文档（点名本身就在公开仓里泄漏内部文件名），只留上面的目录级规则
 deploy/
 
 # SDD 过程产物（subagent-driven-development ledger/brief/report）
