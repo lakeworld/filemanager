@@ -5,7 +5,7 @@
  * - 注册 IPC 与 qihebox:// 文件协议
  * - 系统托盘 + 关闭隐藏到托盘 + 崩溃自愈骨架
  */
-import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage, Notification, ipcMain, shell, globalShortcut } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage, Notification, ipcMain, globalShortcut } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -446,12 +446,15 @@ async function runUpdateCheck(): Promise<void> {
       await markUpdateNotified(info.version)
       sendSystemNotification(
         `发现新版本 v${info.version}`,
-        '点击查看更新说明并前往官网下载',
-        // v2.5.2（打磨）：通知点击死路径修复——此前只唤起主窗口，文案承诺的「前往官网下载」未兑现；
-        // 应用内下载通道未就绪（Profile 注释），点击直接打开官网下载页（唤起窗口 + openExternal）
+        '点击查看更新说明并在应用内更新',
+        // v2.6 批 4（设计 §五.7②）：提示点击落**应用内更新 UI**——唤起窗口 + 让渲染层
+        // 跳到「我的 → 检查更新」（deb/未打包实例那一页同样给到「提示 + 一键直链」），
+        // 不再把人甩去官网（v2.5.2 的 openExternal 分支到此为止）。
         () => {
           windowShow()
-          void shell.openExternal(info.download_url)
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) win.webContents.send('qihebox:event:update:open', null)
+          }
         },
       )
     }

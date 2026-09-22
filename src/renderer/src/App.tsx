@@ -9,6 +9,7 @@ import { loadCurrentWorkspace, loadWorkspaces, setFileBrowserRefreshTrigger } fr
 import { loadTagDefs } from "~/stores/tags";
 import { loadAccountStatus, subscribeAccountEvents } from "~/stores/account";
 import { closePreview } from "~/stores/preview";
+import { requestUpdateSection } from "~/stores/updateSection";
 import { banner, showCertReminder } from "~/stores/notifyBanner";
 import { onMount, createSignal, createEffect, onCleanup, Show } from "solid-js";
 import type { WindowPrepareHideMessage } from "../../shared/types";
@@ -168,6 +169,8 @@ export default function App(props: RouteSectionProps) {
   let unsubPrepareHide: (() => void) | null = null;
   /** v2.5.9 A6-1：全局唤醒搜索事件订阅 */
   let unsubWakeSearch: (() => void) | null = null;
+  /** v2.6 批 4：系统通知点击 → 打开「我的 → 检查更新」 */
+  let unsubUpdateOpen: (() => void) | null = null;
   // v2.5.3 常驻轻壳：parked=true 时业务层条件卸载（路由/预览/拖放/缩放器），仅保留轻壳骨架
   const [parked, setParked] = createSignal(false);
   const location = useLocation();
@@ -280,8 +283,16 @@ export default function App(props: RouteSectionProps) {
       requestAnimationFrame(() => tryFocus(0));
     });
 
+    // v2.6 批 4（设计 §五.7②）：系统通知点击 → 落应用内更新 UI（Profile 的「检查更新」分区）。
+    // 订阅必须在根组件（App 常驻）——页面级订阅会随路由卸载而错过通知点击。
+    unsubUpdateOpen = window.qihebox.events.on("update:open", () => {
+      requestUpdateSection();
+      navigate("/profile");
+    });
+
     onCleanup(() => {
       unsubWakeSearch?.();
+      unsubUpdateOpen?.();
       unsubImport?.();
       unsubCertReminder?.();
       unsubRestored?.();

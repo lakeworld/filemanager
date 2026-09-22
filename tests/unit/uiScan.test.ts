@@ -189,10 +189,16 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  *     `debt` 仍 6、`tint` 仍 0、`press` 仍 0、`noTransition` 仍 4。
  *     实测复核（`node scripts/scan-ui-inventory.mjs --write`）= 288 / 144 / 144 / noclass 0 / debt 6 /
  *     tint 0 / press 0 / noTransition 4 / modal 22 framed 22，逐格与本行一致。
+ *   - `total 288 → 290` / `unified 144 → 146`（**v2.6 批 4 客户端内更新**，2026-09-23）：
+ *     `pages/Profile.tsx`「检查更新」页由「跳官网」改应用内接管——可自更新形态（Windows NSIS /
+ *     AppImage）新增「下载更新」「退出并安装」两枚真按钮，都走 `.btn-primary` 五档（+2 unified）；
+ *     deb / 未打包实例那支只留「前往官网下载」直链（数量与改前持平，无净增）。
+ *     同前几次口径：`debt` 仍 6、`tint` 仍 0、`press` 仍 0、`noTransition` 仍 4，
+ *     `handwritten` 仍 144（+2 全落统一档，不是谁各写各的）。
  */
 const BASE = {
   button: {
-    total: 288, unified: 144, handwritten: 144, noclass: 0,
+    total: 290, unified: 146, handwritten: 144, noclass: 0,
     tint: 0, debt: 6, baseInternal: 5, press: 0, noTransition: 4,
   },
   input: { total: 16, checkbox: 12, baseInternal: 3, debt: 0, exempt: 1, other: 0 },

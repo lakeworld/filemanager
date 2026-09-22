@@ -171,6 +171,24 @@ export interface UpdateInfo {
   release_notes: string;
 }
 
+/** v2.6 批 4：本机更新形态（判据 = 主进程 core/updatePlan.resolveUpdateChannel） */
+export type UpdateChannel = "nsis" | "appimage" | "deb" | "unsupported";
+
+export interface UpdateCapability {
+  channel: UpdateChannel;
+  /** true = 有「退出并安装」；false（deb / 未打包实例）= 提示 + 一键直链 */
+  canInstallInApp: boolean;
+}
+
+/** v2.6 批 4：下载/校验进度（事件 qihebox:event:update:progress） */
+export interface UpdateProgress {
+  phase: "downloading" | "verifying";
+  percent: number;
+  transferred: number;
+  total: number;
+  bytesPerSecond?: number;
+}
+
 export interface AccountStatus {
   loggedIn: boolean;
   email: string;
