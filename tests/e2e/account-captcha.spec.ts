@@ -135,7 +135,7 @@ test.describe('账号区三态 · 图形码与注册链（v2.5.9 A8）', () => {
 
   const loginBtn = () => page.getByRole('button', { name: /^(登录|登录中\.\.\.)$/ })
 
-  test('态① 未登录：图码由主进程取到并渲染成 <img>；未填码登录按钮仍可用', async () => {
+  test('态① 未登录：图码由主进程取到并渲染成 <img>；按钮保持可点（必填闸门在提交处，见下一条）', async () => {
     await gotoProfile()
     await ensureLoggedOut()
 
@@ -146,12 +146,25 @@ test.describe('账号区三态 · 图形码与注册链（v2.5.9 A8）', () => {
     // 只断 src 相等挡不住"base64 是坏串"（本用例第一版就踩了：串本身 padding 不对，
     // <img> 有固定宽高照样 visible，看着绿其实是一张解不开的图）⇒ 必须断**真解码出了像素**
     expect(await img.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBe(1)
-    // 本版不切服务端 ⇒ 图码是加法不是闸门：不填码也必须能点登录
+    // v2.5.9 收口后图码必填，但 enforcement 在 handleLogin（点击即拦、给人话错误），
+    // 不靠禁用按钮——禁用按钮点不下去，用户反而不知道差什么
     await expect(loginBtn()).toBeEnabled()
 
     const captchaReqs = seen.filter((s) => s.url === '/api/captcha')
     expect(captchaReqs.length).toBeGreaterThanOrEqual(1)
     expect(captchaReqs[0].headers['x-qihe-client']).toBe('box')
+  })
+
+  test('态① 未填码点登录 ⇒ 前端即拦：人话错误可见 + 零 auth 请求（必填红线）', async () => {
+    await gotoProfile()
+    await ensureLoggedOut()
+    const authBefore = seen.filter((s) => s.url === '/api/collections/users/auth-with-password').length
+    await page.getByPlaceholder('邮箱').fill('e2e-nocaptcha@qihe.test')
+    await page.getByPlaceholder('密码').fill('e2epw12345')
+    await loginBtn().click()
+
+    await expect(page.getByText('请输入图形验证码')).toBeVisible({ timeout: 10000 })
+    expect(seen.filter((s) => s.url === '/api/collections/users/auth-with-password').length).toBe(authBefore)
   })
 
   test('态① 点图码换一张（图码一次性，留在原图上重试必然再失败）', async () => {
@@ -169,7 +182,7 @@ test.describe('账号区三态 · 图形码与注册链（v2.5.9 A8）', () => {
     await ensureLoggedOut()
     await page.getByPlaceholder('邮箱').fill('e2e-login@qihe.test')
     await page.getByPlaceholder('密码').fill('e2epw12345')
-    await page.getByPlaceholder('图形验证码（选填）').fill('9k2m')
+    await page.getByPlaceholder('图形验证码（必填）').fill('9k2m')
     await loginBtn().click()
 
     await expect
@@ -193,7 +206,7 @@ test.describe('账号区三态 · 图形码与注册链（v2.5.9 A8）', () => {
     failNextAuth = true
     await page.getByPlaceholder('邮箱').fill('e2e-fail@qihe.test')
     await page.getByPlaceholder('密码').fill('e2epw12345')
-    await page.getByPlaceholder('图形验证码（选填）').fill('0000')
+    await page.getByPlaceholder('图形验证码（必填）').fill('0000')
     await loginBtn().click()
     await expect
       .poll(() => seen.filter((s) => s.url === '/api/captcha').length, { timeout: 15000 })

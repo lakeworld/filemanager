@@ -414,8 +414,8 @@ export default function Profile() {
  *
  * 三态：`login`（未登录，带图码）→ `register`（填邮箱密码）→ `verify`（客户端内输 6 位邮箱码，
  * **不把用户赶去网页**），验证通过自动转登录。
- * 图码是**选填**：本版不切服务端，现网对 `X-Qihe-Client: box` 最优先豁免 ⇒ 图码取不到、用户不填，
- * 登录照旧可用（所以图码位取不到时只提示、不禁按钮）。
+ * 图码**必填**（v2.5.9 收口）：未填码或图码没取到时点登录，前端即拦——人话错误 + 零请求。
+ * 服务端现网对 `X-Qihe-Client: box` 仍豁免图形码，客户端这道是唯一实际闸门（如实记录，不谎称服务端生效）。
  */
 function AccountSection() {
   const [email, setEmail] = createSignal("");
@@ -462,13 +462,18 @@ function AccountSection() {
       setError("请输入邮箱和密码");
       return;
     }
+    // 图形码必填：没填码 → 「请输入图形验证码」；图码没取到 → 指路点图片重试。
+    // 两种都**不发登录请求**（闸门在客户端；服务端对 box 客户端仍豁免，见 AccountSection 头注）。
+    if (!captchaId() || !captchaValue().trim()) {
+      setError(captchaId() ? "请输入图形验证码" : "图形验证码加载失败，请点击右侧图片重试");
+      return;
+    }
     setBusy(true);
     setError("");
-    const filled = captchaId() && captchaValue().trim();
-    // A8：码错时服务端 message 会透传回来（v2.5.1 口径），这里顺手换一张新的——
+    // 码错时服务端 message 会透传回来（v2.5.1 口径），这里顺手换一张新的——
     // 图码是一次性的，留在原图上让用户重试同一张必然再失败
-    const ok = await doLogin(filled ? { id: captchaId(), value: captchaValue().trim() } : undefined);
-    if (!ok && filled) await loadCaptcha();
+    const ok = await doLogin({ id: captchaId(), value: captchaValue().trim() });
+    if (!ok) await loadCaptcha();
     setBusy(false);
   };
 
@@ -539,13 +544,13 @@ function AccountSection() {
             <div class="rounded-xl bg-surface-100 px-4 py-3 text-surface-700">
               <div class="font-semibold">登录启禾账号</div>
               <div class="mt-0.5 text-xs text-surface-500">
-                登录后自动上报活跃信息（设备标识、版本、使用时间），仅用于统计产品使用情况，可随时登出停止
+                登录后自动上报活跃信息（设备标识、版本、使用时间），仅用于统计产品使用情况；文件内容永不上传，可随时登出停止。
               </div>
             </div>
 
             {/*
               三态表单（v2.5.9 A8；底座仍走 ui/Input + ui/Button，v2.5.1 D4 口径不变）：
-              login（邮箱密码 + 选填图码）↔ register（同两格，改文案）→ verify（6 位邮箱码）。
+              login（邮箱密码 + 必填图码）↔ register（同两格，改文案）→ verify（6 位邮箱码）。
               注册链**留在客户端内**：不再把用户甩去官网注册页（旧文案就是那个）。
             */}
             <Show
@@ -575,16 +580,20 @@ function AccountSection() {
                     <div class="flex items-center gap-2">
                       <Input
                         class="flex-1"
-                        placeholder="图形验证码（选填）"
+                        placeholder="图形验证码（必填）"
                         value={captchaValue()}
                         onInput={(e) => setCaptchaValue(e.currentTarget.value)}
                       />
                       <Show
                         when={captchaImg()}
                         fallback={
-                          <span class="flex h-9 w-24 items-center justify-center rounded-lg border border-surface-200 bg-surface-100 text-xs text-surface-400">
+                          <button
+                            type="button"
+                            class="link-btn h-9 w-24 justify-center rounded-lg border border-surface-200 text-xs text-surface-500 hover:text-primary-600"
+                            onClick={() => void loadCaptcha()}
+                          >
                             点击重试
-                          </span>
+                          </button>
                         }
                       >
                         <img

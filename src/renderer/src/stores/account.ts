@@ -22,7 +22,7 @@ export async function loadAccountStatus(): Promise<void> {
 export async function loginAccount(
   email: string,
   password: string,
-  /** v2.5.9 A8：图形码（选填——本版服务端仍豁免 box 客户端，缺码不挡登录） */
+  /** v2.5.9 A8→收口：图形码必填——未填码渲染层即拦、不发请求（服务端对 box 客户端仍豁免，客户端是唯一实际闸门） */
   captcha?: { id: string; value: string },
 ): Promise<{ ok: boolean; error?: string }> {
   const r = await api.account.login(email, password, captcha);

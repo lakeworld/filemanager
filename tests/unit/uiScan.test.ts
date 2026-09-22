@@ -168,10 +168,16 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  *     `debt` 仍 6、`tint` 仍 0、`press` 仍 0、`noTransition` 仍 4（增数 = 多了 8 个真按钮，不是谁各写各的）。
  *   - `modal framed 21 → 22`（**v2.5.9 A7**）：计算面板的「编辑标题备注」弹窗（`ui/Modal` framed +
  *     `.dlg-field` 字段区 + `.btn-*` 页脚）——面板内唯一一个 Modal 调用点，未 framed 名单仍为空。
+ *   - `total 283 → 284` / `handwritten 140 → 141`（**v2.5.9 图码必填收口**，2026-09-22）：
+ *     `pages/Profile.tsx` 账号区图码位「点击重试」兜底 span → button——图码取失败时没有图可点，
+ *     必须给一个可点的重试入口（按钮保持可点、必填闸门在提交处给人话错误，不停在禁用态）。
+ *     走既有形状档 `.link-btn`（过渡由骨架自带，不重复写 transition）。同 D18 / A6-2 / A8 / A9
+ *     口径：形状档归 handwritten 这一格不是收口指标 ⇒ `debt` 仍 6、`tint` 仍 0、`press` 仍 0、
+ *     `noTransition` 仍 4（+1 = 多一个真按钮，不是谁各写各的）。
  */
 const BASE = {
   button: {
-    total: 283, unified: 143, handwritten: 140, noclass: 0,
+    total: 284, unified: 143, handwritten: 141, noclass: 0,
     tint: 0, debt: 6, baseInternal: 5, press: 0, noTransition: 4,
   },
   input: { total: 16, checkbox: 12, baseInternal: 3, debt: 0, exempt: 1, other: 0 },
