@@ -160,6 +160,16 @@ export class PluginRegistry {
         .filter((d) => d.isDirectory())
         .map((d) => d.name)
         .filter((d) => !d.startsWith('.')) // 隐藏/临时目录（.tmp-install-*、.pkg-old-* 覆盖备份等）不是插件目录
+        // 批 2.5 P1-3：白名单化——目录须含 pkg/ 子目录才算插件候选。宿主自建 userData/plugins/keys/
+        // （encryption 密钥缓存）与非插件残留此前一律进 addBroken → 幽灵条目，且对它「卸载」= rm -rf
+        // 掉全部密钥缓存。无 pkg 的目录直接跳过；pkg 在而 manifest 缺的真损坏安装照旧登记 broken。
+        .filter((d) => {
+          try {
+            return fs.statSync(path.join(this.root, d, PKG_DIR)).isDirectory()
+          } catch {
+            return false
+          }
+        })
     } catch {
       return // plugins 目录不存在（默认未安装任何插件）→ 空清单
     }

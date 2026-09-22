@@ -325,11 +325,16 @@ export class PluginLoader {
     if (!entry.enabled) throw new Error(`插件未启用：${id}`)
     await this.ensureActive(id)
     const rt = this.runtimes.get(id)
-    const handler = rt?.registration?.ipc?.[action]
+    // 批 2.5 P1-1：裸属性读会命中 Object.prototype——`__proto__`（对象，非函数）会被当 handler 调用抛
+    // TypeError → fail() 熔断；`constructor`/`toString` 更会被当函数顺手调用。两表（ipc/commands）一律
+    // 改 hasOwnProperty 守卫（实质=无原型表读法），未知 action 走「未提供」拒绝且不计熔断。
+    const ipcTable = rt?.registration?.ipc
+    const handler = ipcTable && Object.prototype.hasOwnProperty.call(ipcTable, action) ? ipcTable[action] : undefined
     // v2.5（PLAN §5.3）：commands 与 ipc 共用 call 入口——无 ipc handler 时回退到
     // registration.commands[action]（右键命令触发：payload = { filePaths }，ctx 注入 host）
-    if (!handler && rt?.registration?.commands?.[action]) {
-      const cmd = rt.registration.commands[action]
+    const cmdTable = rt?.registration?.commands
+    const cmd = !handler && cmdTable && Object.prototype.hasOwnProperty.call(cmdTable, action) ? cmdTable[action] : undefined
+    if (cmd && rt) {
       this.registry.recordCall(id)
       try {
         const filePaths = ((payload as { filePaths?: string[] } | null)?.filePaths ?? []).filter(

@@ -133,6 +133,70 @@ describe('getPluginKey 缓存与在线取钥', () => {
     expect(calls).toBe(2)
   })
 
+  it('baseUrl 已含 /api → 取钥 URL 剥一段，无 /api/api 双段（批 2.5 P0-1）', async () => {
+    // 复现（现网五重证据）：build/server.json 的 apiBase = `https://www.qihebook.cloud/api`（已含 /api），
+    // 而本模块拼 `${baseUrl}/api/box/plugin-key` → 实际打 /api/api/… 落 SPA 兜底 200 text/html、
+    // 真路由 /api/box/plugin-key 无凭据 401 ⇒ 加密插件永远取不到钥（fail-closed 永不加载）。
+    const deps = makeDeps({ baseUrl: 'https://www.qihebook.cloud/api' })
+    let seen = ''
+    const fetchImpl = async (url: string): Promise<Response> => {
+      seen = url
+      return new Response(JSON.stringify({ code: 200, data: { key_hex: 'k' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    await fetchKeyOnline(deps, baseManifest(), 'sha', fetchImpl as unknown as typeof fetch)
+    expect(seen).toBe('https://www.qihebook.cloud/api/box/plugin-key')
+    expect(seen.includes('/api/api/')).toBe(false)
+    // 不带 /api 的 baseUrl 不受影响（单段保持）
+    let seen2 = ''
+    const deps2 = makeDeps({ baseUrl: 'https://api.test.dev' })
+    await fetchKeyOnline(deps2, baseManifest(), 'sha', (async (url: string) => {
+      seen2 = url
+      return new Response(JSON.stringify({ code: 200, data: { key_hex: 'k' } }), { status: 200 })
+    }) as unknown as typeof fetch)
+    expect(seen2).toBe('https://api.test.dev/api/box/plugin-key')
+  })
+
+  it('密钥缓存绑版本：同版命中缓存；插件更新（版本变化）→ 旧缓存失效重新取钥（批 2.5 P1-2）', async () => {
+    // 复现：服务端按 (plugin_id, version) 发钥，覆盖安装后密文换新钥；
+    // 旧缓存只按 id 命中（不比对版本）⇒ 7 天宽限内拿旧钥解新密文 → GCM 失败 → fail-closed。
+    const deps = makeDeps()
+    let calls = 0
+    const fetchImpl = async (_url: string, init?: RequestInit): Promise<Response> => {
+      calls++
+      const body = JSON.parse(init!.body as string)
+      return new Response(JSON.stringify({ code: 200, data: { key_hex: body.version === '2.0.0' ? 'newkey' : 'oldkey' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    const k1 = await getPluginKey(deps, baseManifest(), 'sha-1', fetchImpl as unknown as typeof fetch)
+    expect(k1).toBe('oldkey')
+    expect(calls).toBe(1)
+    // 同版本：命中缓存（不发网络）
+    await getPluginKey(deps, baseManifest(), 'sha-1', fetchImpl as unknown as typeof fetch)
+    expect(calls).toBe(1)
+    // 覆盖安装（1.0.0 → 2.0.0）：旧缓存必须失效 → 重新取钥拿新钥
+    const k2 = await getPluginKey(deps, baseManifest({ version: '2.0.0' }), 'sha-2', fetchImpl as unknown as typeof fetch)
+    expect(k2).toBe('newkey')
+    expect(calls).toBe(2)
+    // 新缓存落盘含 version（后续宽限也锁版本）
+    const raw = JSON.parse(fs.readFileSync(path.join(tmpDir, 'keys', 'com.qihe.test.key'), 'utf8'))
+    expect(raw.version).toBe('2.0.0')
+    // 版本不符 + 在线失败 → 严格 fail-closed（不回落旧钥）
+    const k3 = await getPluginKey(
+      deps,
+      baseManifest({ version: '3.0.0' }),
+      'sha-3',
+      (async () => {
+        throw new Error('ECONNREFUSED')
+      }) as unknown as typeof fetch,
+    )
+    expect(k3).toBeNull()
+  })
+
   it('在线拒绝（403/失败）且无缓存 → null', async () => {
     const deps = makeDeps()
     const fetchImpl = async (): Promise<Response> =>

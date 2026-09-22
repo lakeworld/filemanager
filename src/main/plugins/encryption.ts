@@ -44,6 +44,9 @@ export interface KeyDeps {
 interface CachedKey {
   keyHex: string
   fetchedAt: number
+  /** 取钥时的插件版本（批 2.5 P1-2）：服务端按 (plugin_id, version) 发钥，
+   *  覆盖安装后密文换新钥——缓存不绑版本会在 7 天宽限内拿旧钥解新密文（GCM 失败 → fail-closed）。 */
+  version: string
 }
 
 function cacheFile(deps: KeyDeps, pluginId: string): string {
@@ -53,22 +56,26 @@ function cacheFile(deps: KeyDeps, pluginId: string): string {
 function readCache(deps: KeyDeps, pluginId: string): CachedKey | null {
   try {
     const raw = fs.readFileSync(cacheFile(deps, pluginId), 'utf8')
-    const json = JSON.parse(raw) as { key: string; fetchedAt: number }
+    const json = JSON.parse(raw) as { key: string; fetchedAt: number; version?: unknown }
     const buf = deps.secretStore ? deps.secretStore.decrypt(json.key, 'qihebox-plugin-key') : null
     if (!buf) return null
-    return { keyHex: buf.toString('utf8'), fetchedAt: json.fetchedAt }
+    return {
+      keyHex: buf.toString('utf8'),
+      fetchedAt: json.fetchedAt,
+      version: typeof json.version === 'string' ? json.version : '', // 旧缓存无 version 字段 → '' ≠ 任何版本 → 视为未命中
+    }
   } catch {
     return null
   }
 }
 
-function writeCache(deps: KeyDeps, pluginId: string, keyHex: string): void {
+function writeCache(deps: KeyDeps, pluginId: string, keyHex: string, version: string): void {
   try {
     fs.mkdirSync(deps.cacheDir, { recursive: true })
     const encoded = deps.secretStore
       ? deps.secretStore.encrypt(Buffer.from(keyHex, 'utf8'), 'qihebox-plugin-key')
       : 'raw:' + Buffer.from(keyHex, 'utf8').toString('base64')
-    fs.writeFileSync(cacheFile(deps, pluginId), JSON.stringify({ key: encoded, fetchedAt: Date.now() }), { mode: 0o600 })
+    fs.writeFileSync(cacheFile(deps, pluginId), JSON.stringify({ key: encoded, fetchedAt: Date.now(), version }), { mode: 0o600 })
   } catch (err) {
     deps.log('warn', `[encryption] 密钥缓存写入失败（仅影响离线宽限）: ${String(err)}`)
   }
@@ -92,7 +99,11 @@ export async function fetchKeyOnline(
     version: manifest.version,
     cipher_sha256: localCipherSha256,
   }
-  const res = await fetchImpl(`${deps.baseUrl}/api/box/plugin-key`, {
+  // 批 2.5 P0-1（照 host.ts F4a 先例）：resolveApiBase() 返回 `…/api`（协议要求路径亦以 /api/ 开头）
+  // → 直接拼会产生 /api/api 双段，落 SPA 兜底 200 text/html 而真路由 401。剥 baseUrl 尾部 /api 一次。
+  let url = `${deps.baseUrl}/api/box/plugin-key`
+  if (deps.baseUrl.endsWith('/api')) url = `${deps.baseUrl.slice(0, -4)}/api/box/plugin-key`
+  const res = await fetchImpl(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -124,15 +135,16 @@ export async function getPluginKey(
 ): Promise<string | null> {
   if (!manifest.encryption) return null
   const cached = readCache(deps, manifest.id)
-  if (cached && cached.keyHex && Date.now() - cached.fetchedAt < KEY_GRACE_PERIOD_MS) {
+  // 批 2.5 P1-2：缓存命中须「未过期 且 版本一致」——覆盖安装后版本变化即回源（服务端按版本发钥）
+  if (cached && cached.keyHex && cached.version === manifest.version && Date.now() - cached.fetchedAt < KEY_GRACE_PERIOD_MS) {
     return cached.keyHex
   }
   const fetched = await fetchKeyOnline(deps, manifest, localCipherSha256, fetchImpl)
   if (fetched) {
-    writeCache(deps, manifest.id, fetched)
+    writeCache(deps, manifest.id, fetched, manifest.version)
     return fetched
   }
-  // 网络失败 + 缓存过期 → 拒绝（锁云端插件入口；本地功能不受影响）
+  // 网络失败 + 缓存过期/版本不符 → 拒绝（锁云端插件入口；本地功能不受影响）
   deps.log('warn', `[encryption] 密钥不可用（${manifest.id}@${manifest.version}）→ 拒绝加载加密插件`)
   return null
 }

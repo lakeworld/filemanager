@@ -213,6 +213,20 @@ describe('PluginRegistry：发现与校验', () => {
     expect(e.brokenReason).toContain('清单缺失')
   })
 
+  it('无 pkg 的非插件目录不进清单（keys/ 密钥缓存幽灵条目回归，批 2.5 P1-3）', () => {
+    // 复现：宿主自建 userData/plugins/keys/（encryption.ts 密钥缓存）被旧 scan 当插件目录
+    // → 登记为「清单缺失」broken 幽灵条目，且对它卸载 = rm -rf 掉全部密钥缓存
+    fs.mkdirSync(path.join(root, 'keys'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'keys', 'com.qihe.a.key'), '{"key":"raw:xx","fetchedAt":1}')
+    writePlugin('com.qihe.a')
+    const list = makeRegistry().list()
+    expect(list.map((x) => x.id)).toEqual(['com.qihe.a'])
+    expect(list.some((x) => x.state === 'broken')).toBe(false)
+    // 真损坏安装（pkg/ 在、manifest 缺）仍照旧登记 broken——白名单不吞真欠账
+    fs.mkdirSync(path.join(root, 'com.qihe.broken1', PKG_DIR), { recursive: true })
+    expect(makeRegistry().get('com.qihe.broken1')!.state).toBe('broken')
+  })
+
   it('manifest 非法 JSON → broken（解析失败）', () => {
     const pkg = path.join(root, 'com.qihe.x', PKG_DIR)
     fs.mkdirSync(pkg, { recursive: true })
@@ -372,6 +386,24 @@ describe('PluginLoader：惰性加载 / 握手 / 熔断', () => {
     const info = registry.info('com.qihe.a')!
     expect(info.callCount).toBe(2)
     expect(info.activationMs!).toBeGreaterThanOrEqual(0)
+  })
+
+  it('原型链 action 名（__proto__ / constructor / toString）→ 拒绝且不计熔断（批 2.5 P1-1）', async () => {
+    // 复现：裸属性读 registration.ipc?.[action] 命中 Object.prototype——'__proto__' 取到对象（非函数）
+    // → 调用抛 TypeError → fail() → 连续 3 次任意插件被跨插件熔断（渲染层任意代码可达）
+    writePlugin('com.qihe.a')
+    const { loader, registry } = makeLoader(new HostEventBus())
+    for (const action of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
+      await expect(loader.call('com.qihe.a', action, null)).rejects.toThrow('插件未提供 IPC 动作')
+    }
+    // 不计熔断：连续多次后仍 enabled、failCount 0
+    for (let i = 0; i < BREAK_THRESHOLD + 1; i++) {
+      await loader.call('com.qihe.a', '__proto__', null).catch(() => {})
+    }
+    expect(registry.get('com.qihe.a')!.state).toBe('enabled')
+    expect(registry.get('com.qihe.a')!.failCount).toBe(0)
+    // 正常动作不受影响（且 activate 只发生一次：拒绝路径不应触发加载侧失败重试）
+    await expect(loader.call('com.qihe.a', 'echo', { ok: 1 })).resolves.toEqual({ pong: { ok: 1 } })
   })
 
   it('加密插件：main/index.js.enc 内存解密 + _compile 激活（F5b），明文不落盘', async () => {
