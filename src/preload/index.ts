@@ -360,7 +360,7 @@ const api = {
     // v2.4.7（评审 P1）：查询主进程缓存的更新可用状态（懒加载错过事件时兜底）
     state: () => invoke('qihebox:updater:state'),
     // v2.6 批 4：本机更新形态（nsis/appimage/deb/unsupported）——渲染层据此决定给
-    // 「退出并安装」还是「提示 + 一键直链 /file-manager」（deb 官方不支持自更新，D-UP1）
+    // 「退出并安装」还是「提示 + 一键直链 /file-manager」（deb 官方不支持自更新）
     capability: () => invoke('qihebox:updater:capability'),
     download: (info: unknown) => invoke('qihebox:updater:download', info),
     // v2.6 批 4：安装只认主进程账上那份「已下载 + 已校验」的包——渲染层不再递路径/校验值

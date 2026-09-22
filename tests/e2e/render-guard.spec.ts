@@ -188,7 +188,7 @@ test.describe('v2.5.7 渲染守卫（异常零容忍 + 新面回归）', () => {
     expect(await editor.locator('table th').count()).toBeGreaterThanOrEqual(2)
     expect(await editor.locator('table td').count()).toBeGreaterThanOrEqual(2)
     expect(await editor.locator('hr').count()).toBeGreaterThanOrEqual(1)
-    // 任务列表两态都渲染出文本来（Crepe 用自绘 label，不用原生 input[type=checkbox]——见内部缺陷台账 P2）
+    // 任务列表两态都渲染出文本来（Crepe 用自绘 label，不用原生 input[type=checkbox]——见内部记录 P2）
     const liTexts = await editor.locator('li').allTextContents()
     expect(liTexts.join('|')).toContain('待办未完成')
     expect(liTexts.join('|')).toContain('待办已完成')

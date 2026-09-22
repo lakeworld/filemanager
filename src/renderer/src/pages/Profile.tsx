@@ -394,7 +394,7 @@ export default function Profile() {
                 </Show>
 
                 {/* v2.6 批 4：应用内接管——能自更新的形态给「下载更新 → 退出并安装」，
-                    deb / 未打包实例给「提示 + 一键直链 /file-manager」（D-UP1，不显示「退出并安装」） */}
+                    deb / 未打包实例给「提示 + 一键直链 /file-manager」（不显示「退出并安装」） */}
                 <Show when={updatePhase() === "available" && latestVersion()}>
                   <div class="rounded-xl bg-primary-50 px-4 py-3 text-sm text-primary-700">
                     <div class="font-semibold">发现新版本：v{latestVersion()?.version}</div>

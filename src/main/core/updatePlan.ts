@@ -16,12 +16,12 @@ import fsp from 'node:fs/promises'
 import crypto from 'node:crypto'
 
 /**
- * 匿名更新面（feed 根）。**跨项目接触点，逐字符不许改**：
- * - erp `scripts/publish-box-installer.sh` 的 `PUBLIC_UPDATES_URL="$SITE_ORIGIN/updates/box"`；
- * - erp `deploy/snippets/box-download-locations.conf` 的 `location ^~ /updates/box/`（alias 到
- *   `/srv/qihe-box-updates/`，扁平目录：`latest.yml` / `latest-linux.yml` / 全量包 / blockmap）；
+ * 匿名更新面（feed 根）。**跨项目接触点，逐字符不许改**；该地址**设计上必须公开**
+ * （客户端要自己按它取更新），所以它写在公开仓里，不算基础设施泄漏：
+ * - ERP 侧（闭源）发布脚本与站点配置申报**同一地址**，形态为扁平静态目录
+ *   （`latest.yml` / `latest-linux.yml` / 全量包 / blockmap）；
  * - 本仓 `electron-builder.yml` 的 `publish: generic` URL（由 `tests/unit/updaterInstall.test.ts` 锚定同源）。
- * 三处任一漂移 ⇒ 客户端静默取不到 feed（404 落 SPA 兜底时甚至是 200 + text/html 的假面）。
+ * 任一漂移 ⇒ 客户端静默取不到 feed（404 落 SPA 兜底时甚至是 200 + text/html 的假面）。
  */
 export const UPDATE_FEED_URL = 'https://www.qihebook.cloud/updates/box/'
 
@@ -31,7 +31,7 @@ export type UpdateChannel =
   | 'nsis'
   /** AppImage：自更新（替换本体文件后重启） */
   | 'appimage'
-  /** deb：**官方不支持**自更新（D-UP1）→ UI 走「提示 + 一键直链 /file-manager」 */
+  /** deb：**官方不支持**自更新（直链口径）→ UI 走「提示 + 一键直链 /file-manager」 */
   | 'deb'
   /** 未打包实例（开发/预览）或非目标平台/非本仓包型：不做应用内更新，也不谎报成 deb */
   | 'unsupported'
@@ -66,7 +66,7 @@ export function canInstallInApp(channel: UpdateChannel): boolean {
 
 export const UPDATE_UNSUPPORTED_CODE = 'update-unsupported'
 
-/** 可判别的「本形态不支持应用内更新」——UI 据此落 D-UP1 直链分支（IPC 错误串之外还留了 code/channel） */
+/** 可判别的「本形态不支持应用内更新」——UI 据此落直链分支（IPC 错误串之外还留了 code/channel） */
 export class UpdateUnsupportedError extends Error {
   readonly code = UPDATE_UNSUPPORTED_CODE
   readonly channel: UpdateChannel

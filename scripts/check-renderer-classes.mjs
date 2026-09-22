@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 渲染层 Tailwind 类核查（v2.5.8 A1，内部缺陷台账 D-13 固化）：
+ * 渲染层 Tailwind 类核查（v2.5.8 A1，缺陷台账 D-13 固化）：
  *
  * 宿主 Tailwind 按**源码**扫描编译 —— 源码里写了 Tailwind/自定义类但编译 CSS 里没有
  * 对应规则时，样式**静默失效**（D-13 实录：`note-editor-wrap` 挂在 class 串里但源码与

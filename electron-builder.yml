@@ -53,8 +53,8 @@ extraResources:
 npmRebuild: false
 
 # v2.6 批 4：应用内更新（electron-updater generic provider）。
-# url = 匿名更新面 feed 根，**必须逐字符**等于 erp 侧
-# scripts/publish-box-installer.sh 的 PUBLIC_UPDATES_URL 与 nginx 的 `location ^~ /updates/box/`
+# url = 匿名更新面 feed 根（设计上必须公开：客户端要自己按它取更新），**必须逐字符**等于
+# ERP 侧（闭源）发布脚本与站点配置申报的同一地址
 # （客户端按「feed 根 + latest*.yml 里的相对 path」拼包 URL）；运行时常量同源由
 # tests/unit/updaterInstall.test.ts 锚定。
 # 构建仍 `--publish never`：产物落本地 release/（latest.yml / latest-linux.yml / blockmap），

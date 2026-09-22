@@ -934,7 +934,7 @@ export function registerIpc(
   // v2.4.7（评审 P1）：查询主进程缓存的更新可用状态（Profile 懒加载错过 update:available 事件时兜底）
   ipcMain.handle('qihebox:updater:state', () => ok(getCachedUpdate()))
   // v2.6 批 4：本机更新形态（nsis / appimage / deb / unsupported）——UI 据此决定是给
-  // 「退出并安装」还是「提示 + 一键直链 /file-manager」（D-UP1：deb 不自更新，不许假装能装）
+  // 「退出并安装」还是「提示 + 一键直链 /file-manager」（直链口径：deb 不自更新，不许假装能装）
   ipcMain.handle('qihebox:updater:capability', () => handle(() => updateCapability()))
   // 下载：进度经 update:progress 事件回流（渲染层画进度条）；deb/unsupported 一律在下载口被拒
   ipcMain.handle('qihebox:updater:download', (_e, info: UpdateInfo) =>

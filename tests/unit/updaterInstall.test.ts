@@ -7,7 +7,7 @@
  * （内部设计文档 §四：2.5.x 装机 → 应用内检查 → 下载 → 校验 → 退出安装）。
  *
  * 门下三件事（每条都对应卡上一条验收）：
- *   ① 形态判据 deb / AppImage / NSIS 三分，deb 抛**可判别**的「不支持」（D-UP1 走直链分支）；
+ *   ① 形态判据 deb / AppImage / NSIS 三分，deb 抛**可判别**的「不支持」（deb 走直链分支）；
  *   ② 完整性校验不匹配 → 拒绝 + 删残包（半截/被改过的包不许交给安装器）；
  *   ③ 下载与安装的账目：没下载过不许安装、安装后清账（防双装）。
  */
@@ -83,12 +83,12 @@ function fakeEngine(
   return { channel, download, install }
 }
 
-// ── 跨项目接触点：feed URL 逐字符一致（erp 脚本 PUBLIC_UPDATES_URL / nginx location）──
+// ── 跨项目接触点：feed URL 逐字符一致（ERP 侧（闭源）发布脚本与站点配置的同一地址）──
 
 describe('更新面地址（跨项目接触点）', () => {
-  it('运行时 feed 常量 = 服务端匿名更新面（erp nginx location ^~ /updates/box/）', () => {
-    // 逐字符钉死：改这里必须同时改 erp scripts/publish-box-installer.sh 的 PUBLIC_UPDATES_URL
-    // 与 deploy/snippets/box-download-locations.conf，否则客户端取不到 feed（静默 404）
+  it('运行时 feed 常量 = 服务端匿名更新面（ERP 侧站点配置申报的同一地址）', () => {
+    // 逐字符钉死：改这里必须同时改 ERP 侧（闭源）发布脚本与站点配置，
+    // 否则客户端取不到 feed（静默 404）
     expect(UPDATE_FEED_URL).toBe('https://www.qihebook.cloud/updates/box/')
   })
 
@@ -100,7 +100,7 @@ describe('更新面地址（跨项目接触点）', () => {
   })
 })
 
-// ── 形态判据（D-UP1：deb 不自更新，走「提示 + 直链」）──
+// ── 形态判据（deb 不自更新，走「提示 + 直链」）──
 
 describe('更新形态判据（resolveUpdateChannel）', () => {
   it('Windows → nsis（完整自更新）', () => {
@@ -228,7 +228,7 @@ describe('更新包完整性校验（verifyDownloadedFile）', () => {
 // ── 下载编排（deb 不下载、进度转发、校验失败不留账）──
 
 describe('下载更新（downloadUpdate）', () => {
-  it('deb / unsupported 形态 → 抛「不支持」且一次都不碰引擎（D-UP1 直链分支的判据）', async () => {
+  it('deb / unsupported 形态 → 抛「不支持」且一次都不碰引擎（直链分支的判据）', async () => {
     for (const channel of ['deb', 'unsupported'] as UpdateChannel[]) {
       const engine = fakeEngine('/nope', 'x', channel)
       const err = await downloadUpdate(INFO, { engine }).catch((e: unknown) => e)

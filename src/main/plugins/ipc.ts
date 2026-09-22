@@ -310,7 +310,7 @@ export function registerPluginHost(
     for (const win of BrowserWindow.getAllWindows()) sendTo(win, 'qihebox:event:plugins:changed', payload)
   }
 
-  // —— v2.6（批 3）：官方插件预装（PLAN §四）——装配期**一次**、启动早期、异步 fire-and-forget。
+  // —— v2.6（批 3）：官方插件预装（内部设计文档 §四）——装配期**一次**、启动早期、异步 fire-and-forget。
   // 整函数吞异常（单包失败只 warn + 进报告）⇒ 不进「app ready → 窗口可交互」关键路径，失败不阻断启动；
   // 开源自建构建不带预装目录 ⇒ 目录缺失优雅跳过、零预装条目（runOfficialPreinstall 内部判定）。
   void runOfficialPreinstall({

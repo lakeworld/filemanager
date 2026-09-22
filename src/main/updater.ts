@@ -4,7 +4,7 @@
  * - downloadUpdate / applyUpdate：v2.6 批 4 起**应用内落地**（判据在 core/updatePlan.ts，
  *   electron-updater 只在 src/main/updaterMain.ts 薄壳里）：
  *   下载 → 更新面申报的 sha512 逐字节复算 → 交安装器（NSIS / AppImage）/ deb 抛不支持走直链。
- *   三平台口径与决策见内部设计文档（D-UP1/D-UP3）。
+ *   三平台口径与决策见内部设计文档（不进公开仓）。
  */
 import fs from 'node:fs'
 import {
@@ -139,7 +139,7 @@ export async function updateCapability(opts: UpdateRunOptions = {}): Promise<Upd
 
 /**
  * 下载更新包（更新面全量包），完成后**逐字节复算哈希**再记账。
- * - deb / unsupported：抛可判别的 UpdateUnsupportedError（零下载；UI 落 D-UP1 直链分支）
+ * - deb / unsupported：抛可判别的 UpdateUnsupportedError（零下载；UI 落直链分支）
  * - 校验不通过：删残包 + 抛（不留半截包等着被装）
  * @returns 已落盘并通过校验的更新包路径
  */

@@ -7,9 +7,9 @@
  * - 这里只做两件事：① 把宿主的环境事实喂给判据；② 用 electron-updater 取更新面的包。
  *
  * 为什么是 electron-updater：feed（`/updates/box/`，扁平静态目录）的读取、sha512 校验、
- * 断点/半截下载的处置都是它现成的（erp 侧发布脚本也是按「client 侧 electron-updater 自己按 feed 取」
- * 写的——见 `scripts/publish-box-installer.sh` 头注）。它同时**不做**的事：deb 自更新（本仓更新面
- * 也没有 deb 产物）→ 走 D-UP1 直链；安装动作我们只借它的 NSIS 分支（见 install）。
+ * 断点/半截下载的处置都是它现成的（ERP 侧（闭源）发布脚本也按「客户端自己按 feed 取」实现）。
+ * 它同时**不做**的事：deb 自更新（本仓更新面也没有 deb 产物）→ 走「提示 + 官网直链」；
+ * 安装动作我们只借它的 NSIS 分支（见 install）。
  */
 import fs from 'node:fs'
 import path from 'node:path'
