@@ -256,7 +256,10 @@ describe('弹窗开着时的按键归属（v2.5.9）', () => {
     // App 的导航与设置、Header 的全局搜索：弹窗开着都不该把用户从弹窗里踢出去
     // v2.5.9 A7 起 App 是 **2** 条：`Ctrl+1…6 / Ctrl+,` 那批 + `Ctrl+=` 开计算面板——
     // 后者同为页面级注册（弹窗开着时不该从弹窗背后掀出计算面板，与上面那批同一让位口径）。
-    expect(count(read('App.tsx'), /pageOnly: true/g), '导航/设置/计算面板类注册要让位').toBe(2);
+    // v2.5.9 A7 整页化（2026-09-22 深夜）改回 **1** 条：`Ctrl+=` 并入 `SHORTCUTS` 的
+    // `path` 导航循环（与 Ctrl+1…6 / Ctrl+, 同一个 for 循环、同一个 pageOnly 注册），
+    // App 里手写的 `registerShortcut("calc.open", …)` 已删 ⇒ 回归单条。
+    expect(count(read('App.tsx'), /pageOnly: true/g), '导航/设置类注册要让位').toBe(1);
     expect(count(read('components/Header.tsx'), /pageOnly: true/g), 'search.focus 注册要让位').toBe(1)
     // Ctrl+C 的 hook 里只能有一条让位：另一条是预览自己的，标了就等于把 B2③ 关掉
     const hook = read('hooks/useCopyShortcut.ts')

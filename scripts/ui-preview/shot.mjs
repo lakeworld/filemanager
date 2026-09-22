@@ -50,6 +50,8 @@ const ROUTES = [
   ['images', '/images'], // 高基数豁免面：应无玻璃且 hover 保内亮边
   ['search', '/search'], // 结果卡实底（基数不可控）
   ['exports', '/exports'], // 小列表玻璃卡（≥200 条分支走实底，此处为小列表态）
+  // v2.5.9 A7 整页化（2026-09-22 深夜）：计算页空态（三条历史与选中高亮见下方 calc-filled/calc-selected）
+  ['calc', '/calc'],
   ['trash', '/trash'],
   ['profile', '/profile'], // 未走 .card 体系（D6 登记为 D9 债，此处留基线照）
   ['help', '/help'],
@@ -275,6 +277,36 @@ for (const [key, act] of extraShots) {
     failures++
     console.log(`✗ ${key}: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`)
   }
+}
+
+// v2.5.9 A7 整页化（2026-09-22 深夜）：计算页「三条历史 + 点左栏行定位高亮」两态走查。
+// 空态已在 ROUTES.calc 抓过（那时台账还空着）；这里先直种三条（含标题/备注与一条已转正），
+// 再进页抓有数据态，最后点左栏第 2 行验「滚入视野 + 高亮 1.2s」这条定位交互。
+try {
+  await page.evaluate(async () => {
+    await window.qihebox.calcs.add({
+      expression: '(3200 + 380) × 1.15', result: '4,117.00', resultKind: 'number',
+      title: '新款装箱报价', note: '含 15 个点毛利，XX 客户',
+    })
+    const mid = await window.qihebox.calcs.add({
+      expression: '13800 ÷ 1.13 × 0.13', result: '1,589.38', resultKind: 'number',
+    })
+    await window.qihebox.calcs.add({ expression: '2026-09-16 + 60', result: '2026-11-15', resultKind: 'date' })
+    // 中间那条转正：「已存资料」chip 是两态唯一视觉差异，走查要看得见
+    if (mid?.data?.id) await window.qihebox.calcs.update({ id: mid.data.id, saved: true })
+  })
+  await goto('/calc')
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: path.join(OUT, 'calc-filled.png'), timeout: 12000 })
+  console.log('✓ calc-filled /calc')
+  // 点左栏第 2 行（中间那条）⇒ 右栏对应卡 card-selected 高亮（1.2s 自熄，抓拍要快）
+  await page.locator('[data-calc-side="history"]').nth(1).click()
+  await page.waitForTimeout(200)
+  await page.screenshot({ path: path.join(OUT, 'calc-selected.png'), timeout: 12000 })
+  console.log('✓ calc-selected /calc')
+} catch (err) {
+  failures++
+  console.log(`✗ calc-filled/calc-selected: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`)
 }
 
 // ④ 窄窗三档（1024 / 900 / 768）× 三个代表页：筛选行最密的证书库、卡片+表单混排的设置页、

@@ -2,20 +2,13 @@ import { Show, For, createSignal, onMount } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import Logo from "~/components/Logo";
 import { currentWorkspace } from "~/stores/workspace";
-import { openCalcPanel } from "~/stores/calcPanel";
 import { initPluginRegistry, pluginSidebarGroups } from "~/plugins/registry";
 
 interface MenuItem {
   icon: string;
   label: string;
-  /** 导航项的目标路由。**动作项**（v2.5.9 A7「计算」）不换页面，故可省 */
-  path?: string;
-  /**
-   * 动作项（v2.5.9 A7）：点一下执行动作而不导航——「计算」是悬浮面板（PLAN-v2.6-计算 §八② 拍板），
-   * 不该为它造一条假路由。动作项也不参与高亮（`isActive` 直接判否）与 `Ctrl+1…6` 的位序对齐
-   * （那六项是导航项，只数带 path 的）。
-   */
-  action?: () => void;
+  /** 导航项的目标路由（全部条目都是导航项——「计算」在 v2.5.9 A7 整页化后也走 /calc 换页） */
+  path: string;
 }
 
 interface MenuGroup {
@@ -75,8 +68,8 @@ export default function Sidebar() {
         { icon: "🔍", label: "搜索", path: "/search" },
         // v2.4.8：导出区入口（压缩分享产物）
         { icon: "📤", label: "导出", path: "/exports" },
-        // v2.5.9 A7：计算面板（悬浮浮层，不换页面 ⇒ 标记为动作项；唤起键 Ctrl+= 见 shortcuts.ts）
-        { icon: "🧮", label: "计算", action: openCalcPanel },
+        // v2.5.9 A7：计算页（2026-09-22 深夜整页化修订：悬浮面板 → /calc 双栏页；唤起键 Ctrl+= 见 shortcuts.ts）
+        { icon: "🧮", label: "计算", path: "/calc" },
       ],
     },
     {
@@ -92,8 +85,7 @@ export default function Sidebar() {
   ];
 
   const isActive = (item: MenuItem) => {
-    // 动作项（如「计算」）打开浮层而不换页面：永远不高亮，也不参与「更具体项让位」的比对
-    const path = item.action ? undefined : item.path;
+    const path = item.path;
     if (!path) return false;
     if (path === "/") {
       return location.pathname === "/";
@@ -168,9 +160,7 @@ export default function Sidebar() {
                       }}
                       title={!expanded() ? item.label : undefined}
                       onClick={() => {
-                        // 动作项（v2.5.9 A7「计算」）执行动作；导航项换页面
-                        if (item.action) item.action();
-                        else if (item.path) void navigate(item.path);
+                        void navigate(item.path);
                       }}
                     >
                       <span class="text-base">{item.icon}</span>

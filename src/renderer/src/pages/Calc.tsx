@@ -6,40 +6,82 @@ import ConfirmDialog from "~/components/ConfirmDialog";
 import ContextMenu from "~/components/ContextMenu";
 import type { ContextMenuItem } from "~/components/ContextMenu";
 import DatePicker from "~/components/DatePicker";
-import { pushLayer } from "~/components/ui/layerStack";
 import { useContextMenu } from "~/hooks/useContextMenu";
 import { api } from "~/wails/api";
 import { showToast } from "~/stores/notifyBanner";
-import { calcPanelOpen, closeCalcPanel } from "~/stores/calcPanel";
 import { COPY_ERROR_FALLBACK, COPY_ERROR_TITLE } from "~/lib/copyFeedback";
 import { evaluateExpression, formatCalcTime } from "../../../shared/calc";
 import type { CalcRecord } from "~/types";
 
 /**
- * 计算面板（v2.5.9/A7「计算」）——悬浮面板 + 计算历史流。
+ * 计算页（v2.5.9/A7「计算」· 2026-09-22 深夜整页化修订）——整页双栏 + 计算历史流。
  *
- * 权威 = `docs/INTERNAL/PLAN-v2.6-计算.md` §四（UI 照示意图钉死）与 §八 四条拍板
- * （悬浮面板 / 侧栏项 + `Ctrl+=` / v1 不做挂靠 / 删除走确认弹窗）。
+ * 权威 = `docs/INTERNAL/PLAN-v2.6-计算.md` §四（2026-09-22 深夜用户拍板由「悬浮面板」改「整页」后的
+ * 新版式）与 §八 四条拍板（v1 不做挂靠 / 删除走确认弹窗等仍有效）。
  *
- * 版式（§四逐条落地）：上历史流（对话式，**旧的在上、新的在下**）+ 底部输入条（一行框 + `%` + 日期）。
- * 一行 = 左上算式小灰字〔点一下回填输入框「改着再算」〕/ 右上结果大字 + 相对时间小灰字〔点一下复制〕；
- * 有备注多一行浅字，已转正多一枚「已存资料」小 chip（两态唯一视觉差异）；
- * hover 时结果与时间**原位**隐去，换「复制 / 存为资料」两枚小按钮（写法先例 `InvoiceCards.tsx:212`）。
- * **没有数字键盘**——用户直接敲键盘（§九 明确不做）。
+ * 由来（用户原话）：「把这个计算撑满整个……然后左边是历史，右边是计算」+
+ * 「和 AI 助手的界面其实差不多，但是不是对话，是记录条目」⇒ 骨架对标 cloud 插件 AI 助手
+ * （左索引栏 + 右内容流 + 底部输入条），**只借形不借功能**：右栏是记录条目流，不是对话气泡。
+ *
+ * 版式（§四 逐条落地）：
+ * - **左栏 = 历史索引**（≈280px，新→旧：最新在最上）：每行 = 标题（有则）/ 算式小灰字 / 结果大字；
+ *   点一行 ⇒ 右栏对应条目滚入视野并高亮一下（`.card-selected`，1.2s 自熄）。
+ * - **右栏 = 计算区**：上方记录条目流（**旧的在上、新的在下**——输入条贴底，回车记的新条目
+ *   就在输入条上方，提交后自动滚到底）+ 底部输入条（一行框 + `%` + 日期）。
+ * - **条目卡 = 大号记录条目**（不是聊天气泡）：标题 / 算式（点一下回填输入框「改着再算」，
+ *   链式引用就从这里长出来）/ 结果大字 + 相对时间（点一下复制）/ 备注浅字 / 「已存资料」小 chip
+ *   （转正后两态唯一视觉差异）/ 常驻动作钮「复制」「存为资料 ⇄ 取消转正」。
+ *   hover 隐藏按钮是窄条面板时代的版式，整宽大卡放得下常驻钮 ⇒ 不再藏。
+ * - **没有数字键盘**——用户直接敲键盘（§九 明确不做）。
  *
  * 两条口径与核层对齐：
  * - 求值只走 `shared/calc.evaluateExpression`（双端同一份实现，台账只存展示态）：
  *   成功才落账，失败只显示温和文案、**不落账、不抛**（§二.5 容错三条）；
  * - `api.calcs.*` 的 `ok === false`（`ApiResult.success === false`）分支一律出声（toast），不静默吞。
- *
- * 层栈纪律：面板入栈但**不标 `modal: true`**——它是「手头正干着别的」时随手开的一块浮层，
- * 不是用户被关进工作面（§八②「算账场景是手头正干着别的，不该切页」）。标了会把页面级快捷键
- * 整片挡掉（`shortcuts.ts` 的让位判据），那正是本仓 v2.5.9 按键归属修复要区分的东西。
  */
 
-/** 历史流里的一行（行内不做数据操作，动作全部经 props 回调回面板；Solid 纪律：禁解构 props） */
+/** 历史索引栏里的一行（点击 = 右栏定位；行内不做数据操作，动作全在条目卡与右键菜单）。Solid 纪律：禁解构 props */
 function CalcHistoryRow(props: {
   rec: CalcRecord;
+  active: boolean;
+  onJump: (rec: CalcRecord) => void;
+}) {
+  return (
+    <button
+      class="row-btn items-start rounded-lg hover:bg-surface-50"
+      classList={{ "bg-primary-600/[0.12]": props.active }}
+      data-calc-id={props.rec.id}
+      data-calc-side="history"
+      title="点一下，在右边定位到这一条"
+      onClick={() => props.onJump(props.rec)}
+    >
+      <div class="min-w-0 flex-1">
+        {/* 有标题先显示标题行（左栏扫读靠它；没有标题时算式就是主标识） */}
+        <Show when={props.rec.title}>
+          <div class="text-sm font-medium text-surface-900 truncate">{props.rec.title}</div>
+        </Show>
+        <div class="text-xs text-surface-400 truncate">{props.rec.expression}</div>
+        <Show when={props.rec.saved}>
+          <span class="chip mt-1 bg-success-50 text-success-700">已存资料</span>
+        </Show>
+      </div>
+      {/* 结果大字是左栏扫读的主信息（新→旧 + 行内含结果：一屏扫最多历史）；时间取 created 而不是
+          updated——历史索引是「什么时候记的」时间线，updated 会被「编辑标题备注 / 转正」刷成当下，
+          用它会让三天前记的一条在今天冒头。 */}
+      <div class="shrink-0 text-right">
+        <div class="text-base font-semibold leading-tight tabular-nums text-surface-900">
+          {props.rec.result}
+        </div>
+        <div class="text-xs tabular-nums text-surface-400">{formatCalcTime(props.rec.created)}</div>
+      </div>
+    </button>
+  );
+}
+
+/** 右栏的一条「记录条目」大卡（行内动作经 props 回调回页面；Solid 纪律：禁解构 props） */
+function CalcEntryCard(props: {
+  rec: CalcRecord;
+  flash: boolean;
   onRefill: (rec: CalcRecord) => void;
   onCopy: (rec: CalcRecord) => void;
   onToggleSaved: (rec: CalcRecord) => void;
@@ -47,11 +89,14 @@ function CalcHistoryRow(props: {
 }) {
   return (
     <div
-      class="group rounded-lg px-3 py-2 transition-colors hover:bg-surface-50"
+      class="card p-4"
+      classList={{ "card-selected": props.flash }}
+      data-calc-id={props.rec.id}
+      data-calc-side="entry"
       title="点结果复制 · 点算式回填改着再算 · 右键更多"
       onContextMenu={(e) => props.onContextMenu(e, props.rec)}
     >
-      <div class="flex items-start justify-between gap-3">
+      <div class="flex items-start justify-between gap-4">
         <div class="min-w-0 flex-1">
           {/* 有标题先显示标题行（§四 行结构：眼睛先看结果，再看这行是怎么来的） */}
           <Show when={props.rec.title}>
@@ -59,63 +104,57 @@ function CalcHistoryRow(props: {
           </Show>
           {/* 算式 = 展示态（× ÷ 已渲染）；点一下回填输入框，链式引用就从这里长出来 */}
           <button
-            class="link-btn flex w-full min-w-0 text-left text-xs text-surface-400 hover:text-primary-600"
+            class="link-btn w-full min-w-0 text-left text-sm text-surface-500 hover:text-primary-600"
             title="点一下，把这条算式填回输入框改着再算"
             onClick={() => props.onRefill(props.rec)}
           >
             <span class="truncate">{props.rec.expression}</span>
           </button>
           <Show when={props.rec.note}>
-            <div class="text-xs text-surface-400 truncate mt-0.5">{props.rec.note}</div>
+            <div class="text-xs text-surface-400 mt-0.5">{props.rec.note}</div>
           </Show>
         </div>
-        {/* 右上：结果大字 + 相对时间；hover 时两者原位淡出，同位置淡入两枚小按钮 */}
-        <div class="relative shrink-0 text-right">
-          <div class="transition-opacity group-hover:opacity-0">
-            <button
-              class="link-btn text-lg font-semibold leading-tight tabular-nums text-surface-900 hover:text-primary-700"
-              title="点击复制结果"
-              onClick={() => props.onCopy(props.rec)}
-            >
-              {props.rec.result}
-            </button>
-            {/* 时间取 `created` 而不是 `updated`：历史流是「什么时候记的」时间线，
-                而 `updated` 会被「编辑标题备注 / 转正」刷成当下（核层 update 里就是 `new Date()`），
-                用它会让三天前记的一条在今天冒头——台账的时间轴语义比"最近改过"更重要。 */}
-            <div class="text-xs tabular-nums text-surface-400">{formatCalcTime(props.rec.created)}</div>
-          </div>
-          {/* hover 层必须连带 pointer-events 一起换挡：opacity-0 **不挡命中测试**，
-              只做淡出会让这层隐形按钮盖住下面的结果——实测后果是「点结果」点在隐形的
-              「存为资料」上（右半边尤其危险：静默转正）。未 hover 时整层不接指针，
-              hover 到行内才接（group-hover:pointer-events-auto），两条路都回到原型。 */}
-          <div class="pointer-events-none absolute inset-0 flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-            <button
-              class="link-btn px-1.5 py-0.5 text-xs text-surface-500 hover:text-primary-600"
-              title="复制结果"
-              onClick={() => props.onCopy(props.rec)}
-            >
-              复制
-            </button>
-            <button
-              class="link-btn px-1.5 py-0.5 text-xs text-surface-500 hover:text-primary-600"
-              title={props.rec.saved ? "取消转正（回到暂存）" : "存为资料"}
-              onClick={() => props.onToggleSaved(props.rec)}
-            >
-              {/* 文案跟着状态走：已转正的行这枚按钮点下去是**取消转正**（toggleSaved），
-                  原来两态都写「存为资料」，是文案与行为相反 */}
-              {props.rec.saved ? "取消转正" : "存为资料"}
-            </button>
-          </div>
+        {/* 右上：结果大字 + 相对时间；点结果 = 复制（整宽大卡放得下常驻动作钮，
+            不再像窄条面板那样 hover 隐藏——见文件头版式说明） */}
+        <div class="shrink-0 text-right">
+          <button
+            class="link-btn text-2xl font-semibold leading-tight tabular-nums text-surface-900 hover:text-primary-700"
+            title="点击复制结果"
+            onClick={() => props.onCopy(props.rec)}
+          >
+            {props.rec.result}
+          </button>
+          <div class="text-xs tabular-nums text-surface-400 mt-0.5">{formatCalcTime(props.rec.created)}</div>
         </div>
       </div>
-      <Show when={props.rec.saved}>
-        <span class="chip mt-1 bg-success-50 text-success-700">已存资料</span>
-      </Show>
+      {/* 常驻动作行：chip（转正态）+ 复制 / 存为资料 ⇄ 取消转正 */}
+      <div class="mt-3 flex items-center gap-2">
+        <Show when={props.rec.saved}>
+          <span class="chip bg-success-50 text-success-700">已存资料</span>
+        </Show>
+        <div class="ml-auto flex items-center gap-3">
+          <button
+            class="link-btn px-1.5 py-0.5 text-xs text-surface-500 hover:text-primary-600"
+            title="复制结果"
+            onClick={() => props.onCopy(props.rec)}
+          >
+            复制
+          </button>
+          <button
+            class="link-btn px-1.5 py-0.5 text-xs text-surface-500 hover:text-primary-600"
+            title={props.rec.saved ? "取消转正（回到暂存）" : "存为资料"}
+            onClick={() => props.onToggleSaved(props.rec)}
+          >
+            {/* 文案跟着状态走：已转正的条目点下去是**取消转正**（toggleSaved） */}
+            {props.rec.saved ? "取消转正" : "存为资料"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
-function CalcPanelInner() {
+export default function Calc() {
   const [records, setRecords] = createSignal<CalcRecord[]>([]);
   const [draft, setDraft] = createSignal("");
   /**
@@ -129,21 +168,26 @@ function CalcPanelInner() {
   const [editTitle, setEditTitle] = createSignal("");
   const [editNote, setEditNote] = createSignal("");
   const [deleting, setDeleting] = createSignal<CalcRecord | null>(null);
+  /** 左栏点了某行 ⇒ 右栏对应条目高亮一下（1.2s 自熄）；null = 无高亮 */
+  const [flashId, setFlashId] = createSignal<string | null>(null);
   /** IME 组合态标志（`compositionstart/end` 维护；与事件的 `isComposing` 双保险，见 onDraftKeyDown） */
   let composing = false;
-  let listEl: HTMLDivElement | undefined;
+  let streamEl: HTMLDivElement | undefined;
   let barEl: HTMLDivElement | undefined;
+  let flashTimer: number | undefined;
   const ctxMenu = useContextMenu<CalcRecord>();
 
   /** 输入框元素只在底部输入条里找——不读 DOM 值（值一律走 `draft()` 信号），只用它送焦点与插光标 */
   const inputEl = () => barEl?.querySelector<HTMLInputElement>("input") ?? null;
   const focusInput = () => inputEl()?.focus();
 
-  const scrollToBottom = () => {
-    if (listEl) listEl.scrollTop = listEl.scrollHeight;
-  };
-  /** 提交后滚到底：新的在下面，「滚到底才看见刚记的」是台账直觉（§四 正序） */
-  const scrollAfterRender = () => requestAnimationFrame(scrollToBottom);
+  /** 左栏索引 = 新→旧（records 是录入序：旧→新；倒序只做展示，不改台账） */
+  const historyRows = () => records().slice().reverse();
+
+  /** 提交后滚到底：新的在下面，「滚到底才看见刚记的」是台账直觉（§四 右栏正序） */
+  const scrollAfterRender = () => requestAnimationFrame(() => {
+    if (streamEl) streamEl.scrollTop = streamEl.scrollHeight;
+  });
 
   /** 失败出声的统一出口（IPC 的 `error` 有就用，没有就给一句人话，不显示 undefined） */
   const reportError = (error: string | null | undefined, fallback: string) =>
@@ -157,6 +201,15 @@ function CalcPanelInner() {
     }
     setRecords(res.data ?? []);
     if (scroll) scrollAfterRender();
+  };
+
+  /** 点左栏一行 ⇒ 右栏对应条目滚入视野 + 高亮一下（页面里定位，不切任何状态） */
+  const jumpTo = (rec: CalcRecord) => {
+    const el = streamEl?.querySelector<HTMLElement>(`[data-calc-id="${rec.id}"]`);
+    if (el) el.scrollIntoView({ block: "nearest" });
+    setFlashId(rec.id);
+    window.clearTimeout(flashTimer);
+    flashTimer = window.setTimeout(() => setFlashId(null), 1200);
   };
 
   /** 往光标处插入一段文本（`%` 与日期共用）；插完把焦点与光标还给输入框 */
@@ -299,107 +352,114 @@ function CalcPanelInner() {
   };
 
   onMount(() => {
-    // 入层栈（不标 modal，见文件头）：Esc 只派栈顶，右键菜单/日期面板叠在面板上时先关它们
-    const layer = pushLayer({ onEscape: closeCalcPanel });
-    onCleanup(() => layer.remove());
     void reload(true);
-    // 打开即聚焦输入框；首帧再兜一次——挂载期后到的插入（如预览/拖拽）有时会把焦点抢走
+    // 落到页就聚焦输入框（Ctrl+= 跳页后可直接敲；首帧再兜一次——挂载期后到的插入有时会把焦点抢走）
     focusInput();
     requestAnimationFrame(focusInput);
   });
 
+  onCleanup(() => window.clearTimeout(flashTimer));
+
   return (
-    <>
-      {/* 遮罩：点外部关闭（比 Modal 的 bg-black/50 淡——面板刻意「不挡视线」） */}
-      <div class="fixed inset-0 z-modal bg-black/20" onClick={closeCalcPanel} />
-      {/* 右对齐、上留头高：不挡侧栏与标题栏（这是刻意的几何，不是随手给的偏移）。
-          卡片必须与遮罩**同级 z**（`z-modal`）——遮罩带 z-index、卡片不带时，带 z-index 的那个
-          会盖在不带的上面（两者是兄弟节点，命中测试先看 z 再看 DOM 序），实测后果是
-          「面板看得见、点什么都点在遮罩上」（点击被遮罩吃掉，只有键盘可用）。
-          同级后由 DOM 序决定：卡片在后 ⇒ 卡片在上、可点，遮罩只剩四周那一圈。 */}
-      <div class="modal-panel modal-panel-framed absolute right-8 top-16 z-modal max-h-[72vh] w-[420px]">
-        <div class="dlg-header flex items-start justify-between gap-2">
-          <div class="min-w-0">
-            <div class="dlg-title">计算</div>
-            <div class="dlg-sub">回车记一条 · 点结果复制 · 点算式回填改着再算</div>
+    <div class="p-6 max-w-7xl mx-auto flex flex-col h-full">
+      {/* 页头：标题 + 一行 hint（原面板头部副标题——常驻可见又不占输入条空间） */}
+      <div class="flex items-center justify-between mb-6 shrink-0">
+        <div>
+          <h1 class="text-2xl font-bold text-surface-900">计算</h1>
+          <p class="text-surface-500 mt-1">回车记一条 · 点结果复制 · 点算式回填改着再算</p>
+        </div>
+      </div>
+
+      {/* 主体：一张卡内双栏（左历史索引 280px + 右计算区），照 AI 助手双栏骨架 */}
+      <div class="card flex-1 min-h-0 flex overflow-hidden">
+        {/* 左栏：历史索引（新→旧；flex 列 + min-h-0 让列表在自己这格里滚，不把右栏顶变形） */}
+        <aside class="w-[280px] shrink-0 border-r border-surface-200 flex flex-col min-h-0">
+          <div class="px-4 py-3 border-b border-surface-200 text-sm font-semibold text-surface-700">
+            历史
           </div>
-          <button
-            class="icon-btn shrink-0 px-1.5 text-surface-400 hover:bg-surface-100 hover:text-surface-600"
-            aria-label="关闭计算面板"
-            title="关闭（Esc）"
-            onClick={closeCalcPanel}
-          >
-            ✕
-          </button>
-        </div>
+          <div class="flex-1 min-h-0 overflow-y-auto p-2">
+            <Show when={records().length === 0}>
+              <div class="py-6 text-center text-xs text-surface-400">暂无历史</div>
+            </Show>
+            <For each={historyRows()}>
+              {(rec) => (
+                <CalcHistoryRow
+                  rec={rec}
+                  active={flashId() === rec.id}
+                  onJump={jumpTo}
+                />
+              )}
+            </For>
+          </div>
+        </aside>
 
-        {/* 历史流（正序：旧的在上、新的在下；提交后滚到底）。flex-1 + min-h-0 让超长历史在自己这格里滚，
-            不把底部输入条顶出面板 */}
-        <div ref={listEl} class="flex-1 min-h-0 overflow-y-auto px-1.5 py-2">
-          <Show when={records().length === 0}>
-            <div class="py-6 text-center text-xs text-surface-400">还没有记录：输入算式按回车</div>
+        {/* 右栏：计算区 = 上条目流（旧→新，提交后滚底）+ 下输入条 */}
+        <div class="flex-1 min-w-0 flex flex-col">
+          <div ref={streamEl} class="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
+            <Show when={records().length === 0}>
+              <div class="py-6 text-center text-xs text-surface-400">还没有记录：输入算式按回车</div>
+            </Show>
+            <For each={records()}>
+              {(rec) => (
+                <CalcEntryCard
+                  rec={rec}
+                  flash={flashId() === rec.id}
+                  onRefill={refill}
+                  onCopy={(r) => void copyText(r.result, "结果")}
+                  onToggleSaved={(r) => void toggleSaved(r)}
+                  onContextMenu={(e, r) => ctxMenu.open(e, r)}
+                />
+              )}
+            </For>
+          </div>
+
+          {/* 解析失败提示（温和一句；打字即撤，不阻塞输入） */}
+          <Show when={hint()}>
+            <div class="shrink-0 px-4 pt-2 text-xs text-danger-600">{hint()}</div>
           </Show>
-          <For each={records()}>
-            {(rec) => (
-              <CalcHistoryRow
-                rec={rec}
-                onRefill={refill}
-                onCopy={(r) => void copyText(r.result, "结果")}
-                onToggleSaved={(r) => void toggleSaved(r)}
-                onContextMenu={(e, r) => ctxMenu.open(e, r)}
-              />
-            )}
-          </For>
-        </div>
 
-        {/* 解析失败提示（温和一句；打字即撤，不阻塞输入） */}
-        <Show when={hint()}>
-          <div class="shrink-0 px-3 pt-2 text-xs text-danger-600">{hint()}</div>
-        </Show>
-
-        {/* 底部输入条：一行框 + `%` + 日期（没有数字键盘，§四/§九）。
-            `min-w-0` 不是装饰：文本框的 `min-width: auto` 是按内容算的（实测这条 placeholder
-            把它顶到 347px），不给它就让整条 flex 行溢出卡片——实测后果是日期触发器被挤出卡片
-            右缘 37px（视觉上少一截、且超出部分的点击落到遮罩上），并连带触发
-            「聚焦 → 浏览器把它滚回视野 → 滚动事件 → DatePicker 自己关掉面板」那条链。
-            修法 = 允许输入框收缩（`flex-1` + `min-w-0`），剩下的宽度它自己吃干净。 */}
-        <div ref={barEl} class="flex shrink-0 items-center gap-2 bg-surface-50 px-3 py-2.5">
-          <Input
-            class="flex-1 min-w-0"
-            value={draft()}
-            placeholder="输入算式，回车记一条"
-            ariaLabel="算式输入"
-            onInput={(e) => {
-              setDraft(e.currentTarget.value);
-              if (hint()) setHint("");
-            }}
-            onKeyDown={onDraftKeyDown}
-            onCompositionStart={() => {
-              composing = true;
-            }}
-            onCompositionEnd={() => {
-              composing = false;
-            }}
-          />
-          <button
-            class="icon-btn h-9 w-9 shrink-0 text-sm text-surface-500 hover:bg-surface-100 hover:text-primary-600"
-            aria-label="插入百分号"
-            title="往光标处插入 %"
-            onClick={() => insertAtCursor("%")}
-          >
-            %
-          </button>
-          {/* 日期走统一 DatePicker（禁原生 type="date"，uiInventory 红线）；
-              选中的一天以 YYYY-MM-DD 插进算式，够 `2026-09-16 + 60` 与 `2026-11-15 - 2026-09-16` 两种形态 */}
-          <DatePicker
-            compact
-            value=""
-            placeholder="日期"
-            ariaLabel="插入日期"
-            onChange={(iso) => {
-              if (iso) insertAtCursor(iso);
-            }}
-          />
+          {/* 底部输入条：一行框 + `%` + 日期（没有数字键盘，§四/§九）。
+              `min-w-0` 不是装饰：文本框的 `min-width: auto` 是按内容算的（实测这条 placeholder
+              把它顶到 347px），不给它就让整条 flex 行溢出——修法 = 允许输入框收缩
+              （`flex-1` + `min-w-0`），剩下的宽度它自己吃干净。 */}
+          <div ref={barEl} class="flex shrink-0 items-center gap-2 border-t border-surface-200 px-4 py-3">
+            <Input
+              class="flex-1 min-w-0"
+              value={draft()}
+              placeholder="输入算式，回车记一条"
+              ariaLabel="算式输入"
+              onInput={(e) => {
+                setDraft(e.currentTarget.value);
+                if (hint()) setHint("");
+              }}
+              onKeyDown={onDraftKeyDown}
+              onCompositionStart={() => {
+                composing = true;
+              }}
+              onCompositionEnd={() => {
+                composing = false;
+              }}
+            />
+            <button
+              class="icon-btn h-9 w-9 shrink-0 text-sm text-surface-500 hover:bg-surface-100 hover:text-primary-600"
+              aria-label="插入百分号"
+              title="往光标处插入 %"
+              onClick={() => insertAtCursor("%")}
+            >
+              %
+            </button>
+            {/* 日期走统一 DatePicker（禁原生 type="date"，uiInventory 红线）；
+                选中的一天以 YYYY-MM-DD 插进算式，够 `2026-09-16 + 60` 与 `2026-11-15 - 2026-09-16` 两种形态 */}
+            <DatePicker
+              compact
+              value=""
+              placeholder="日期"
+              ariaLabel="插入日期"
+              onChange={(iso) => {
+                if (iso) insertAtCursor(iso);
+              }}
+            />
+          </div>
         </div>
       </div>
 
@@ -460,11 +520,6 @@ function CalcPanelInner() {
       <Show when={ctxMenu.show()}>
         <ContextMenu x={ctxMenu.x()} y={ctxMenu.y()} onClose={ctxMenu.close} items={menuItems()} />
       </Show>
-    </>
+    </div>
   );
-}
-
-/** 面板本体只在打开时挂载（层栈入栈、历史拉取、聚焦都跟着挂载走，关闭即整体卸载） */
-export default function CalcPanel() {
-  return <Show when={calcPanelOpen()}>{<CalcPanelInner />}</Show>;
 }

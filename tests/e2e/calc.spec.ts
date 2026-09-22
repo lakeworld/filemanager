@@ -11,10 +11,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 /** 与 main 侧同一份 userData 路径口径（e2e 下 index.ts 把 userData 指向 tmpdir/<QIHEBOX_E2E_USERDATA>） */
 const userDataDir = (label: string): string => path.join(os.tmpdir(), e2eUserDataDirName(label))
 
-/** 历史流一行的行根：靠面板自己写死的 title 定位（class 链会随手改，title 是行为说明） */
-const ROW = 'div[title="点结果复制 · 点算式回填改着再算 · 右键更多"]'
-/** 面板副标题 =「面板在场」的唯一文本锚点（关闭即整体卸载，count 归零） */
-const PANEL_PROMPT = '回车记一条 · 点结果复制 · 点算式回填改着再算'
+/** 左栏历史索引一行的行根（data-calc-side 由页面自己写死，比 class 链稳） */
+const HISTORY_ROW = '[data-calc-side="history"]'
+/** 右栏记录条目大卡的行根（同上） */
+const ENTRY = '[data-calc-side="entry"]'
+/** 页头 hint =「计算页在场」的唯一文本锚点（换路由即卸载，count 归零） */
+const PAGE_PROMPT = '回车记一条 · 点结果复制 · 点算式回填改着再算'
 /** 台账落盘位置（`<ws>/.qihefilemanager/calcs.json`，见 src/main/core/paths.ts calcsPath） */
 const calcsFile = (wsDir: string): string => path.join(wsDir, '.qihefilemanager', 'calcs.json')
 
@@ -66,45 +68,44 @@ const kill = async (app: ElectronApplication): Promise<void> => {
 }
 
 /**
- * 计算面板与计算台账（v2.5.9 A7「计算」）端到端。
+ * 计算页与计算台账（v2.5.9 A7「计算」· 2026-09-22 深夜整页化修订）端到端。
  *
- * 权威 = `docs/INTERNAL/PLAN-v2.6-计算.md` §四（版式照示意图钉死）/ §八（四条拍板）/ §十（e2e 主链）。
- * 两个 describe 各守一段：
- *  1. **计算面板**——渲染层主链：唤起与关闭（`Ctrl+=` / Esc / 侧栏项 / 点面板外）、记一条
- *     （展示态 × ÷、正序落底、空输入忽略）、解析失败不落账、`%` 与日期插入钮（含输入条不溢出这条
- *     布局回归）、行交互（点结果复制 / 点算式回填 / hover 原位换按钮）、转正与右键动词表、
- *     编辑标题备注、删除走确认弹窗；
+ * 权威 = `docs/INTERNAL/PLAN-v2.6-计算.md` §四（2026-09-22 深夜整页化后的新版式：左历史索引 + 右计算区）
+ * / §八（拍板）/ §十（e2e 主链）。两个 describe 各守一段：
+ *  1. **计算页**——渲染层主链：入口（侧栏「工具 → 计算」换页 / `Ctrl+=` 跳页）、双栏版式
+ *     （左栏新→旧且行内含结果、点左栏行右栏定位高亮）、记一条（展示态 × ÷、正序落底、空输入忽略）、
+ *     解析失败不落账、`%` 与日期插入钮（含输入条不溢出这条布局回归）、条目卡交互（点结果复制 /
+ *     点算式回填 / 常驻「存为资料」）、右键动词表、编辑标题备注、删除走确认弹窗；
  *  2. **计算台账跨重启**——§十 那条「重启应用历史仍在」：同 userData **真杀进程**重启，
  *     条目 / 顺序 / 「已存资料」态都在，且以盘上 `calcs.json` 为证。
  *
  * 几条写法口径：
  * - 启动走 `helpers/launch.ts` 的 userData 夹具（label 隔离），launch/kill 抄 app-settings.spec.ts；
- * - 等一律是条件等待（`expect` / `expect.poll` / `toBeFocused`），**不用 sleep 对齐时序**；
- * - 鼠标停在行上时结果会被 hover 层**原位盖住**（§四 的设计，不是缺陷）⇒ 「点结果复制」按键盘
- *   激活验，鼠标路径单独在 hover 层的「复制」上验；
+ * - 等一律是条件等待（`expect` / `expect.poll`），**不用 sleep 对齐时序**；
  * - 右键菜单项带 emoji 图标 ⇒ 可及名不是纯文本，菜单内一律非 exact + 限定 `#ctx-menu-root`；
  *   弹窗按钮无图标 ⇒ 可 exact（菜单与弹窗同名「删除」，两处定位不混）。
  *
  * 跑法（先 `npm run build`，e2e 跑的是 out/ 产物）：
  *   xvfb-run -a --server-args="-screen 0 1920x1080x24" npx playwright test tests/e2e/calc.spec.ts
  */
-test.describe('计算面板（v2.5.9 A7）', () => {
+test.describe('计算页（v2.5.9 A7 整页化）', () => {
   let app: ElectronApplication
   let page: Page
   let wsDir = ''
 
-  const rows = () => page.locator(ROW)
+  const entries = () => page.locator(ENTRY)
+  const historyRows = () => page.locator(HISTORY_ROW)
   const input = () => page.getByLabel('算式输入', { exact: true })
-  const panelPrompt = () => page.getByText(PANEL_PROMPT)
+  const pagePrompt = () => page.getByText(PAGE_PROMPT)
 
-  /** 用例前置：面板没开就 `Ctrl+=` 开（`calc.open`，guard=none ⇒ 输入框里也生效），开完等历史拉回来 */
-  const ensurePanel = async (): Promise<void> => {
-    if ((await panelPrompt().count()) === 0) {
-      await page.keyboard.press('Control+Equal')
-      await expect(panelPrompt()).toBeVisible({ timeout: 5000 })
-      // 历史是挂载时异步拉的：等「要么空态、要么行已渲染」再交还控制权，
-      // 免得用例拿到的行数是「还没加载完」的中间态（以下各用例的行数基线都靠这条）
-      await expect(page.getByText('还没有记录：输入算式按回车').or(rows().first())).toBeVisible({ timeout: 5000 })
+  /** 用例前置：不在计算页就点侧栏「计算」进去（普通导航项，换页不弹层），等历史拉回来 */
+  const ensurePage = async (): Promise<void> => {
+    if ((await pagePrompt().count()) === 0) {
+      await page.locator('aside').getByRole('button', { name: '计算' }).click()
+      await expect(pagePrompt()).toBeVisible({ timeout: 5000 })
+      // 历史是挂载时异步拉的：等「要么空态、要么条目已渲染」再交还控制权，
+      // 免得用例拿到的条目数是「还没加载完」的中间态（以下各用例的行数基线都靠这条）
+      await expect(page.getByText('还没有记录：输入算式按回车').or(entries().first())).toBeVisible({ timeout: 5000 })
     }
   }
 
@@ -121,48 +122,69 @@ test.describe('计算面板（v2.5.9 A7）', () => {
     await fsp.rm(userDataDir('calc'), { recursive: true, force: true }).catch(() => {})
   })
 
-  test('唤起与关闭：Ctrl+= 开 / Esc 关 / 侧栏项再开 / 点面板外关闭；Ctrl+1…6 位序不挪', async () => {
+  test('入口：侧栏「计算」换页 / Ctrl+= 跳页 / Ctrl+1…6 位序不挪', async () => {
     // 本文件第一个用例：此时台账还是空的，空态一并钉住
-    await ensurePanel()
+    await ensurePage()
     await expect(page.getByText('还没有记录：输入算式按回车')).toBeVisible()
-    await expect(input(), '打开即聚焦输入框').toBeFocused()
+    await expect(input(), '落到页就聚焦输入框').toBeFocused()
 
-    // Esc 走层栈派栈顶
-    await page.keyboard.press('Escape')
-    await expect(panelPrompt()).toHaveCount(0, { timeout: 5000 })
-
-    // 侧栏「工具 → 计算」也是入口；它是**动作项**（开浮层、不换页面）
-    const hashBefore = await page.evaluate(() => window.location.hash)
-    await page.locator('aside').getByRole('button', { name: '计算' }).click()
-    await expect(panelPrompt()).toBeVisible({ timeout: 5000 })
-    expect(await page.evaluate(() => window.location.hash), '侧栏「计算」是动作项，不该换路由').toBe(hashBefore)
-
-    // 点面板外（左侧中部必落在遮罩上）关闭
-    await page.mouse.click(10, 500)
-    await expect(panelPrompt()).toHaveCount(0, { timeout: 5000 })
-
-    // Ctrl+1…6 与前六项的对齐不受新项影响（「计算」是动作项，不占位序）
-    await page.keyboard.press('Control+6')
-    await expect.poll(() => page.evaluate(() => window.location.hash), { timeout: 5000 }).toBe('#/clients')
+    // Ctrl+= 跳页（声明表里带 path 的导航项，guard=none ⇒ 输入框里也生效）
+    // 先点页头把焦点移出输入框：Ctrl+1…6 是 guard="text" 档——焦点在输入框里时刻意不劫持
+    // （那是文本编辑场景），这不是缺陷，故先 blur 再验位序
+    await page.locator('h1').click()
     await page.keyboard.press('Control+1')
     await expect.poll(() => page.evaluate(() => window.location.hash), { timeout: 5000 }).toBe('#/')
+    await page.keyboard.press('Control+Equal')
+    await expect.poll(() => page.evaluate(() => window.location.hash), { timeout: 5000 }).toBe('#/calc')
+    await expect(pagePrompt()).toBeVisible()
+
+    // 侧栏「工具 → 计算」也是入口（导航项：换页 + 高亮）
+    await page.locator('aside').getByRole('button', { name: '计算' }).click()
+    await expect.poll(() => page.evaluate(() => window.location.hash), { timeout: 5000 }).toBe('#/calc')
+
+    // Ctrl+1…6 与前六项的对齐不受新项影响（「计算」是工具组第 7 项，不占位序）
+    await page.keyboard.press('Control+6')
+    await expect.poll(() => page.evaluate(() => window.location.hash), { timeout: 5000 }).toBe('#/clients')
+  })
+
+  test('双栏版式：左栏新→旧且行内含结果；点左栏行 ⇒ 右栏对应卡高亮', async () => {
+    await ensurePage()
+    await input().fill('(3200+380)*1.15')
+    await page.keyboard.press('Enter')
+    await expect(entries()).toHaveCount(1, { timeout: 5000 })
+    await input().fill('2026-09-16 + 60')
+    await page.keyboard.press('Enter')
+    await expect(entries()).toHaveCount(2, { timeout: 5000 })
+
+    // 左栏 = 新→旧：第 0 行是后记的日期条，第 1 行是先记的数字条；行内含结果（不等去右栏看）
+    const rows = historyRows()
+    await expect(rows).toHaveCount(2)
+    await expect(rows.nth(0)).toContainText('2026-11-15')
+    await expect(rows.nth(0)).toContainText('2026-09-16 + 60')
+    await expect(rows.nth(1)).toContainText('4,117.00')
+    await expect(rows.nth(1)).toContainText('(3200 + 380) × 1.15')
+
+    // 点左栏第 1 行（旧的那条）⇒ 右栏对应条目卡高亮（card-selected，1.2s 自熄）
+    const target = entries().filter({ hasText: '4,117.00' })
+    await rows.nth(1).click()
+    await expect(target, '点左栏行后右栏对应卡高亮').toHaveClass(/card-selected/, { timeout: 3000 })
   })
 
   test('记一条：结果与算式取展示态、新条目落底、输入清空、空输入忽略', async () => {
-    await ensurePanel()
-    const before = await rows().count()
+    await ensurePage()
+    const before = await entries().count()
 
-    await input().fill('(3200+380)*1.15')
+    await input().fill('(1200+300)*1.05')
     await page.keyboard.press('Enter')
-    const row = rows().filter({ hasText: '4,117.00' })
-    await expect(row).toHaveCount(1, { timeout: 5000 })
-    // 展式态（不是原始 ASCII）：× ÷ 已渲染，千分位已加
-    await expect(row.getByRole('button', { name: '(3200 + 380) × 1.15' })).toBeVisible()
+    const entry = entries().filter({ hasText: '1,575.00' })
+    await expect(entry).toHaveCount(1, { timeout: 5000 })
+    // 展示态（不是原始 ASCII）：× ÷ 已渲染，千分位已加
+    await expect(entry.getByRole('button', { name: '(1200 + 300) × 1.05' })).toBeVisible()
     await expect(input(), '记完清空输入并交还焦点').toHaveValue('')
     await expect(input()).toBeFocused()
-    // 正序（旧的在上、新的在下）：刚记的一条落在最后一行
-    await expect(rows()).toHaveCount(before + 1)
-    expect(await rows().last().textContent()).toContain('4,117.00')
+    // 右栏正序（旧的在上、新的在下）：刚记的一条落在最后一张卡
+    await expect(entries()).toHaveCount(before + 1)
+    expect(await entries().last().textContent()).toContain('1,575.00')
 
     // 空输入 / 纯空格：忽略（不提示、不落账、也不吃掉已敲的内容）
     await expect(input()).toBeFocused()
@@ -170,26 +192,26 @@ test.describe('计算面板（v2.5.9 A7）', () => {
     await input().fill('   ')
     await expect(input()).toBeFocused()
     await page.keyboard.press('Enter')
-    await expect(rows()).toHaveCount(before + 1)
+    await expect(entries()).toHaveCount(before + 1)
     await expect(input()).toHaveValue('   ')
     await input().fill('')
   })
 
   test('解析失败不落账（除零）＋ % 与日期插入钮；底部输入条不横向溢出', async () => {
-    await ensurePanel()
-    const before = await rows().count()
+    await ensurePage()
+    const before = await entries().count()
 
     // 失败只给温和一句：不落账、不清空输入（用户改一下就能重来）
     await input().fill('1/0')
     await page.keyboard.press('Enter')
     await expect(page.getByText('除数不能为 0')).toBeVisible({ timeout: 5000 })
-    await expect(rows()).toHaveCount(before)
+    await expect(entries()).toHaveCount(before)
     await expect(input()).toHaveValue('1/0')
     // 打字即撤提示
     await input().fill('')
     await expect(page.getByText('除数不能为 0')).toHaveCount(0)
 
-    // 布局回归：输入条不得横向溢出卡片（文本框的 min-width:auto 曾把日期触发器挤出卡片右缘 37px，
+    // 布局回归：输入条不得横向溢出卡片（文本框的 min-width:auto 曾把日期触发器挤出输入条右缘，
     // 并连带触发「聚焦 → 浏览器滚回视野 → 滚动事件 → DatePicker 自杀」那条链）。
     // 输入框的父节点就是底部输入条（Input 底座渲染裸 <input>，见 ui/Input.tsx）
     const barFits = await page.evaluate(() => {
@@ -228,116 +250,101 @@ test.describe('计算面板（v2.5.9 A7）', () => {
     await dp.getByRole('button', { name: '快捷：今天' }).click()
     await expect(input()).toHaveValue(/^\d{4}-\d{2}-\d{2}$/)
     await expect(input()).toBeFocused()
-    await expect(rows(), '插入钮只改草稿，不落账').toHaveCount(before)
+    await expect(entries(), '插入钮只改草稿，不落账').toHaveCount(before)
     await input().fill('')
   })
 
-  test('行交互：点结果复制（键盘）、点算式回填、hover 原位换出按钮再复制（鼠标）', async () => {
-    await ensurePanel()
-    const before = await rows().count()
+  test('条目卡交互：点结果复制、点算式回填、常驻「存为资料」转正（chip 两态唯一差异）', async () => {
+    await ensurePage()
+    const before = await entries().count()
 
-    await input().fill('(1200+300)*1.05')
+    // 值与前面用例错开：同 describe 共用一个工作区台账，(1200+300)*1.05 已被「双栏版式」用例记过
+    await input().fill('(2000+500)*1.2')
     await page.keyboard.press('Enter')
-    const row = rows().filter({ hasText: '1,575.00' })
-    await expect(row).toHaveCount(1, { timeout: 5000 })
-    await expect(rows()).toHaveCount(before + 1)
+    const entry = entries().filter({ hasText: '3,000.00' })
+    await expect(entry).toHaveCount(1, { timeout: 5000 })
+    await expect(entries()).toHaveCount(before + 1)
 
-    // ① 结果按钮：键盘激活 = 复制结果 + 出声（鼠标停在行上时结果被 hover 层原位盖住，见 ③）
-    const resultBtn = row.getByRole('button', { name: '1,575.00' })
-    await resultBtn.focus()
-    await expect(resultBtn).toBeFocused()
-    await page.keyboard.press('Enter')
+    // ① 点结果 = 复制千分位文本 + 出声（整宽大卡常驻可见，不再 hover 才现）
+    await entry.getByRole('button', { name: '3,000.00' }).click()
     const copied = page.getByText('已复制结果到剪贴板')
     await expect(copied).toBeVisible({ timeout: 5000 })
     // 等这条 toast 自己收（3s）再验下一条同文案的复制，否则第二条断言会被上一条的残影顶成假绿
     await expect(copied).toHaveCount(0, { timeout: 8000 })
 
     // ② 点算式 = 整条回填输入框（改着再算，计算链从这里长出来）
-    await row.getByRole('button', { name: '(1200 + 300) × 1.05' }).click()
-    await expect(input()).toHaveValue('(1200 + 300) × 1.05')
+    await entry.getByRole('button', { name: '(2000 + 500) × 1.2' }).click()
+    await expect(input()).toHaveValue('(2000 + 500) × 1.2')
     await expect(input()).toBeFocused()
     await input().fill('')
 
-    // ③ hover：结果与时间原位淡出、两枚小按钮原位淡入（淡入是 200ms 过渡 ⇒ 轮询到 opacity=1，
-    //    顺带证明它真在淡入而不是直接出现）；鼠标路径点「复制」出声
-    await row.hover()
-    const hoverLayer = row.locator('div.absolute:has(button:text-is("存为资料"))')
-    await expect
-      .poll(() => hoverLayer.evaluate((el) => getComputedStyle(el).opacity), { timeout: 3000 })
-      .toBe('1')
-    await row.getByRole('button', { name: '复制', exact: true }).click()
-    await expect(copied).toBeVisible({ timeout: 5000 })
-  })
-
-  test('hover「存为资料」转正 → 右键动词表出「取消转正」→ 取消后 chip 消失', async () => {
-    await ensurePanel()
-    await input().fill('500*2')
-    await page.keyboard.press('Enter')
-    const row = rows().filter({ hasText: '1,000.00' })
-    await expect(row).toHaveCount(1, { timeout: 5000 })
-
-    // 转正入口在 hover 层（鼠标路径）；两态唯一视觉差异 = 「已存资料」chip
-    await row.hover()
-    await row.getByRole('button', { name: '存为资料', exact: true }).click()
-    await expect(row.getByText('已存资料')).toHaveCount(1, { timeout: 5000 })
-    await expect(rows().getByText('已存资料'), 'chip 只该出现在转正的那一条上').toHaveCount(1)
-
-    // 右键动词表：转正后该项变「取消转正」（菜单在 #ctx-menu-root 里，与弹窗同名按钮区分开）
-    const menu = page.locator('#ctx-menu-root')
-    await row.click({ button: 'right' })
-    for (const label of ['复制结果', '复制算式', '编辑标题备注', '取消转正']) {
-      await expect(menu.getByRole('button', { name: label })).toBeVisible({ timeout: 5000 })
-    }
-    await menu.getByRole('button', { name: '取消转正' }).click()
-    await expect(row.getByText('已存资料')).toHaveCount(0, { timeout: 5000 })
+    // ③ 常驻「存为资料」：两态唯一视觉差异 = 「已存资料」chip（chip 只该出现在转正的那一条上）
+    await entry.getByRole('button', { name: '存为资料', exact: true }).click()
+    await expect(entry.getByText('已存资料')).toHaveCount(1, { timeout: 5000 })
+    await expect(entries().getByText('已存资料')).toHaveCount(1)
+    // 转正后按钮文案随状态切换「存为资料」⇄「取消转正」
+    await entry.getByRole('button', { name: '取消转正', exact: true }).click()
+    await expect(entry.getByText('已存资料')).toHaveCount(0, { timeout: 5000 })
     await expect(page.getByText('已存资料')).toHaveCount(0)
   })
 
-  test('编辑标题备注（保存后落账）＋ 删除走确认弹窗（取消不删 / 确认才删）', async () => {
-    await ensurePanel()
+  test('右键动词表（含转正后「取消转正」）＋ 编辑标题备注 ＋ 删除走确认弹窗', async () => {
+    await ensurePage()
     await input().fill('99*9')
     await page.keyboard.press('Enter')
-    const row = rows().filter({ hasText: '891.00' })
-    await expect(row).toHaveCount(1, { timeout: 5000 })
+    const entry = entries().filter({ hasText: '891.00' })
+    await expect(entry).toHaveCount(1, { timeout: 5000 })
+
+    // 右键动词表（菜单在 #ctx-menu-root 里，与弹窗同名按钮区分开）
+    const menu = page.locator('#ctx-menu-root')
+    await entry.click({ button: 'right' })
+    for (const label of ['复制结果', '复制算式', '编辑标题备注', '存为资料']) {
+      await expect(menu.getByRole('button', { name: label })).toBeVisible({ timeout: 5000 })
+    }
 
     // 编辑标题备注（framed Modal + 补丁式 update；弹窗内控件无图标 ⇒ 可 exact）
     const dlg = page.getByRole('dialog')
-    const menu = page.locator('#ctx-menu-root')
-    await row.click({ button: 'right' })
     await menu.getByRole('button', { name: '编辑标题备注' }).click()
     await expect(dlg).toBeVisible({ timeout: 5000 })
     await dlg.getByLabel('标题', { exact: true }).fill('走查毛利')
     await dlg.getByPlaceholder(/备注（可空）/).fill('e2e 备注')
     await dlg.getByRole('button', { name: '保存' }).click()
     await expect(dlg).toHaveCount(0, { timeout: 5000 })
-    await expect(row.getByText('走查毛利')).toBeVisible({ timeout: 5000 })
-    await expect(row.getByText('e2e 备注')).toBeVisible()
+    await expect(entry.getByText('走查毛利')).toBeVisible({ timeout: 5000 })
+    await expect(entry.getByText('e2e 备注')).toBeVisible()
+
+    // 转正走右键（菜单项）⇒ 菜单里变「取消转正」
+    await entry.click({ button: 'right' })
+    await menu.getByRole('button', { name: '存为资料' }).click()
+    await expect(entry.getByText('已存资料')).toHaveCount(1, { timeout: 5000 })
+    await entry.click({ button: 'right' })
+    await expect(menu.getByRole('button', { name: '取消转正' })).toBeVisible({ timeout: 5000 })
 
     // 删除：菜单项（带 🗑️ 图标 ⇒ 非 exact）→ 弹窗内确认（同名按钮，这里可 exact）
-    const countBefore = await rows().count()
+    const countBefore = await entries().count()
     const menuDelete = menu.getByRole('button', { name: '删除' })
-    await row.click({ button: 'right' })
+    await entry.click({ button: 'right' })
     await menuDelete.click()
     await expect(page.getByText('删除这条计算？')).toBeVisible({ timeout: 5000 })
     await dlg.getByRole('button', { name: '取消' }).click()
-    await expect(rows()).toHaveCount(countBefore) // 取消 = 不删
+    await expect(entries()).toHaveCount(countBefore) // 取消 = 不删
 
-    await row.click({ button: 'right' })
+    await entry.click({ button: 'right' })
     await menuDelete.click()
     await dlg.getByRole('button', { name: '删除', exact: true }).click()
-    await expect(rows()).toHaveCount(countBefore - 1, { timeout: 5000 })
-    await expect(row).toHaveCount(0)
+    await expect(entries()).toHaveCount(countBefore - 1, { timeout: 5000 })
+    await expect(entry).toHaveCount(0)
   })
 })
 
 /**
- * PLAN §十 那条「重启应用历史仍在」：面板里记两条（第一条转正）→ 真杀进程 → 同 userData 重启，
+ * PLAN §十 那条「重启应用历史还在」：计算页里记两条（第一条转正）→ 真杀进程 → 同 userData 重启，
  * 条目 / 顺序 / 「已存资料」态都还在，并以盘上 `calcs.json` 为证（UI 与磁盘两头对得上才算数）。
  * 「最近工作区自动恢复」不在这里当被测对象（那是 sidebar.spec 的口径）：本用例只保证第二个实例
  * 跑在同一工作区上——并发/串行的其他 spec 也会往真实家目录的 recents 里写，靠自动恢复等于把断言
  * 押在别人身上，故不同就显式 `workspace.open`。
  */
-test.describe('计算台账跨重启（v2.5.9 A7）', () => {
+test.describe('计算台账跨重启（v2.5.9 A7 整页化）', () => {
   test('重启后历史、顺序与「已存资料」态都在（真杀进程，盘上 calcs.json 为证）', async () => {
     const label = 'calc-restart'
     await fsp.rm(userDataDir(label), { recursive: true, force: true }).catch(() => {})
@@ -352,23 +359,24 @@ test.describe('计算台账跨重启（v2.5.9 A7）', () => {
         expect(created.success, `建工作区失败：${JSON.stringify(created)}`).toBe(true)
 
         const input1 = first.page.getByLabel('算式输入', { exact: true })
-        const rows1 = first.page.locator(ROW)
+        const entries1 = first.page.locator(ENTRY)
         await first.page.keyboard.press('Control+Equal')
-        await expect(first.page.getByText(PANEL_PROMPT)).toBeVisible({ timeout: 5000 })
+        await expect(first.page.getByText(PAGE_PROMPT)).toBeVisible({ timeout: 5000 })
 
         await input1.fill('(3200+380)*1.15')
         await first.page.keyboard.press('Enter')
-        await expect(first.page.getByText('4,117.00')).toBeVisible({ timeout: 5000 })
+        // 结果文本会同时出现在左栏索引行与右栏条目卡 ⇒ 一律限定右栏锚点，别用裸 getByText
+        // （整页化后同一记录两处呈现，裸文本定位会撞 strict 双命中）
+        await expect(entries1.filter({ hasText: '4,117.00' })).toHaveCount(1, { timeout: 5000 })
         await input1.fill('2026-09-16 + 60')
         await first.page.keyboard.press('Enter')
-        await expect(first.page.getByText('2026-11-15')).toBeVisible({ timeout: 5000 })
-        await expect(rows1).toHaveCount(2)
+        await expect(entries1.filter({ hasText: '2026-11-15' })).toHaveCount(1, { timeout: 5000 })
+        await expect(entries1).toHaveCount(2)
 
-        // 第一条转正（行序 = 录入序 ⇒ first() 即第一条）
-        const firstRow = rows1.first()
-        await firstRow.hover()
-        await firstRow.getByRole('button', { name: '存为资料', exact: true }).click()
-        await expect(firstRow.getByText('已存资料')).toHaveCount(1, { timeout: 5000 })
+        // 第一条转正（右栏正序 = 录入序 ⇒ first() 即第一条）
+        const firstEntry = entries1.first()
+        await firstEntry.getByRole('button', { name: '存为资料', exact: true }).click()
+        await expect(firstEntry.getByText('已存资料')).toHaveCount(1, { timeout: 5000 })
 
         // 盘上台账：两条、顺序、两态、展示态、时间戳形状（轮询到落盘，不 sleep）
         await expect
@@ -419,22 +427,22 @@ test.describe('计算台账跨重启（v2.5.9 A7）', () => {
           .toBe(wsDir)
 
         await second.page.keyboard.press('Control+Equal')
-        await expect(second.page.getByText(PANEL_PROMPT)).toBeVisible({ timeout: 5000 })
-        const rows2 = second.page.locator(ROW)
-        await expect(rows2, '重启后历史两条都在').toHaveCount(2, { timeout: 5000 })
+        await expect(second.page.getByText(PAGE_PROMPT)).toBeVisible({ timeout: 5000 })
+        const entries2 = second.page.locator(ENTRY)
+        await expect(entries2, '重启后历史两条都在').toHaveCount(2, { timeout: 5000 })
 
-        // 顺序与内容逐条对：第 0 行 = 先记的那条（含展示态算式与结果），第 1 行 = 后记的日期条
-        const texts = await rows2.allTextContents()
+        // 顺序与内容逐条对：第 0 张卡 = 先记的那条（含展示态算式与结果），第 1 张 = 后记的日期条
+        const texts = await entries2.allTextContents()
         expect(texts[0], '第一条算式').toContain('(3200 + 380) × 1.15')
         expect(texts[0], '第一条结果').toContain('4,117.00')
         expect(texts[1], '第二条算式').toContain('2026-09-16 + 60')
         expect(texts[1], '第二条结果').toContain('2026-11-15')
         // 「已存资料」态跟着条目回来，且只挂在第一条上
-        await expect(rows2.getByText('已存资料')).toHaveCount(1)
-        await expect(rows2.nth(0).getByText('已存资料')).toHaveCount(1)
-        await expect(rows2.nth(1).getByText('已存资料')).toHaveCount(0)
+        await expect(entries2.getByText('已存资料')).toHaveCount(1)
+        await expect(entries2.nth(0).getByText('已存资料')).toHaveCount(1)
+        await expect(entries2.nth(1).getByText('已存资料')).toHaveCount(0)
 
-        // 读路径不改盘：重启 + 打开面板（面板挂载即跑一遍 calcs.list）之后，文件逐字未变
+        // 读路径不改盘：重启 + 进计算页（挂载即跑一遍 calcs.list）之后，文件逐字未变
         expect(await fsp.readFile(calcsFile(wsDir), 'utf-8'), '重启后的读路径把 calcs.json 改写了').toBe(persisted)
       } finally {
         await kill(second.app)

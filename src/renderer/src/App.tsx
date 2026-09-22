@@ -5,12 +5,10 @@ import Header from "~/components/Header";
 import TitleBar from "~/components/TitleBar";
 import GlobalDropOverlay from "~/components/GlobalDropOverlay";
 import FilePreviewModal from "~/components/FilePreviewModal";
-import CalcPanel from "~/components/CalcPanel";
 import { loadCurrentWorkspace, loadWorkspaces, setFileBrowserRefreshTrigger } from "~/stores/workspace";
 import { loadTagDefs } from "~/stores/tags";
 import { loadAccountStatus, subscribeAccountEvents } from "~/stores/account";
 import { closePreview } from "~/stores/preview";
-import { openCalcPanel } from "~/stores/calcPanel";
 import { banner, showCertReminder } from "~/stores/notifyBanner";
 import { onMount, createSignal, createEffect, onCleanup, Show } from "solid-js";
 import type { WindowPrepareHideMessage } from "../../shared/types";
@@ -202,12 +200,8 @@ export default function App(props: RouteSectionProps) {
         return true;
       }, { pageOnly: true }); // 弹窗开着时按 Ctrl+1…6 / Ctrl+, 会把底下的页面换掉、弹窗连带Unmount
     }
-    // v2.5.9 A7（计算）：Ctrl+= 开悬浮计算面板（声明见 shortcuts.ts 的 calc.open）。
-    // 也是页面级注册：弹窗开着时不该从弹窗背后掀出面板来（它与上面那批同一让位口径）。
-    registerShortcut("calc.open", () => {
-      openCalcPanel();
-      return true;
-    }, { pageOnly: true });
+    // v2.5.9 A7（计算）：Ctrl+= 已随整页化改为 `SHORTCUTS` 里带 `path` 的导航项（见 shortcuts.ts
+    // 的 calc.open 与上方同一循环）——悬浮面板时代手写的 openCalcPanel 处理器已删除。
 
     loadCurrentWorkspace();
     loadWorkspaces();
@@ -346,8 +340,6 @@ export default function App(props: RouteSectionProps) {
         <GlobalDropOverlay />
         <FramelessResizer />
         <FilePreviewModal />
-        {/* v2.5.9 A7（计算）：悬浮面板（打开时自挂，见 stores/calcPanel.ts 的两个入口） */}
-        <CalcPanel />
       </Show>
     </div>
   );

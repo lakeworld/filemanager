@@ -126,7 +126,9 @@ export const SHORTCUTS: readonly ShortcutSpec[] = [
   // 在输入框里焦点时同样要生效（`text` 档的定义是「在 INPUT/TEXTAREA/SELECT/contenteditable
   // 里不劫持」，正好与本条目标相反）。标 `none` 后 Ctrl+= 在任何输入态都会被消费并 preventDefault
   // ——本仓没有第二处用这个组合键，不会抢谁的文本编辑动作。
-  { id: "calc.open", key: "=", ctrl: true, guard: "none", desc: "打开计算面板（悬浮；Esc 关闭；在输入框里也生效）" },
+  // 2026-09-22 深夜整页化修订：悬浮面板 → `/calc` 页 ⇒ 本条改为带 `path` 的导航项
+  // （App 的 SHORTCUTS 循环自动接管，与 settings.open 同一条路），不再手写处理器。
+  { id: "calc.open", key: "=", ctrl: true, guard: "none", desc: "跳到计算页（在输入框里也生效）", path: "/calc" },
   ...NAV_PATHS.map((p, i) => ({
     id: `nav.${i + 1}`,
     key: String(i + 1),

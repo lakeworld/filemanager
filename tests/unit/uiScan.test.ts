@@ -168,10 +168,16 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  *     `debt` 仍 6、`tint` 仍 0、`press` 仍 0、`noTransition` 仍 4（增数 = 多了 8 个真按钮，不是谁各写各的）。
  *   - `modal framed 21 → 22`（**v2.5.9 A7**）：计算面板的「编辑标题备注」弹窗（`ui/Modal` framed +
  *     `.dlg-field` 字段区 + `.btn-*` 页脚）——面板内唯一一个 Modal 调用点，未 framed 名单仍为空。
+ *   - **`total 283 / handwritten 140 不变**（**v2.5.9 A7 整页化修订**，2026-09-22 深夜）：`CalcPanel.tsx`
+ *     悬浮面板删除、`pages/Calc.tsx` 整页双栏上线——按钮 8 换 8（头部 ✕ 关闭钮没了，多了左栏历史
+ *     索引行那一枚整行可点钮 `data-calc-side="history"`；算式回填 / 结果复制 / 复制 / 存为资料 /
+ *     `%` / 编辑弹窗页脚两枚全部平移），分类一格未动 ⇒ 本基线按纪律**不动数**，只在此登记成因
+ *     （`node scripts/scan-ui-inventory.mjs` 实测复核：283 / 143 / 140 / noclass 0 / debt 6 /
+ *     tint 0 / press 0 / noTransition 4 / modal 22 framed 22，逐格与上一条 A7 快照全等）。
  *   - `total 283 → 284` / `handwritten 140 → 141`（**v2.5.9 图码必填收口**，2026-09-22）：
  *     `pages/Profile.tsx` 账号区图码位「点击重试」兜底 span → button——图码取失败时没有图可点，
  *     必须给一个可点的重试入口（按钮保持可点、必填闸门在提交处给人话错误，不停在禁用态）。
- *     走既有形状档 `.link-btn`（过渡由骨架自带，不重复写 transition）。同 D18 / A6-2 / A8 / A9
+ *     走既有形状档 `.link-btn`（过渡由骨架自带，不重复写 transition）。同 D18 / A6-2 / A8 / A9 / A7
  *     口径：形状档归 handwritten 这一格不是收口指标 ⇒ `debt` 仍 6、`tint` 仍 0、`press` 仍 0、
  *     `noTransition` 仍 4（+1 = 多一个真按钮，不是谁各写各的）。
  */

@@ -30,6 +30,8 @@ const Help = lazy(() => import("./pages/Help"));
 const Trash = lazy(() => import("./pages/Trash"));
 // v2.4.8：导出区（压缩分享产物）
 const Exports = lazy(() => import("./pages/Exports"));
+// v2.5.9 A7（计算，2026-09-22 深夜整页化修订）：/calc 双栏页（左历史索引 + 右计算区）
+const Calc = lazy(() => import("./pages/Calc"));
 // v2.4.7：客户 / 发票（PLAN §5.2 / §6.5）
 const Clients = lazy(() => import("./pages/Clients"));
 const Invoices = lazy(() => import("./pages/Invoices"));
@@ -63,6 +65,8 @@ render(
       <Route path="/help" component={Help} />
       <Route path="/trash" component={Trash} />
       <Route path="/exports" component={Exports} />
+      {/* v2.5.9 A7（计算）：/calc 双栏页（侧栏「工具 → 计算」；Ctrl+= 见 shortcuts.ts 的 calc.open） */}
+      <Route path="/calc" component={Calc} />
       {/* v2.4.7：客户 / 发票 / 客户文件区路由（静态段 customer 优先于通用 :type 通配，参数槽位 :name = 客户名） */}
       <Route path="/clients" component={Clients} />
       <Route path="/clients/:name" component={Clients} />
