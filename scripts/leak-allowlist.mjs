@@ -58,6 +58,23 @@ export const ALLOW = [
     reason: '门禁源码的自指（写的是模式，不是值）',
   },
   {
+    // 闸 B（工作区内部目录坐标）上线时的既得残留，三条各自钉死、都不遮蔽新内容：
+    // ① AGENTS.md 被 .gitignore:68 挡住、当前 tip 不跟踪 ⇒ 这条**只可能**命中历史 blob。
+    //    （若哪天 AGENTS.md 真被跟踪，那是红线 2 的独立违规，另行处置，与本条无关。）
+    file: /^AGENTS\.md:/,
+    rule: 'internal-workspace-path',
+    reason: '仅存历史 blob（AGENTS.md 按红线 2 从不进公开仓，tip 无此跟踪路径）',
+  },
+  {
+    // ②③ 提交正文里点名了工作区内部目录（闸 A 上线后才看得见的面，2026-09-23 实测就这两处）。
+    // 钉到 sha + 行号：新提交必然换 sha ⇒ 本条**无法**被将来任何一次泄漏复用。
+    // 处置选择：这两处已在公开历史里，清它们只能重写历史（fork 与缓存会替我们留旧 sha，
+    // AGENTS §一.6），代价大于收益 ⇒ 登记为既得残留，交回主会话复核；不接受以此为由再写内部目录。
+    file: /^commit (9ab68604c0c5 message:9|2dc4296e67a7 message:8)$/,
+    rule: 'internal-workspace-path',
+    reason: '已公开提交正文里的既得残留（sha+行号钉死，不遮蔽任何新提交）',
+  },
+  {
     // 公开历史 blob 里的第三方署名：v1.x Wails 期由框架生成的 package.json 作者字段，
     // 不是启禾任何人的地址；该路径在 v1.3 换栈后已不存在于 tip，仅存历史。
     file: /^frontend\/src\/wailsjs\/runtime\/package\.json:/,

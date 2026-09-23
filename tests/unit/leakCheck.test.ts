@@ -33,6 +33,7 @@ function runLeak(root: string, args: string[]) {
 function mkRepo(
   files: Record<string, string | Buffer>,
   identity: { name?: string; email?: string } = { name: '启禾软件', email: 'ai_qihe@vip.qq.com' },
+  message = 'fixture',
 ): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qihe-leak-'))
   const git = (...a: string[]) => {
@@ -46,7 +47,7 @@ function mkRepo(
     fs.writeFileSync(abs, content)
   }
   git('add', '-A')
-  git('-c', `user.name=${identity.name}`, '-c', `user.email=${identity.email}`, 'commit', '-q', '-m', 'fixture')
+  git('-c', `user.name=${identity.name}`, '-c', `user.email=${identity.email}`, 'commit', '-q', '-m', message)
   return dir
 }
 
@@ -193,6 +194,90 @@ describe('check-no-secrets —— 公开仓泄漏门禁', () => {
     const r = runLeak(dir, ['--history'])
     expect(r.status).toBe(1)
     expect(r.all).toContain('rule=identity-shape')
+  })
+
+  // ───────────── 闸 A（2026-09-23 三路审计补）：提交正文同样是扫描面 ─────────────
+  // 病根：`scanCommits` 过去只取 `%an/%ae/%cn/%ce`（提交**身份**），从不读 `%B` ⇒ 把私人邮箱、
+  // 本机路径、工作区内部坐标写进 commit message，--all / --history / --pre-push 三口径全部放行。
+  // 样本值一律运行时拼接（本文件不留连续字面量，也就不必为下面几条开豁免）。
+  const WS_INBOX = ['_', 'inbox', '/样张-01.md'].join('')
+  const MSG_LEAKS: Array<[string, string, string]> = [
+    ['personal-email', `联系 ${PRIVATE_ID}`, 'rule=personal-email'],
+    ['local-path', '产物在 /home/zhangsan/下载/x.AppImage', 'rule=local-path'],
+    ['internal-workspace-path', `取证见 ${WS_INBOX}`, 'rule=internal-workspace-path'],
+  ]
+  for (const [shape, message, expect0] of MSG_LEAKS) {
+    it(`反向实验（闸 A）：提交正文写 ${shape} 形态，--history 必红且位置指到正文行`, () => {
+      const dir = mkRepo({ 'a.md': '内容本身是干净的\n' }, undefined, message)
+      expect(runLeak(dir, ['--all']).status).toBe(0) // 正文不在"现树"口径里，这条钉住口径边界
+      const r = runLeak(dir, ['--history'])
+      expect(r.status).toBe(1)
+      expect(r.all).toContain(expect0)
+      expect(r.all).toMatch(/commit [0-9a-f]{12} message:1/) // 位置形如 commit <sha> message:<n>
+    })
+  }
+
+  it('反向实验（闸 A）：泄漏提交按增量推回时，pre-push 也要红（正文面与 blob 面同一条闸）', () => {
+    const dir = mkRepo({ 'a.md': '干净首版\n' })
+    const git2 = (...a: string[]) => {
+      const r = spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' })
+      if (r.status !== 0) throw new Error(`git ${a.join(' ')}: ${r.stderr}`)
+    }
+    fs.writeFileSync(path.join(dir, 'b.md'), '同样干净\n')
+    git2('add', '-A')
+    git2('-c', 'user.name=启禾软件', '-c', 'user.email=ai_qihe@vip.qq.com', 'commit', '-q', '-m', `取证见 ${WS_INBOX}`)
+    const head = spawnSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()
+    const base = spawnSync('git', ['-C', dir, 'rev-parse', 'HEAD~1'], { encoding: 'utf8' }).stdout.trim()
+    const r = spawnSync(process.execPath, [SCRIPT, '--pre-push'], {
+      encoding: 'utf8',
+      input: `refs/heads/main ${head} refs/heads/main ${base}\n`,
+      env: { ...process.env, QH_LEAK_ROOT: dir },
+    })
+    expect(r.status).toBe(1)
+    expect(`${r.stdout}${r.stderr}`).toContain('rule=internal-workspace-path')
+  })
+
+  it('闸 A 不误报：正常提交正文（含中文、sha、路径样式词）不红', () => {
+    const dir = mkRepo(
+      { 'a.md': 'hi\n' },
+      undefined,
+      'fix(box): 修掉渲染层增量重建的重复哈希（缺陷回收）\n\n- 复现基线 983d291，改动只在 src/main/core/hashes.ts\n- 验证：npm test 全绿\n',
+    )
+    expect(runLeak(dir, ['--history']).status).toBe(0)
+  })
+
+  it('闸 A 防绕过：正文里塞记录分隔符（\x1e）把泄漏劈成第二段 ⇒ 拒绝执行而非静默放行', () => {
+    // 无守卫时的假绿路径：split 出的一条"记录"没有合法 sha ⇒ 被 filter 掉 ⇒ 藏在那段里的
+    // 私人邮箱一行都扫不到。结构性看不见历史 = 必须红（口径同浅克隆那条判据）。
+    const dir = mkRepo({ 'a.md': 'hi\n' }, undefined, `clean line\x1e隐藏联系 ${PRIVATE_ID}`)
+    const r = runLeak(dir, ['--history'])
+    expect(r.status).toBe(2)
+    expect(r.all).toContain('拒绝执行')
+    expect(r.all).not.toContain('泄漏门禁通过')
+  })
+
+  // ───────────── 闸 B（同日补）：工作区内部文档坐标 ─────────────
+  it('反向实验（闸 B）：文件里写内部任务卡坐标必红（--all 即拦）', () => {
+    const dir = mkRepo({ 'docs/n.md': `详见 ${['_', 'archive', '/', '待拍板-2026-99-99-测试.md'].join('')}\n` })
+    const r = runLeak(dir, ['--all'])
+    expect(r.status).toBe(1)
+    expect(r.all).toContain('rule=internal-workspace-path')
+  })
+
+  it('反向实验（闸 B）：内部任务卡文件名（前缀 + 中文标题）必红', () => {
+    const dir = mkRepo({ 'docs/c.md': `口径见 ${['待验', '-', '样例清单'].join('')}.md\n` })
+    const r = runLeak(dir, ['--all'])
+    expect(r.status).toBe(1)
+    expect(r.all).toContain('rule=internal-card-name')
+  })
+
+  it('闸 B 不误报：`import.meta` / 裸目录名 / 前缀后接数字（散文里的日期形态）都放过', () => {
+    const dir = mkRepo({
+      'src/a.ts': 'const u = import.meta.url\nconst d = "my_archive/2026"\nconst m = "_inbox 目录（未带斜杠的口语）"\n',
+      'docs/b.md': '本轮记录见缺陷台账与开工检查，动作 2026-09-23 收口\n',
+    })
+    expect(runLeak(dir, ['--all']).status).toBe(0)
+    expect(runLeak(dir, ['--history']).status).toBe(0)
   })
 
   it('二进制 blob 跳过（NUL 字节内容不做文本规则）', () => {

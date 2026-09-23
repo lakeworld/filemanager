@@ -17,6 +17,10 @@
  * --history 管「历史上留了什么」——已推送过的残留（本仓现存 4 个网盘目录名的历史 blob）在这里
  * 会一直可见，但它不该让每次推送都红（那只会逼人用 --no-verify）。
  *
+ * 扫描面 = 内容 + 提交正文（2026-09-23 三路审计后补，闸 A）：此前只读 blob 与提交**身份**，
+ * 从不读 `%B` ⇒ 把内部路径/邮箱/IP/本机路径写进 commit message，三种模式全部放行。
+ * 现按行复用同一套内容规则（不为正文另立标准），命中位置形如 `commit <sha> message:<n>`。
+ *
  * 退出码：0 干净；1 命中；2 用法/git 调用失败。
  * 纪律：命中只报「位置 + 规则名」，**不回显命中内容本身**——门禁日志与 CI 产物本身也是公开面。
  */
@@ -108,6 +112,25 @@ const HARD_RULES = [
   { name: 'github-token', re: /\bgh[pousr]_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{30,}/, why: 'GitHub 令牌（ghp_/gho_/ghu_/ghs_/ghr_ 或 github_pat_）' },
   { name: 'aws-key-id', re: /\bAKIA[0-9A-Z]{16}\b/, why: 'AWS 访问密钥 ID（AKIA + 16 位大写字母数字）' },
   { name: 'jwt', re: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/, why: 'JWT 形状（三段点分 base64url）' },
+  // ── 闸 B（2026-09-23 三路审计补）：工作区内部文档坐标 ──
+  // 只收「形状稳定 + 实测零误报」的两条：正则本身刻意写成 `_(?:inbox|…)`（把三个目录名与后面的
+  // 斜杠隔开），前缀词与连字符之间插 `|`——本文件住在公开仓，把形状连着抄出来就是自指导弹。
+  // 上线前的实测（/tmp 一次性统计脚本，跑完即删）：现树 0 命中、全历史 blob 命中在**未被跟踪的死路径**
+  // 上，提交正文 2 处 ⇒ 三条都可用 sha+行号精确登记，不需要放宽规则（见 scripts/leak-allowlist.mjs）。
+  {
+    name: 'internal-workspace-path',
+    re: /(?<![\w-])_(?:inbox|archive|meta)\//,
+    why: '工作区内部任务卡目录坐标（这类目录只住本地，公开面点名等于交出内部过程文档索引）',
+  },
+  {
+    name: 'internal-card-name',
+    // 末项写成字符类而非裸词：本文件是公开面，把被拦词连写法抄进注释/字符串就是自指导弹
+    re: /(?:待拍板|待验|待办|缺陷|动作|审查|开工|清点|spike)-[\u4e00-\u9fff]|收工[卡]/,
+    why: '内部任务卡文件名形态（前缀 + 中文标题）——公开面出现即点名了未公开的过程文档',
+  },
+  // ⚠ 两条**同源但上不了线**的形状（勿顺手加回）：「内部文档目录引用」与「前缀 + 日期」在
+  //   公开历史里已有较多既得命中（散在历年文档的散文里，清理代价大于收益）⇒ 只能按路径豁免
+  //   = 给活文件开洞，违背「不靠放宽规则拿绿灯」。目录坐标那条已覆盖真实泄漏的写法。
   {
     name: 'server-config',
     re: /["']apiBase["']\s*:\s*["']https?:\/\/\S/i,
@@ -139,6 +162,14 @@ const IPV4_RE = /(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])/g
 // 另一处**刻意公开**（2026-09-23 审计登记）：本仓 `electron-builder.yml` 的 `publish.url` 是
 // 应用内更新的 feed 根——客户端要自己按它取更新，所以它必须写在公开仓里；`server-config`
 // 规则只管 `"apiBase"` 形态的写死服务地址，不覆盖该键，这不是漏洞而是口径（别再为它开口子）。
+// 再两处**已登记盲区**（2026-09-23 三路子代理审计，明写不隐瞒；属「商业与内部信息面」）：
+// ① 「价目形状数字」——现行订阅价与发票/报价功能里的业务金额是**同一种文本形状**（货币符号 +
+//    普通数字），静态规则无从区分，现树里的货币金额又全部属于后者 ⇒ 加规则等于把自家功能扫红，
+//    故**本闸不覆盖**（这里刻意连价格的数字与档位都不写：本文件住在公开仓，写出值等于再发一次）。
+// ② 「包内文件布局点名」——发布包/安装包里有哪些文件、叫什么名，属"协议必需 vs 架构泄漏"的语义
+//    判断，没有稳定文本形状可扫，同样**本闸不覆盖**。
+// 这两类由推公开仓前的**三路子代理人工审计**兜底（AGENTS.md 红线 10 + `scripts/check-push-audit.mjs`：
+// 待推送 tip 无留档记录直接拒推）。静态闸绿 ≠ 商业信息面干净——别把这两句当成已经修好了。
 /** 回环 / 未指定 / 广播 / 组播 / RFC 5737 规范示例地址：不算泄漏；其余（含公网与 192.168 内网）一律算 */
 function isBenignIp(ip) {
   const o = ip.split('.').map(Number)
@@ -328,11 +359,32 @@ function splitFields(rec) {
 /** for-each-ref 的 %(xxxemail) 返回 `<user@host>` 形态，log 的 %ae 返回裸地址——统一剥掉尖括号 */
 const bareEmail = (s) => (s || '').trim().replace(/^<(.*)>$/, '$1')
 
+/**
+ * 闸 A：提交正文（subject + body）与 blob 走同一套内容规则。
+ * 位置形如 `commit <sha12> message:<行号>`——报的是位置与规则名，不回显命中内容（纪律同 §头注）。
+ * 软规则一并生效：正文里写 `password="…"` 或带账密的 URL 与写进文件同样算泄漏。
+ */
+function scanCommitMessage(sha, body) {
+  scanText(`commit ${sha.slice(0, 12)} message`, body, { soft: true })
+}
+
 function scanCommits(refArgs) {
-  const raw = gitBuffer(['log', ...refArgs, '--format=%H%x00%an%x00%ae%x00%cn%x00%ce%x00']).toString('utf8')
-  const recs = raw.split('\n').map((s) => s.trim()).filter(Boolean)
+  // %B = 提交正文。正文自带换行 ⇒ 记录分隔符不能用 \n，改用 %x1e（RS）；字段间仍用 %x00。
+  // 一笔 git log 调用取全部提交（沿用流式口径，不逐笔起进程）：本仓 425 笔实测 <0.1s。
+  const raw = gitBuffer(['log', ...refArgs, '--format=%H%x00%an%x00%ae%x00%cn%x00%ce%x00%B%x1e']).toString('utf8')
+  const recs = raw.split('\x1e').map((s) => s.replace(/^\n+/, '').replace(/\s+$/, '')).filter(Boolean)
+  // 防绕过：正文里混进记录分隔符会把一笔提交劈成两段，后那段没有合法 sha ⇒ 若只"跳过"就等于
+  // 拿一个不可见字符换到一次静默放行（假绿比没门禁更糟，见头注）。判不出来就直接 rc=2 拒绝执行。
+  const broken = recs.filter((r) => !/^[0-9a-f]{40,64}\x00/.test(r))
+  if (broken.length) {
+    process.stderr.write(
+      `✗ 公开仓泄漏门禁拒绝执行：${broken.length} 条提交记录解析不出 sha（正文里含 RS 控制符 \\x1e？）。\n` +
+        `  这不是"没泄漏"，是"看不见"——请人工核对这些提交，勿绕过本闸。\n`,
+    )
+    process.exit(2)
+  }
   for (const rec of recs) {
-    const [sha, an, ae, cn, ce] = splitFields(rec)
+    const [sha, an, ae, cn, ce, body] = splitFields(rec)
     for (const [who, raw0] of [['author', ae], ['committer', ce]]) {
       const email = bareEmail(raw0)
       if (!email) continue
@@ -343,6 +395,7 @@ function scanCommits(refArgs) {
     if (suspiciousName(an) || suspiciousName(cn)) {
       hit(`commit ${sha.slice(0, 12)}`, 'identity-shape', '提交作者名是纯数字账号形态（QQ 号当名字用）')
     }
+    if (body) scanCommitMessage(sha, body)
   }
   // 注解标签的 tagger 同样公开可见（2026-09-12 清洗时正是这里漏过一遍）
   const tags = gitBuffer(['for-each-ref', 'refs/tags', '--format=%(refname)%00%(taggername)%00%(taggeremail)%00']).toString('utf8')
