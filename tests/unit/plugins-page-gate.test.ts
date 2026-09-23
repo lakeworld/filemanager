@@ -222,4 +222,20 @@ describe('routes.tsx 接线（源码级门禁）', () => {
     expect(src).toContain('plugins().find')
     expect(src).toContain('refreshPluginRegistry()')
   })
+
+  // 2026-09-23 推前审计第 2 路提出的验收断言（根因 = 同日新立的渲染层取钥哈希缺陷）：
+  // 哈希口径修完之前，被判 TAMPERED 的那份密文本身是合法的 ⇒ 重装回来还是同一份、照样 403。
+  // 所以「去重装」可以留（真调包/同号重建时它是正确出路），但**不得承诺必然解决**，
+  // 且必须给第二条出路（报障：名与版本副标题已亮出）。
+  it('TAMPERED 出路诚实钉：保留「去重装」但必须带"重装可能无效"的出路话术', () => {
+    const gateBlock = src.slice(src.indexOf('function PluginGatePage'), src.indexOf('function PluginTechFailPage'))
+    expect(gateBlock.length, '没定位到引导页组件（函数名被改？该钉就要跟着改）').toBeGreaterThan(0)
+    // ① 重装那条分支必须有第二出路话术（指路报障，不承诺自愈）
+    expect(gateBlock, 'reinstall 分支缺"若重装后仍然如此…"的第二出路（哈希根因未修完前不得省）').toMatch(
+      /route === 'reinstall'[\s\S]{0,220}若重装后仍然如此[\s\S]{0,60}告诉我们/,
+    )
+    // ② 不得出现"重装必然解决"式承诺（这些词一旦进引导页，用户会被送进死循环）
+    expect(gateBlock).not.toMatch(/重装(后|一下)?(即|必|肯?定)?可?(解决|恢复|生效)/)
+    expect(gateBlock).not.toMatch(/一定(能|会)(解决|恢复|生效)/)
+  })
 })

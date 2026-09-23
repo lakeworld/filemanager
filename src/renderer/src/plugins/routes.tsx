@@ -100,6 +100,13 @@ function PluginGatePage(props: { gate: PluginPageGate; retried: boolean; onRetry
           重新加载
         </button>
       </Show>
+      {/* 出路的诚实边界（2026-09-23 推前审计第 2 路要求 + 同日哈希缺陷立卡）：
+          加密包渲染层取钥的哈希口径缺陷修完之前，重装回来的仍是**同一份合法密文**，
+          照样被判不一致 ⇒ 「去重装」不能承诺必然解决。这句话是给用户的第二条出路，
+          也是给我们的一条报障线索（名与版本副标题里已亮出，可原样转述）。 */}
+      <Show when={g().route === 'reinstall'}>
+        <p class="text-xs text-surface-500">若重装后仍然如此，请把上面的插件名与版本一并告诉我们。</p>
+      </Show>
     </NoticeShell>
   )
 }
