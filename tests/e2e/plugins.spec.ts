@@ -267,6 +267,22 @@ test.describe('插件宿主 e2e（v2.5）', () => {
       }, HELLO_ID)
       expect(info.state).toBe('enabled')
       expect(info.failCount).toBeGreaterThanOrEqual(1)
+      // —— v2.6 缺陷修复：同一个失败在**插件页**也得说人话并给出路 ——
+      // 旧形态：包内只有 .enc，取钥被拒被协议层伪装成 404 → 动态 import 抛裸 TypeError，
+      // 用户看到的是一句英文技术错误，既不知道「要登录/要订阅」，也没有任何可点的出路。
+      await gotoRoute('/plugin/hello')
+      await expect(page.getByText(/这个插件需要登录后才能使用/)).toBeVisible({ timeout: 15000 })
+      // 主进程算好的原因原话照搬 + 出路按钮在位
+      await expect(page.getByText(/未登录启禾云账号/)).toBeVisible()
+      const goLogin = page.getByRole('button', { name: /去登录/ })
+      await expect(goLogin).toBeVisible()
+      // 裸报错不得再是主脸
+      await expect(page.getByText(/TypeError|Failed to fetch|dynamically imported/)).toHaveCount(0)
+      // 出路真能走通：点「去登录」落到账号页
+      await goLogin.click()
+      await expect
+        .poll(async () => page.evaluate(() => location.hash), { timeout: 15000 })
+        .toContain('/profile')
     } finally {
       await uninstallAll()
       await setDevMode(false)

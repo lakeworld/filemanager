@@ -16,7 +16,14 @@ import Module from 'node:module'
 import type { PluginHost, PluginManifest, PluginRegistration } from '../../plugins/types'
 import type { PluginHostInstance } from './host'
 import { PKG_DIR, MAIN_ENTRY, CIRCUIT_BROKEN_PREFIX, type PluginRegistry } from './registry'
-import { getPluginKeyResult, decryptEnc, pluginKeyFailureText, type KeyDeps, type PluginKeyFailure } from './encryption'
+import {
+  getPluginKeyResult,
+  decryptEnc,
+  pluginKeyFailureText,
+  pluginKeyLoadCode,
+  type KeyDeps,
+  type PluginKeyFailure,
+} from './encryption'
 
 /** 熔断阈值：握手/调用连续失败 3 次 → 自动 broken（PLUGIN.md §2.3.2） */
 export const BREAK_THRESHOLD = 3
@@ -296,7 +303,11 @@ export class PluginLoader {
       if (!(err instanceof ActivationCancelledError)) {
         // v2.6 批 7（审查轮 2 缺口①）：失败原因落登记条目 → 管理页当场可见（此前只有主进程日志，
         // 用户「装上但用不了」看不出原因与出路）；未熔断时补一次广播让管理页即时刷新。
-        this.registry.recordLoadError(id, err instanceof Error ? err.message : String(err))
+        // v2.6 缺陷修复：取钥/解密这一类**额外带结构化分类码**（其它加载失败给不出一条用户能走的
+        // 出路，不该带码）——渲染层插件页闸门据此画「原因 + 能点的出路按钮」，不再让裸 TypeError 当主脸。
+        const loadErrorCode =
+          err instanceof PluginKeyUnavailableError ? pluginKeyLoadCode(err.keyFailure) : undefined
+        this.registry.recordLoadError(id, err instanceof Error ? err.message : String(err), loadErrorCode)
         if (!this.fail(id, err)) this.onChanged?.()
       }
       throw err

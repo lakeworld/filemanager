@@ -61,6 +61,8 @@ const SKIP = new Set([
   'batch-identifying', // Invoices data-testid
   'pdf-page-jump',    // PdfPreview 页码跳转输入框 id（v2.5.8 D19/B11）——`ui/Input` 底座没有未知属性透传面，定位只能靠 id，不是 class
   'file:',            // 协议比较字面量（index.tsx window.location.protocol === 'file:'，v2.5.7 补丁）——非 Tailwind file: 变体
+  'key-unavailable',  // 插件页闸门状态枚举值（plugins/registry.ts `derivePluginPageGate` 的 state、routes.tsx 分流比较）——非 class
+  'no-default',       // 插件页挂载视图枚举值（routes.tsx：模块没有默认导出）——非 class
 ])
 // 无连字符的 utility/自定义类（含连字符的 token 一律核查；单词类只信这个集合，
 // 避免把 'peer'/'all'/'create' 这类业务字符串字面量误当 class）

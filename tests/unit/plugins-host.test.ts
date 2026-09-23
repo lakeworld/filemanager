@@ -360,6 +360,28 @@ describe('PluginRegistry：发现与校验', () => {
     expect(registry2.get('com.qihe.y')!.failCount).toBe(0)
     expect(registry2.get('com.qihe.y')!.brokenReason).toBeUndefined()
     expect(registry2.info('com.qihe.y')!.lastError).toBeUndefined() // 「重试」同点清掉上次失败原因（不陈旧展示）
+    expect(registry2.info('com.qihe.y')!.lastErrorCode).toBeUndefined() // 分类码与原因同生同灭，闸门不留陈旧态
+  })
+
+  // v2.6 缺陷修复（官方目录免费用户裸报错）：登记条目多带一个**结构化分类码**，
+  // 渲染层插件页闸门据此分流「原因 + 出路按钮」；三态字段必须与 lastError 严格同步。
+  it('带错误码登记：lastErrorCode 与 lastError 同写同清', () => {
+    writePlugin('com.qihe.code')
+    const registry = makeRegistry()
+
+    registry.recordLoadError('com.qihe.code', '这个插件需要订阅启禾云服务', 'SUBSCRIPTION_REQUIRED')
+    expect(registry.info('com.qihe.code')!.lastError).toContain('订阅')
+    expect(registry.info('com.qihe.code')!.lastErrorCode).toBe('SUBSCRIPTION_REQUIRED')
+
+    // 不带码的其它加载失败：旧码必须显式清空，否则会出现「旧分类码 + 新文案」的错配引导
+    registry.recordLoadError('com.qihe.code', '插件加载失败: boom')
+    expect(registry.info('com.qihe.code')!.lastError).toContain('boom')
+    expect(registry.info('com.qihe.code')!.lastErrorCode).toBeUndefined()
+
+    registry.recordLoadError('com.qihe.code', '需要登录启禾账号', 'NOT_LOGGED_IN')
+    registry.clearLoadError('com.qihe.code')
+    expect(registry.info('com.qihe.code')!.lastError).toBeUndefined()
+    expect(registry.info('com.qihe.code')!.lastErrorCode).toBeUndefined()
   })
 
   it('resolvePluginText / versionAtLeast 工具', () => {
@@ -495,6 +517,7 @@ describe('PluginLoader：惰性加载 / 握手 / 熔断', () => {
       expect(fetchCalled).toBe(1)
       // v2.6 批 7：成功路径不带失败原因（管理页不显示 lastError）
       expect(registry.info('com.qihe.enc')!.lastError).toBeUndefined()
+      expect(registry.info('com.qihe.enc')!.lastErrorCode).toBeUndefined()
     } finally {
       ;(globalThis as unknown as { fetch: typeof fetch }).fetch = origGlobalFetch
     }
@@ -556,6 +579,8 @@ describe('PluginLoader：惰性加载 / 握手 / 熔断', () => {
       expect(info.state).toBe('enabled') // 一次失败不熔断
       expect(info.failCount).toBe(1)
       expect(info.lastError).toContain('插件包内容与云端登记不一致')
+      // v2.6 缺陷修复：同一条失败还带**结构化分类码**，插件页闸门据此分流画出路按钮（不让用户看裸报错）
+      expect(info.lastErrorCode).toBe('TAMPERED')
       expect(fs.existsSync(path.join(pkg, 'main', 'index.js'))).toBe(false) // 明文仍不存在
     } finally {
       restore()
@@ -579,6 +604,7 @@ describe('PluginLoader：惰性加载 / 握手 / 熔断', () => {
       expect(err.message).toContain('「启禾云」') // 去哪开：应用内既有订阅入口
       expect(err.message).toContain('「订阅 VIP」')
       expect(registry.get('com.qihe.enc3')!.lastError).toContain('该插件需要订阅')
+      expect(registry.info('com.qihe.enc3')!.lastErrorCode).toBe('SUBSCRIPTION_REQUIRED') // 插件页「去订阅」出路的判据
       expect(g.__pluginAct).toBe(0) // fail-closed 不变：取钥失败照样拒绝加载
       // 熔断口径不变（非业务码，不计豁免）：连续 3 次 → broken，原因里带同一句话
       await loader.call('com.qihe.enc3', 'echo', {}).catch(() => {})
@@ -610,6 +636,7 @@ describe('PluginLoader：惰性加载 / 握手 / 熔断', () => {
     try {
       await expect(loader.call('com.qihe.enc4', 'echo', {})).rejects.toThrow('该插件需要订阅')
       expect(registry.get('com.qihe.enc4')!.lastError).toContain('该插件需要订阅')
+      expect(registry.info('com.qihe.enc4')!.lastErrorCode).toBe('SUBSCRIPTION_REQUIRED')
       allow = true // 订阅生效后：同一条触发路径重试
       await expect(loader.call('com.qihe.enc4', 'echo', { ok: 1 })).resolves.toEqual({ pong: { ok: 1 } })
       const info = registry.info('com.qihe.enc4')!

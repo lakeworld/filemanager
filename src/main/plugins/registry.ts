@@ -10,7 +10,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { validateManifest } from '../../plugins/types'
 import type { PluginManifest, PluginText } from '../../plugins/types'
-import type { PluginInfo } from '../../shared/types'
+import type { PluginInfo, PluginLoadErrorCode } from '../../shared/types'
 import { writeJsonAtomic } from '../core/paths'
 
 // —— 宿主存储布局（userData/plugins，PLUGIN.md §3.4）——
@@ -82,6 +82,11 @@ export interface PluginEntry {
    *  v2.6 批 7（审查轮 2 缺口①）：取钥失败这类「装上但用不了」的原因当场落到这里，
    *  不再只有「连续失败 3 次熔断后」才可见——用户能立刻看到原因与出路。 */
   lastError?: string
+  /** 最近一次加载失败的**结构化分类码**（v2.6 缺陷修复）：`lastError` 的机器可读那一半。
+   *  只有加密插件取钥/解密失败才会带码（分类在主进程算，那里同时握着 code 与 HTTP 状态）；
+   *  渲染层的插件页闸门据此画「原因 + 能点的出路按钮」，禁止靠 `lastError` 的中文文案猜。
+   *  清零时机与 `lastError` 严格同步（成功激活 / 「重试」/ 重新启用三处一起清）。 */
+  lastErrorCode?: PluginLoadErrorCode
   /** 安装时间（ISO 字符串） */
   installedAt: string
   /** 最近一次激活耗时（毫秒，管理页可观测，loader 写入） */
@@ -333,6 +338,7 @@ export class PluginRegistry {
       entry.brokenReason = undefined
       entry.failCount = 0
       entry.lastError = undefined
+      entry.lastErrorCode = undefined // 原因码与文案同点清（否则插件页会继续按陈旧分类码画闸门）
       entry.state = 'enabled'
       entry.enabled = true
       this.configOverrides[id] = true
@@ -345,6 +351,7 @@ export class PluginRegistry {
     if (enabled) {
       entry.failCount = 0 // 重新启用清零连续失败（重试语义）
       entry.lastError = undefined // 同上：上一次失败原因不当陈旧展示
+      entry.lastErrorCode = undefined // 原因码与原因同生同灭（闸门不留陈旧态）
     }
     this.configOverrides[id] = enabled
     await this.persistConfig()
@@ -388,16 +395,22 @@ export class PluginRegistry {
     if (e) e.failCount = 0
   }
 
-  /** 记录最近一次激活/加载失败原因（loader 在激活失败时写入；管理页展示 + 由 loader 触发广播） */
-  recordLoadError(id: string, message: string): void {
+  /** 记录最近一次激活/加载失败原因（loader 在激活失败时写入；管理页展示 + 由 loader 触发广播）。
+   *  `code` = 结构化分类码，**只有取钥/解密失败这一类才传**（其余加载失败给不出「出路」，不该带码）；
+   *  不传即显式清空上一次的码——三态字段必须与 `lastError` 同步，否则会出现「旧码 + 新文案」的错配引导。 */
+  recordLoadError(id: string, message: string, code?: PluginLoadErrorCode): void {
     const e = this.entries.get(id)
-    if (e) e.lastError = message
+    if (!e) return
+    e.lastError = message
+    e.lastErrorCode = code
   }
 
-  /** 清空最近一次激活失败原因（激活成功时与 failCount 同点清零） */
+  /** 清空最近一次激活失败原因（激活成功时与 failCount 同点清零；原因码同点清） */
   clearLoadError(id: string): void {
     const e = this.entries.get(id)
-    if (e) e.lastError = undefined
+    if (!e) return
+    e.lastError = undefined
+    e.lastErrorCode = undefined
   }
 
   // —— config.json 读写（启停覆盖，插件代码/状态/启停三处分离，PLUGIN.md §3.4）——
@@ -445,6 +458,8 @@ function toInfo(e: PluginEntry): PluginInfo {
     ...(e.brokenReason !== undefined ? { brokenReason: e.brokenReason } : {}),
     // v2.6 批 7：最近一次激活失败原因（取钥失败等「装上但用不了」的原因当场可见）
     ...(e.lastError !== undefined ? { lastError: e.lastError } : {}),
+    // v2.6 缺陷修复：同一失败的结构化分类码（渲染层插件页闸门用它分流，不猜上面那句文案）
+    ...(e.lastErrorCode !== undefined ? { lastErrorCode: e.lastErrorCode } : {}),
     ...(m?.description !== undefined ? { description: resolvePluginText(m.description) } : {}),
     ...(m?.author !== undefined ? { author: m.author } : {}),
     ...(m?.icon !== undefined ? { icon: m.icon } : {}),

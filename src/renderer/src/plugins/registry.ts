@@ -14,7 +14,13 @@
  * 所有 IPC 返回均为 ApiResult 包装（主进程统一包裹，此处直读 success/error）。
  */
 import { createSignal } from 'solid-js'
-import type { ApiResult, PluginCatalogEntry, PluginInfo, PluginInstallSource } from '../../../shared/types'
+import type {
+  ApiResult,
+  PluginCatalogEntry,
+  PluginInfo,
+  PluginInstallSource,
+  PluginLoadErrorCode,
+} from '../../../shared/types'
 
 /** 插件管理页路由（Sidebar 系统组可引用；路由注册在 routes.tsx） */
 export const PLUGIN_MANAGER_PATH = '/settings/plugins'
@@ -376,6 +382,119 @@ export function catalogErrorGuidance(error: string): CatalogErrorGuidance {
     loginRequired: code === 'NOT_LOGGED_IN',
     notDeployed: code === 'NOT_DEPLOYED',
     retryable: code !== 'NOT_LOGGED_IN',
+  }
+}
+
+/**
+ * 插件页闸门（v2.6 缺陷修复，纯函数）。
+ *
+ * 要治的病：官方目录 / 预装路线上插件是**加密包**，取钥被拒时渲染层动态 `import()` 只会拿到
+ * 一句 `TypeError: Failed to fetch dynamically imported module`——Chromium 不给状态码也不给原因，
+ * 用户看到的就是裸报错，而「需要订阅 / 需要登录」这张脸此前只在明文侧载包里由插件自带 paywall 提供。
+ * 判别所需的数据其实一直在手里（登记条目的 `lastErrorCode` + 主进程算好的那句原因），只是没人查。
+ * **所以闸门必须在进页之前判**，靠 parse 那条 TypeError 永远分不出流。
+ *
+ * 分流按**结构化分类码**（主进程 `pluginKeyLoadCode` 算，那里同时握着云端 code 与 HTTP 状态），
+ * 绝不 `includes('需要订阅')` 猜文案——口径同上方 `catalogErrorGuidance` 的反例注释。
+ * 文案纪律（宿主本体零订阅）：只出中性原因与指路，**不出现任何价格数字与档位**，价格只住云插件的订阅页。
+ */
+export type PluginGateRoute =
+  /** 权益未生效 → 去订阅（落到云插件既有订阅页） */
+  | 'subscribe'
+  /** 未登录 / 登录态失效 → 去登录 */
+  | 'login'
+  /** 网络或云端临时故障 → 就地重试（重挂一次模块） */
+  | 'retry'
+  /** 包内容与云端登记不符 → 去重装（管理页有卸载/重装入口） */
+  | 'reinstall'
+  /** 该版本未在云端登记密钥等发布方侧问题 → 联系插件发布方 */
+  | 'publisher'
+
+/** 闸门判定结果 */
+export interface PluginPageGate {
+  /** `ok` = 正常挂载插件页面模块；`key-unavailable` = 加密包取钥被拒，画宿主引导页 */
+  state: 'ok' | 'key-unavailable'
+  /** 结构化分类码（`state='ok'` 时缺省） */
+  code?: PluginLoadErrorCode
+  /** 出路类型（决定画哪种按钮） */
+  route: PluginGateRoute
+  /** 页面标题（中性话术，零价格） */
+  title: string
+  /** 原因正文：主进程算好的那句原话（`lastError`），宿主不另写措辞 */
+  reason: string
+  /** 按钮文案 */
+  actionLabel: string
+  /** 按钮点击后的应用内路由；null = 不跳转（`retry` 走重挂，不离开本页） */
+  actionPath: string | null
+  /** 插件展示名与版本（引导页副标题用；「版本未在云端登记」这类出路要报得出版本号） */
+  name: string
+  version: string
+}
+
+/** 云插件既有订阅页（宿主不自己实现订阅面，只指路；`?tab=` 由该插件认） */
+const CLOUD_VIP_PATH = '/plugin/cloud?tab=vip'
+/** 账号页（登录入口） */
+const PROFILE_PATH = '/profile'
+
+/** 分类码 → 出路（按钮 + 去处）。未知/缺省码一律走 `publisher`：出路「联系发布方」最诚实 */
+const GATE_BY_CODE: Record<PluginLoadErrorCode, Pick<PluginPageGate, 'route' | 'title' | 'actionLabel' | 'actionPath'>> = {
+  SUBSCRIPTION_REQUIRED: {
+    route: 'subscribe',
+    title: '这个插件需要订阅后才能使用',
+    actionLabel: '去订阅',
+    actionPath: CLOUD_VIP_PATH,
+  },
+  NOT_LOGGED_IN: {
+    route: 'login',
+    title: '这个插件需要登录后才能使用',
+    actionLabel: '去登录',
+    actionPath: PROFILE_PATH,
+  },
+  NETWORK: {
+    route: 'retry',
+    title: '暂时连不上云端，插件页面加载不出来',
+    actionLabel: '重试',
+    actionPath: null,
+  },
+  TAMPERED: {
+    route: 'reinstall',
+    title: '插件包与云端登记不一致，已拒绝加载',
+    actionLabel: '去重装',
+    actionPath: PLUGIN_MANAGER_PATH,
+  },
+  NOT_REGISTERED: {
+    route: 'publisher',
+    title: '这个插件版本当前用不了',
+    actionLabel: '查看插件管理',
+    actionPath: PLUGIN_MANAGER_PATH,
+  },
+}
+
+/**
+ * 纯派生：登记条目 → 插件页闸门。
+ * 只有「启用态 + 带结构化取钥码」才拦（明文侧载包压根不带码 ⇒ 照旧走插件自带 paywall，一条不夺）。
+ * `info` 缺省（清单还没拉到的竞态）判 `ok`：宁可不拦，也不把没安装的插件拦出个假页面。
+ */
+export function derivePluginPageGate(info: PluginInfo | undefined): PluginPageGate {
+  const ok: PluginPageGate = {
+    state: 'ok',
+    route: 'retry',
+    title: '',
+    reason: '',
+    actionLabel: '',
+    actionPath: null,
+    name: '',
+    version: '',
+  }
+  if (!info || info.state !== 'enabled' || !info.lastErrorCode) return ok
+  const byCode = GATE_BY_CODE[info.lastErrorCode] ?? GATE_BY_CODE.NOT_REGISTERED
+  return {
+    state: 'key-unavailable',
+    code: info.lastErrorCode,
+    ...byCode,
+    reason: info.lastError ?? byCode.title,
+    name: info.name,
+    version: info.version,
   }
 }
 

@@ -21,6 +21,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import type { PluginManifest } from '../../plugins/types'
+import type { PluginLoadErrorCode } from '../../shared/types'
 
 /** 离线宽限（与线程 C 拍板口径一致）：密钥缓存 7 天内可用，过期锁云端插件入口 */
 export const KEY_GRACE_PERIOD_MS = 7 * 24 * 3600 * 1000
@@ -132,6 +133,44 @@ export function pluginKeyFailureText(failure: PluginKeyFailure): PluginKeyFailur
       return { text: '云端取钥回包无法识别', guidance: '请稍后重试；持续失败请联系插件发布方' }
     default:
       return { text: `云端取钥失败（${failure.code}）`, guidance: '请稍后重试；持续失败请联系插件发布方' }
+  }
+}
+
+/**
+ * 取钥失败码 → **结构化分类码**（v2.6 缺陷修复：宿主插件页要按「用户能走的出路」分流）。
+ *
+ * 为什么在主进程算而不在渲染层算：分类要看 `code` **和** HTTP 状态（401 = 登录态失效，出路是
+ * 「去登录」；500 = 云端故障，出路是「重试」）——HTTP 状态只在这里拿得到。渲染层拿到分类码后
+ * 只管画按钮，**不去猜中文文案**（口径同渲染层 `catalogErrorGuidance`：措辞改字不让引导走偏）。
+ *
+ * 五类互斥；未识别的云端码（含服务端将来新增）一律落 `NOT_REGISTERED`——它的出路「联系插件发布方」
+ * 是「宿主与发布方都帮不上忙」时的最诚实兜底，比假装「重试就好」更贴近实情。
+ */
+export function pluginKeyLoadCode(failure: PluginKeyFailure): PluginLoadErrorCode {
+  switch (failure.code) {
+    case 'SUBSCRIPTION_REQUIRED':
+      return 'SUBSCRIPTION_REQUIRED'
+    case 'NOT_LOGGED_IN':
+      // 401 = 鉴权中间件先于取钥 handler 拒绝（token 过期/失效）——同一条出路：去登录
+      return 'NOT_LOGGED_IN'
+    case 'TAMPERED':
+      return 'TAMPERED'
+    case 'NETWORK':
+      return 'NETWORK'
+    case 'DECRYPT_FAILED':
+      // 拿到钥却解不开 = 本地包与云端登记的不是同一份，出路同调包：重装
+      return 'TAMPERED'
+    case 'HTTP_ERROR':
+      return failure.httpStatus === 401 ? 'NOT_LOGGED_IN' : 'NETWORK'
+    case 'INTERNAL':
+    case 'BAD_RESPONSE':
+      return 'NETWORK'
+    case 'PLUGIN_KEY_NOT_FOUND':
+    case 'PLUGIN_KEY_MISSING':
+    case 'ENTITLEMENT_UNKNOWN':
+      return 'NOT_REGISTERED'
+    default:
+      return 'NOT_REGISTERED'
   }
 }
 

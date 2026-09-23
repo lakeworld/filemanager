@@ -8,9 +8,12 @@
  *   验证 200 流式（net.fetch 指向 pkg 内 file:// 路径）/ Range 206 / 400 / 404 / 405。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import type { PluginManifest } from '../../src/plugins/types'
+import type { SecretStore } from '../../src/main/plugins/encryption'
 import {
   parsePluginUrl,
   pluginFileUrl,
@@ -260,5 +263,107 @@ describe('registerQiheboxProtocol handler file 分支（本体文件预览不加
     expect(resp.status).toBe(200)
     expect(await resp.text()).toBe('preview-body')
     expect(resp.headers.get('Content-Security-Policy')).toBeNull()
+  })
+})
+
+// v2.6 缺陷修复（官方目录免费用户看到裸报错）：加密插件渲染层取钥的三条结局必须**各带自己的原因码**。
+// 旧实现把被拒折叠成 404（包内本无明文，回落找不到文件），渲染层只拿到 `TypeError: Failed to fetch`
+// 一类裸错——免费/未登录用户看不出「这是要订阅/要登录」，更没有出路可点。
+describe('registerQiheboxProtocol handler 加密插件取钥分支（mock electron）', () => {
+  let pluginsRoot = ''
+  const keyHex = 'b'.repeat(64)
+  const PLAIN = 'export default { name: "enc-hello" }'
+  const URL_ASSET = 'qihebox://plugin/com.qihe.enc/renderer/pages/Main.js'
+
+  /** 密钥缓存手工播种（绕开网络：本用例只测协议层分流，取钥链路另有单测） */
+  const store: SecretStore = {
+    encrypt: (b) => 'raw:' + b.toString('base64'),
+    decrypt: (s) => (s.startsWith('raw:') ? Buffer.from(s.slice(4), 'base64') : null),
+  }
+
+  beforeEach(async () => {
+    mockState.handler = null
+    mockState.netFetch.mockReset()
+    mockState.userData = await fsp.mkdtemp(path.join(os.tmpdir(), 'qh-protocol-enc-'))
+    pluginsRoot = path.join(mockState.userData, 'plugins')
+    const { encryptForBundle } = await import('../../src/main/plugins/encryption')
+    const enc = encryptForBundle(Buffer.from(PLAIN), keyHex)
+    expect(enc).not.toBeNull()
+    // 只落密文（与官方发布包实测形状一致：unzip -l 里只有 .enc，没有明文）
+    const pkgRoot = await makePkg(pluginsRoot, 'com.qihe.enc', 'renderer/pages/Main.js.enc', '')
+    await fsp.writeFile(path.join(pkgRoot, 'renderer', 'pages', 'Main.js.enc'), enc!)
+  })
+
+  function manifest(entitlement: 'login' | 'subscription'): PluginManifest {
+    return {
+      id: 'com.qihe.enc',
+      version: '1.0.0',
+      name: '加密示例',
+      apiVersion: 3,
+      kind: ['ipc'],
+      enabled: true,
+      encryption: { algo: 'aes-256-gcm', keyId: 'k1', entitlement },
+    } as unknown as PluginManifest
+  }
+
+  function register(getToken: () => string | null, cachedKeyHex?: string): void {
+    const cacheDir = path.join(mockState.userData, 'keys')
+    if (cachedKeyHex) {
+      fs.mkdirSync(cacheDir, { recursive: true })
+      const encoded = store.encrypt(Buffer.from(cachedKeyHex, 'utf8'), 'qihebox-plugin-key')
+      fs.writeFileSync(
+        path.join(cacheDir, 'com.qihe.enc.key'),
+        JSON.stringify({ key: encoded, fetchedAt: Date.now(), version: '1.0.0' }),
+        'utf-8',
+      )
+    }
+    registerQiheboxProtocol(
+      { workspace: { currentWorkspacePath: () => null } } as never,
+      undefined,
+      () => pluginsRoot,
+      { baseUrl: 'https://api.test.dev', getToken, cacheDir, secretStore: store, readManifest: () => manifest('subscription') },
+    )
+  }
+
+  async function get(url: string): Promise<Response> {
+    if (!mockState.handler) throw new Error('handler 未注册')
+    return mockState.handler(fakeRequest(url))
+  }
+
+  it('未登录（本地短路，不发网络）→ 403 + 原因码 NOT_LOGGED_IN，正文带「登录」出路', async () => {
+    register(() => null)
+    const resp = await get(URL_ASSET)
+    expect(resp.status).toBe(403)
+    expect(resp.headers.get('X-Qihebox-Key-Failure')).toBe('NOT_LOGGED_IN')
+    expect(resp.headers.get('Cache-Control')).toBe('no-store')
+    expect((await resp.text()).includes('登录')).toBe(true)
+    // 断言「不回落到明文」：明文从未存在，若回落则协议层会走磁盘解析 → 404
+    expect(fs.existsSync(path.join(pluginsRoot, 'com.qihe.enc', 'pkg', 'renderer', 'pages', 'Main.js'))).toBe(false)
+  })
+
+  it('取到密钥 → 200 内存解密提供模块（明文不落盘、不经 net.fetch）', async () => {
+    register(() => 'tok', keyHex)
+    const resp = await get(URL_ASSET)
+    expect(resp.status).toBe(200)
+    expect(resp.headers.get('Content-Type')).toContain('text/javascript')
+    expect(await resp.text()).toBe(PLAIN)
+    expect(mockState.netFetch).not.toHaveBeenCalled()
+    expect(fs.existsSync(path.join(pluginsRoot, 'com.qihe.enc', 'pkg', 'renderer', 'pages', 'Main.js'))).toBe(false)
+  })
+
+  it('拿到钥却解不开（缓存钥与密文不匹配）→ 403 + 原因码 TAMPERED（出路=重装）', async () => {
+    register(() => 'tok', 'c'.repeat(64))
+    const resp = await get(URL_ASSET)
+    expect(resp.status).toBe(403)
+    expect(resp.headers.get('X-Qihebox-Key-Failure')).toBe('TAMPERED')
+    expect((await resp.text()).includes('重新安装')).toBe(true)
+  })
+
+  it('缺 .enc 伴生文件（清单声明加密但该模块未加密）→ 落回明文解析，仍走 404 而不是 403', async () => {
+    await fsp.rm(path.join(pluginsRoot, 'com.qihe.enc', 'pkg', 'renderer', 'pages', 'Main.js.enc'))
+    register(() => null)
+    const resp = await get(URL_ASSET)
+    expect(resp.status).toBe(404)
+    expect(resp.headers.get('X-Qihebox-Key-Failure')).toBeNull()
   })
 })

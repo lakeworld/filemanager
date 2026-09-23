@@ -23,8 +23,8 @@ import crypto from 'node:crypto'
 import { BoxService } from './core'
 import { mimeTypeForPath } from './core/paths'
 import { log } from './log'
-import { getPluginKey, decryptEnc } from './plugins/encryption'
-import type { KeyDeps, SecretStore } from './plugins/encryption'
+import { decryptEnc, getPluginKeyResult, pluginKeyFailureText, pluginKeyLoadCode } from './plugins/encryption'
+import type { KeyDeps, PluginKeyFailure, SecretStore } from './plugins/encryption'
 import type { PluginManifest } from '../plugins/types'
 
 export function workspaceFileUrl(filePath: string): string {
@@ -201,6 +201,32 @@ async function sha256Hex(file: string): Promise<string> {
   }
 }
 
+/**
+ * 加密插件渲染层模块**取钥被拒 / 解密失败**的响应：403 + 原因头（v2.6 缺陷修复）。
+ *
+ * 为什么不回落到明文路径（旧行为 = 打一行日志后去取不存在的明文路径 → 404）：
+ * 密文包内根本没有明文（实测 `unzip -l` 只有 `.enc`），回落只会把「无权限」伪装成「无文件」，
+ * 而 Chromium 对动态 `import()` 失败只回一句 `TypeError: Failed to fetch dynamically imported module`，
+ * 用户看到的就是裸报错。**fail-closed 语义一字未动**：拿不到钥就不给明文；改的只是对外形状
+ * （403 + `X-Qihebox-Key-Failure` 原因码），让「无权限」与「无文件」可区分、可诊断。
+ * 渲染层的正解是在进页之前按登记表的原因码画引导页（`derivePluginPageGate`），不靠 parse 这条错误。
+ */
+function keyFailureResponse(failure: PluginKeyFailure): Response {
+  const code = pluginKeyLoadCode(failure)
+  const { text, guidance } = pluginKeyFailureText(failure)
+  // 正文与主进程入口（loader）同口径：原因 + 出路一句带走，DevTools 里看得懂；
+  // 渲染层不 parse 这段中文——它走登记表原因码分流（`derivePluginPageGate`）
+  return new Response(`${text}——${guidance}`, {
+    status: 403,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store',
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Qihebox-Key-Failure': code,
+    },
+  })
+}
+
 export function registerQiheboxProtocol(
   box: BoxService,
   getThumbsRoot?: () => string,
@@ -238,7 +264,9 @@ export function registerQiheboxProtocol(
           if (manifest?.encryption) {
             const encAsset = await resolvePluginAsset(pkgRoot, parsed.relPath + '.enc')
             if (encAsset) {
-              const keyHex = await getPluginKey(
+              // 带原因码的取钥入口（v2.6 缺陷修复：此前用折叠掉 code 的 getPluginKey，
+              // 与主进程入口 loader.ts 不对称——同一个失败在管理页有原因、在插件页只剩裸报错）
+              const acquired = await getPluginKeyResult(
                 {
                   baseUrl: encryptionDeps.baseUrl,
                   getToken: encryptionDeps.getToken,
@@ -249,23 +277,32 @@ export function registerQiheboxProtocol(
                 manifest,
                 await sha256Hex(encAsset),
               )
-              if (keyHex) {
-                const encBuf = await fsp.readFile(encAsset).catch(() => null)
-                const dec = encBuf ? decryptEnc(encBuf, keyHex) : null
-                if (dec) {
-                  const headers: Record<string, string> = {
-                    'Access-Control-Allow-Origin': '*',
-                    'Cache-Control': 'no-store',
-                    'Content-Security-Policy': PLUGIN_CSP,
-                    'Content-Type': 'text/javascript; charset=utf-8',
-                    'Content-Length': String(dec.length),
-                  }
-                  return new Response(new Uint8Array(dec), { status: 200, headers })
-                }
+              if (!acquired.keyHex) {
+                const failure: PluginKeyFailure = acquired.failure ?? { code: 'DECRYPT_FAILED' }
+                void log(
+                  'error',
+                  `[protocol] 加密插件渲染层取钥被拒（${parsed.id}，code=${failure.code}）→ 403（不回落到明文）`,
+                )
+                return keyFailureResponse(failure)
               }
+              const encBuf = await fsp.readFile(encAsset).catch(() => null)
+              const dec = encBuf ? decryptEnc(encBuf, acquired.keyHex) : null
+              if (dec) {
+                const headers: Record<string, string> = {
+                  'Access-Control-Allow-Origin': '*',
+                  'Cache-Control': 'no-store',
+                  'Content-Security-Policy': PLUGIN_CSP,
+                  'Content-Type': 'text/javascript; charset=utf-8',
+                  'Content-Length': String(dec.length),
+                }
+                return new Response(new Uint8Array(dec), { status: 200, headers })
+              }
+              // 拿到钥却解不开 = 本地这份密文与云端登记的不是同一份（调包/半包）→ 同「拒载」形状
+              void log('error', `[protocol] 加密插件渲染层解密失败（${parsed.id}）→ 403（不回落到明文）`)
+              return keyFailureResponse({ code: 'DECRYPT_FAILED' })
             }
-            // 取钥失败/解密失败：不静默回退明文（明文不存在会 404）——fail-closed
-            void log('error', `[protocol] 加密插件渲染层解密失败或密钥不可用（${parsed.id}）`)
+            // 声明了加密但请求的模块没有对应 .enc（非 JS 产物之外的意外）→ 落回明文解析（缺文件仍 404）
+            void log('warn', `[protocol] 加密插件请求的模块无 .enc 伴生文件（${parsed.id}/${parsed.relPath}）`)
           }
         }
         const resolved = await resolvePluginAsset(pkgRoot, parsed.relPath)

@@ -686,6 +686,25 @@ export interface QuoteUpdateRequest {
 // —— v2.5：插件宿主（宿主 → 渲染层共享类型；协议契约见 src/plugins/types.ts，此处为可序列化镜像）——
 
 /**
+ * 加密插件取钥/解密失败的**结构化分类码**（v2.6 缺陷修复：宿主插件页兜底）。
+ *
+ * 分类在主进程算（那里同时握着云端 code 与 HTTP 状态），渲染层**只按这五个值分流出路**，
+ * 绝不去 `includes('需要订阅')` 猜中文文案——措辞改字就会让引导走偏。
+ * 每个值恰好对应一条用户能走的路：
+ * - `SUBSCRIPTION_REQUIRED` 权益未生效 → 去订阅
+ * - `NOT_LOGGED_IN` 未登录 / 登录态失效（含云端 401）→ 去登录
+ * - `NETWORK` 网络不可达 / 云端临时故障 / 回包异常 → 就地重试
+ * - `TAMPERED` 包内容与云端登记不符 / 解密失败 → 去重装
+ * - `NOT_REGISTERED` 该版本未在云端登记密钥（含未识别的云端码，兜底归此）→ 联系插件发布方
+ */
+export type PluginLoadErrorCode =
+  | 'SUBSCRIPTION_REQUIRED'
+  | 'NOT_LOGGED_IN'
+  | 'NETWORK'
+  | 'TAMPERED'
+  | 'NOT_REGISTERED'
+
+/**
  * 已安装插件运行时状态（宿主 → 渲染层 list() 输出）。
  * 纯 JSON 可序列化；name/description 为宿主解析后的展示字符串（manifest.name 可为 PluginText map，
  * 宿主按当前 locale 解析后输出）；permissions 与 manifest.permissions 同构。
@@ -710,6 +729,11 @@ export interface PluginInfo {
   /** 最近一次激活/加载失败原因（管理页展示；激活成功清零。如加密插件取钥失败：需要订阅 / 版本未登记 /
    *  密文不符被拒 / 云端故障可重试——原因与出路在同一句里，v2.6 批 7） */
   lastError?: string
+  /** 最近一次加载失败的结构化分类码（`lastError` 的「同类码」，取钥/解密失败才有；激活成功一并清零）。
+   *  分类在主进程算（那里同时握着 code 与 HTTP 状态），渲染层**只按此码分流出路**——
+   *  禁止靠 `lastError` 的中文文案猜（措辞改字就会让引导走偏，反例见渲染层 `catalogErrorGuidance` 注释）。
+   *  v2.6 缺陷修复：加密插件取钥被拒时，插件页据此画「原因 + 能点的出路按钮」，不再抛裸 TypeError。 */
+  lastErrorCode?: PluginLoadErrorCode
   /** 描述（manifest.description 解析后的字符串） */
   description?: string
   /** 作者 */

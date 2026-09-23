@@ -195,10 +195,17 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  *     deb / 未打包实例那支只留「前往官网下载」直链（数量与改前持平，无净增）。
  *     同前几次口径：`debt` 仍 6、`tint` 仍 0、`press` 仍 0、`noTransition` 仍 4，
  *     `handwritten` 仍 144（+2 全落统一档，不是谁各写各的）。
+ *   - `total 290 → 294` / `unified 146 → 149` / `handwritten 144 → 145`（**v2.6 插件页取钥闸门**，2026-09-23）：
+ *     `plugins/routes.tsx` 新增两张此前没有的界面——「取钥被拒引导页」（3 枚）与「模块加载失败页」（1 枚）。
+ *     出路主钮（去订阅 / 去登录 / 重试 / 去重装 / 查看插件管理）与失败页「重试」走 `.btn-primary` 五档
+ *     （+3 unified），就地「重新加载」次级动作走形状具名档 `.link-btn`（+1 handwritten，与 A6-2 / A8 / A9
+ *     同口径：形状档归 handwritten，这一格本就不是收口指标）。
+ *     实测复核（`node scripts/scan-ui-inventory.mjs`）= 294 / 149 / 145 / noclass 0 / debt 6 / tint 0 /
+ *     press 0 / noTransition 4 / modal 22 framed 22 —— 除三格外逐格不变（增数 = 多了 4 个真按钮）。
  */
 const BASE = {
   button: {
-    total: 290, unified: 146, handwritten: 144, noclass: 0,
+    total: 294, unified: 149, handwritten: 145, noclass: 0,
     tint: 0, debt: 6, baseInternal: 5, press: 0, noTransition: 4,
   },
   input: { total: 16, checkbox: 12, baseInternal: 3, debt: 0, exempt: 1, other: 0 },
