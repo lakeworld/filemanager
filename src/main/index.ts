@@ -5,7 +5,7 @@
  * - 注册 IPC 与 qihebox:// 文件协议
  * - 系统托盘 + 关闭隐藏到托盘 + 崩溃自愈骨架
  */
-import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, safeStorage, Notification, ipcMain, globalShortcut } from 'electron'
+import { app, BrowserWindow, Tray, Menu, nativeImage, protocol, Notification, ipcMain, globalShortcut } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -19,6 +19,7 @@ import { registerQiheboxProtocol } from './protocol'
 import type { PluginManifest } from '../plugins/types'
 import { registerPluginHost, type PluginHostHandle } from './plugins/ipc'
 import { makePluginSecretStore } from './plugins/secretStore'
+import { encryptToken, decryptToken } from './tokenStore'
 import { createSettings } from './settings'
 import { WAKE_SEARCH_ACCELERATOR, reconcileWakeShortcut, applyWakeShortcut, type WakeShortcutPort, type WakeShortcutStatus, shouldRollbackWakeSetting } from './core/wakeShortcut'
 import { AccountService } from './account'
@@ -330,29 +331,12 @@ app.on('window-all-closed', () => {
 })
 
 // —— 账号服务（v2.2.0：可选登录 + AI + 心跳）——
-// token 存储（v2.5.5 修复）：统一明文 raw: 前缀——safeStorage 在 Linux 环境可用性波动
-// （登录时有 keyring、重启后无 → enc: 解密失败 → 登录态丢失，AI 助手等账号能力锁「登录后可用」），
-// 实测 Electron 31 下 basic_text 亦不可用（isEncryptionAvailable=false 且 encryptString 抛错）。
-// 安全模型与既有明文降级一致：本地单用户 + JWT 过期即失效（encryptToken 原 isEncryptionAvailable=false 分支）。
-// 旧 enc: 数据（safeStorage 加密）尝试解密，失败 → 按未登录（提示重新登录）。
-function encryptToken(plain: string): string {
-  return 'raw:' + plain
-}
-
-function decryptToken(encoded: string): string {
-  try {
-    if (encoded.startsWith('raw:')) {
-      return encoded.slice(4)
-    }
-    if (encoded.startsWith('enc:')) {
-      // 旧版 safeStorage 加密数据：本环境可用则解密（一次性迁移），失败按未登录（重登后落 raw:）
-      return safeStorage.decryptString(Buffer.from(encoded.slice(4), 'base64'))
-    }
-  } catch {
-    return ''
-  }
-  return ''
-}
+// token 存储口径（2.6 安全收口批，2026-09-23）：不再在装配层内联实现，改由 `./tokenStore` 单点提供，
+// 与插件密钥（`./plugins/secretStore.ts`）同一条规则——safeStorage 可用就落 `enc:` 密文，
+// 只有不可用/抛错才降级 `raw:` 明文（保住 Linux 无 keyring 时仍能登录的 v2.5.5 原意）。
+// 迁移：存量 `raw:` 文件照常登录，下次登录落盘时自动升级为 `enc:`；解不开的 `enc:` 按未登录。
+// 为什么这里不直接复用 makePluginSecretStore()：它的明文档是 `raw:` + base64，而 token 的存量文件是
+// `raw:` + 裸文本，换成 base64 就把老用户的登录态读成乱码——故另建一份同规则、不同明文编码的模块。
 
 /**
  * 解析登录/心跳服务地址（v2.5.2 三级回退）。
