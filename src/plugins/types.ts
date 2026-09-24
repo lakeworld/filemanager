@@ -267,6 +267,15 @@ export interface PluginHost {
   workspace: {
     currentPath(): string | null
     list(): unknown
+    /**
+     * v2.6.1 增量：用户指定的**默认工作区**路径（「以后启动都开这个盘」那个指针）。
+     * 未设置 / 设置的目录当前不存在 → null。**读的是持久偏好，不是当前打开的工作区**：
+     * 二者可以不同（用户临时切到别的工作区时，默认指针不变），且本方法不受启动时序影响，
+     * 插件在 `activate` 期即可拿到「本次启动将要打开哪个盘」。
+     * 只读——设默认 / 切工作区是用户动作，不开给插件。
+     * **可选成员**：旧宿主无此方法，请能力探测（`host.workspace.defaultPath?.() ?? null`）。
+     */
+    defaultPath?(): string | null
   }
   dialog: {
     openFile(opts: unknown): Promise<string>

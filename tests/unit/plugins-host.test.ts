@@ -1665,6 +1665,25 @@ describe('createPluginHost：host.account 权限门控与 entitlement 占位（v
     const inst = await createPluginHost(makeDeps())
     expect(inst.host.entitlement.status()).toEqual({ tier: 'free', expiresAt: null, quota: null })
   })
+
+  it('v2.6.1 增量：workspace.defaultPath 读「用户指定的默认工作区」指针', async () => {
+    const inst = await createPluginHost(
+      makeDeps({
+        workspace: { currentPath: () => null, list: () => null, defaultPath: () => '/data/启禾/默认盘' },
+      }),
+    )
+    expect(inst.host.workspace.defaultPath?.()).toBe('/data/启禾/默认盘')
+  })
+
+  it('defaultPath：装配层漏接 / 用户没设过（空串）都归一为 null，不抛也不留空串', async () => {
+    const bare = await createPluginHost(makeDeps())
+    expect(typeof bare.host.workspace.defaultPath).toBe('function') // 成员恒在，插件侧仍按可选成员能力探测
+    expect(bare.host.workspace.defaultPath?.()).toBeNull()
+    const empty = await createPluginHost(
+      makeDeps({ workspace: { currentPath: () => null, list: () => null, defaultPath: () => '' } }),
+    )
+    expect(empty.host.workspace.defaultPath?.()).toBeNull()
+  })
 })
 
 // ==================== v2.5 增量：开发者模式设置（PLAN §3.5） ====================

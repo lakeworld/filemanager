@@ -149,7 +149,7 @@ export interface PluginHostDeps {
   stateDir: string
   bus: HostEventBus
   log: (level: 'info' | 'warn' | 'error', msg: string) => void
-  workspace: { currentPath(): string | null; list(): unknown }
+  workspace: { currentPath(): string | null; list(): unknown; /** v2.6.1：默认工作区持久指针（装配层从 userData/settings.json 读入）；漏接由本层兜底 null */ defaultPath?(): string | null }
   dialog: { openFile(opts: unknown): Promise<string>; openDirectory(opts: unknown): Promise<string> }
   notify(title: string, body: string): boolean
   /** 插件事件 → 渲染层：向所有窗口发 qihebox:event:<channel>（装配层注入，带销毁守卫） */
@@ -693,7 +693,13 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
     log: (level, msg) => deps.log(level, msg),
     storage,
     events,
-    workspace: deps.workspace,
+    // v2.6.1：defaultPath 包一层——恒挂该函数（旧依赖对象没有它时兜底 null，漏接不炸），
+    // 且把空串归一为 null（契约承诺 string | null，不留空串这条二义）。currentPath/list 原样透传。
+    workspace: {
+      currentPath: deps.workspace.currentPath,
+      list: deps.workspace.list,
+      defaultPath: () => deps.workspace.defaultPath?.() || null,
+    },
     dialog: deps.dialog,
     notify: deps.notify,
     account,

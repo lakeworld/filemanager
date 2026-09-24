@@ -164,7 +164,7 @@ function officialPluginsDir(): string {
 export function registerPluginHost(
   box: BoxService,
   account: Pick<AccountService, 'getToken' | 'isLoggedIn' | 'getDeviceId'>,
-  settings: Pick<SettingsService, 'getDevMode'>,
+  settings: Pick<SettingsService, 'getDevMode' | 'getAll'>,
   /** v2.5.7（F4a）：云 API 服务地址（resolveApiBase()，公开仓不写死地址）；空 = 云能力不可用 */
   cloudBaseUrl = '',
 ): PluginHostHandle {
@@ -200,6 +200,9 @@ export function registerPluginHost(
         workspace: {
           currentPath: () => box.workspace.currentWorkspacePath(),
           list: () => box.workspace.list(),
+          // v2.6.1：默认工作区 = userData/settings.json 的持久指针（不是 currentWS）⇒ 插件在 activate 期
+          // 就能知道「本次启动将要打开哪个盘」，不受 registerPluginHost 早于工作区恢复的时序影响。只读。
+          defaultPath: () => settings.getAll().defaultWorkspace || null,
         },
         dialog: {
           openFile: (opts) => openDialog('file', opts),

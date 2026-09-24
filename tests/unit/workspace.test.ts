@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { isPathInsideWorkspace, thumbnailPath, productSetFromFilePath, defaultWorkspaceConfig, readJsonFile } from '../../src/main/core/paths'
+import { isPathInsideWorkspace, thumbnailPath, productSetFromFilePath, defaultWorkspaceConfig, readJsonFile, recentPath } from '../../src/main/core/paths'
 import { buildTestBox } from './helpers'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -306,5 +306,102 @@ describe('setCurrentWorkspace 切换通知先于持久化（v2.5.3 T5-S1）', ()
     expect(notifyCount).toBe(1) // 通知已先行，切换不因落盘失败回滚
     expect(box.workspace.currentWorkspacePath()).toBe(path.resolve(ws)) // currentWS 保持新值
     spy.mockRestore()
+  })
+})
+
+describe('启动打开哪个工作区（v2.6.1 默认工作区）', () => {
+  /** 造一个已存在、可被识别为工作区的目录（ensureWorkspaceDirs 由 create 负责，这里只建空目录即可 stat 到） */
+  async function existingDir(): Promise<string> {
+    return tmp()
+  }
+
+  it('默认指针存在且目录在 → 开默认，而不是最近列表首位', async () => {
+    const home = await tmp()
+    const recent = await existingDir()
+    const def = await existingDir()
+    const box = buildTestBox(home)
+    await box.workspace.setCurrentWorkspace(recent) // 先让 recent 落到 recents[0]
+
+    const info = await box.workspace.restoreOrCreateDefault(def)
+    expect(path.resolve(info.path)).toBe(path.resolve(def))
+    expect(box.workspace.currentWorkspacePath()).toBe(path.resolve(def))
+    // 默认那个工作区也进 recents（它就是被打开过一次），但打开的是它不是旧首位
+    expect((await box.workspace.loadRecentWorkspaces())[0]).toBe(def)
+  })
+
+  it('默认指针失效（目录已删）→ 退回 recents[0]，且指针不被这次失败抹掉', async () => {
+    const home = await tmp()
+    const recent = await existingDir()
+    const gone = path.join(await tmp(), '已拔掉的移动盘')
+    const box = buildTestBox(home)
+    await box.workspace.setCurrentWorkspace(recent)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const info = await box.workspace.restoreOrCreateDefault(gone)
+    expect(path.resolve(info.path)).toBe(path.resolve(recent))
+    // 不静默（红线）：降级要说一行，否则用户以为默认生效了
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain(gone)
+    warn.mockRestore()
+
+    // 指针是持久设置、不在 core 里被清；盘重新挂上（目录又在了）下一次启动仍回到它
+    await fsp.mkdir(gone, { recursive: true })
+    const again = await buildTestBox(home).workspace.restoreOrCreateDefault(gone)
+    expect(path.resolve(again.path)).toBe(path.resolve(gone))
+  })
+
+  it('无默认指针 = 现行行为（开 recents[0]）；空串与非字符串入参都当"未设置"', async () => {
+    const home = await tmp()
+    const recent = await existingDir()
+    await buildTestBox(home).workspace.setCurrentWorkspace(recent)
+
+    for (const unset of [undefined, null, '']) {
+      const box = buildTestBox(home)
+      const info = await box.workspace.restoreOrCreateDefault(unset)
+      expect(path.resolve(info.path), String(unset)).toBe(path.resolve(recent))
+    }
+  })
+
+  it('无默认且无 recents → 兜底建在注入的 homeDir 下（不碰真实主目录）', async () => {
+    const home = await tmp()
+    const box = buildTestBox(home)
+    const info = await box.workspace.restoreOrCreateDefault(undefined)
+    // 本例若走到 os.homedir() 就会在测试机上真建 ~/启禾文件管理 —— 断言它落在注入的 home 里
+    expect(path.resolve(info.path)).toBe(path.join(path.resolve(home), '启禾文件管理'))
+    expect(home).not.toBe(os.homedir())
+  })
+
+  it('默认指针指向文件而非目录 → 当失效处理，不抛不建在文件里', async () => {
+    const home = await tmp()
+    const recent = await existingDir()
+    const file = path.join(await tmp(), '不是目录.txt')
+    await fsp.writeFile(file, 'x')
+    await buildTestBox(home).workspace.setCurrentWorkspace(recent)
+    const box = buildTestBox(home)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const info = await box.workspace.restoreOrCreateDefault(file)
+    expect(path.resolve(info.path)).toBe(path.resolve(recent))
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+
+  it('兜底目录已存在（只是不在 recents 里）→ open 它，不拿默认 config 覆盖用户改过的模板', async () => {
+    const home = await tmp()
+    const defDir = path.join(home, '启禾文件管理')
+    const first = buildTestBox(home)
+    await first.workspace.create(defDir)
+    const cfg = await first.workspace.getConfig()
+    cfg.image_subfolders = ['主图-自定义']
+    cfg.naming_template.sku_fields = ['sku_code', 'sub_folder']
+    await first.workspace.saveConfig(defDir, cfg)
+    // 抹掉 recents：模拟"用户删过最近列表 / 换过机器"，盘上工作区仍在
+    await fsp.writeFile(recentPath(home), '[]')
+
+    const second = buildTestBox(home)
+    const info = await second.workspace.restoreOrCreateDefault(undefined)
+    expect(path.resolve(info.path)).toBe(path.resolve(defDir))
+    const after = await second.workspace.getConfig()
+    expect(after.image_subfolders).toEqual(['主图-自定义'])
+    expect(after.naming_template.sku_fields).toEqual(['sku_code', 'sub_folder'])
   })
 })

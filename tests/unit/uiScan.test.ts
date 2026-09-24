@@ -202,10 +202,15 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  *     同口径：形状档归 handwritten，这一格本就不是收口指标）。
  *     实测复核（`node scripts/scan-ui-inventory.mjs`）= 294 / 149 / 145 / noclass 0 / debt 6 / tint 0 /
  *     press 0 / noTransition 4 / modal 22 framed 22 —— 除三格外逐格不变（增数 = 多了 4 个真按钮）。
+ *   - `total 294 → 295` / `handwritten 145 → 146`（**v2.6.1 默认工作区**，2026-09-24）：
+ *     `components/Header.tsx` 工作区下拉每条最近工作区加一枚「设为默认 / 取消默认」钮，走形状具名档
+ *     `.row-btn`（+1 handwritten，与 A6-2 / A8 / A9 / 取钥闸门同口径：形状档归 handwritten，这一格不是收口指标）。
+ *     实测复核 = 295 / 149 / 146 / noclass 0 / debt 6 / tint 0 / press 0 / noTransition 4 / modal 22 framed 22
+ *     —— 除两格外逐格不变（增数 = 多了 1 个真按钮，`debt` 未动因为它挂了形状档）。
  */
 const BASE = {
   button: {
-    total: 294, unified: 149, handwritten: 145, noclass: 0,
+    total: 295, unified: 149, handwritten: 146, noclass: 0,
     tint: 0, debt: 6, baseInternal: 5, press: 0, noTransition: 4,
   },
   input: { total: 16, checkbox: 12, baseInternal: 3, debt: 0, exempt: 1, other: 0 },

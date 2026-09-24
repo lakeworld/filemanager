@@ -55,6 +55,12 @@ export interface AppSettingsFile {
    * 只接受 `CERT_REMINDER_DAY_CHOICES` 档位，其它值回落 30（防手改 json 把窗口调成 0 天）。
    */
   certReminderDays?: number
+  /**
+   * 默认工作区路径（v2.6.1）。默认 `''` = 未设置 = 现行行为（启动开最近列表首位、无则建 `~/启禾文件管理`）。
+   * 非空 = 用户指定「以后启动都开这个工作区」，优先级高于 LRU（见 `core/workspace.ts` restoreOrCreateDefault）。
+   * 本键是表内第一个**字符串**键；指针存 userData 而非工作区 config（否则被指向对象携带 = 鸡生蛋）。
+   */
+  defaultWorkspace?: string
 }
 
 /**
@@ -84,6 +90,7 @@ export const APP_SETTINGS_DEFAULTS: AppSettings = {
   certReminder: true,
   globalWakeShortcut: false,
   certReminderDays: 30,
+  defaultWorkspace: '',
 }
 
 /** 补丁形状（渲染层只提交改动的键；未知键忽略，避免成为「任意键写入口」） */
@@ -109,18 +116,28 @@ export function resolveAppSettings(raw: AppSettingsFile | null | undefined): App
   if ((CERT_REMINDER_DAY_CHOICES as readonly number[]).includes(r.certReminderDays as number)) {
     out.certReminderDays = r.certReminderDays as number
   }
+  // 字符串键（v2.6.1）：只认字符串，其余（null / 对象 / 数字）回落默认空串 = 未设置；
+  // 路径值不加工（不改斜杠、不动内部空格——它是用户选的原样指针）
+  if (typeof r.defaultWorkspace === 'string') out.defaultWorkspace = r.defaultWorkspace
   return out
 }
 
 /** 键是否合法（白名单闸门：`set` 通道只认这些键） */
 export function isAppSettingsKey(key: unknown): key is keyof AppSettings {
-  return key === 'certReminderDays' || (BOOL_KEYS as readonly string[]).includes(String(key))
+  return (
+    key === 'certReminderDays' ||
+    key === 'defaultWorkspace' ||
+    (BOOL_KEYS as readonly string[]).includes(String(key))
+  )
 }
 
-/** 补丁是否类型合法（布尔键收非 boolean、天数键收档位外值 → 整键拒绝，不落脏数据） */
+/** 补丁是否类型合法（布尔键收非 boolean、天数键收档位外值、路径键收非字符串 → 整键拒绝，不落脏数据） */
 export function isValidPatchValue(key: keyof AppSettings, value: unknown): boolean {
   if (key === 'certReminderDays') {
     return (CERT_REMINDER_DAY_CHOICES as readonly number[]).includes(value as number)
+  }
+  if (key === 'defaultWorkspace') {
+    return typeof value === 'string'
   }
   return typeof value === 'boolean'
 }

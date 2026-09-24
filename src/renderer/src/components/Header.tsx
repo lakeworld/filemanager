@@ -11,6 +11,8 @@ import {
   loadWorkspaces,
   switchWorkspace,
 } from "~/stores/workspace";
+import { appSettings, appSettingsReady, reloadAppSettings, setAppSetting } from "~/stores/appSettings";
+import { showToast } from "~/stores/notifyBanner";
 
 export default function Header() {
   const navigate = useNavigate();
@@ -85,6 +87,23 @@ export default function Header() {
   const handleSwitchWorkspace = async (path: string) => {
     await switchWorkspace(path);
     setShowWorkspaceMenu(false);
+  };
+
+  /** v2.6.1：默认工作区指针（userData/settings.json 的 defaultWorkspace，空串 = 未设） */
+  const defaultWsPath = () => appSettings().defaultWorkspace;
+  const isDefaultWs = (p: string) => defaultWsPath() === p;
+
+  /**
+   * 设为默认 / 再点取消默认。写失败必须 await 重拉再报——菜单里这行「默认」标记是受控的，
+   * 不重拉就会留下「看着设上了、其实没落盘」的假象（同 Settings.tsx savePref 的口径）。
+   * 不关菜单：用户可能要接着看哪一个是默认。
+   */
+  const handleToggleDefaultWorkspace = async (p: string) => {
+    const ok = await setAppSetting({ defaultWorkspace: isDefaultWs(p) ? "" : p });
+    if (!ok) {
+      await reloadAppSettings();
+      showToast("error", "设置失败", "默认工作区没能保存，已恢复为磁盘上的当前值");
+    }
   };
 
   const handleSearch = (e: KeyboardEvent) => {
@@ -169,15 +188,32 @@ export default function Header() {
               <div class="px-4 py-1.5 text-xs font-medium text-surface-400">最近工作区</div>
               <For each={workspaces()}>
                 {(ws) => (
-                  <button
-                    class={`row-btn py-2 text-sm hover:bg-surface-100 ${currentWorkspace()?.path === ws.path ? "text-primary-700 bg-primary-50" : "text-surface-700"}`}
-                    onClick={() => handleSwitchWorkspace(ws.path)}
-                  >
-                    <div class="flex items-center gap-2">
-                      <span>📁</span>
-                      <span class="truncate flex-1">{ws.name}</span>
-                    </div>
-                  </button>
+                  <div class="flex items-center">
+                    <button
+                      class={`row-btn min-w-0 flex-1 py-2 text-sm hover:bg-surface-100 ${currentWorkspace()?.path === ws.path ? "text-primary-700 bg-primary-50" : "text-surface-700"}`}
+                      onClick={() => handleSwitchWorkspace(ws.path)}
+                    >
+                      <div class="flex min-w-0 flex-1 items-center gap-2">
+                        <span>📁</span>
+                        <span class="truncate flex-1">{ws.name}</span>
+                        <Show when={isDefaultWs(ws.path)}>
+                          <span class="shrink-0 text-xs text-primary-600">默认</span>
+                        </Show>
+                      </div>
+                    </button>
+                    {/* v2.6.1：默认工作区开关就地放在挑工作区这一动线上（不进设置页另开一份）。
+                        镜像未拉回前置灰：否则用户在「还没读到磁盘值」的窗口里点了它，会把标记写成假的。 */}
+                    <button
+                      type="button"
+                      class="row-btn shrink-0 px-3 py-2 text-xs text-surface-400 hover:bg-surface-100 hover:text-primary-700"
+                      disabled={!appSettingsReady()}
+                      aria-label={isDefaultWs(ws.path) ? "取消默认工作区" : "设为默认工作区"}
+                      title={isDefaultWs(ws.path) ? "取消默认（启动回到「开最近用过的那个」）" : "设为默认：以后每次启动都打开这个工作区"}
+                      onClick={() => void handleToggleDefaultWorkspace(ws.path)}
+                    >
+                      {isDefaultWs(ws.path) ? "取消默认" : "设为默认"}
+                    </button>
+                  </div>
                 )}
               </For>
             </Show>

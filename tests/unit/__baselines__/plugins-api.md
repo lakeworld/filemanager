@@ -2,7 +2,7 @@
   qihe-box API 兼容性守护基线（API_VERSION=1 · 只增不删）
   生成器：tests/unit/helpers/apiSurface.ts · 更新：npm run api:update
   TypeScript: 5.9.3
-  break-reason: host.share.getMetadata 返回 +cert_type/expiry_date、mergePulledMetadata 入参 +cert_type?/expiry_date?（v2.6 批7 D8 证书元数据）：旧字段与旧读取方式零删除、旧插件调用零破坏，两行 inline 类型追加字段致符号文本变更（语义只增不改）
+  break-reason: host.workspace 增补可选成员 defaultPath?()（v2.6.1 默认工作区，只增不删）：currentPath/list 两方法与旧插件调用零破坏，聚合行文本随成员表变动（语义只增不改）
 -->
 
 # qihe-box 插件协议 API 面（types / preload / ipc）
@@ -112,8 +112,9 @@
 - PluginHost.supplier.writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>
 - PluginHost.supplier: { list(since?: string): Promise<SupplierProfile[]>; get(name: string): Promise<SupplierProfile | null>; writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>; syncProfile(req: { name: string; fields?: { contact?: string; phone?: string; email?: string; address?: string; notes?: string; }; erp_ext?: Record<string, unknown>; updated_at: string; }): Promise<{ applied: boolean; }>; }
 - PluginHost.workspace.currentPath(): string | null
+- PluginHost.workspace.defaultPath(): string | null
 - PluginHost.workspace.list(): unknown
-- PluginHost.workspace: { currentPath(): string | null; list(): unknown; }
+- PluginHost.workspace: { currentPath(): string | null; list(): unknown; defaultPath?(): string | null; }
 - PluginManifest.activation?: Array<'onStartupFinished' | `onEvent:${string}`>
 - PluginManifest.apiCompat?: [ number, number ]
 - PluginManifest.apiVersion: number

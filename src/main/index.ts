@@ -798,10 +798,10 @@ app.whenReady().then(() => {
     if (account.status().loggedIn) account.startHeartbeat()
 
 
-    // 启动恢复/创建默认工作区（有最近工作区则恢复，无则自动创建）；
+    // 启动恢复/创建默认工作区（v2.6.1：用户指定的默认工作区 > 最近列表首位 > 兜底新建）；
     // 恢复成功后初始化工作区索引（load/build + 文件监听，异步不阻塞）；随后跑后台任务（均静默）
     workspace
-      .restoreOrCreateDefault()
+      .restoreOrCreateDefault(appPref('defaultWorkspace'))
       .then(() => {
         // v2.5.3（T5）：初始索引构建前就注册工作区变更处理——切换事件自始无失联窗口
         registerWorkspaceChangeHandler()

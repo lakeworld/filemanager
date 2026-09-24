@@ -117,6 +117,8 @@ interface HostCtx {
 async function makeContractHost(
   overrides: {
     workspacePath?: () => string | null
+    /** v2.6.1：默认工作区持久指针（host.workspace.defaultPath 的行为级断言用；缺省不提供 = 旧宿主/漏接形态） */
+    defaultPath?: () => string | null
     accountAccess?: boolean
     limits?: Parameters<typeof createPluginHost>[1]
   } = {},
@@ -126,6 +128,13 @@ async function makeContractHost(
   const logCalls: Array<[string, string]> = []
   const emitted: Array<[string, unknown]> = []
   const wsPath = overrides.workspacePath?.() ?? null
+  // v2.6.1：defaultPath 只在 override 提供时注入 deps——不注入 = 模拟旧装配层漏接，
+  // 正是 base deps（无 defaultPath）用来跑「漏接兜底 null」那条分支的载体。
+  const workspaceDeps: { currentPath(): string | null; list(): unknown; defaultPath?: () => string | null } = {
+    currentPath: () => wsPath,
+    list: () => LIST_SENTINEL,
+  }
+  if (overrides.defaultPath) workspaceDeps.defaultPath = overrides.defaultPath
   const inst = await createPluginHost(
     {
       pluginId: 'com.qihe.contract',
@@ -135,7 +144,7 @@ async function makeContractHost(
       log: (level, msg) => {
         logCalls.push([level, msg])
       },
-      workspace: { currentPath: () => wsPath, list: () => LIST_SENTINEL },
+      workspace: workspaceDeps,
       dialog: { openFile: async () => DIALOG_FILE, openDirectory: async () => DIALOG_DIR },
       notify: () => NOTIFY_RESULT,
       emitToRenderer: (channel, data) => {
@@ -455,6 +464,18 @@ const CONTRACT: Record<string, ContractEntry> = {
       // 装配层注入实现原样透传（currentPath / list）
       expect(deps.host.workspace.currentPath()).toBeNull()
       expect(deps.host.workspace.list()).toBe(LIST_SENTINEL)
+      // v2.6.1 defaultPath：① 成员恒在（旧插件按能力探测消费，宿主不漏挂）
+      expect(typeof deps.host.workspace.defaultPath).toBe('function')
+      // ② deps 没提供（= 装配层漏接的形态）→ null，不抛
+      expect(deps.host.workspace.defaultPath?.()).toBeNull()
+      // ③ 读的是**持久默认指针**，与"当前打开哪个工作区"互不相干：无当前工作区也能拿到默认值
+      const d = await makeContractHost({ defaultPath: () => '/data/启禾/默认盘' })
+      try {
+        expect(d.deps.host.workspace.defaultPath?.()).toBe('/data/启禾/默认盘')
+        expect(d.deps.host.workspace.currentPath()).toBeNull()
+      } finally {
+        d.dispose()
+      }
       const f = await makeFilesHost()
       try {
         expect(f.deps.host.workspace.currentPath()).toBe(f.deps.wsDir)

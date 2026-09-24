@@ -32,6 +32,8 @@ describe('应用级设置默认值表（W7：默认 = 现行行为）', () => {
       clipboardGuard: true,
       certReminder: true,
       certReminderDays: 30,
+      // 默认工作区：未设置 = 现行行为（启动开最近列表首位）
+      defaultWorkspace: '',
     })
   })
 
@@ -58,8 +60,25 @@ describe('应用级设置默认值表（W7：默认 = 现行行为）', () => {
   it('通道是任意键写入口的闸门：只认表内键', () => {
     expect(isAppSettingsKey('selectionBar')).toBe(true)
     expect(isAppSettingsKey('certReminderDays')).toBe(true)
+    expect(isAppSettingsKey('defaultWorkspace')).toBe(true)
     for (const evil of ['__proto__', 'workspacePath', 'constructor', 'devmode', '']) {
       expect(isAppSettingsKey(evil), evil).toBe(false)
+    }
+  })
+
+  // v2.6.1 默认工作区：defaultWorkspace 是表内第一个字符串键（前 7 键全 boolean、certReminderDays 是 number 档位）。
+  // 闸门此前对字符串值一律按 boolean 判 → 会被静默丢弃、根本写不进盘，故单列三条钉住字符串语义。
+  it('字符串键 defaultWorkspace：非字符串脏值回落默认空串（未设置态）', () => {
+    expect(APP_SETTINGS_DEFAULTS.defaultWorkspace).toBe('')
+    for (const bad of [null, undefined, 42, {}, [], true]) {
+      expect(resolveAppSettings({ defaultWorkspace: bad as never }).defaultWorkspace, String(bad)).toBe('')
+    }
+  })
+
+  it('字符串键合法值原样收、含中文/空格/反斜杠不加工', () => {
+    // 合成用户名（`u` / `user` 在泄漏闸 SYNTHETIC_USER 白名单里）——真实用户名形态的绝对路径严禁进公开仓
+    for (const ok of ['/home/u/启禾文件管理', 'C:\\Users\\user\\数据 集', '']) {
+      expect(resolveAppSettings({ defaultWorkspace: ok }).defaultWorkspace).toBe(ok)
     }
   })
 })
@@ -81,6 +100,14 @@ describe('mergeAppSettings：只落差异、按类型闸门收补丁', () => {
   it('补丁只动指定键，其余保留原落盘值', () => {
     const next = mergeAppSettings({ certReminder: false, devMode: true }, { autoUpdateCheck: false })
     expect(next).toEqual({ devMode: true, certReminder: false, autoUpdateCheck: false })
+  })
+
+  it('字符串键写非默认值落盘、写空串（= 取消默认）删键', () => {
+    const set = mergeAppSettings({}, { defaultWorkspace: '/data/启禾/客户A' })
+    expect(set).toEqual({ defaultWorkspace: '/data/启禾/客户A' })
+    expect(mergeAppSettings(set, { defaultWorkspace: '' })).toEqual({})
+    // 类型闸门：数字/对象路径值整键忽略，不写进 json
+    expect(mergeAppSettings({}, { defaultWorkspace: 42 } as never)).toEqual({})
   })
 })
 

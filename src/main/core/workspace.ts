@@ -216,17 +216,37 @@ export class WorkspaceService {
   }
 
   /**
-   * 启动时恢复或创建默认工作区（对照原 Go restoreLastWorkspace + 默认工作区需求）：
-   * - 有最近工作区 → 自动打开最近一个
-   * - 无 → 自动创建默认工作区（用户主目录/启禾文件管理）并打开
+   * 启动时打开哪个工作区（v2.6.1 默认工作区）：
+   * 1. `defaultPath`（用户指定的默认工作区，由装配层从 userData/settings.json 读入并传入）
+   *    盘上是目录 → 开它，优先级高于最近列表；
+   * 2. 指针失效（目录被删 / 移动盘未挂）→ 退回 recents[0]，**不清指针**（盘挂回来就该回到它）；
+   * 3. 无默认且无 recents → 建并打开兜底工作区。
+   *
+   * 兜底根走 `this.homeDir` 而非 `os.homedir()`：构造函数的 homeDir 就是为「测试注入临时目录、
+   * 不碰真实主目录」而存在（见上方注释），此处曾写死 os.homedir() 会让任何调用者（含单测）
+   * 往真实家目录 `create()`——而 `create()` 里的 `saveConfig(..., defaultWorkspaceConfig())`
+   * 是无条件整档覆盖，实测覆盖过一次真实工作区 config。生产下 homeDir === os.homedir()，行为不变。
    */
-  async restoreOrCreateDefault(): Promise<WorkspaceInfo> {
+  async restoreOrCreateDefault(defaultPath?: string | null): Promise<WorkspaceInfo> {
+    const want = typeof defaultPath === 'string' ? defaultPath.trim() : ''
+    if (want) {
+      const ok = await fsp
+        .stat(want)
+        .then((s) => s.isDirectory())
+        .catch(() => false)
+      if (ok) return this.open(want)
+      // 不静默：用户标了默认却没开成，退到别处必须留一行可查（否则他以为默认生效了）
+      console.warn(`[workspace] 默认工作区不可用（目录不存在或不是目录），退回最近工作区: ${want}`)
+    }
     const recents = await this.loadRecentWorkspaces()
     if (recents.length > 0) {
       await this.setCurrentWorkspace(recents[0])
       return this.workspaceInfo(recents[0])
     }
-    const def = path.join(os.homedir(), '启禾文件管理')
+    // 兜底目录**已存在**时走 open 不走 create：`create()` 里的 saveConfig 是无条件整档覆盖默认值，
+    // 拿它开一个已有工作区（用户只是没在 recents 里了）等于把他改过的命名模板/子文件夹抹平。
+    const def = path.join(this.homeDir, '启禾文件管理')
+    if (await fsp.stat(def).then((s) => s.isDirectory()).catch(() => false)) return this.open(def)
     return this.create(def)
   }
 
