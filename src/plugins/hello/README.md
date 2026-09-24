@@ -270,7 +270,7 @@ const off = window.qihebox.plugins.on('mytool.didSomething', (data) => { /* … 
 
 - **manifest 九条校验**（`docs/PLUGIN.md` §三，任一失败 → 拒绝安装 / 标记 broken）：① `id` / `ipcPrefix` / `pages[].path` 全局唯一、不冲突；② `kind` 声明与 `pages`/`commands` 字段一致；③ `apiCompat` 与宿主 `API_VERSION` 相交；④ `pages[].path` 以 `/plugin/` 开头、`component` 为包内相对路径；⑤ `transport` 缺省或 `inproc`；⑥ `permissions.network` 合法主机名或 `*`（`*` 须附说明）；⑦ `activation` 的 `onEvent:<channel>` 须以 `ipcPrefix` 开头；⑧ `syncScope` 仅缺省 / `global` / `local`；⑨ `permissions` 子字段类型校验。
 - **ApiResult 包装**：所有经 `window.qihebox.plugins.*` 的返回值都是 `{ success, data, error }`，`data` 成功才非空；不要假设裸数据。
-- **host 能力白名单**（`docs/PLUGIN.md` §5.1）：`log` / `storage` / `events` / `workspace` / `dialog` / `notify` / `account` / `files` / `entitlement`——没有任意文件读写、没有 shell；`host.files` 是受限读写（`readText`/`readBuffer`/`writeExport`，错误带 `code`，不触发熔断）。
+- **host 能力白名单**（`docs/PLUGIN.md` §5.1）：`log` / `storage` / `events` / `workspace` / `dialog` / `notify` / `account` / `files` / `entitlement`——没有任意文件读写、没有 shell；`host.files` 是受限读写（`readText`/`readBuffer`/`writeExport`，错误带 `code`，不触发熔断）。`workspace` 三方法：`currentPath()`（当前打开的）/ `list()`（最近列表）/ `defaultPath?()`（**v2.6.1**：用户设定的默认工作区，只读，未设置 → `null`；读的是持久偏好，`activate` 期就能拿到「本次启动将开哪个盘」，与 `currentPath()` 可以不同）。
 - **权限声明**（`manifest.permissions`，§三）：`network` / `clipboard` / `notification` / `account`，v1 用于管理页展示与安装确认，未来 `transport:'process'` 隔离落地时升级为强制拦截。
 - **侧载需开发者模式**：`设置 → 插件 → 开发者模式`（默认关），关闭时 `install({ filePath })` 返回 `DEV_MODE_REQUIRED`（§5.3、§六 规则 6）。
 - **通道命名**（§5.4）：插件通道固定 `qihebox:plugin:<ipcPrefix>:<action>`；`qihebox:*` 前缀与 `qihebox:event:*` 为宿主保留，插件不得注册。
