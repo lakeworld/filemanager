@@ -11,12 +11,18 @@
  * 登录态：写 `<userData>/account.json`，token 带 `raw:` 前缀 → 绕开 safeStorage（口径同
  * `probe-wave5-memory-f5-crepe.spec.ts` 与本仓 f5 加密链夹具）。零真凭据、零现网。
  * ⚠ label 专属 userData，收尾删掉自己写的 account.json，别污染别人的未登录断言。
+ *
+ * 2.6.1 补（假绿审计判据）：详情弹窗的「安装」钮**真点**一条——桩发真包字节（build 产物
+ * `out/plugins/com.qihe.hello.qbox`，sha/size 与目录条目同源），点了必须有包请求、且装完
+ * `plugins.list` 里真出现；只断言按钮文案等于没测（把 onClick 摘掉也照绿）。
  */
 import { test, expect, _electron as electron } from '@playwright/test'
 import { e2eUserDataDirName } from './helpers/launch'
 import type { ElectronApplication, Page } from '@playwright/test'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
+import fs from 'node:fs'
+import { createHash } from 'node:crypto'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -43,10 +49,21 @@ const DEMO_DETAIL =
   '第一段：把仓库里的进货单直接变成客户档案，不需要手工誊录。\n\n第二段：识别结果先在框里让你确认，你点保存才落库。'
 const DEMO_RELEASE_NOTES = '演示更新说明：修掉了重复识别同一张单的问题。'
 
+/** 安装链真点夹具：build 产物里的 hello 插件（与 plugins.spec.ts 同源）。详情弹窗的「安装」钮
+ *  此前只被断言过文案、从未真点（审计实读：把 onClick 摘掉也照绿）——这里把它真点下去：
+ *  桩上必须收到这一枪包请求、装完 plugins.list 里必须真出现、再卸掉收场。 */
+const HELLO_ID = 'com.qihe.hello'
+const HELLO_QBOX = path.join(ROOT, 'out', 'plugins', 'com.qihe.hello.qbox')
+/** 缺文件 = 前置没满足（e2e 前必须 build）⇒ 直接抛，别静默跳过当绿 */
+const HELLO_BYTES = fs.readFileSync(HELLO_QBOX)
+const HELLO_SHA = createHash('sha256').update(HELLO_BYTES).digest('hex')
+
 const seenCatalogHeaders: string[] = []
 /** 目录端点逐枪记录的请求路径（钉"没打成 /api/api/… 双段"；双段只会在下面兜底分支吃 200 JSON） */
 const seenCatalogUrls: string[] = []
 let catalogHits = 0
+/** 包体端点逐枪记录的路径（安装链真点判据：点了「安装」必须有这一枪） */
+const pkgHits: string[] = []
 /** 云 API 基址（含尾 /api，主进程 `resolveApiBase()` 的实际形状） */
 let apiBase = ''
 /** 桩服务的裸 origin（图片走这条：真实服务端给的 downloadUrl/图片本就不必挂在 /api 下） */
@@ -105,6 +122,22 @@ function catalogPayload(): unknown {
             { version: '2.0.0', apiCompat: [2, 3], sha256: 'd'.repeat(64), downloadUrl: `${origin}/pkg/new.qbox` },
           ],
         },
+        {
+          // 安装链真点条目：sha256/size 由 build 产物实时算（桩照这个发，装得上才算真链）
+          id: HELLO_ID,
+          name: 'Hello 示例插件',
+          entitlement: 'login',
+          description: '安装链真点用例：点「安装」必须真下载、真装上。',
+          versions: [
+            {
+              version: '2.5.5',
+              apiCompat: [1, 1],
+              size: HELLO_BYTES.length,
+              sha256: HELLO_SHA,
+              downloadUrl: `${origin}/pkg/com.qihe.hello.qbox`,
+            },
+          ],
+        },
       ],
     },
   }
@@ -125,6 +158,19 @@ function startMock(): Promise<void> {
       if (p.startsWith('/img/demo-') || p.startsWith('/img/good-')) {
         res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' })
         res.end(PNG)
+        return
+      }
+      if (p === '/pkg/com.qihe.hello.qbox') {
+        // 真包字节（sha/size 与目录条目同源）：安装链要真校验、真解包，桩发假字节就装不上
+        pkgHits.push(p)
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': String(HELLO_BYTES.length) })
+        res.end(HELLO_BYTES)
+        return
+      }
+      if (p.startsWith('/pkg/')) {
+        pkgHits.push(p)
+        res.writeHead(404, { 'Content-Type': 'text/plain' })
+        res.end('not found')
         return
       }
       if (p.startsWith('/img/')) {
@@ -270,6 +316,35 @@ test.describe('插件目录详情化（v2.6.2 真链路）', () => {
     await expect(dialog().locator('[data-testid="detail-install"]')).toHaveText('安装')
     await dialog().locator('[data-testid="detail-close"]').click()
     await expect(gallery).toHaveCount(0)
+  })
+
+  test('详情弹窗的「安装」钮真点：桩上收到真包请求 + plugins.list 里真出现（不是只钉文案）', async () => {
+    // 清场：本 spec 的 userData 跨运行持久，先卸掉上次可能留下的 hello（失败无关紧要）
+    await page
+      .evaluate(async (id) => (window as any).qihebox.plugins.uninstall(id), HELLO_ID)
+      .catch(() => undefined)
+    const before = pkgHits.length
+    await detailButton('Hello 示例插件').click()
+    const install = dialog().locator('[data-testid="detail-install"]')
+    await expect(install).toHaveText('安装')
+    await install.click()
+    // ① 真链第一跳：桩上必须收到这一枪包请求——摘掉 onClick / 接错通道，这里就没有请求
+    await expect.poll(() => pkgHits.length, { timeout: 20000 }).toBeGreaterThan(before)
+    expect(pkgHits.slice(before)).toEqual(['/pkg/com.qihe.hello.qbox'])
+    // ② 真链第二跳：装完 plugins.list 里真出现（下载 → sha256 校验 → 解包落盘 全过）
+    await expect
+      .poll(
+        async () => {
+          const l = await page.evaluate(async () => (window as any).qihebox.plugins.list())
+          return (l.data as Array<{ id: string }>).some((p) => p.id === HELLO_ID)
+        },
+        { timeout: 30000 },
+      )
+      .toBe(true)
+    const close = dialog().locator('[data-testid="detail-close"]')
+    if ((await close.count()) > 0) await close.click()
+    // 收场：卸掉 hello，别留给重跑与同 spec 其它用例
+    await page.evaluate(async (id) => (window as any).qihebox.plugins.uninstall(id), HELLO_ID)
   })
 
   test('官方没写素材时如实说"没写"，而不是编占位或静默隐藏', async () => {
