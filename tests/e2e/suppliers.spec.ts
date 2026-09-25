@@ -409,7 +409,7 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
       )
       .not.toContain('样品')
     // 目录已移入回收站（不真删）
-    await expect(fsp.stat(path.join(wsDir, '供应商', '子夹供应商', '样品'))).rejects.toBeTruthy()
+    await expect(fsp.stat(path.join(wsDir, '供应商', '子夹供应商', '样品'))).rejects.toThrow(/ENOENT/)
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
@@ -465,7 +465,7 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     // 关键判据：**盘上目录一个字都没动**（两个供应商都还是旧名，新名不存在）
     for (const holder of ['设置供应商甲', '设置供应商乙']) {
       await expect(fsp.stat(path.join(wsDir, '供应商', holder, '样品夹'))).resolves.toBeTruthy()
-      await expect(fsp.stat(path.join(wsDir, '供应商', holder, '样品柜'))).rejects.toBeTruthy()
+      await expect(fsp.stat(path.join(wsDir, '供应商', holder, '样品柜'))).rejects.toThrow(/ENOENT/)
     }
 
     // 第二段：**显式 acrossEntities=true 才走物理迁移**，每个实体的同名目录跟着改名、文件跟着走。
@@ -491,7 +491,7 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     for (const holder of ['设置供应商甲', '设置供应商乙']) {
       const moved = path.join(wsDir, '供应商', holder, '样品室')
       await expect(fsp.stat(moved)).resolves.toBeTruthy()
-      await expect(fsp.stat(path.join(wsDir, '供应商', holder, '样品厅'))).rejects.toBeTruthy()
+      await expect(fsp.stat(path.join(wsDir, '供应商', holder, '样品厅'))).rejects.toThrow(/ENOENT/)
       // 内容跟着目录走（改名是 move 不是复制/重建）
       expect(await fsp.readFile(path.join(moved, 'note.txt'), 'utf8')).toBe(holder)
     }

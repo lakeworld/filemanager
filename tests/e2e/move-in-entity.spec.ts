@@ -147,7 +147,7 @@ test.describe('A9 刀5b · 客户内部挪动（界面可达性）', () => {
     // ③ 结果落到盘上：目标目录有、源目录没有
     await expect(async () => {
       await expect(fsp.stat(path.join(wsDir, '客户', CUSTOMER, TO, fileName))).resolves.toBeTruthy()
-      await expect(fsp.stat(path.join(wsDir, '客户', CUSTOMER, FROM, fileName))).rejects.toBeTruthy()
+      await expect(fsp.stat(path.join(wsDir, '客户', CUSTOMER, FROM, fileName))).rejects.toThrow(/ENOENT/)
     }).toPass({ timeout: 15000 })
 
     await expect(dialog).toHaveCount(0)

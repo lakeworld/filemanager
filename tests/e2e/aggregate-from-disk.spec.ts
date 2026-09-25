@@ -11,6 +11,7 @@
  */
 import { test, expect, _electron as electron } from '@playwright/test'
 import { e2eUserDataDirName } from './helpers/launch'
+import { expectOptionExists } from './helpers/searchSelect'
 import type { ElectronApplication, Page } from '@playwright/test'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
@@ -96,12 +97,10 @@ test.describe('A9 刀1d · 聚合页以盘为准', () => {
     await expect(page.getByText('特供证书').first()).toBeVisible({ timeout: 20000 })
 
     // ② 子文件夹筛选下拉里有这个目录（并集来自盘，不来自模板表）
-    const filter = page.locator('[data-search-select]').filter({ hasText: /全部子文件夹|子文件夹/ }).first()
-    if ((await filter.count()) > 0) {
-      await filter.click()
-      await expect(page.getByRole('option', { name: UNREGISTERED })).toBeVisible()
-      await page.keyboard.press('Escape')
-    }
+    //    收起态时弹层**整个不在 DOM**（见 helpers/searchSelect.ts 头注）——旧写法把断言包在
+    //    `count() > 0` 里，而 count 恒为 0 ⇒ 这条承诺一次都没执行过（2026-09-25 测试反推审查 §三.1）。
+    //    现改为无条件开面板断言：下拉不在 / 选项缺了 / 面板打不开，都当场红。
+    await expectOptionExists(page, page.getByLabel('子文件夹筛选'), UNREGISTERED)
   })
 
   test('图包库同理：未登记的图包子目录里的图也出现', async () => {

@@ -15,7 +15,8 @@ const INDEX_URL = 'file://' + ROOT.replace(/\\/g, '/') + '/out/renderer/index.ht
  * - 空态不闪现守卫回归（Clients/ProductSets 加载期 Skeleton；时序窗口小 → 断言最终态 + 守卫存在性）
  * - 下拉触发器可及名全覆盖（v2.5.8 复审改造：原「裸 select 四种 aria 关联抽查」自 D9 零裸 select 后恒绿，见该用例注释）
  * 说明：参数路由（/product-sets/:name 等）由各域 spec 覆盖，此处只遍历静态路由；
- * 1024 断言 = BrowserWindow setSize(1024, h) + document.scrollWidth <= 1024。
+ * 1024 断言 = BrowserWindow setSize(1024, h) + document.scrollWidth <= **document.clientWidth**
+ * （2026-09-25 起比 clientWidth：滚动条吃掉的宽度不再被当成余量，见用例内注释）。
  */
 test.describe('UI 一致性（v2.5.1 T4/T5）', () => {
   let app: ElectronApplication
@@ -83,8 +84,13 @@ test.describe('UI 一致性（v2.5.1 T4/T5）', () => {
         window.resizeTo(1024, 768)
       })
       await page.waitForTimeout(200)
-      const scrollW = await page.evaluate(() => document.documentElement.scrollWidth)
-      expect(scrollW, `route ${route} 横向滚动`).toBeLessThanOrEqual(1024)
+      // 判据必须对**可视宽度**比：视口 1024 时滚动条会吃掉约 15px clientWidth，
+      // 旧写法 `scrollWidth <= 1024` 让「内容已横向溢出、页面能左右滚」照样绿（2026-09-25 审查 §三.2）。
+      const { scrollW, clientW } = await page.evaluate(() => ({
+        scrollW: document.documentElement.scrollWidth,
+        clientW: document.documentElement.clientWidth,
+      }))
+      expect(scrollW, `route ${route} 横向滚动`).toBeLessThanOrEqual(clientW)
     }
   })
 
