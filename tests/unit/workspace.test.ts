@@ -392,7 +392,10 @@ describe('启动打开哪个工作区（v2.6.1 默认工作区）', () => {
     await first.workspace.create(defDir)
     const cfg = await first.workspace.getConfig()
     cfg.image_subfolders = ['主图-自定义']
-    cfg.naming_template.sku_fields = ['sku_code', 'sub_folder']
+    // 用**合法**字段名里的非默认子集（默认是四件全开）：`sku_code` 不是 `NamingField` 的取值，
+    // 而 `saveConfig` 不校验 ⇒ 这里曾钉的是应用永远产不出的形状，且只有
+    // `tsc -p tsconfig.node.json` 这条（include 含 tests/**）会红，裸 `tsc --noEmit` 看不到。
+    cfg.naming_template.sku_fields = ['original_name', 'sub_folder']
     await first.workspace.saveConfig(defDir, cfg)
     // 抹掉 recents：模拟"用户删过最近列表 / 换过机器"，盘上工作区仍在
     await fsp.writeFile(recentPath(home), '[]')
@@ -402,6 +405,6 @@ describe('启动打开哪个工作区（v2.6.1 默认工作区）', () => {
     expect(path.resolve(info.path)).toBe(path.resolve(defDir))
     const after = await second.workspace.getConfig()
     expect(after.image_subfolders).toEqual(['主图-自定义'])
-    expect(after.naming_template.sku_fields).toEqual(['sku_code', 'sub_folder'])
+    expect(after.naming_template.sku_fields).toEqual(['original_name', 'sub_folder'])
   })
 })
