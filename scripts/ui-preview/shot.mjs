@@ -279,29 +279,32 @@ for (const [key, act] of extraShots) {
   }
 }
 
-// v2.5.9 A7 整页化（2026-09-22 深夜）：计算页「三条历史 + 点左栏行定位高亮」两态走查。
-// 空态已在 ROUTES.calc 抓过（那时台账还空着）；这里先直种三条（含标题/备注与一条已标记），
-// 再进页抓有数据态，最后点左栏第 2 行验「滚入视野 + 高亮 1.2s」这条定位交互。
+// v2.6.1 B15 容器化（2026-09-25 深夜）：计算页走查改新形态——左栏 = **容器列表**（点行切容器）、
+// 右栏 = 当前容器的记录流。两本容器：①「报价核算」两条（含标题/备注，其中一条打「已标记」）；
+// ②「装箱毛重」一条。空态已在 ROUTES.calc 抓过；这里抓①有数据态 ②点左栏第二本（换容器 + 看得见「已标记」chip）。
 try {
   await page.evaluate(async () => {
-    await window.qihebox.calcs.add({
-      expression: '(3200 + 380) × 1.15', result: '4,117.00', resultKind: 'number',
-      title: '新款装箱报价', note: '含 15 个点毛利，XX 客户',
-    })
+    const mk = async (name) => (await window.qihebox.calcs.createContainer({ name }))?.data?.id
+    const a = await mk('报价核算')
+    const b = await mk('装箱毛重')
     const mid = await window.qihebox.calcs.add({
-      expression: '13800 ÷ 1.13 × 0.13', result: '1,589.38', resultKind: 'number',
+      expression: '(3200 + 380) × 1.15', result: '4,117.00', resultKind: 'number',
+      title: '新款装箱报价', note: '含 15 个点毛利，XX 客户', container_id: a,
     })
-    await window.qihebox.calcs.add({ expression: '2026-09-16 + 60', result: '2026-11-15', resultKind: 'date' })
-    // 中间那条标记：「已标记」chip 是两态唯一视觉差异，走查要看得见
+    await window.qihebox.calcs.add({ expression: '2026-09-16 + 60', result: '2026-11-15', resultKind: 'date', container_id: a })
+    await window.qihebox.calcs.add({
+      expression: '13800 ÷ 1.13 × 0.13', result: '1,589.38', resultKind: 'number', container_id: b,
+    })
+    // 「已标记」chip 是两态唯一视觉差异，走查要看得见
     if (mid?.data?.id) await window.qihebox.calcs.update({ id: mid.data.id, saved: true })
   })
   await goto('/calc')
   await page.waitForTimeout(500)
   await page.screenshot({ path: path.join(OUT, 'calc-filled.png'), timeout: 12000 })
   console.log('✓ calc-filled /calc')
-  // 点左栏第 2 行（中间那条）⇒ 右栏对应卡 card-selected 高亮（1.2s 自熄，抓拍要快）
-  await page.locator('[data-calc-side="history"]').nth(1).click()
-  await page.waitForTimeout(200)
+  // 点左栏第二本容器 ⇒ 右栏整栏换成该容器的记录（新形态的"选中"就是这个切换动作）
+  await page.locator('[data-calc-side="container"]').nth(1).click()
+  await page.waitForTimeout(300)
   await page.screenshot({ path: path.join(OUT, 'calc-selected.png'), timeout: 12000 })
   console.log('✓ calc-selected /calc')
 } catch (err) {
