@@ -19,11 +19,10 @@ import fsp from 'node:fs/promises'
 import fs from 'node:fs'
 import { Readable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
-import crypto from 'node:crypto'
 import { BoxService } from './core'
 import { mimeTypeForPath } from './core/paths'
 import { log } from './log'
-import { decryptEnc, getPluginKeyResult, pluginKeyFailureText, pluginKeyLoadCode } from './plugins/encryption'
+import { decryptEnc, getPluginKeyResult, mainEntryCipherSha256, pluginKeyFailureText, pluginKeyLoadCode } from './plugins/encryption'
 import type { KeyDeps, PluginKeyFailure, SecretStore } from './plugins/encryption'
 import type { PluginManifest } from '../plugins/types'
 
@@ -191,16 +190,6 @@ async function serveFile(resolved: string, request: Request, extraHeaders?: Reco
   return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers })
 }
 
-/** 取钥防调包：本地密文文件 sha256（hex）。读取失败 → 空串。 */
-async function sha256Hex(file: string): Promise<string> {
-  try {
-    const b = await fsp.readFile(file)
-    return crypto.createHash('sha256').update(b).digest('hex')
-  } catch {
-    return ''
-  }
-}
-
 /**
  * 加密插件渲染层模块**取钥被拒 / 解密失败**的响应：403 + 原因头（v2.6 缺陷修复）。
  *
@@ -275,7 +264,10 @@ export function registerQiheboxProtocol(
                   log: (lv, m) => void log(lv, m),
                 },
                 manifest,
-                await sha256Hex(encAsset),
+                // v2.6.1（阶段 2）：上报**主入口**密文哈希——一版一钥覆盖整包、云端登记值只此一份；
+                // 旧口径上报所请求模块自身的哈希 ⇒ 主入口未激活过（冷进插件页）必判 TAMPERED。
+                // 与 loader.ts 走同一个 helper（口径唯一出处，防再次分叉）。
+                await mainEntryCipherSha256(pkgRoot),
               )
               if (!acquired.keyHex) {
                 const failure: PluginKeyFailure = acquired.failure ?? { code: 'DECRYPT_FAILED' }

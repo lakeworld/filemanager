@@ -11,7 +11,6 @@
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import fsp from 'node:fs/promises'
-import crypto from 'node:crypto'
 import Module from 'node:module'
 import type { PluginHost, PluginManifest, PluginRegistration } from '../../plugins/types'
 import type { PluginHostInstance } from './host'
@@ -19,6 +18,7 @@ import { PKG_DIR, MAIN_ENTRY, CIRCUIT_BROKEN_PREFIX, type PluginRegistry } from 
 import {
   getPluginKeyResult,
   decryptEnc,
+  mainEntryCipherSha256,
   pluginKeyFailureText,
   pluginKeyLoadCode,
   type KeyDeps,
@@ -79,16 +79,6 @@ class ActivationCancelledError extends Error {
 function validTimeoutMs(value: unknown): number | undefined {
   const timeoutMs = typeof value === 'number' ? value : Number(value)
   return Number.isInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : undefined
-}
-
-/** 文件 sha256（hex）。读取失败 → 空串（取钥端点只在有值时校验，未登记 sha 的旧登记放行）。 */
-async function sha256Hex(file: string): Promise<string> {
-  try {
-    const b = await fsp.readFile(file)
-    return crypto.createHash('sha256').update(b).digest('hex')
-  } catch {
-    return ''
-  }
 }
 
 export interface LoaderOptions {
@@ -232,7 +222,9 @@ export class PluginLoader {
         const acquired = await getPluginKeyResult(
           { baseUrl: kd.baseUrl, getToken: kd.getToken, cacheDir: kd.cacheDir, secretStore: kd.secretStore, log: this.log },
           entry.manifest,
-          await sha256Hex(encFile).catch(() => ''),
+          // v2.6.1（阶段 2）：上报口径 = 主入口密文哈希（与协议层渲染层取钥同一个 helper——
+          // 一版一钥覆盖整包、云端登记值只有主入口这一项，两处必须同值）。
+          await mainEntryCipherSha256(path.join(this.root, id, PKG_DIR)),
         )
         const keyHex = acquired.keyHex
         if (keyHex) {

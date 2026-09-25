@@ -14,6 +14,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
+import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { PluginRegistry, PKG_DIR, resolvePluginText, versionAtLeast } from '../../src/main/plugins/registry'
@@ -476,11 +477,16 @@ describe('PluginLoader：惰性加载 / 握手 / 熔断', () => {
     const registry = makeRegistry()
     // 取钥依赖：fake online fetch 返回该密钥 + fake secretStore（绕 safeStorage）
     let fetchCalled = 0
+    const encSha = createHash('sha256')
+      .update(fs.readFileSync(path.join(pkg, 'main', 'index.js.enc')))
+      .digest('hex')
     const fetchImpl = async (_url: string, init?: RequestInit): Promise<Response> => {
       fetchCalled++
       const body = JSON.parse(init!.body as string)
       expect(body.plugin_id).toBe('com.qihe.enc')
-      expect(body.cipher_sha256).toHaveLength(64) // 本地密文 sha256 上报（防调包比对）
+      // v2.6.1（阶段 2）：上报的必须是**主入口**密文（main/index.js.enc）的 sha256，与 loader
+      // 真正加载的那份密文同源；旧口径（按所请求文件各算一份）在这里就会红。
+      expect(body.cipher_sha256).toBe(encSha)
       return new Response(JSON.stringify({ code: 200, data: { key_hex: keyHex } }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },

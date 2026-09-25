@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import {
   ENC_MAGIC,
   KEY_GRACE_PERIOD_MS,
@@ -15,6 +16,7 @@ import {
   getPluginKeyResult,
   fetchKeyOnline,
   fetchKeyOnlineResult,
+  mainEntryCipherSha256,
   pluginKeyFailureText,
   type KeyDeps,
   type SecretStore,
@@ -229,6 +231,34 @@ describe('getPluginKey 缓存与在线取钥', () => {
     delete manifest.encryption
     const k = await getPluginKey(deps, manifest, 'sha')
     expect(k).toBeNull()
+  })
+})
+
+describe('mainEntryCipherSha256（取钥上报口径唯一出处，v2.6.1 阶段 2）', () => {
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'f5-enc-scope-'))
+  })
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('恒取 <pkg>/main/index.js.enc 的 sha256（与包内其他 .enc 无关）；缺失 → 空串不 throw', async () => {
+    const pkg = path.join(tmpDir, 'pkg')
+    fs.mkdirSync(path.join(pkg, 'main'), { recursive: true })
+    fs.mkdirSync(path.join(pkg, 'renderer'), { recursive: true })
+    const main = Buffer.from('main-cipher-bytes')
+    const renderer = Buffer.from('renderer-cipher-bytes')
+    fs.writeFileSync(path.join(pkg, 'main', 'index.js.enc'), main)
+    fs.writeFileSync(path.join(pkg, 'renderer', 'Home.js.enc'), renderer)
+    const sha = (b: Buffer): string => crypto.createHash('sha256').update(b).digest('hex')
+
+    expect(await mainEntryCipherSha256(pkg)).toBe(sha(main))
+    expect(await mainEntryCipherSha256(pkg)).not.toBe(sha(renderer))
+    // 主入口密文缺失（半包/坏包）→ 空串（服务端按 fail-closed 拒发钥，不回落明文）
+    fs.rmSync(path.join(pkg, 'main', 'index.js.enc'))
+    expect(await mainEntryCipherSha256(pkg)).toBe('')
+    // pkg 根不存在同样空串
+    expect(await mainEntryCipherSha256(path.join(tmpDir, 'nope'))).toBe('')
   })
 })
 

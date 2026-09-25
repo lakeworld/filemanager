@@ -18,15 +18,41 @@
  * （装配层传 safeStorage 封装，node 单测传 fake）。
  */
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import type { PluginManifest } from '../../plugins/types'
 import type { PluginLoadErrorCode } from '../../shared/types'
+import { MAIN_ENTRY } from './registry'
 
 /** 离线宽限（与线程 C 拍板口径一致）：密钥缓存 7 天内可用，过期锁云端插件入口 */
 export const KEY_GRACE_PERIOD_MS = 7 * 24 * 3600 * 1000
 /** .enc 文件头魔数（写入与读取双端一致） */
 export const ENC_MAGIC = 'QHENC1'
+
+/** 本地密文文件 sha256（hex）。读取失败 → 空串（服务端对空值 fail-closed 拒发钥）。 */
+async function sha256HexOfFile(file: string): Promise<string> {
+  try {
+    const b = await fsp.readFile(file)
+    return crypto.createHash('sha256').update(b).digest('hex')
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 取钥防调包「上报口径」的**唯一出处**（v2.6.1）：插件**主入口**密文
+ * `<pkgRoot>/main/index.js.enc` 的 sha256（hex）。
+ *
+ * 为什么是主入口而不是「所请求的那个文件」：一版一钥覆盖整包（main 与各渲染层模块共用同一把钥），
+ * 云端登记值也只有主入口这一项 ⇒ **主入口激活取钥与渲染层模块取钥必须上报同一个值**。
+ * 2026-09-23 缺陷即此处漂移：渲染层上报自身 `.enc` 的哈希，只要主入口本会话还没激活过
+ * （冷进插件页），服务端必判 TAMPERED、页面根本出不来。
+ * 读取失败 → 空串（与旧口径同形：服务端 fail-closed 拒发钥，不回落明文）。
+ */
+export async function mainEntryCipherSha256(pkgRoot: string): Promise<string> {
+  return sha256HexOfFile(path.join(pkgRoot, MAIN_ENTRY) + '.enc')
+}
 
 /** 密钥落盘加密提供者（默认 null = 纯 base64 混淆；装配层注入 safeStorage 封装） */
 export interface SecretStore {
@@ -215,7 +241,8 @@ function writeCache(deps: KeyDeps, pluginId: string, keyHex: string, version: st
 }
 
 /** 在线取钥：POST /api/box/plugin-key，Bearer JWT，防调包 sha256 比对在服务端（PLAN F5 §77）。
- *  localCipherSha256 = 本地密文文件（main/index.js.enc）的 sha256——由调用方计算传入，
+ *  localCipherSha256 = **主入口密文**（`<pkg>/main/index.js.enc`）的 sha256——调用方一律用
+ *  `mainEntryCipherSha256(pkgRoot)` 计算传入（本口径的唯一出处；不许按所请求的渲染层模块各算一份）。
  *  不信任 manifest 字段（manifest 也可被篡改；服务端只认登记值，比对失败拒发钥）。
  *  失败带 `failure`（code + HTTP 状态，v2.6 批 7 审查轮 2 缺口①）——上层据此给用户具体原因与出路；
  *  fail-closed 语义不变：`keyHex` 为 null 即拒绝加载。 */

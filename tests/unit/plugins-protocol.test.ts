@@ -12,6 +12,8 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import crypto from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import type { PluginManifest } from '../../src/plugins/types'
 import type { SecretStore } from '../../src/main/plugins/encryption'
 import {
@@ -365,5 +367,149 @@ describe('registerQiheboxProtocol handler 加密插件取钥分支（mock electr
     const resp = await get(URL_ASSET)
     expect(resp.status).toBe(404)
     expect(resp.headers.get('X-Qihebox-Key-Failure')).toBeNull()
+  })
+})
+
+// v2.6.1（取钥上报口径阶段 2）：加密插件**渲染层模块**取钥时，上报的必须是**主入口**密文
+// （`pkg/main/index.js.enc`）的 sha256——一版一钥覆盖整包，云端登记值也只有主入口这一项。
+// 旧口径按「所请求模块」各算一份（renderer/Home.js.enc 自己的哈希）⇒ 只要主入口本会话还没激活过
+// （密钥未进缓存），冷进插件页必被服务端判 TAMPERED、页面根本出不来。
+describe('加密插件渲染层取钥：上报口径 = 主入口密文哈希（v2.6.1 阶段 2）', () => {
+  let pluginsRoot = ''
+  const keyHex = 'b'.repeat(64)
+  const PLAIN = 'export default { name: "enc-scope" }'
+  const ID = 'com.qihe.scope'
+  const URL_ASSET = `qihebox://plugin/${ID}/renderer/pages/Main.js`
+
+  const store: SecretStore = {
+    encrypt: (b) => 'raw:' + b.toString('base64'),
+    decrypt: (s) => (s.startsWith('raw:') ? Buffer.from(s.slice(4), 'base64') : null),
+  }
+
+  /** 落一个真形状加密包：主入口与渲染层模块各一份密文（两族哈希刻意不同）+ 返回两族现算哈希 */
+  async function makeScopePkg(): Promise<{ mainHash: string; rendererHash: string }> {
+    const { encryptForBundle } = await import('../../src/main/plugins/encryption')
+    const pkgRoot = await makePkg(pluginsRoot, ID, 'renderer/pages/Main.js.enc', '')
+    const mainEnc = encryptForBundle(Buffer.from('module.exports = { activate: async () => ({}) }'), keyHex)!
+    const rendererEnc = encryptForBundle(Buffer.from(PLAIN), keyHex)!
+    await fsp.mkdir(path.join(pkgRoot, 'main'), { recursive: true })
+    await fsp.writeFile(path.join(pkgRoot, 'main', 'index.js.enc'), mainEnc)
+    await fsp.writeFile(path.join(pkgRoot, 'renderer', 'pages', 'Main.js.enc'), rendererEnc)
+    const sha = (b: Buffer): string => crypto.createHash('sha256').update(b).digest('hex')
+    return { mainHash: sha(mainEnc), rendererHash: sha(rendererEnc) }
+  }
+
+  function register(getToken: () => string | null, readManifest?: () => PluginManifest | null): void {
+    registerQiheboxProtocol({ workspace: { currentWorkspacePath: () => null } } as never, undefined, () => pluginsRoot, {
+      baseUrl: 'https://api.test.dev',
+      getToken,
+      cacheDir: path.join(mockState.userData, 'keys'),
+      secretStore: store,
+      readManifest:
+        readManifest ??
+        (() =>
+          ({
+            id: ID,
+            version: '1.0.0',
+            name: '加密范围示例',
+            apiVersion: 1,
+            kind: ['ipc'],
+            enabled: true,
+            encryption: { algo: 'aes-256-gcm', keyId: 'k1', entitlement: 'subscription' },
+          }) as unknown as PluginManifest),
+    })
+  }
+
+  async function get(url: string): Promise<Response> {
+    if (!mockState.handler) throw new Error('handler 未注册')
+    return mockState.handler(fakeRequest(url))
+  }
+
+  /** 替换全局 fetch（encryption 缺省取全局 fetch）：记录请求体并按服务端登记值规则裁决 */
+  function stubFetch(sentBodies: Array<Record<string, unknown>>, verdict: () => Response): () => void {
+    const orig = (globalThis as unknown as { fetch: typeof fetch }).fetch
+    ;(globalThis as unknown as { fetch: typeof fetch }).fetch = (async (_url: string, init?: RequestInit) => {
+      sentBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return verdict()
+    }) as unknown as typeof fetch
+    return () => {
+      ;(globalThis as unknown as { fetch: typeof fetch }).fetch = orig
+    }
+  }
+
+  beforeEach(async () => {
+    mockState.handler = null
+    mockState.netFetch.mockReset()
+    mockState.userData = await fsp.mkdtemp(path.join(os.tmpdir(), 'qh-protocol-scope-'))
+    pluginsRoot = path.join(mockState.userData, 'plugins')
+  })
+
+  it('上报 cipher_sha256 恒等于 sha256(pkg/main/index.js.enc)，与所请求模块无关', async () => {
+    const { mainHash, rendererHash } = await makeScopePkg()
+    // 夹具自证：两族哈希确实不同（若相等，本用例测不出口径漂移）
+    expect(mainHash).not.toBe(rendererHash)
+
+    const sent: Array<Record<string, unknown>> = []
+    const restore = stubFetch(sent, () => {
+      // 复刻服务端登记规则：只认主入口哈希；不等即 TAMPERED（403）
+      const body = sent[sent.length - 1]
+      const ok = body.cipher_sha256 === mainHash
+      return ok
+        ? new Response(JSON.stringify({ code: 200, data: { key_hex: keyHex } }), { status: 200 })
+        : new Response(JSON.stringify({ code: 'TAMPERED' }), { status: 403, headers: { 'Content-Type': 'application/json' } })
+    })
+    try {
+      register(() => 'tok') // 无密钥缓存 → 冷渲染层入口
+      const resp = await get(URL_ASSET)
+      // 目标模块自身的哈希与登记值不等（旧口径）时这里必然 403 TAMPERED——
+      // 本用例的诉求是：上报口径 = 主入口 ⇒ 正常取到钥并解出该模块（200）
+      expect(resp.status).toBe(200)
+      expect(await resp.text()).toBe(PLAIN)
+    } finally {
+      restore()
+    }
+    expect(sent).toHaveLength(1)
+    expect(sent[0].plugin_id).toBe(ID)
+    expect(sent[0].cipher_sha256).toBe(mainHash)
+    expect(sent[0].cipher_sha256).not.toBe(rendererHash)
+  })
+
+  it('主入口密文缺失（半包/坏包）→ 上报空串，服务端 fail-closed 拒发钥（403），不回落到明文', async () => {
+    const { rendererHash } = await makeScopePkg()
+    await fsp.rm(path.join(pluginsRoot, ID, 'pkg', 'main', 'index.js.enc'))
+    const sent: Array<Record<string, unknown>> = []
+    const restore = stubFetch(sent, () =>
+      new Response(JSON.stringify({ code: 'TAMPERED' }), { status: 403, headers: { 'Content-Type': 'application/json' } }),
+    )
+    try {
+      register(() => 'tok')
+      const resp = await get(URL_ASSET)
+      expect(resp.status).toBe(403)
+      expect(resp.headers.get('X-Qihebox-Key-Failure')).toBe('TAMPERED')
+    } finally {
+      restore()
+    }
+    expect(sent[0].cipher_sha256).toBe('')
+    expect(sent[0].cipher_sha256).not.toBe(rendererHash)
+    // 明文从未存在：不回落（否则会走磁盘解析 → 404）
+    expect(fs.existsSync(path.join(pluginsRoot, ID, 'pkg', 'renderer', 'pages', 'Main.js'))).toBe(false)
+  })
+
+  it('协议层与主入口激活走同一个 helper（结构钉：不许各自再算一份，防再次漂移）', () => {
+    const here = path.dirname(fileURLToPath(import.meta.url))
+    const repoRoot = path.resolve(here, '../..')
+    const read = (rel: string): string => fs.readFileSync(path.join(repoRoot, rel), 'utf-8')
+    const protocolSrc = read('src/main/protocol.ts')
+    const loaderSrc = read('src/main/plugins/loader.ts')
+    const encryptionSrc = read('src/main/plugins/encryption.ts')
+    expect(encryptionSrc).toContain('export async function mainEntryCipherSha256')
+    for (const [name, src] of [
+      ['src/main/protocol.ts', protocolSrc],
+      ['src/main/plugins/loader.ts', loaderSrc],
+    ] as const) {
+      expect(src, `${name} 须调用共用 helper`).toContain('mainEntryCipherSha256(')
+      // 自带一份「对所请求文件现算哈希」的实现 = 口径又要漂（两套必然再分叉）
+      expect(/\bsha256Hex\s*\(/.test(src), `${name} 不许自带密文哈希实现`).toBe(false)
+    }
   })
 })
