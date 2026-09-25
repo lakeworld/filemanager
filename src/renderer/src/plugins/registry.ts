@@ -319,6 +319,16 @@ export function deriveCatalogRows(
   })
 }
 
+/**
+ * 目录安装按钮文案（**唯一出处**：行内与 2.6.2 详情弹窗两处共用，防两份话术漂移）。
+ * 无可选版本（不兼容）时给「不可安装」——调用方仍须自己 `disabled`，这里只管文字不管能不能点。
+ */
+export function catalogInstallLabel(row: PluginCatalogRow, installing: boolean): string {
+  if (installing) return '安装中…'
+  if (!row.entry.selected) return '不可安装'
+  return row.updateAvailable ? '更新' : row.installedVersion ? '重装' : '安装'
+}
+
 /** 更新重启提示（判定 = 安装前清单快照里同 id 已存在；同版本重装亦命中，措辞「已重新安装」） */
 export interface PluginRestartNotice {
   id: string

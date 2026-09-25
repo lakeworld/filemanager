@@ -25,10 +25,12 @@ import type { JSX } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
 import type { ApiResult, PluginCatalogEntry, PluginInfo } from '../../../shared/types'
 import ConfirmDialog from '~/components/ConfirmDialog'
+import Modal from '~/components/ui/Modal'
 import { showToast } from '~/stores/notifyBanner'
 import {
   buildRestartNotice,
   catalogErrorGuidance,
+  catalogInstallLabel,
   deriveCatalogRows,
   fetchPluginCatalog,
   formatPluginSize,
@@ -98,6 +100,184 @@ function CatalogIcon(props: { entry: PluginCatalogEntry }): JSX.Element {
       />
     </Show>
   );
+}
+
+/**
+ * 目录截图缩略（2.6.2 增量）。两条口径：
+ * - 服务端没给图 ⇒ 调用方整块不渲染（不留空框——空框会被读成"图坏了"，而事实是"这插件没图"）；
+ * - 单张加载失败 ⇒ 只把那一张退成占位，其余照常（一张碎图不该拖垮整块）。
+ * **缩略图本身不做成按钮**：给图片容器挂一套自定义按钮材质会新增一处手写按钮（`uiInventory`
+ * 棘轮正是拦这个），预览入口统一走行内「详情」那一个真按钮。
+ */
+function CatalogThumb(props: { src: string; name: string }): JSX.Element {
+  const [failed, setFailed] = createSignal(false)
+  return (
+    <Show
+      when={!failed()}
+      fallback={
+        <div class="w-24 h-16 shrink-0 rounded-md border border-surface-100 bg-surface-100 flex items-center justify-center text-xs text-surface-400">
+          图未加载
+        </div>
+      }
+    >
+      <img
+        src={props.src}
+        alt={`「${props.name}」截图`}
+        data-testid="catalog-thumb"
+        class="w-24 h-16 shrink-0 rounded-md object-cover"
+        onError={() => setFailed(true)}
+      />
+    </Show>
+  )
+}
+
+/**
+ * 详情弹窗大图：左右翻、到头绕回（与本体预览连看同一口径）。
+ * 换张必须复位 `failed`——否则上一张加载失败会把下一张也顶成占位（预览导航上踩过同族坑）。
+ */
+function CatalogGallery(props: { images: string[]; name: string }): JSX.Element {
+  const [idx, setIdx] = createSignal(0)
+  const [failed, setFailed] = createSignal(false)
+  const total = () => props.images.length
+  const step = (d: number) => {
+    setIdx((i) => (i + d + total()) % total())
+    setFailed(false)
+  }
+  return (
+    <div class="flex flex-col gap-2">
+      <Show
+        when={!failed()}
+        fallback={
+          <div class="w-full h-64 rounded-md border border-surface-100 bg-surface-100 flex items-center justify-center text-sm text-surface-400">
+            截图加载失败（网络或图片地址问题）——下方文字介绍照常看
+          </div>
+        }
+      >
+        <img
+          data-testid="catalog-gallery"
+          src={props.images[idx()]}
+          alt={`「${props.name}」截图 ${idx() + 1}`}
+          class="w-full h-64 object-cover rounded-md border border-surface-100"
+          onError={() => setFailed(true)}
+        />
+      </Show>
+      <Show when={total() > 1}>
+        <div class="flex items-center gap-2">
+          <button type="button" class="btn-ghost" aria-label="上一张截图" data-testid="gallery-prev" onClick={() => step(-1)}>
+            ←
+          </button>
+          <span class="text-xs text-surface-400" data-testid="gallery-pos">
+            {idx() + 1} / {total()}
+          </span>
+          <button type="button" class="btn-ghost" aria-label="下一张截图" data-testid="gallery-next" onClick={() => step(1)}>
+            →
+          </button>
+        </div>
+      </Show>
+    </div>
+  )
+}
+
+/** 详情长文：按空行分段。服务端存**纯文本**，宿主不引 Markdown 渲染 = 零 XSS 面（口径见 2.6.2 开工卡 Q2） */
+function CatalogDetailText(props: { text: string }): JSX.Element {
+  const paras = createMemo(() =>
+    props.text
+      .split(/\n{2,}/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+  )
+  return (
+    <div class="flex flex-col gap-2">
+      <For each={paras()}>{(p) => <p class="text-sm text-surface-500">{p}</p>}</For>
+    </div>
+  )
+}
+
+/**
+ * 插件详情弹窗（2.6.2 增量）。
+ * **版本时间线本批不做**：那需要一个共享 semver 比较（该住 `src/shared/`），在渲染层再写一份
+ * 就是"派生算法两份各写一遍"——本仓明令禁止的漂移源。这里只显宿主选中的那一版
+ * （选版判据唯一住在 `main/plugins/catalog.ts`）与它的更新说明。
+ */
+function CatalogDetailModal(props: {
+  row: PluginCatalogRow
+  installing: boolean
+  onInstall: () => void
+  onClose: () => void
+}): JSX.Element {
+  const entry = () => props.row.entry
+  const images = () => entry().images ?? []
+  const sel = () => entry().selected
+  return (
+    <Modal
+      open
+      framed
+      size="3xl"
+      title={entry().name}
+      onClose={props.onClose}
+      subtitle={
+        <span>
+          {entry().source ?? '启禾官方'}
+          <Show when={entry().author}> · {entry().author}</Show>
+          <Show when={sel()}> · v{sel()!.version}</Show>
+          <Show when={sel()}> · {formatPluginSize(sel()!.size)}</Show>
+          <Show when={props.row.installedVersion}> · 已装 v{props.row.installedVersion}</Show>
+        </span>
+      }
+      footer={
+        <div class="flex items-center gap-2">
+          <button type="button" class="btn-secondary" data-testid="detail-close" onClick={props.onClose}>
+            关闭
+          </button>
+          <button
+            type="button"
+            class="btn-primary"
+            data-testid="detail-install"
+            disabled={!sel() || props.installing}
+            onClick={props.onInstall}
+          >
+            {catalogInstallLabel(props.row, props.installing)}
+          </button>
+        </div>
+      }
+    >
+      <div class="flex flex-col gap-4">
+        <Show when={images().length > 0}>
+          <CatalogGallery images={images()} name={entry().name} />
+        </Show>
+        <Show when={entry().detail} fallback={
+          <div class="text-xs text-surface-400" data-testid="detail-absent">
+            官方还没写这个插件的功能介绍——下面先给出它要哪些权限，装不装你来定。
+          </div>
+        }>
+          <div>
+            <div class="text-xs font-semibold text-surface-500 mb-1">功能介绍</div>
+            <CatalogDetailText text={entry().detail!} />
+          </div>
+        </Show>
+        <div>
+          <div class="text-xs font-semibold text-surface-500 mb-1">需要的权限</div>
+          <div class="text-xs text-surface-500" data-testid="detail-permissions">
+            {summarizeCatalogPermissions(entry().permissions)}
+          </div>
+        </div>
+        <Show when={sel()?.releaseNotes} fallback={
+          <Show when={sel()}>
+            <div class="text-xs text-surface-400" data-testid="detail-release-notes-absent">
+              这一版官方没写更新说明。
+            </div>
+          </Show>
+        }>
+          <div>
+            <div class="text-xs font-semibold text-surface-500 mb-1">这个版本更新了什么</div>
+            <div class="text-sm text-surface-500" data-testid="detail-release-notes">
+              {sel()!.releaseNotes}
+            </div>
+          </div>
+        </Show>
+      </div>
+    </Modal>
+  )
 }
 
 /** 权限声明块：network 域名 / '*' 醒目 + description reasoning / 剪贴板 / 通知 / 账号（v2.5 增量） */
@@ -190,6 +370,8 @@ export default function PluginManagerPage(): JSX.Element {
   const [installingId, setInstallingId] = createSignal<string | null>(null)
   /** v2.6 批 2：覆盖安装后的「重启应用」提示 */
   const [restartNotice, setRestartNotice] = createSignal<PluginRestartNotice | null>(null)
+  /** 2.6.2 增量：详情弹窗打开的目录行（null = 关） */
+  const [detailRow, setDetailRow] = createSignal<PluginCatalogRow | null>(null)
 
   /** 目录行 = 目录条目 × 已装清单（响应式：安装完 plugins() 刷新即自动标「可更新」） */
   const catalogRows = createMemo(() => deriveCatalogRows(catalog(), plugins()))
@@ -421,6 +603,14 @@ export default function PluginManagerPage(): JSX.Element {
                       <Show when={row.entry.description}>
                         <div class="text-sm text-surface-500 mt-1 line-clamp-2">{row.entry.description}</div>
                       </Show>
+                      {/* 2.6.2：截图缩略条（无图整块不渲染；点任一张进详情弹窗） */}
+                      <Show when={(row.entry.images ?? []).length > 0}>
+                        <div class="flex items-center gap-2 mt-2" data-testid="catalog-thumbs">
+                          <For each={row.entry.images!}>
+                            {(src) => <CatalogThumb src={src} name={row.entry.name} />}
+                          </For>
+                        </div>
+                      </Show>
                       <Show when={!row.entry.compatible && row.entry.reason}>
                         <div class="text-xs text-danger-600 mt-1">{row.entry.reason}</div>
                       </Show>
@@ -428,19 +618,24 @@ export default function PluginManagerPage(): JSX.Element {
                         权限：{summarizeCatalogPermissions(row.entry.permissions)}
                       </div>
                     </div>
-                    <button
-                      class="btn-primary shrink-0"
-                      disabled={!row.entry.selected || installingId() === row.entry.id}
-                      onClick={() => void installFromCatalog(row)}
-                    >
-                      {installingId() === row.entry.id
-                        ? '安装中…'
-                        : row.updateAvailable
-                          ? '更新'
-                          : row.installedVersion
-                            ? '重装'
-                            : '安装'}
-                    </button>
+                    <div class="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        class="btn-secondary"
+                        data-testid="catalog-detail"
+                        aria-label={`查看「${row.entry.name}」的详情`}
+                        onClick={() => setDetailRow(row)}
+                      >
+                        详情
+                      </button>
+                      <button
+                        class="btn-primary"
+                        disabled={!row.entry.selected || installingId() === row.entry.id}
+                        onClick={() => void installFromCatalog(row)}
+                      >
+                        {catalogInstallLabel(row, installingId() === row.entry.id)}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -636,6 +831,23 @@ export default function PluginManagerPage(): JSX.Element {
           }}
           onCancel={() => setRestartNotice(null)}
         />
+      </Show>
+
+      {/* 2.6.2 增量：插件详情弹窗（截图 + 功能介绍 + 权限 + 所选版本更新说明）。
+          从弹窗点安装即先关窗：装完后 catalog/已装清单会刷新，留着旧 row 会显出过期版本号 */}
+      <Show when={detailRow()}>
+        {(row) => (
+          <CatalogDetailModal
+            row={row()}
+            installing={installingId() === row().entry.id}
+            onInstall={() => {
+              const target = detailRow()
+              setDetailRow(null)
+              if (target) void installFromCatalog(target)
+            }}
+            onClose={() => setDetailRow(null)}
+          />
+        )}
       </Show>
     </div>
   );

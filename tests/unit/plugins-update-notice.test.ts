@@ -20,6 +20,7 @@ import type { PluginCatalogEntry, PluginInfo } from '../../src/shared/types'
 import {
   buildRestartNotice,
   catalogErrorGuidance,
+  catalogInstallLabel,
   deriveCatalogRows,
   formatPluginSize,
   summarizeCatalogPermissions,
@@ -147,6 +148,35 @@ describe('deriveCatalogRows：目录 × 已装清单（可更新标记的判据�
   })
 })
 
+describe('catalogInstallLabel：目录安装按钮文案的唯一出处（2.6.2 起行内与详情弹窗共用一处定义）', () => {
+  /** 走真实派生链拿 row，而不是手搓 PluginCatalogRow（手搓会跟 deriveCatalogRows 的判定漂） */
+  const rowOf = (installedVersion?: string) =>
+    deriveCatalogRows(
+      [entry()],
+      installedVersion ? [plugin({ id: 'com.qihe.cloud', version: installedVersion })] : [],
+    )[0]
+
+  it('未装 → 「安装」；已装同版本 → 「重装」；已装旧版本 → 「更新」', () => {
+    expect(catalogInstallLabel(rowOf(), false)).toBe('安装')
+    expect(catalogInstallLabel(rowOf('0.7.1'), false)).toBe('重装')
+    expect(catalogInstallLabel(rowOf('0.7.0'), false)).toBe('更新')
+  })
+
+  it('安装中恒压过其它文案（按钮正在转圈时不许还写「更新」）', () => {
+    expect(catalogInstallLabel(rowOf('0.7.0'), true)).toBe('安装中…')
+    expect(catalogInstallLabel(rowOf(), true)).toBe('安装中…')
+  })
+
+  it('不兼容（无可选版本）→ 「不可安装」，且与调用方的 disabled 判据同源（都读 entry.selected）', () => {
+    const bad = deriveCatalogRows(
+      [entry({ compatible: false, selected: undefined, reason: '无兼容版本' })],
+      [],
+    )[0]
+    expect(catalogInstallLabel(bad, false)).toBe('不可安装')
+    expect(bad.entry.selected).toBeUndefined()
+  })
+})
+
 describe('catalogErrorGuidance：按错误码分流（不猜文案）', () => {
   it('NOT_LOGGED_IN → 引导登录、不给「重试」（重试也是同一个答案）', () => {
     const g = catalogErrorGuidance('NOT_LOGGED_IN：官方插件目录需要登录——请先在「我的 → 账号」登录启禾云账号后重试')
@@ -223,5 +253,56 @@ describe('管理页接线（源码级门禁；本仓既有做法 = 源码包含�
   it('目录安装走官方索引形态（downloadUrl + sha256），侧载仍走 filePath', () => {
     expect(src).toContain('installPlugin({ downloadUrl: selected.downloadUrl, sha256: selected.sha256 })')
     expect(src).toContain('installPlugin({ filePath })')
+  })
+})
+
+/**
+ * 2.6.2 插件页详情化的接线门禁（本仓无组件级渲染基座，沿用「源码包含性断言 + 反向钉」的做法）。
+ * 每条都对应一个**用户可感知的坏法**：断言不是"代码里写过这个词"，而是"那个坏法会被拦下"。
+ */
+describe('插件页详情化（截图 + 详情弹窗）接线与反向钉', () => {
+  const pageSrc = fs.readFileSync(path.join(ROOT, PAGE), 'utf-8')
+
+  it('详情弹窗三块内容各有出处：功能介绍 / 需要的权限 / 这一版更新了什么', () => {
+    expect(pageSrc).toContain('CatalogDetailModal')
+    expect(pageSrc).toContain('功能介绍')
+    expect(pageSrc).toContain('需要的权限')
+    expect(pageSrc).toContain('这个版本更新了什么')
+  })
+
+  it('按钮文案只有一个出处（行内与弹窗都调 catalogInstallLabel，不许再各写一套三元）', () => {
+    expect(pageSrc.match(/catalogInstallLabel\(/g)?.length).toBe(2)
+    expect(pageSrc).not.toMatch(/'安装中…'\s*\n?\s*:.*\?\s*'更新'/)
+  })
+
+  it('服务端没给图 ⇒ 图位整块不渲染（防止出现一排空图框被读成"图坏了"）', () => {
+    expect(pageSrc).toContain('(row.entry.images ?? []).length > 0')
+    expect(pageSrc).toContain('images().length > 0')
+  })
+
+  it('反向钉：缩略图不是按钮——给图片容器挂自定义材质会新增一处手写按钮材质（uiInventory 棘轮面）', () => {
+    const body = pageSrc.slice(
+      pageSrc.indexOf('function CatalogThumb'),
+      pageSrc.indexOf('function CatalogGallery'),
+    )
+    expect(body.length).toBeGreaterThan(50)
+    expect(body).not.toContain('<button')
+    expect(body).toContain('onError')
+  })
+
+  it('翻图到头绕回，且换张必须复位加载失败态（否则上一张失败会顶掉下一张）', () => {
+    expect(pageSrc).toContain('setIdx((i) => (i + d + total()) % total())')
+    const gallery = pageSrc.slice(
+      pageSrc.indexOf('function CatalogGallery'),
+      pageSrc.indexOf('function CatalogDetailText'),
+    )
+    expect(gallery.match(/setFailed\(false\)/g)?.length).toBe(1)
+  })
+
+  it('从弹窗点安装 ⇒ 先关窗再装（留着旧 row 会显过期版本号），且没写更新说明时如实说没写', () => {
+    const iClose = pageSrc.indexOf('setDetailRow(null)\n              if (target) void installFromCatalog')
+    expect(iClose).toBeGreaterThan(-1)
+    expect(pageSrc).toContain('这一版官方没写更新说明')
+    expect(pageSrc).toContain('官方还没写这个插件的功能介绍')
   })
 })

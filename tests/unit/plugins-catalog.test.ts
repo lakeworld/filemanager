@@ -11,10 +11,13 @@
  * 3. 200 + 空列表 = 真「目录为空」（唯一允许显示「暂无插件」的情形）；
  * 4. versions 兼容映射：apiCompat 相交 + minHostVersion ≥ + 取语义化最高（不是数组最后一个）；
  * 5. 语义化版本比对边界（0.10.0 > 0.9.0；预发布小于正式）。
+ * 6. **2.6.2 展示字段**（`images` / `detail` / 每版 `releaseNotes`）：只宽容展示位、
+ *    不放过承重字段——这条分界就是这组用例存在理由（宽容用错地方 = 目录哑掉没人报）。
  */
 import { describe, expect, it, vi } from 'vitest'
 import {
   CATALOG_ERRORS,
+  CATALOG_IMAGE_MAX,
   catalogHttpError,
   compareSemver,
   fetchCatalog,
@@ -248,5 +251,103 @@ describe('catalogHttpError：状态码 → 中文人话', () => {
     expect(catalogHttpError(403)).toContain('NOT_LOGGED_IN')
     expect(catalogHttpError(404)).toBe(CATALOG_ERRORS.NOT_DEPLOYED)
     expect(catalogHttpError(502)).toContain('HTTP 502')
+  })
+})
+
+// —— 2.6.2 展示字段（截图 / 详情长文 / 每版更新说明）——
+// 口径：这些字段坏了不影响"能不能装"，所以**逐条降级为缺省**而不是抛错；
+// 但 sha256 / downloadUrl 这类承重字段一律照旧整体抛错。两条各测一头，防"宽容"被用过头。
+
+/** 最小合法回包（展示字段与版本字段可按需覆盖，坏形状用例靠传非预期类型） */
+function payloadWith(entryOver: Record<string, unknown> = {}, versionOver: Record<string, unknown> = {}): unknown {
+  return {
+    code: 200,
+    data: {
+      plugins: [
+        {
+          id: 'com.qihe.tools',
+          name: '文件工具箱',
+          versions: [
+            {
+              version: '0.1.8',
+              sha256: 'a'.repeat(64),
+              downloadUrl: 'https://example.com/com.qihe.tools-0.1.8.qbox',
+              ...versionOver,
+            },
+          ],
+          ...entryOver,
+        },
+      ],
+    },
+  }
+}
+
+const firstEntry = (json: unknown) => parseCatalogPayload(json)[0]
+
+describe('2.6.2 展示字段：原样收下 + 只宽容展示位', () => {
+  it('images / detail / 每版 releaseNotes 三项都给了 ⇒ 逐字保留（不是只判"存在"）', () => {
+    const e = firstEntry(
+      payloadWith(
+        {
+          images: ['https://img.example.com/tools-1.png', 'https://img.example.com/tools-2.png'],
+          detail: '一次挑最多 100 张图。\n\n压缩、改尺寸、格式互转、裁剪旋转都在本机完成，文件不出这台电脑。',
+        },
+        { releaseNotes: '新增按比例裁剪（1:1 / 4:3 / 16:9）。' },
+      ),
+    )
+    expect(e.images).toEqual([
+      'https://img.example.com/tools-1.png',
+      'https://img.example.com/tools-2.png',
+    ])
+    expect(e.detail).toContain('一次挑最多 100 张图')
+    expect(e.detail).toContain('文件不出这台电脑')
+    expect(e.versions[0].releaseNotes).toBe('新增按比例裁剪（1:1 / 4:3 / 16:9）。')
+  })
+
+  it('images 只收 http(s) 项、保持原顺序、超上限截断（上限 = CATALOG_IMAGE_MAX）', () => {
+    const given = [
+      'https://a.png',
+      'http://b.png',
+      'ftp://c.png',
+      '',
+      42,
+      null,
+      'https://d.png',
+      'https://e.png',
+    ]
+    const e = firstEntry(payloadWith({ images: given }))
+    expect(e.images).toEqual(['https://a.png', 'http://b.png', 'https://d.png'])
+    expect(e.images!.length).toBe(CATALOG_IMAGE_MAX)
+  })
+
+  it('一张都不合法 ⇒ 字段整条缺省（不是给空数组——空数组会让界面留一排空图框）', () => {
+    const e = firstEntry(payloadWith({ images: ['javascript:alert(1)', '  ', {}, []] }))
+    expect('images' in e).toBe(false)
+  })
+
+  it('images 压根不是数组 / detail 是数字 ⇒ 只丢该字段，条目照常可用（目录不许因展示位坏整体打红）', () => {
+    const e = firstEntry(payloadWith({ images: 'https://a.png', detail: 2026 }))
+    expect('images' in e).toBe(false)
+    expect('detail' in e).toBe(false)
+    expect(e.id).toBe('com.qihe.tools')
+    expect(e.versions[0].downloadUrl).toBe('https://example.com/com.qihe.tools-0.1.8.qbox')
+  })
+
+  it('detail 原样不截断（截断 = 显示一份被宿主改短的内容，比不显示更难查；上限住在服务端写入闸）', () => {
+    const long = '图'.repeat(5000)
+    const e = firstEntry(payloadWith({ detail: long }))
+    expect(e.detail).toBe(long)
+    expect(e.detail!.length).toBe(5000)
+  })
+
+  it('releaseNotes 空串 / 纯空白 ⇒ 该版缺省此字段（界面据此整行不显示，不写"无更新说明"占位）', () => {
+    expect('releaseNotes' in parseCatalogPayload(payloadWith({}, { releaseNotes: '' }))[0].versions[0]).toBe(false)
+    expect('releaseNotes' in parseCatalogPayload(payloadWith({}, { releaseNotes: '   \n ' }))[0].versions[0]).toBe(false)
+  })
+
+  it('反向：展示字段合法但承重字段坏 ⇒ 仍整体抛 CATALOG_BAD_PAYLOAD（宽容不许蔓延到 sha256）', () => {
+    expect(() =>
+      firstEntry(payloadWith({ images: ['https://a.png'], detail: 'x' }, { sha256: 'not-a-hash' })),
+    ).toThrow(CATALOG_ERRORS.BAD_PAYLOAD)
   })
 })

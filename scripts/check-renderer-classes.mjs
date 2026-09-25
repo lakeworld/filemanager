@@ -63,6 +63,11 @@ const SKIP = new Set([
   'file:',            // 协议比较字面量（index.tsx window.location.protocol === 'file:'，v2.5.7 补丁）——非 Tailwind file: 变体
   'key-unavailable',  // 插件页闸门状态枚举值（plugins/registry.ts `derivePluginPageGate` 的 state、routes.tsx 分流比较）——非 class
   'no-default',       // 插件页挂载视图枚举值（routes.tsx：模块没有默认导出）——非 class
+  // v2.6.2 插件页详情化：目录详情弹窗与截图条的 e2e 定位锚（全是 data-testid 值，不是 class）
+  'catalog-thumbs', 'catalog-thumb', 'catalog-detail',
+  'catalog-gallery', 'gallery-prev', 'gallery-next', 'gallery-pos',
+  'detail-close', 'detail-install', 'detail-permissions',
+  'detail-absent', 'detail-release-notes', 'detail-release-notes-absent',
 ])
 // 无连字符的 utility/自定义类（含连字符的 token 一律核查；单词类只信这个集合，
 // 避免把 'peer'/'all'/'create' 这类业务字符串字面量误当 class）

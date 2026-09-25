@@ -798,6 +798,13 @@ export interface PluginCatalogVersion {
   minHostVersion?: string
   /** 包体字节数（管理页展示「体积」；服务端不给时缺省） */
   size?: number
+  /**
+   * 本版本的更新说明（2.6.2 增量，只增不改）。
+   * 服务端磁盘 manifest 早已带此字段（发布脚本 `--release-notes` 写入），本批起宿主接上并在
+   * 插件详情里按版本时间线展示。**缺省 = 该版没写说明**：界面如实说"这一版官方没写更新说明"，
+   * 不编内容、也不静默藏掉整块（用户会以为"没有变化"，而事实是"官方没说")。
+   */
+  releaseNotes?: string
   /** .qbox 包整体 SHA-256（64 位十六进制；安装前逐字节校验） */
   sha256: string
   /** 包体下载地址（绝对 https；同源 http 仅用于自建/内网部署）。下载需登录态 */
@@ -820,6 +827,14 @@ export interface PluginCatalogEntry {
   author?: string
   /** 图标 URL（https；插件未下载，包内路径不可用） */
   icon?: string
+  /**
+   * 截图 URL（https，2.6.2 增量）。服务端最多给 3 张，宿主读侧同样**截到 3 张并丢弃非 https 条目**
+   * （公网图片面由发布链的体积闸把关，宿主只兜形状）；一张都不合法时本字段缺省。
+   * 缺图 = 界面整块不显示图位（不留空框、不显示破图）。
+   */
+  images?: string[]
+  /** 功能详情长文（纯文本，可含换行；2.6.2 增量。上限由服务端写入侧把关，宿主不截断以免显示假内容） */
+  detail?: string
   /** 来源描述（缺省「启禾官方」，管理页逐项展示） */
   source?: string
   /** permissions 摘要（仅展示；与 manifest.permissions 同构，'*' 需服务端审查） */

@@ -73,6 +73,31 @@ function badPayload(detail: string): Error {
   return new Error(`${CATALOG_ERRORS.BAD_PAYLOAD}（${detail}）`)
 }
 
+/**
+ * 展示型可选文本（detail / releaseNotes）：非空字符串才要，其余一律当"没给"。
+ * 与 sha256/downloadUrl 那类承重字段不同——这些字段坏了不影响能不能装，
+ * 所以**降级为缺省而不是抛错**（一条错字别把整个目录打红，管理页会因此变成"目录不可用"）。
+ * 长度上限不在这里截断：截断 = 显示一份被宿主悄悄改短的内容，比不显示更难查。
+ */
+function optText(v: unknown): string | undefined {
+  return typeof v === 'string' && v.trim() ? v : undefined
+}
+
+/** 截图上限（宿主读侧硬闸；服务端写入侧同数把关） */
+export const CATALOG_IMAGE_MAX = 3
+
+/**
+ * 截图 URL 列表：只收 http(s) 绝对 URL 的字符串项，坏项逐条丢、超上限截断，
+ * 全丢光则缺省（界面据此整块不显示图位）。非数组入参同样按"没给"处理。
+ */
+export function normalizeCatalogImages(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const ok = v.filter(
+    (x): x is string => typeof x === 'string' && /^https?:\/\//i.test(x.trim()),
+  )
+  return ok.length ? ok.slice(0, CATALOG_IMAGE_MAX) : undefined
+}
+
 function parseVersion(raw: unknown, where: string): PluginCatalogVersion {
   if (!isPlainObject(raw)) throw badPayload(`${where} 不是对象`)
   const version = typeof raw.version === 'string' ? raw.version.trim() : ''
@@ -112,7 +137,8 @@ function parseVersion(raw: unknown, where: string): PluginCatalogVersion {
     }
     size = raw.size
   }
-  return { version, ...(apiCompat ? { apiCompat } : {}), ...(minHostVersion ? { minHostVersion } : {}), ...(size !== undefined ? { size } : {}), sha256, downloadUrl }
+  const notes = optText(raw.releaseNotes)
+  return { version, ...(apiCompat ? { apiCompat } : {}), ...(minHostVersion ? { minHostVersion } : {}), ...(size !== undefined ? { size } : {}), ...(notes ? { releaseNotes: notes } : {}), sha256, downloadUrl }
 }
 
 function parseEntry(raw: unknown, idx: number): RawCatalogEntry {
@@ -132,6 +158,10 @@ function parseEntry(raw: unknown, idx: number): RawCatalogEntry {
   if (typeof raw.author === 'string' && raw.author) out.author = raw.author
   if (typeof raw.icon === 'string' && raw.icon) out.icon = raw.icon
   if (typeof raw.source === 'string' && raw.source) out.source = raw.source
+  const images = normalizeCatalogImages(raw.images)
+  if (images) out.images = images
+  const detail = optText(raw.detail)
+  if (detail) out.detail = detail
   if (isPlainObject(raw.permissions)) out.permissions = raw.permissions as PluginCatalogEntry['permissions']
   return out
 }

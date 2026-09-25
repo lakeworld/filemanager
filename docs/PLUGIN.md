@@ -361,6 +361,8 @@ export interface PluginCatalogEntry {
   description?: string
   author?: string
   icon?: string         // 图标 URL（https；插件尚未下载，包内路径不可用）
+  images?: string[]     // 截图 URL（https；v2.6.2 增量，宿主读侧最多收 3 张、坏项逐条丢，全坏则整字段缺省）
+  detail?: string       // 功能详情长文（纯文本可含换行；v2.6.2 增量。长度上限在服务端写入侧把关，宿主不截断）
   source?: string       // 来源描述（缺省「启禾官方」）
   permissions?: { network?: string[]; clipboard?: boolean; notification?: boolean; account?: boolean; customers?: boolean; share?: boolean }  // permissions 摘要（仅展示）
   versions: PluginCatalogVersion[]              // 版本列表（服务端全量，宿主不裁剪）
@@ -374,10 +376,16 @@ export interface PluginCatalogVersion {
   apiCompat?: [number, number]       // 所需宿主 API 版本范围（缺省 [1,1]，与 manifest.apiCompat 同口径）
   minHostVersion?: string            // 宿主产品版本下限（如 '2.6.0'；缺省不限）
   size?: number                      // 包体字节数（管理页展示体积）
+  releaseNotes?: string              // 本版更新说明（v2.6.2 增量；空串/纯空白按缺省处理，界面如实说"官方没写"而不是藏掉）
   sha256: string                     // .qbox 包整体 SHA-256（64 位十六进制）
   downloadUrl: string                // 包体地址（绝对 https；同源 http 仅用于自建/内网部署）
 }
 ```
+
+**展示字段的宽容边界（v2.6.2）**：`images` / `detail` / `releaseNotes` 属**展示位**——形状不对、类型不对、
+内容全坏，一律降级为该字段缺省，**不抛错**（一条截图地址写错不该让整个插件目录变成「目录不可用」）。
+`sha256` / `downloadUrl` / `version` 等**承重字段**照旧严格：任一条坏即整体抛 `CATALOG_BAD_PAYLOAD`。
+两头的分界各有一条单测钉着，防止"宽容"哪天蔓延到承重字段上。
 
 **目录链的失败口径（不谎报空目录）**：`catalog()` 的错误串形如 `CODE：人话`，管理页按 CODE 决定出路，
 **只有 200 + 空列表才显示「目录暂无插件」**；未登录 / 未配置服务器 / 端点未部署一律如实报错：
@@ -872,4 +880,4 @@ window.qihebox.ui.openEntity(
 
 ---
 
-*协议版本：v1（API_VERSION = 1，随 v2.5 宿主生效；2026-08-14 增量：syncScope / permissions.account / host.account / host.files / host.entitlement / 侧载收紧，均为向后兼容新增；2026-09-22 补：§二/§八 加「更新即重启」生效口径——非协议变更，仅承诺口径补全；2026-09-23 补：§5.6 `listTree` 条目形状钉死（只认 `kind`）、`STALE` 抛错口径钉死、§三 规则计数勘正——均为口径澄清，非协议变更；**同日 v2.6 批 2 实装**：§5.3 `catalog()` + `PluginCatalogEntry` 形状 + `install({ downloadUrl, sha256 })` 双形态与目录/下载链错误码、§二 安装链、§三.4 选版口径、§5.3 `app.relaunch()`——`catalog()` / 官方索引安装形态从「当前未实现」转为实装口径；同日 **v2.6 批 3 实装**：§一 插件分发口径改写（原「安装包不内置任何插件」→ 支持官方预装）+ §六 新增「官方预装（离线可用）」段——非协议变更（无新字段、无新通道、无新 IPC），仅分发形态与承诺口径补全）；2026-09-23 勘正（2.6 放行审查轮 2）：§〇「权益标记」措辞改为与实现一致（宿主零门槛校验，闸在云端取钥面）、§六 补「取钥失败的用户可见口径」（原因 + 下一步，fail-closed 不变）——仅口径澄清，非协议变更）；**2026-09-24 v2.6.1 增量**：§5.1 `host.workspace.defaultPath?()`（默认工作区**只读**持久指针，可选成员 + 能力探测，零权限位）——向后兼容新增，`API_VERSION` 仍 1，`currentPath()` / `list()` 签名与行为零改动） · 本文档在公开仓库维护，契约修订与实现同步*
+*协议版本：v1（API_VERSION = 1，随 v2.5 宿主生效；2026-08-14 增量：syncScope / permissions.account / host.account / host.files / host.entitlement / 侧载收紧，均为向后兼容新增；2026-09-22 补：§二/§八 加「更新即重启」生效口径——非协议变更，仅承诺口径补全；2026-09-23 补：§5.6 `listTree` 条目形状钉死（只认 `kind`）、`STALE` 抛错口径钉死、§三 规则计数勘正——均为口径澄清，非协议变更；**同日 v2.6 批 2 实装**：§5.3 `catalog()` + `PluginCatalogEntry` 形状 + `install({ downloadUrl, sha256 })` 双形态与目录/下载链错误码、§二 安装链、§三.4 选版口径、§5.3 `app.relaunch()`——`catalog()` / 官方索引安装形态从「当前未实现」转为实装口径；同日 **v2.6 批 3 实装**：§一 插件分发口径改写（原「安装包不内置任何插件」→ 支持官方预装）+ §六 新增「官方预装（离线可用）」段——非协议变更（无新字段、无新通道、无新 IPC），仅分发形态与承诺口径补全）；2026-09-23 勘正（2.6 放行审查轮 2）：§〇「权益标记」措辞改为与实现一致（宿主零门槛校验，闸在云端取钥面）、§六 补「取钥失败的用户可见口径」（原因 + 下一步，fail-closed 不变）——仅口径澄清，非协议变更）；**2026-09-24 v2.6.1 增量**：§5.1 `host.workspace.defaultPath?()`（默认工作区**只读**持久指针，可选成员 + 能力探测，零权限位）——向后兼容新增，`API_VERSION` 仍 1，`currentPath()` / `list()` 签名与行为零改动；**2026-09-25 v2.6.2 增量**：§5.3 目录条目新增展示三字段 `images?` / `detail?` / 每版 `releaseNotes?`（官方目录 → 管理页「详情」弹窗：截图可翻、功能介绍、按版更新说明）——同为向后兼容新增，`API_VERSION` 仍 1，承重字段判据一字未动，新增的「宽容只限展示位」边界由单测分两头钉住） · 本文档在公开仓库维护，契约修订与实现同步*

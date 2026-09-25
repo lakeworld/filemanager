@@ -210,11 +210,15 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  */
 const BASE = {
   button: {
-    total: 295, unified: 149, handwritten: 146, noclass: 0,
+    // 2.6.2 插件页详情化：+5 枚统一档真按钮（目录行「详情」与弹窗「关闭」= btn-secondary、
+    // 弹窗「安装」= btn-primary、大图「←」「→」= btn-ghost）。
+    // 手写面 146 **一字未动**：缩略图刻意不做成按钮——做了就是 +1 手写材质，正是棘轮该拦的那种。
+    total: 300, unified: 154, handwritten: 146, noclass: 0,
     tint: 0, debt: 6, baseInternal: 5, press: 0, noTransition: 4,
   },
   input: { total: 16, checkbox: 12, baseInternal: 3, debt: 0, exempt: 1, other: 0 },
-  modal: { total: 22, framed: 22, unframed: 0 },
+  // 2.6.2：插件详情弹窗 = 第 23 个业务 Modal 调用点，开 framed（未 framed 仍必须是空集）
+  modal: { total: 23, framed: 23, unframed: 0 },
 } as const;
 
 /** D16 收口后这张名单**必须为空**：全站 21 个业务调用点一律走 `framed` 骨架。
