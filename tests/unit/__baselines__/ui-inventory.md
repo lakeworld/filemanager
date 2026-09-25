@@ -9,6 +9,8 @@
 - pages/ProductSets.tsx:3
 - pages/Quotes.tsx:1
 - pages/Settings.tsx:11
+- pages/settings/IndustryTemplateCard.tsx:1
+- pages/settings/LedgerLinksCard.tsx:1
 - pages/SupplierDetail.tsx:2
 - pages/Suppliers.tsx:1
 - pages/Trash.tsx:1

@@ -341,7 +341,9 @@ test.describe('应用级设置开关（v2.5.8 D11 / W7）', () => {
       await fsp.writeFile(img, 'png')
 
       await gotoSettings(page)
-      // 子文件夹那几张卡就在设置页正文里（没有独立 tab），摘要挂在它们上方 ⇒ 直接找文本
+      // v2.6.1：设置页拆了四个页签（默认「通用」）——体检摘要住在「文件夹模板」页签里，
+      // 先点过去再找文本（旧版这里写的是"没有独立 tab"，本批起了页签后那句话失效）。
+      await page.getByRole('button', { name: '文件夹模板' }).click()
       const summary = page.getByText(/体检：扫了 \d+ 个实体/)
       await expect(summary).toBeVisible({ timeout: 20000 })
       await expect(page.getByText('未登记目录（会开始出现在界面上）：')).toBeVisible()

@@ -57,6 +57,11 @@ const ZERO_GLASS_FILES = [
  * 允许挂 `.glass-panel`（blur 16 + 内亮边）的**全部**点位，逐文件钉死（复审 r2 A-3 走 a 路线的机器面）。
  * 这三处是 PLAN §四 显式划进「一眼掠过的面」的浮层/壳层：侧栏、悬浮多选条、下拉弹层。
  * 想往别处（尤其高基数列表卡）再加一处 = 先回 PLAN §四 改红线，再改本表——顺序反过来说明在想绕门禁。
+ *
+ * v2.6.1（2026-09-25）玻璃点位 11 → 13：设置页新增两块**低基数**卡（`pages/settings/IndustryTemplateCard.tsx`
+ * 的行业模板阵列卡、`LedgerLinksCard.tsx` 的台账入口卡），随该页其余 11 处同材质走 `card-glass` ——
+ * 用户当日拍板「改基线、与页内一致」，基线文件（`__baselines__/ui-inventory.md`）同笔由 `UIINV_UPDATE=1` 重生成。
+ * 两块卡都是模板/入口的低基数面板，不进高基数列表；`ZERO_GLASS_FILES` 一字未动。
  */
 const OVERLAY_GLASS_POINTS: Record<string, number> = {
   'components/Sidebar.tsx': 1,

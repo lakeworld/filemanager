@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import { api } from "~/wails/api";
+import { DEFAULT_SUPPLIER_SUBFOLDERS } from "../../../shared/industryTemplates";
 import type {
   ApiResult,
   WorkspaceInfo,
@@ -121,5 +122,10 @@ export function defaultWorkspaceConfig(): WorkspaceConfig {
     cert_subfolders: ["3C", "质检", "专利"],
     // v2.4.7：客户子文件夹默认集（与主进程 loadConfig 兜底默认值对齐，PLAN §3.6）
     customer_subfolders: ["报价", "合同", "沟通", "其他"],
+    // v2.6.1：补上 doc/supplier 两键——此前这份"第三份默认值"只有三列，与主进程
+    // `paths.ts defaultWorkspaceConfig()` 不一致：config 加载前拿它做模板徽标判定会把默认工作区
+    // 误判成「自定义」（两处漂移源）。供应商词表取 shared 常量（与主进程 SUPPLIER_SUBFOLDERS 同词表）。
+    doc_subfolders: ["说明书", "参数表", "质检报告"],
+    supplier_subfolders: [...DEFAULT_SUPPLIER_SUBFOLDERS],
   };
 }

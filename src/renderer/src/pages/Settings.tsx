@@ -1,4 +1,5 @@
 import { Show, For, createSignal, createEffect, onMount, onCleanup } from "solid-js";
+import { useNavigate, useSearchParams } from "@solidjs/router";
 import {
   currentWorkspace,
   workspaceConfig,
@@ -7,7 +8,7 @@ import {
   defaultWorkspaceConfig,
 } from "~/stores/workspace";
 import { api } from "~/wails/api";
-import type { SubfolderDriftReport } from "~/types";
+import type { IndustryTemplate, SubfolderDriftReport } from "~/types";
 import { loadTagDefs, refreshTags } from "~/stores/tags";
 import { showToast } from "~/stores/notifyBanner";
 import ConfirmDialog from "~/components/ConfirmDialog";
@@ -15,6 +16,8 @@ import SearchSelect from "~/components/ui/SearchSelect";
 import type { ApiResult, NamingField, TagInfo, WorkspaceConfig } from "~/types";
 import { BUILTIN_NOTES_FOLDER } from "~/constants/notes";
 import Input from "~/components/ui/Input";
+import IndustryTemplateCard from "./settings/IndustryTemplateCard";
+import LedgerLinksCard from "./settings/LedgerLinksCard";
 import { SHORTCUTS, comboLabel } from "~/shortcuts";
 import { appSettings, appSettingsReady, reloadAppSettings, setAppSetting } from "~/stores/appSettings";
 import { wakeOutcome, WAKE_OCCUPIED_HINT } from "~/lib/wakeFeedback";
@@ -56,6 +59,22 @@ function SettingToggle(props: {
 /** 提前提醒天数选项（档位与顺序取自 shared 唯一真相，不在这里另写一份数字） */
 const CERT_DAY_OPTIONS = CERT_REMINDER_DAY_CHOICES.map((d) => ({ value: String(d), label: `${d} 天` }));
 
+// —— v2.6.1：设置页页内 4 页签（2026-09-25 拍板命名照此；单页共用一个底部「保存设置」，切页签不丢草稿）——
+// 默认「通用」：既有 e2e（应用级设置开关）依赖它默认可见，默认值不动它们就不动。
+type SettingsTab = "general" | "tags" | "folders" | "advanced";
+
+const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
+  { id: "general", label: "通用" },
+  { id: "tags", label: "标签" },
+  { id: "folders", label: "文件夹模板" },
+  { id: "advanced", label: "高级" },
+];
+
+/** `?tab=` 取值归一：不在四页签里的（含空/手写乱值）一律落回「通用」 */
+function tabFromQuery(raw: string): SettingsTab {
+  return SETTINGS_TABS.some((t) => t.id === raw) ? (raw as SettingsTab) : "general";
+}
+
 /** 预设色板（标签颜色选择） */
 const PALETTE = [
   "#ef4444", "#f97316", "#f59e0b", "#eab308", "#22c55e",
@@ -63,7 +82,7 @@ const PALETTE = [
   "#64748b",
 ];
 
-/** v2.5.9（A9 刀4）：模板表 vs 盘上实际的差额摘要（只读，打开「子文件夹」tab 时自动跑）。
+/** v2.5.9（A9 刀4）：模板表 vs 盘上实际的差额摘要（只读，打开「文件夹模板」页签时自动跑）。
  *  不新建卡片、不加按钮——见挂载处的棘轮说明。 */
 function HealthDriftSummary() {
   const [report, setReport] = createSignal<SubfolderDriftReport | null>(null);
@@ -200,6 +219,33 @@ export default function Settings() {
   // v2.5.5：供应商子文件夹管理（config.supplier_subfolders，对齐客户；原固定集决策废止）
   const [newSupplierFolder, setNewSupplierFolder] = createSignal("");
   const [saved, setSaved] = createSignal(false);
+
+  // —— v2.6.1：页签状态与 query 同步（读 `?tab=` 初值；切页签 replace 回写，不往历史里塞同页状态）——
+  // 「新建产品集」弹窗的「设置 → 文件夹模板」链接即落 `/settings?tab=folders`（PLAN §五.4）。
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [tab, setTab] = createSignal<SettingsTab>(tabFromQuery(String(searchParams.tab ?? "")));
+  createEffect(() => {
+    // 外链 / 前进后退 / 弹窗跳转带来的 `?tab=` 变化 → 同步页签
+    setTab(tabFromQuery(String(searchParams.tab ?? "")));
+  });
+  const switchTab = (next: SettingsTab) => {
+    setTab(next);
+    navigate(`/settings?tab=${next}`, { replace: true });
+  };
+
+  /** 点模板 = **只改草稿**：五张清单整体替换进当前草稿信号，不落盘。
+   *  要生效按底部「保存设置」；反悔 = 切走不保存或再点别的模板（不做二次确认，PLAN §五.1）。 */
+  const applyTemplate = (t: IndustryTemplate) => {
+    setConfig((prev) => ({
+      ...prev,
+      image_subfolders: [...t.image_subfolders],
+      cert_subfolders: [...t.cert_subfolders],
+      doc_subfolders: [...t.doc_subfolders],
+      customer_subfolders: [...t.customer_subfolders],
+      supplier_subfolders: [...t.supplier_subfolders],
+    }));
+  };
 
   // —— v2.4.9（S4）：开机自启（应用级设置，不依赖工作区；门控内与既有 card 结构一致）——
   const [autoLaunch, setAutoLaunchState] = createSignal(false);
@@ -766,7 +812,23 @@ export default function Settings() {
           </div>
         }
       >
+        {/* v2.6.1：页内 4 页签——复用既有 `.seg-*` 分段档（Invoices/FileBrowser/MoveDialog 先例），不新造控件。
+            Query 同步走 `navigate(..., { replace: true })`，外链落点是 `/settings?tab=folders`。 */}
+        <div class="seg-track mb-6 w-fit">
+          <For each={SETTINGS_TABS}>
+            {(t) => (
+              <button
+                class={`seg-item ${tab() === t.id ? "seg-item-on" : "text-surface-500 hover:text-surface-700"}`}
+                onClick={() => switchTab(t.id)}
+              >
+                {t.label}
+              </button>
+            )}
+          </For>
+        </div>
+
         <div class="space-y-6">
+          <Show when={tab() === "general"}>
           {/* v2.4.9（S4）：通用——开机自启（应用级设置，Linux .desktop / Win·mac 系统登录项）
               v2.5.8 D11（W7）：本卡从「只有一条开机自启」扩成应用级设置全集。
               **默认值全部 = 该项开关化之前的现行行为**（老用户升级零行为变更，shared/appSettings.ts 是唯一真相）；
@@ -897,6 +959,11 @@ export default function Settings() {
 
           <DedupSweepCard />
 
+          {/* v2.6.1：台账入口（2026-09-25 拍板：放「通用」页签底部，不新开第五页签） */}
+          <LedgerLinksCard />
+          </Show>
+
+          <Show when={tab() === "tags"}>
           {/* 标签管理 */}
           <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-2">标签管理</h2>
@@ -1244,7 +1311,9 @@ export default function Settings() {
               />
             </Show>
           </div>
+          </Show>
 
+          <Show when={tab() === "advanced"}>
           {/* Naming Template */}
           <div class="card card-glass p-6">
             <h2 class="text-lg font-semibold mb-4">命名模板</h2>
@@ -1309,8 +1378,18 @@ export default function Settings() {
               <p class="text-xs text-surface-400 mt-1">编号：导入按批次顺序、批量重命名按起始序号，自动补零</p>
             </div>
           </div>
+          </Show>
 
-          {/* v2.5.9（A9 刀4）：老工作区体检——打开本 tab 自动跑，只读。
+          <Show when={tab() === "folders"}>
+          {/* v2.6.1：行业模板卡阵列在五张清单之上——先"换一套"，再按需手改下面五张表 */}
+          <IndustryTemplateCard
+            config={() => config()}
+            loaded={() => workspaceConfig() !== null}
+            onApply={applyTemplate}
+            onCustomTemplates={(list) => setConfig((prev) => ({ ...prev, custom_templates: list }))}
+          />
+
+          {/* v2.5.9（A9 刀4）：老工作区体检——打开「文件夹模板」页签自动跑，只读。
               ⚠ 刻意**不做成新卡片、也不放按钮**：本仓有两道点着数的棘轮
               （`.card-glass` 浮层玻璃点位、按钮面三分类），新增任意一个都要用户点头才能动基线；
               而"打开设置就看到差额"本来就不需要按钮——自动跑更省一步，也不该为它单独申请基线。 */}
@@ -1474,9 +1553,10 @@ export default function Settings() {
             </Show>
           </div>
 
-          {/* v2.5.8（D3.5）：存储优化——去重巡检（已上移至「通用」下方） */}
-          
-<div class="flex items-center gap-4">
+          </Show>
+
+          {/* v2.6.1：单页共用一个底部「保存设置」——四页签的草稿都住在同一个 config 信号里，切页签不丢 */}
+          <div class="flex items-center gap-4">
             <button class="btn-primary px-6" onClick={handleSave}>
               {saved() ? "已保存 ✓" : "保存设置"}
             </button>

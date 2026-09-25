@@ -31,6 +31,24 @@ export interface NamingTemplate {
   conflict_suffix: string
 }
 
+/**
+ * v2.6.1：行业文件夹模板（只含五张子文件夹清单，不动一级域名）。
+ * 内置词表与判定住 `src/shared/industryTemplates.ts`（放 shared 以便单测直接引用）。
+ */
+export interface IndustryTemplate {
+  /** 内置：'general' | 'ecommerce' | ...；自定义：'custom:<名字>'（落 config 时由渲染层生成） */
+  id: string
+  /** 展示名：通用 / 电商 / 销售 / ...（自定义模板名可编辑） */
+  name: string
+  image_subfolders: string[]
+  cert_subfolders: string[]
+  doc_subfolders: string[]
+  customer_subfolders: string[]
+  supplier_subfolders: string[]
+  /** 新建弹窗 placeholder 例：电商='如：夏季T恤系列'、医药='如：阿莫西林胶囊'；缺省回通用例 */
+  example?: string
+}
+
 export interface WorkspaceConfig {
   name: string
   naming_template: NamingTemplate
@@ -42,6 +60,8 @@ export interface WorkspaceConfig {
   doc_subfolders?: string[]
   /** v2.5.5（对齐客户）：供应商子文件夹（旧 config 缺省时由 loadConfig 合并默认值；原决策 1 固定集已废止） */
   supplier_subfolders?: string[]
+  /** v2.6.1：用户自定义模板（缺省 = []，不做合并兜底——空数组就是"没有自定义模板"） */
+  custom_templates?: IndustryTemplate[]
 }
 
 export interface ProductSetInfo {

@@ -217,6 +217,17 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  *     弹窗 +1 = 容器新建/重命名弹窗（`ui/Modal` framed，未 framed 名单仍为空）。
  *     实测复核（`node scripts/scan-ui-inventory.mjs`）= 305 / 156 / 149 / noclass 0 / debt 6 / tint 0 /
  *     press 0 / noTransition 4 / input 16（12/3/0/1）/ modal 24 framed 24 —— 除三格外逐格不变。
+ *   - `total 305 → 315` / `unified 156 → 157` / `handwritten 149 → 158`（**v2.6.1 设置页分页 + 行业模板 + 台账入口**，2026-09-25）：
+ *     设置页拆 4 页签（通用 / 标签 / 文件夹模板 / 高级）并新增两块卡 + 新建产品集弹窗的引导链接——
+ *     新增 **10 枚真按钮**：页签条 1 枚（`For` 渲染，走 `.seg-item`，+1 handwritten）、
+ *     模板卡「用这套」1 枚（`.btn-secondary`，+1 unified）、自定义模板卡「重命名 / 覆盖 / 删除」3 枚（`.link-btn`）、
+ *     「＋ 新增模板（存当前清单）」1 枚与内联命名的「✓ / ✕」2 枚（`.link-btn` / `.icon-btn`）、
+ *     台账入口三行 1 枚（`For` 渲染，`.link-btn`）、弹窗「设置 → 文件夹模板」链接 1 枚（`.link-btn`）。
+ *     同前几次口径：形状档归 handwritten 这一格不是收口指标 ⇒ `debt` 仍 6、`tint` 仍 0、`press` 仍 0、
+ *     `noTransition` 仍 4；modal 仍 24 framed 24（模板卡与删除/覆盖确认复用 `ConfirmDialog`，不新增 Modal 调用点）、
+ *     input 仍 16（模板名内联编辑走 `ui/Input`，不算手搓文本框）。
+ *     实测复核（`node scripts/scan-ui-inventory.mjs`）= 315 / 157 / 158 / noclass 0 / debt 6 / tint 0 /
+ *     press 0 / noTransition 4 / input 16（12/3/0/1）/ modal 24 framed 24 —— 除三格外逐格不变。
  */
 const BASE = {
   button: {
@@ -224,7 +235,9 @@ const BASE = {
     // 弹窗「安装」= btn-primary、大图「←」「→」= btn-ghost）。
     // 手写面 146 **一字未动**：缩略图刻意不做成按钮——做了就是 +1 手写材质，正是棘轮该拦的那种。
     // 2.6.1 计算容器化：+2 unified（容器弹窗页脚）+3 handwritten（新建容器 / 全部·已标记 tab），见上方差值说明。
-    total: 305, unified: 156, handwritten: 149, noclass: 0,
+    // 2.6.1 设置页分页 + 行业模板 + 台账入口：+1 unified（模板卡「用这套」）+9 handwritten（页签条 /
+    // 模板卡内三枚动作 / 新增模板 / 内联 ✓✕ / 台账入口行 / 弹窗引导链接），见上方差值说明。
+    total: 315, unified: 157, handwritten: 158, noclass: 0,
     tint: 0, debt: 6, baseInternal: 5, press: 0, noTransition: 4,
   },
   input: { total: 16, checkbox: 12, baseInternal: 3, debt: 0, exempt: 1, other: 0 },

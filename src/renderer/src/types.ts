@@ -4,6 +4,8 @@ export type {
   WorkspaceInfo,
   NamingTemplate,
   NamingField,
+  // v2.6.1：行业文件夹模板（设置页模板卡阵列 / 新建产品集弹窗提示块用）
+  IndustryTemplate,
   WorkspaceConfig,
   ProductSetInfo,
   ProductSetCreateRequest,
