@@ -1,4 +1,4 @@
-import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import Input from "~/components/ui/Input";
 import Textarea from "~/components/ui/Textarea";
 import Modal from "~/components/ui/Modal";
@@ -11,77 +11,36 @@ import { api } from "~/wails/api";
 import { showToast } from "~/stores/notifyBanner";
 import { COPY_ERROR_FALLBACK, COPY_ERROR_TITLE } from "~/lib/copyFeedback";
 import { evaluateExpression, formatCalcTime } from "../../../shared/calc";
-import type { CalcRecord } from "~/types";
+import type { CalcContainer, CalcRecord } from "~/types";
 
 /**
- * 计算页（v2.5.9/A7「计算」· 2026-09-22 深夜整页化修订）——整页双栏 + 计算历史流。
+ * 计算页（v2.5.9/A7「计算」· v2.6.1 B15 容器化）——整页双栏 + 计算历史流。
  *
- * 权威 = `内部计算设计文档（不进公开仓）` §四（2026-09-22 深夜用户拍板由「悬浮面板」改「整页」后的
- * 新版式）与 §八 四条拍板（v1 不做挂靠 / 删除走确认弹窗等仍有效）。
+ * 权威 = `内部计算设计文档（不进公开仓）` §四（整页化修订 + 4.x「容器化修订」）与 §八 拍板。
  *
- * 由来（用户原话）：「把这个计算撑满整个……然后左边是历史，右边是计算」+
- * 「和 AI 助手的界面其实差不多，但是不是对话，是记录条目」⇒ 骨架对标 cloud 插件 AI 助手
- * （左索引栏 + 右内容流 + 底部输入条），**只借形不借功能**：右栏是记录条目流，不是对话气泡。
+ * 由来：用户反馈「左边条目的逻辑搞错了——它基本上和 AI 对话一样，左边一个条目包含了右边所有历史，
+ * 然后加一个 tab，以标记的」⇒ 澄清为「整个计算页就像一个新建出来的对话，所有计算都在里面
+ * （左栏只是它的目录）」⇒ 选丙：**左栏 = 容器（对话/笔记本）列表，右栏 = 该容器下的计算历史**。
  *
- * 版式（§四 逐条落地）：
- * - **左栏 = 历史索引**（≈280px，新→旧：最新在最上）：每行 = 标题（有则）/ 算式小灰字 / 结果大字；
- *   点一行 ⇒ 右栏对应条目滚入视野并高亮一下（`.card-selected`，1.2s 自熄）。
- * - **右栏 = 计算区**：上方记录条目流（**旧的在上、新的在下**——输入条贴底，回车记的新条目
- *   就在输入条上方，提交后自动滚到底）+ 底部输入条（一行框 + `%` + 日期）。
- * - **条目卡 = 大号记录条目**（不是聊天气泡）：标题 / 算式（点一下回填输入框「改着再算」，
- *   链式引用就从这里长出来）/ 结果大字 + 相对时间（点一下复制）/ 备注浅字 / 「已标记」小 chip
- *   （标记后两态唯一视觉差异）/ 常驻动作钮「复制」「标记一下 ⇄ 取消标记」。
- *   hover 隐藏按钮是窄条面板时代的版式，整宽大卡放得下常驻钮 ⇒ 不再藏。
- * - **没有数字键盘**——用户直接敲键盘（§九 明确不做）。
+ * 版式（§四 4.x 逐条落地）：
+ * - **左栏 = 容器列表**（≈280px，新→旧）：列出全部容器 + 「新建容器」入口；选中项高亮；
+ *   右键可重命名 / 删除（删除 = 连其中记录一起删，确认弹窗点明条数）。
+ * - **右栏 = 当前容器下的计算历史**：顶部「全部 / 已标记」tab（筛当前容器内记录，默认「全部」）；
+ *   记录条目流（**旧在上、新在下**，提交后自动滚到底）+ 底部输入条。
+ * - 其余照旧：算式回填、「标记一下 ⇄ 取消标记」、右键动词表、`Ctrl+=` 跳页、无数字键盘、
+ *   暂存/已标记两态语义零变动（`saved` 字段一字未动，只是记录多了一层容器归属）。
  *
  * 两条口径与核层对齐：
  * - 求值只走 `shared/calc.evaluateExpression`（双端同一份实现，台账只存展示态）：
  *   成功才落账，失败只显示温和文案、**不落账、不抛**（§二.5 容错三条）；
  * - `api.calcs.*` 的 `ok === false`（`ApiResult.success === false`）分支一律出声（toast），不静默吞。
+ * - 迁移（无 container_id 的老记录归入「默认」容器）住在主进程 core/calcs：页面只消费
+ *   `listContainers()` 的结果，第一眼就能看到老历史躺在默认容器里。
  */
-
-/** 历史索引栏里的一行（点击 = 右栏定位；行内不做数据操作，动作全在条目卡与右键菜单）。Solid 纪律：禁解构 props */
-function CalcHistoryRow(props: {
-  rec: CalcRecord;
-  active: boolean;
-  onJump: (rec: CalcRecord) => void;
-}) {
-  return (
-    <button
-      class="row-btn items-start rounded-lg hover:bg-surface-50"
-      classList={{ "bg-primary-600/[0.12]": props.active }}
-      data-calc-id={props.rec.id}
-      data-calc-side="history"
-      title="点一下，在右边定位到这一条"
-      onClick={() => props.onJump(props.rec)}
-    >
-      <div class="min-w-0 flex-1">
-        {/* 有标题先显示标题行（左栏扫读靠它；没有标题时算式就是主标识） */}
-        <Show when={props.rec.title}>
-          <div class="text-sm font-medium text-surface-900 truncate">{props.rec.title}</div>
-        </Show>
-        <div class="text-xs text-surface-400 truncate">{props.rec.expression}</div>
-        <Show when={props.rec.saved}>
-          <span class="chip mt-1 bg-success-50 text-success-700">已标记</span>
-        </Show>
-      </div>
-      {/* 结果大字是左栏扫读的主信息（新→旧 + 行内含结果：一屏扫最多历史）；时间取 created 而不是
-          updated——历史索引是「什么时候记的」时间线，updated 会被「编辑标题备注 / 标记」刷成当下，
-          用它会让三天前记的一条在今天冒头。 */}
-      <div class="shrink-0 text-right">
-        <div class="text-base font-semibold leading-tight tabular-nums text-surface-900">
-          {props.rec.result}
-        </div>
-        <div class="text-xs tabular-nums text-surface-400">{formatCalcTime(props.rec.created)}</div>
-      </div>
-    </button>
-  );
-}
 
 /** 右栏的一条「记录条目」大卡（行内动作经 props 回调回页面；Solid 纪律：禁解构 props） */
 function CalcEntryCard(props: {
   rec: CalcRecord;
-  flash: boolean;
   onRefill: (rec: CalcRecord) => void;
   onCopy: (rec: CalcRecord) => void;
   onToggleSaved: (rec: CalcRecord) => void;
@@ -90,7 +49,6 @@ function CalcEntryCard(props: {
   return (
     <div
       class="card p-4"
-      classList={{ "card-selected": props.flash }}
       data-calc-id={props.rec.id}
       data-calc-side="entry"
       title="点结果复制 · 点算式回填改着再算 · 右键更多"
@@ -154,7 +112,17 @@ function CalcEntryCard(props: {
   );
 }
 
+/** 容器弹窗（新建 / 重命名共用一具）；null = 不开 */
+interface ContainerDialogState {
+  mode: "create" | "rename";
+  id: string;
+  name: string;
+}
+
 export default function Calc() {
+  const [containers, setContainers] = createSignal<CalcContainer[]>([]);
+  const [activeId, setActiveId] = createSignal<string | null>(null);
+  /** 当前容器下的记录（旧→新，录入序）；tab 过滤只做展示，不改台账 */
   const [records, setRecords] = createSignal<CalcRecord[]>([]);
   const [draft, setDraft] = createSignal("");
   /**
@@ -168,21 +136,31 @@ export default function Calc() {
   const [editTitle, setEditTitle] = createSignal("");
   const [editNote, setEditNote] = createSignal("");
   const [deleting, setDeleting] = createSignal<CalcRecord | null>(null);
-  /** 左栏点了某行 ⇒ 右栏对应条目高亮一下（1.2s 自熄）；null = 无高亮 */
-  const [flashId, setFlashId] = createSignal<string | null>(null);
+  /** 新建 / 重命名容器弹窗（null = 关） */
+  const [containerDialog, setContainerDialog] = createSignal<ContainerDialogState | null>(null);
+  /** 删容器确认（带**条数**：确认文案点明「这本容器里的 N 条也会一起删」，§四 细则 #1） */
+  const [deletingContainer, setDeletingContainer] = createSignal<{ container: CalcContainer; count: number } | null>(null);
+  /** 右栏记录筛：全部 / 已标记（默认「全部」；只筛当前容器内记录） */
+  const [tab, setTab] = createSignal<"all" | "saved">("all");
   /** IME 组合态标志（`compositionstart/end` 维护；与事件的 `isComposing` 双保险，见 onDraftKeyDown） */
   let composing = false;
   let streamEl: HTMLDivElement | undefined;
   let barEl: HTMLDivElement | undefined;
-  let flashTimer: number | undefined;
   const ctxMenu = useContextMenu<CalcRecord>();
+  const containerMenu = useContextMenu<CalcContainer>();
+
+  /** 左栏容器排序：新→旧（§四 4.x 细则 #2：新→旧；数据层给插入序=创建序，倒序只做展示） */
+  const containersNewestFirst = createMemo(() => containers().slice().reverse());
+  /** 当前容器（左栏高亮 + 右栏归属的判断收进 memo，别在 JSX 里现算——Solid 纪律） */
+  const activeContainer = createMemo(() => containers().find((c) => c.id === activeId()) ?? null);
+  /** 右栏可见记录 = 当前容器记录过 tab（「已标记」只筛 saved:true；两态语义零变动） */
+  const visibleRecords = createMemo(() =>
+    tab() === "saved" ? records().filter((r) => r.saved) : records(),
+  );
 
   /** 输入框元素只在底部输入条里找——不读 DOM 值（值一律走 `draft()` 信号），只用它送焦点与插光标 */
   const inputEl = () => barEl?.querySelector<HTMLInputElement>("input") ?? null;
   const focusInput = () => inputEl()?.focus();
-
-  /** 左栏索引 = 新→旧（records 是录入序：旧→新；倒序只做展示，不改台账） */
-  const historyRows = () => records().slice().reverse();
 
   /** 提交后滚到底：新的在下面，「滚到底才看见刚记的」是台账直觉（§四 右栏正序） */
   const scrollAfterRender = () => requestAnimationFrame(() => {
@@ -193,8 +171,32 @@ export default function Calc() {
   const reportError = (error: string | null | undefined, fallback: string) =>
     showToast("error", error || fallback);
 
-  const reload = async (scroll = false) => {
-    const res = await api.calcs.list();
+  /**
+   * 拉容器列表并把选中项落在合法值上（返回本次应选中的 id）。
+   * 兜底 = 新→旧排序里的最新一本（列表尾部）——新建的容器天然成为当前容器；
+   * 删掉当前容器后也不会悬空（preferId 失效即回退）。
+   */
+  const reloadContainers = async (preferId?: string): Promise<string | null> => {
+    const res = await api.calcs.listContainers();
+    if (!res.success) {
+      reportError(res.error, "容器列表读取失败");
+      return null;
+    }
+    const list = res.data ?? [];
+    setContainers(list);
+    const wanted = preferId ?? activeId();
+    const next = wanted && list.some((c) => c.id === wanted) ? wanted : (list.length ? list[list.length - 1].id : null);
+    setActiveId(next);
+    return next;
+  };
+
+  /** 拉当前容器的记录（scroll = 提交后滚到底） */
+  const reloadRecords = async (containerId = activeId(), scroll = false): Promise<void> => {
+    if (!containerId) {
+      setRecords([]);
+      return;
+    }
+    const res = await api.calcs.list(containerId);
     if (!res.success) {
       reportError(res.error, "计算历史读取失败");
       return;
@@ -203,13 +205,13 @@ export default function Calc() {
     if (scroll) scrollAfterRender();
   };
 
-  /** 点左栏一行 ⇒ 右栏对应条目滚入视野 + 高亮一下（页面里定位，不切任何状态） */
-  const jumpTo = (rec: CalcRecord) => {
-    const el = streamEl?.querySelector<HTMLElement>(`[data-calc-id="${rec.id}"]`);
-    if (el) el.scrollIntoView({ block: "nearest" });
-    setFlashId(rec.id);
-    window.clearTimeout(flashTimer);
-    flashTimer = window.setTimeout(() => setFlashId(null), 1200);
+  /** 点左栏一本容器 ⇒ 切换当前容器（该行高亮；右栏整列换成它的历史，滚到最新一条） */
+  const selectContainer = async (id: string) => {
+    if (id === activeId()) return;
+    setActiveId(id);
+    setHint("");
+    await reloadRecords(id);
+    scrollAfterRender();
   };
 
   /** 往光标处插入一段文本（`%` 与日期共用）；插完把焦点与光标还给输入框 */
@@ -244,6 +246,12 @@ export default function Calc() {
     if (submitting()) return; // 双击/双回车：上一次还在路上时不再发第二条同参 add（否则落两条重复记录）
     const raw = draft().trim();
     if (!raw) return; // 空输入 / 纯空格：忽略（不提示、不落账）
+    const containerId = activeId();
+    if (!containerId) {
+      // 理论上到不了（listContainers 保证至少一本「默认」）；真到了也不静默丢输入
+      reportError(null, "没有可用的容器，请先新建容器");
+      return;
+    }
     const evaled = evaluateExpression(raw);
     if (!evaled.ok) {
       // 温和提示，不落账、不抛（§二.5：解析失败就是没看懂，不该进台账）
@@ -260,12 +268,13 @@ export default function Calc() {
         expression: evaled.expression,
         result: evaled.display,
         resultKind: evaled.kind,
+        container_id: containerId,
       });
       if (!res.success) {
         reportError(res.error, "没记上，请重试");
         return;
       }
-      await reload(true);
+      await reloadRecords(containerId, true);
       focusInput();
     } finally {
       setSubmitting(false);
@@ -301,7 +310,7 @@ export default function Calc() {
       reportError(res.error, rec.saved ? "取消标记失败" : "标记失败");
       return;
     }
-    await reload();
+    await reloadRecords();
   };
 
   const openEdit = (rec: CalcRecord) => {
@@ -320,7 +329,7 @@ export default function Calc() {
       return;
     }
     setEditId(null);
-    await reload();
+    await reloadRecords();
   };
 
   const doDelete = async () => {
@@ -332,7 +341,67 @@ export default function Calc() {
       reportError(res.error, "删除失败，请重试");
       return;
     }
-    await reload();
+    await reloadRecords();
+  };
+
+  /** 打开新建容器弹窗（名字留空，落笔即可命名） */
+  const openCreateContainer = () => {
+    setContainerDialog({ mode: "create", id: "", name: "" });
+  };
+
+  const openRenameContainer = (c: CalcContainer) => {
+    setContainerDialog({ mode: "rename", id: c.id, name: c.name });
+  };
+
+  const containerDialogName = () => containerDialog()?.name ?? "";
+
+  /** 新建 / 重命名共用保存（名字校验先在前端拦一次，核层同口径再拦——空名拒绝） */
+  const saveContainerDialog = async () => {
+    const dlg = containerDialog();
+    if (!dlg) return;
+    const name = dlg.name.trim();
+    if (!name) {
+      showToast("error", "容器名字不能为空");
+      return;
+    }
+    const res =
+      dlg.mode === "create"
+        ? await api.calcs.createContainer({ name })
+        : await api.calcs.renameContainer({ id: dlg.id, name });
+    if (!res.success) {
+      reportError(res.error, dlg.mode === "create" ? "新建容器失败，请重试" : "重命名失败，请重试");
+      return;
+    }
+    setContainerDialog(null);
+    // 新建 ⇒ 直接落到新容器（preferId = 新 id）；重命名 ⇒ 当前容器不动
+    const nextId = await reloadContainers(dlg.mode === "create" ? res.data?.id : undefined);
+    await reloadRecords(nextId);
+    if (dlg.mode === "create") scrollAfterRender();
+  };
+
+  /** 删容器第一步：先数条数再开确认弹窗（「明示确认」意味着文案里的数字要先拿到，不是删完才报） */
+  const askRemoveContainer = async (c: CalcContainer) => {
+    const res = await api.calcs.list(c.id);
+    if (!res.success) {
+      reportError(res.error, "容器记录读取失败");
+      return;
+    }
+    setDeletingContainer({ container: c, count: (res.data ?? []).length });
+  };
+
+  /** 删容器确认：连其中记录一起删（核层原子语义），删完把选中项落到仍存在的容器上 */
+  const doRemoveContainer = async () => {
+    const target = deletingContainer();
+    if (!target) return;
+    const res = await api.calcs.removeContainer(target.container.id);
+    setDeletingContainer(null);
+    if (!res.success) {
+      reportError(res.error, "删除容器失败，请重试");
+      return;
+    }
+    const nextId = await reloadContainers();
+    await reloadRecords(nextId);
+    scrollAfterRender();
   };
 
   /** 右键动词表对齐既有菜单措辞（§五）：复制结果 📋 / 复制算式 / 编辑标题备注 ✏️ / 标记一下（标记后变「取消标记」）/ 删除 🗑️（danger） */
@@ -351,14 +420,25 @@ export default function Calc() {
     ];
   };
 
+  /** 容器右键动词表：重命名 / 删除（删除 = 连记录一起删 + 确认弹窗点明条数） */
+  const containerMenuItems = (): ContextMenuItem[] => {
+    const c = containerMenu.payload();
+    if (!c) return [];
+    return [
+      { label: "重命名", icon: "✏️", action: () => openRenameContainer(c) },
+      { label: "删除", icon: "🗑️", danger: true, action: () => void askRemoveContainer(c) },
+    ];
+  };
+
   onMount(() => {
-    void reload(true);
+    void (async () => {
+      const id = await reloadContainers();
+      await reloadRecords(id, true);
+    })();
     // 落到页就聚焦输入框（Ctrl+= 跳页后可直接敲；首帧再兜一次——挂载期后到的插入有时会把焦点抢走）
     focusInput();
     requestAnimationFrame(focusInput);
   });
-
-  onCleanup(() => window.clearTimeout(flashTimer));
 
   return (
     <div class="p-6 max-w-7xl mx-auto flex flex-col h-full">
@@ -370,40 +450,79 @@ export default function Calc() {
         </div>
       </div>
 
-      {/* 主体：一张卡内双栏（左历史索引 280px + 右计算区），照 AI 助手双栏骨架 */}
+      {/* 主体：一张卡内双栏（左容器列表 280px + 右计算区），照 AI 助手双栏骨架 */}
       <div class="card flex-1 min-h-0 flex overflow-hidden">
-        {/* 左栏：历史索引（新→旧；flex 列 + min-h-0 让列表在自己这格里滚，不把右栏顶变形） */}
+        {/* 左栏：容器列表（新→旧；flex 列 + min-h-0 让列表在自己这格里滚，不把右栏顶变形） */}
         <aside class="w-[280px] shrink-0 border-r border-surface-200 flex flex-col min-h-0">
-          <div class="px-4 py-3 border-b border-surface-200 text-sm font-semibold text-surface-700">
-            历史
+          <div class="px-4 py-3 border-b border-surface-200 flex items-center justify-between gap-2">
+            <span class="text-sm font-semibold text-surface-700">容器</span>
+            <button
+              class="link-btn px-1.5 py-0.5 text-xs text-surface-500 hover:text-primary-600"
+              title="新建一本容器（计算历史的目录）"
+              onClick={openCreateContainer}
+            >
+              新建容器
+            </button>
           </div>
           <div class="flex-1 min-h-0 overflow-y-auto p-2">
-            <Show when={records().length === 0}>
-              <div class="py-6 text-center text-xs text-surface-400">暂无历史</div>
+            <Show when={containers().length === 0}>
+              <div class="py-6 text-center text-xs text-surface-400">暂无容器</div>
             </Show>
-            <For each={historyRows()}>
-              {(rec) => (
-                <CalcHistoryRow
-                  rec={rec}
-                  active={flashId() === rec.id}
-                  onJump={jumpTo}
-                />
+            <For each={containersNewestFirst()}>
+              {(c) => (
+                <button
+                  class="row-btn items-start rounded-lg hover:bg-surface-50"
+                  classList={{ "bg-primary-600/[0.12]": c.id === activeId() }}
+                  data-calc-container-id={c.id}
+                  data-calc-side="container"
+                  title="点一下切换到这本容器 · 右键重命名或删除"
+                  onClick={() => void selectContainer(c.id)}
+                  onContextMenu={(e) => containerMenu.open(e, c)}
+                >
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm font-medium text-surface-900 truncate">{c.name}</div>
+                    <div class="text-xs tabular-nums text-surface-400">{formatCalcTime(c.created)}</div>
+                  </div>
+                </button>
               )}
             </For>
           </div>
         </aside>
 
-        {/* 右栏：计算区 = 上条目流（旧→新，提交后滚底）+ 下输入条 */}
+        {/* 右栏：当前容器下的计算区 = 顶部 tab + 条目流（旧→新，提交后滚底）+ 底部输入条 */}
         <div class="flex-1 min-w-0 flex flex-col">
+          {/* 顶部「全部 / 已标记」tab（筛当前容器内记录；默认「全部」，§四 4.x 细则 #3） */}
+          <div class="shrink-0 px-4 py-2 border-b border-surface-200 flex items-center justify-between gap-3">
+            <div class="flex bg-surface-100 rounded-lg p-1">
+              <button
+                class={`seg-item ${tab() === "all" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500 hover:text-surface-700"}`}
+                data-calc-tab="all"
+                onClick={() => setTab("all")}
+              >
+                全部
+              </button>
+              <button
+                class={`seg-item ${tab() === "saved" ? "bg-white shadow-sm text-surface-900 font-medium" : "text-surface-500 hover:text-surface-700"}`}
+                data-calc-tab="saved"
+                onClick={() => setTab("saved")}
+              >
+                已标记
+              </button>
+            </div>
+            {/* 当前容器名（右栏是「这本容器里的历史」，名字常驻可见，不在左栏靠回忆） */}
+            <span class="min-w-0 truncate text-xs text-surface-400">{activeContainer()?.name ?? ""}</span>
+          </div>
+
           <div ref={streamEl} class="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
-            <Show when={records().length === 0}>
-              <div class="py-6 text-center text-xs text-surface-400">还没有记录：输入算式按回车</div>
+            <Show when={visibleRecords().length === 0}>
+              <div class="py-6 text-center text-xs text-surface-400">
+                {tab() === "saved" ? "这本容器还没有「已标记」的条目" : "还没有记录：输入算式按回车"}
+              </div>
             </Show>
-            <For each={records()}>
+            <For each={visibleRecords()}>
               {(rec) => (
                 <CalcEntryCard
                   rec={rec}
-                  flash={flashId() === rec.id}
                   onRefill={refill}
                   onCopy={(r) => void copyText(r.result, "结果")}
                   onToggleSaved={(r) => void toggleSaved(r)}
@@ -505,7 +624,46 @@ export default function Calc() {
         </Modal>
       </Show>
 
-      {/* 删除：条目无盘上文件实体，不进回收站 ⇒ 只做二次确认后直接删（§三 / §八⑤ 拍板） */}
+      {/* 新建 / 重命名容器（同一具弹窗；framed 统一骨架） */}
+      <Show when={containerDialog()}>
+        <Modal
+          open
+          framed
+          size="md"
+          title={containerDialog()?.mode === "rename" ? "重命名容器" : "新建容器"}
+          subtitle="容器是计算历史的目录：左栏切换，右栏只看当前容器"
+          onClose={() => setContainerDialog(null)}
+          footer={
+            <>
+              <button class="btn-secondary" onClick={() => setContainerDialog(null)}>
+                取消
+              </button>
+              <button class="btn-primary" onClick={() => void saveContainerDialog()}>
+                保存
+              </button>
+            </>
+          }
+        >
+          <div class="dlg-field">
+            <label class="dlg-label">容器名</label>
+            <Input
+              value={containerDialogName()}
+              placeholder="给这本容器起个名，如「报价核算」（必填）"
+              ariaLabel="容器名"
+              onInput={(e) =>
+                setContainerDialog((prev) => (prev ? { ...prev, name: e.currentTarget.value } : prev))
+              }
+              // Enter 即保存（先例 = RenameDialog.tsx:65）；IME 组合态不提交（同输入条的双判据口径）
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" || e.isComposing) return;
+                void saveContainerDialog();
+              }}
+            />
+          </div>
+        </Modal>
+      </Show>
+
+      {/* 删除记录：条目无盘上文件实体，不进回收站 ⇒ 只做二次确认后直接删（§三 / §八⑤ 拍板） */}
       <Show when={deleting()}>
         <ConfirmDialog
           title="删除这条计算？"
@@ -517,8 +675,27 @@ export default function Calc() {
         />
       </Show>
 
+      {/* 删除容器：连其中记录一起删，确认文案**点明条数**（§四 4.x 细则 #1 拍板） */}
+      <Show when={deletingContainer()}>
+        <ConfirmDialog
+          title="删除这本容器？"
+          message={
+            (deletingContainer()?.count ?? 0) > 0
+              ? `这本容器里的 ${deletingContainer()?.count} 条计算记录会一起删除，删除后无法恢复（不进回收站）。`
+              : "这本容器里目前没有计算记录；删除后无法恢复。"
+          }
+          confirmLabel="删除"
+          danger
+          onConfirm={() => void doRemoveContainer()}
+          onCancel={() => setDeletingContainer(null)}
+        />
+      </Show>
+
       <Show when={ctxMenu.show()}>
         <ContextMenu x={ctxMenu.x()} y={ctxMenu.y()} onClose={ctxMenu.close} items={menuItems()} />
+      </Show>
+      <Show when={containerMenu.show()}>
+        <ContextMenu x={containerMenu.x()} y={containerMenu.y()} onClose={containerMenu.close} items={containerMenuItems()} />
       </Show>
     </div>
   );

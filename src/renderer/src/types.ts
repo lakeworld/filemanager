@@ -63,6 +63,10 @@ export type {
   CalcRecord,
   CalcCreateRequest,
   CalcUpdateRequest,
+  // —— v2.6.1（B15 计算容器化）——
+  CalcContainer,
+  CalcContainerCreateRequest,
+  CalcContainerRenameRequest,
 } from "../../shared/types";
 
 // —— v2.4.7：发票 / 入库请求类型（镜像 main core 契约；shared/types.ts 仅承载持久形态）——

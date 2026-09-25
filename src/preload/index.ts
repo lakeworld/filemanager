@@ -99,11 +99,16 @@ const api = {
     docCount: (no: string, date: string) => invoke('qihebox:quotes:docCount', no, date),
   },
   // v2.5.9（A7 计算）：计算台账（纯透传，业务在主进程 core/calcs）
+  // v2.6.1（B15 容器化）：list 收可选 containerId（不传 = 全量）；容器 CRUD 同命名空间
   calcs: {
-    list: () => invoke('qihebox:calcs:list'),
+    list: (containerId?: string) => invoke('qihebox:calcs:list', containerId),
     add: (req: unknown) => invoke('qihebox:calcs:add', req),
     update: (req: unknown) => invoke('qihebox:calcs:update', req),
     remove: (id: string) => invoke('qihebox:calcs:remove', id),
+    listContainers: () => invoke('qihebox:calcs:listContainers'),
+    createContainer: (req: unknown) => invoke('qihebox:calcs:createContainer', req),
+    renameContainer: (req: unknown) => invoke('qihebox:calcs:renameContainer', req),
+    removeContainer: (id: string) => invoke('qihebox:calcs:removeContainer', id),
   },
   invoices: {
     list: (filter?: unknown) => invoke('qihebox:invoices:list', filter),

@@ -901,6 +901,11 @@ export interface CalcRecord {
   /** 展示态结果（千分位文本或 YYYY-MM-DD） */
   result: string
   resultKind: 'number' | 'date'
+  /**
+   * 所属容器 id（v2.6.1 容器化新增，additive 字段）。
+   * 老工作区无此字段的记录，首次打开时统一迁移到自动创建的「默认」容器（幂等、只写一次）。
+   */
+  container_id: string
   /** 标题（可选；update 传 '' 清空） */
   title?: string
   /** 备注（可选，如「XX客户的报价，含15个点毛利」；update 传 '' 清空） */
@@ -916,8 +921,33 @@ export interface CalcCreateRequest {
   expression: string
   result: string
   resultKind: 'number' | 'date'
+  /** 归属容器（必填：服务端校验容器存在，缺省/不存在都拒绝） */
+  container_id: string
   title?: string
   note?: string
+}
+
+/**
+ * 计算容器（v2.6.1 B15）：左栏「对话/笔记本」一层，落 `<ws>/.qihefilemanager/calc-containers.json`
+ * （`Record<id, CalcContainer>`，沿用「新文件无迁移问题」优点，不动 calcs.json 的 Record 形状）。
+ * 删除容器 = 连其中记录一起删（确认文案由 UI 层点明条数）。
+ */
+export interface CalcContainer {
+  id: string
+  /** 容器名（写入侧 trim；空名拒绝） */
+  name: string
+  created: string
+}
+
+/** 新建容器 */
+export interface CalcContainerCreateRequest {
+  name: string
+}
+
+/** 容器重命名（改名只动 name；记录归属按 id，不受影响） */
+export interface CalcContainerRenameRequest {
+  id: string
+  name: string
 }
 
 /** 补丁式更新：只有出现的字段被改动；title/note 传 ''（或纯空格）表示清空；saved 双向可切 */

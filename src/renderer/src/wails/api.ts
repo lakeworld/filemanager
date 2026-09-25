@@ -49,6 +49,9 @@ import type {
   CalcRecord,
   CalcCreateRequest,
   CalcUpdateRequest,
+  CalcContainer,
+  CalcContainerCreateRequest,
+  CalcContainerRenameRequest,
   InvoiceRecord,
   InboundRecord,
   InvoiceStatus,
@@ -179,11 +182,20 @@ export const api = {
       qb.quotes.docCount(no, date) as Promise<ApiResult<number>>,
   },
   // v2.5.9（A7 计算）：计算台账（对齐 main core 服务契约；解析走 shared/calc，本层只存读）
+  // v2.6.1（B15 容器化）：list 收可选 containerId（右栏 = 该容器下的历史）；容器 CRUD 同命名空间
   calcs: {
-    list: () => qb.calcs.list() as Promise<ApiResult<CalcRecord[]>>,
+    list: (containerId?: string) =>
+      qb.calcs.list(containerId) as Promise<ApiResult<CalcRecord[]>>,
     add: (req: CalcCreateRequest) => qb.calcs.add(req as any) as Promise<ApiResult<CalcRecord>>,
     update: (req: CalcUpdateRequest) => qb.calcs.update(req as any) as Promise<ApiResult<CalcRecord>>,
     remove: (id: string) => qb.calcs.remove(id) as Promise<ApiResult<void>>,
+    listContainers: () => qb.calcs.listContainers() as Promise<ApiResult<CalcContainer[]>>,
+    createContainer: (req: CalcContainerCreateRequest) =>
+      qb.calcs.createContainer(req as any) as Promise<ApiResult<CalcContainer>>,
+    renameContainer: (req: CalcContainerRenameRequest) =>
+      qb.calcs.renameContainer(req as any) as Promise<ApiResult<CalcContainer>>,
+    removeContainer: (id: string) =>
+      qb.calcs.removeContainer(id) as Promise<ApiResult<number>>,
   },
   invoices: {
     list: (filter?: InvoiceListFilter) =>

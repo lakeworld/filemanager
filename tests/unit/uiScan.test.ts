@@ -207,18 +207,30 @@ const { collectUiInventory, blankComments, SHAPE_RECIPE_CLASS } = (await import(
  *     `.row-btn`（+1 handwritten，与 A6-2 / A8 / A9 / 取钥闸门同口径：形状档归 handwritten，这一格不是收口指标）。
  *     实测复核 = 295 / 149 / 146 / noclass 0 / debt 6 / tint 0 / press 0 / noTransition 4 / modal 22 framed 22
  *     —— 除两格外逐格不变（增数 = 多了 1 个真按钮，`debt` 未动因为它挂了形状档）。
+ *   - `total 300 → 305` / `unified 154 → 156` / `handwritten 146 → 149` / `modal 23 → 24`（**v2.6.1 计算容器化**，2026-09-25）：
+ *     `pages/Calc.tsx` 左栏由「历史索引」改「容器列表」（用户拍板：左栏 = 容器，右栏 = 该容器下的历史 + 「全部/已标记」tab）——
+ *     新增 **5 枚真按钮**：左栏头「新建容器」走形状具名档 `.link-btn`（+1 handwritten）、
+ *     右栏顶部「全部 / 已标记」两枚分段切换钮走 `.seg-item`（+2 handwritten，先例 = `pages/Invoices.tsx` 的台账 tab）、
+ *     容器弹窗（新建/重命名共用）页脚「取消 / 保存」走 `.btn-*` 五档（+2 unified，先例 = 同文件编辑弹窗）；
+ *     容器行沿用左栏原来的整行可点钮写法（`row-btn`，与旧「历史索引行」1 换 1，不增数）。
+ *     同前几次口径：形状档归 handwritten 这一格不是收口指标 ⇒ `debt` 仍 6、`tint` 仍 0、`press` 仍 0、`noTransition` 仍 4；
+ *     弹窗 +1 = 容器新建/重命名弹窗（`ui/Modal` framed，未 framed 名单仍为空）。
+ *     实测复核（`node scripts/scan-ui-inventory.mjs`）= 305 / 156 / 149 / noclass 0 / debt 6 / tint 0 /
+ *     press 0 / noTransition 4 / input 16（12/3/0/1）/ modal 24 framed 24 —— 除三格外逐格不变。
  */
 const BASE = {
   button: {
     // 2.6.2 插件页详情化：+5 枚统一档真按钮（目录行「详情」与弹窗「关闭」= btn-secondary、
     // 弹窗「安装」= btn-primary、大图「←」「→」= btn-ghost）。
     // 手写面 146 **一字未动**：缩略图刻意不做成按钮——做了就是 +1 手写材质，正是棘轮该拦的那种。
-    total: 300, unified: 154, handwritten: 146, noclass: 0,
+    // 2.6.1 计算容器化：+2 unified（容器弹窗页脚）+3 handwritten（新建容器 / 全部·已标记 tab），见上方差值说明。
+    total: 305, unified: 156, handwritten: 149, noclass: 0,
     tint: 0, debt: 6, baseInternal: 5, press: 0, noTransition: 4,
   },
   input: { total: 16, checkbox: 12, baseInternal: 3, debt: 0, exempt: 1, other: 0 },
   // 2.6.2：插件详情弹窗 = 第 23 个业务 Modal 调用点，开 framed（未 framed 仍必须是空集）
-  modal: { total: 23, framed: 23, unframed: 0 },
+  // 2.6.1 计算容器化：容器新建/重命名弹窗 = 第 24 个业务调用点，同样 framed
+  modal: { total: 24, framed: 24, unframed: 0 },
 } as const;
 
 /** D16 收口后这张名单**必须为空**：全站 21 个业务调用点一律走 `framed` 骨架。

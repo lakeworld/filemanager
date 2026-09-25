@@ -89,11 +89,16 @@ interface QiheboxApi {
     docCount: (no: string, date: string) => Promise<unknown>
   }
   // v2.5.9（A7 计算）：计算台账（纯透传，通道 qihebox:calcs:*）
+  // v2.6.1（B15 容器化）：list 收可选 containerId；容器 CRUD 同命名空间
   calcs: {
-    list: () => Promise<unknown>
+    list: (containerId?: string) => Promise<unknown>
     add: (req: unknown) => Promise<unknown>
     update: (req: unknown) => Promise<unknown>
     remove: (id: string) => Promise<unknown>
+    listContainers: () => Promise<unknown>
+    createContainer: (req: unknown) => Promise<unknown>
+    renameContainer: (req: unknown) => Promise<unknown>
+    removeContainer: (id: string) => Promise<unknown>
   }
   invoices: {
     list: (filter?: unknown) => Promise<unknown>

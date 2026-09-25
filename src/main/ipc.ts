@@ -310,10 +310,16 @@ export function registerIpc(
   )
 
   // —— v2.5.9（A7 计算）：计算台账（calcs.json；暂存 saved:false / 已标记 saved:true，纯本地零网络）——
-  ipcMain.handle('qihebox:calcs:list', () => handle(() => box.calcs.list()))
+  // v2.6.1（B15 容器化）：list 收可选 containerId（右栏 = 该容器下的历史；不传 = 全量）
+  ipcMain.handle('qihebox:calcs:list', (_e, containerId?: string) => handle(() => box.calcs.list(containerId)))
   ipcMain.handle('qihebox:calcs:add', (_e, req) => handle(() => box.calcs.add(req)))
   ipcMain.handle('qihebox:calcs:update', (_e, req) => handle(() => box.calcs.update(req)))
   ipcMain.handle('qihebox:calcs:remove', (_e, id: string) => handle(() => box.calcs.remove(id)))
+  // v2.6.1（B15 容器化）：容器 CRUD（删除连其中记录一起删 + 返回条数；确认文案在 UI 层点明条数）
+  ipcMain.handle('qihebox:calcs:listContainers', () => handle(() => box.calcs.listContainers()))
+  ipcMain.handle('qihebox:calcs:createContainer', (_e, req) => handle(() => box.calcs.createContainer(req)))
+  ipcMain.handle('qihebox:calcs:renameContainer', (_e, req) => handle(() => box.calcs.renameContainer(req)))
+  ipcMain.handle('qihebox:calcs:removeContainer', (_e, id: string) => handle(() => box.calcs.removeContainer(id)))
 
   // —— v2.4.7：发票台账（invoices.json，PLAN §6）——
   ipcMain.handle('qihebox:invoices:list', (_e, filter) => handle(() => box.invoices.list(filter)))
