@@ -43,7 +43,7 @@ async function makeDeps(overrides: AdapterSet = {}) {
       bus: new HostEventBus(),
       log: () => {},
       workspace: { currentPath: () => wsDir, list: () => null },
-      dialog: { openFile: async () => '', openDirectory: async () => '' },
+      dialog: { openFile: async () => '', openFiles: async () => [], openDirectory: async () => '' },
       notify: () => false,
       emitToRenderer: () => {},
       account: { getToken: () => null, isLoggedIn: () => false },

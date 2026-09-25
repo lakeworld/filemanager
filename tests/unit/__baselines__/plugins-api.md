@@ -2,7 +2,7 @@
   qihe-box API 兼容性守护基线（API_VERSION=1 · 只增不删）
   生成器：tests/unit/helpers/apiSurface.ts · 更新：npm run api:update
   TypeScript: 5.9.3
-  break-reason: host.workspace 增补可选成员 defaultPath?()（v2.6.1 默认工作区，只增不删）：currentPath/list 两方法与旧插件调用零破坏，聚合行文本随成员表变动（语义只增不改）
+  break-reason: host.workspace 增补可选成员 defaultPath?()（v2.6.1 默认工作区）与 host.dialog 增补可选成员 openFiles?()（v2.6.1 多选文件对话框）——均只增不删：旧方法签名与行为零破坏，聚合行文本随成员表变动（语义只增不改）
 -->
 
 # qihe-box 插件协议 API 面（types / preload / ipc）
@@ -69,7 +69,8 @@
 - PluginHost.customer: { list(since?: string): Promise<CustomerProfile[]>; get(name: string): Promise<CustomerProfile | null>; writeErpExt(name: string, ext: Record<string, unknown>): Promise<void>; syncProfile(req: { name: string; fields?: { type?: '企业' | '个人'; contact?: string; phone?: string; email?: string; address?: string; notes?: string; }; erp_ext?: Record<string, unknown>; updated_at: string; }): Promise<{ applied: boolean; }>; relation: { link(customerName: string, productSetName: string): Promise<void>; unlink(customerName: string, productSetName: string): Promise<void>; }; }
 - PluginHost.dialog.openDirectory(opts: unknown): Promise<string>
 - PluginHost.dialog.openFile(opts: unknown): Promise<string>
-- PluginHost.dialog: { openFile(opts: unknown): Promise<string>; openDirectory(opts: unknown): Promise<string>; }
+- PluginHost.dialog.openFiles(opts: unknown): Promise<string[]>
+- PluginHost.dialog: { openFile(opts: unknown): Promise<string>; openFiles?(opts: unknown): Promise<string[]>; openDirectory(opts: unknown): Promise<string>; }
 - PluginHost.entitlement.status(): EntitlementStatus
 - PluginHost.entitlement: { status(): EntitlementStatus; }
 - PluginHost.events.emit(channel: string, data: unknown): void

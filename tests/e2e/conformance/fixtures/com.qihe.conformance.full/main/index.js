@@ -3,6 +3,14 @@
  * 提供 host API 语义自证 IPC 动作，供 conformance.spec.ts 步骤 e 全量往返断言：
  *   - `conformance.selfTest`：storage set→get / files writeExport→readText / account / notify / entitlement / workspace 全量自证，返回 { ok, checks }
  *   - `conformance.emit`：host.events.emit(channel, data)（渲染层经 window.qihebox.plugins.on 收到，spec 侧断言）
+ *
+ * v2.6.1（B8）：selfTest 增 `checks.dialog`——host.dialog.openFiles 真装配链四态（多选 / 取消 /
+ * >200 截断 / 失败分类）原样回报读数，判据住 spec 侧（宿主上限 200 是 PLUGIN.md 公开承诺，
+ * 夹具不抄第二份数字）。**四态靠 title 哨兵区分**，spec 在 app 侧把 dialog.showOpenDialog
+ * 换成按哨兵应答的假实现（原生文件框在 e2e 里点不动）：
+ *   '__conformance_multi__'  → 2 条路径      '__conformance_cancel__' → canceled
+ *   '__conformance_cap__'    → 250 条路径     '__conformance_fail__'   → 抛错
+ * 旧宿主（无 openFiles）→ checks.dialog = { ok:false, reason:'no-openFiles' }，spec 记跳过不假绿。
  * 本入口为 CJS（module.exports），宿主经 import() 取 default.activate 握手（见 src/main/plugins/loader.ts）。
  */
 const SELF_ID = 'com.qihe.conformance.full'
@@ -73,6 +81,31 @@ module.exports = {
             checks.workspace = { path: host.workspace.currentPath() }
           } catch (err) {
             checks.workspace = { error: String(err) }
+          }
+
+          // dialog（v2.6.1 B8）：openFiles 真装配链四态，原样回报读数（判据住 spec 侧）
+          try {
+            if (typeof host.dialog.openFiles !== 'function') {
+              checks.dialog = { ok: false, reason: 'no-openFiles' }   // 旧宿主形态：spec 记跳过
+            } else {
+              const pick = async (title) => {
+                try {
+                  const files = await host.dialog.openFiles({ title })
+                  return { ok: true, len: files.length, first: files[0] || '', last: files[files.length - 1] || '' }
+                } catch (e) {
+                  return { ok: false, code: e && e.code, message: e && e.message }
+                }
+              }
+              checks.dialog = {
+                ok: true,
+                multi: await pick('__conformance_multi__'),
+                cancel: await pick('__conformance_cancel__'),
+                cap: await pick('__conformance_cap__'),
+                fail: await pick('__conformance_fail__'),
+              }
+            }
+          } catch (err) {
+            checks.dialog = { ok: false, reason: 'throw', error: String(err) }
           }
 
           return { ok: true, checks }

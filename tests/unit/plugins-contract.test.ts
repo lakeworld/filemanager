@@ -145,7 +145,7 @@ async function makeContractHost(
         logCalls.push([level, msg])
       },
       workspace: workspaceDeps,
-      dialog: { openFile: async () => DIALOG_FILE, openDirectory: async () => DIALOG_DIR },
+      dialog: { openFile: async () => DIALOG_FILE, openFiles: async () => [DIALOG_FILE], openDirectory: async () => DIALOG_DIR },
       notify: () => NOTIFY_RESULT,
       emitToRenderer: (channel, data) => {
         emitted.push([channel, data])
@@ -266,7 +266,7 @@ async function makeLoaderFixture(mainJs: string): Promise<{
         bus: new HostEventBus(),
         log: () => {},
         workspace: { currentPath: () => null, list: () => null },
-        dialog: { openFile: async () => '', openDirectory: async () => '' },
+        dialog: { openFile: async () => '', openFiles: async () => [], openDirectory: async () => '' },
         notify: () => false,
         emitToRenderer: () => {},
         account: { getToken: () => null, isLoggedIn: () => false },
@@ -489,6 +489,17 @@ const CONTRACT: Record<string, ContractEntry> = {
     check: async (deps) => {
       await expect(deps.host.dialog.openFile({})).resolves.toBe(DIALOG_FILE)
       await expect(deps.host.dialog.openDirectory({})).resolves.toBe(DIALOG_DIR)
+      // v2.6.1（B8）：多选成员恒挂（装配层必须接线）且返回**裸数组**（不是渲染桥那种 ApiResult 信封）
+      expect(typeof deps.host.dialog.openFiles).toBe('function')
+      const files = await deps.host.dialog.openFiles!({ title: '选择文件' })
+      expect(Array.isArray(files)).toBe(true)
+      expect(files).toEqual([DIALOG_FILE])
+      // 语义面（取消回 []、失败抛 DIALOG_FAILED、>200 截断）由实现层逐条钉：
+      // tests/unit/plugins-dialog.test.ts（假 dialog）+ plugins-assembly.test.ts（装配真链）。
+      // 这里同时守住接线源——装配层若把 dialog 原样裸传（不经 createDialogCapability），
+      // 插件拿到的就是 electron 的原始异常形状（无 code），B8 的「失败可分辨」承诺当场破。
+      const ipcSrc = readSource('src/main/plugins/ipc.ts')
+      expect(ipcSrc).toContain('createDialogCapability')
     },
   },
   'contract:v1:host.notify': {

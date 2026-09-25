@@ -150,7 +150,9 @@ export interface PluginHostDeps {
   bus: HostEventBus
   log: (level: 'info' | 'warn' | 'error', msg: string) => void
   workspace: { currentPath(): string | null; list(): unknown; /** v2.6.1：默认工作区持久指针（装配层从 userData/settings.json 读入）；漏接由本层兜底 null */ defaultPath?(): string | null }
-  dialog: { openFile(opts: unknown): Promise<string>; openDirectory(opts: unknown): Promise<string> }
+  /** host.dialog 装配层注入（v2.6.1：+ 多选 openFiles——三档共用「取消回空值、失败抛带 code 错误」语义，
+   *  实现住 ./dialog.ts，装配层在 ipc.ts 接线） */
+  dialog: { openFile(opts: unknown): Promise<string>; openFiles(opts: unknown): Promise<string[]>; openDirectory(opts: unknown): Promise<string> }
   notify(title: string, body: string): boolean
   /** 插件事件 → 渲染层：向所有窗口发 qihebox:event:<channel>（装配层注入，带销毁守卫） */
   emitToRenderer(channel: string, data: unknown): void

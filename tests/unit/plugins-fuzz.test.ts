@@ -159,7 +159,7 @@ describe('host.files 模糊（工作区受限读写）', () => {
       bus: new HostEventBus(),
       log: () => {},
       workspace: { currentPath: () => wsDir, list: () => null },
-      dialog: { openFile: async () => '', openDirectory: async () => '' },
+      dialog: { openFile: async () => '', openFiles: async () => [], openDirectory: async () => '' },
       notify: () => false,
       emitToRenderer: () => {},
       account: { getToken: () => null, isLoggedIn: () => false },

@@ -27,6 +27,7 @@ import { resolveOfficialPluginsDir, runOfficialPreinstall } from './preinstall'
 import { fetchCatalog } from './catalog'
 import { downloadPluginPackage } from './download'
 import { createPluginHost, HostEventBus, HOST_EVENT_WHITELIST, fileError, mapCoreError } from './host'
+import { createDialogCapability } from './dialog'
 import { makePluginSecretStore } from './secretStore'
 
 import { API_VERSION } from '../../plugins/types'
@@ -34,19 +35,6 @@ import type { InboundProfile, InvoiceProfile } from '../../plugins/types'
 import { ShareViewService } from '../core/shareView'
 
 // ApiResult 包装（ok/fail/handle/sendTo）自 src/main/ipc.ts 复用（薄壳纪律单点）
-
-/** 受限对话框能力（host.dialog）：仅选择，不放开任意路径（PLUGIN.md §2.4.1） */
-async function openDialog(kind: 'file' | 'directory', opts: unknown): Promise<string> {
-  const win = getMainWindow()
-  const o = (opts ?? {}) as { title?: string; filters?: unknown }
-  const base: Electron.OpenDialogOptions = {
-    title: o.title || (kind === 'directory' ? '选择文件夹' : '选择文件'),
-    properties: kind === 'directory' ? ['openDirectory', 'createDirectory'] : ['openFile'],
-  }
-  if (kind === 'file' && Array.isArray(o.filters)) base.filters = o.filters as Electron.FileFilter[]
-  const r = win ? await dialog.showOpenDialog(win, base) : await dialog.showOpenDialog(base)
-  return r.canceled || r.filePaths.length === 0 ? '' : r.filePaths[0]
-}
 
 /**
  * v2.5.1（A1/A2）：core 调用错误码映射包装——catch 回调返回 PluginBusinessError
@@ -206,10 +194,16 @@ export function registerPluginHost(
           // 就能知道「本次启动将要打开哪个盘」，不受 registerPluginHost 早于工作区恢复的时序影响。只读。
           defaultPath: () => settings.getAll().defaultWorkspace || null,
         },
-        dialog: {
-          openFile: (opts) => openDialog('file', opts),
-          openDirectory: (opts) => openDialog('directory', opts),
-        },
+        // v2.6.1：三档对话框（file / files / directory）实现住 ./dialog.ts（io 注入、node 可测）。
+        // 本层只接线：主窗口 + electron 两形（有窗传 (win, opts)、无窗传 (opts)）+ 宿主日志。
+        dialog: createDialogCapability({
+          getWindow: () => getMainWindow(),
+          showOpenDialog: (win, opts) =>
+            win
+              ? dialog.showOpenDialog(win as Electron.BrowserWindow, opts as Electron.OpenDialogOptions)
+              : dialog.showOpenDialog(opts as Electron.OpenDialogOptions),
+          log: (level, msg) => void log(level, msg),
+        }),
         notify: (title, body) => sendSystemNotification(title, body),
         // 插件事件 → 渲染层：主进程发 qihebox:event:<channel>（channel 已由 host.events.emit 前缀强校验）
         emitToRenderer: (channel, data) => {

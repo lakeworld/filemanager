@@ -237,7 +237,17 @@ export interface PluginHost {
      *  **在途：2.6.1 / 2.6.2 未发布**，宿主能力探测为准；发布前以本句为时效标记。 */
     defaultPath?(): string | null
   }
-  dialog: { openFile(opts: unknown): Promise<string>; openDirectory(opts: unknown): Promise<string> }
+  /** 受限对话框（仅选择，不放开任意路径）。三个方法共用一套语义：**返回裸值不是信封**
+   *  （与渲染桥 `qihebox.*` 的 ApiResult 不同）；**取消与失败可分辨**——取消回空值（多选 `[]` /
+   *  单选 `''`），失败抛带 `code` 的业务错误（`DIALOG_FAILED`），不得两者都回空。
+   *  下面那个 `host.dialog.openFiles` 的 v2.6.1 增补说明是契约的一部分，别跳。 */
+  dialog: { openFile(opts: unknown): Promise<string>; openFiles?(opts: unknown): Promise<string[]>; openDirectory(opts: unknown): Promise<string> }
+  // openFiles（v2.6.1 增量，可选成员）：多选文件，properties = ['openFile','multiSelections']。
+  //   - 单批上限 200：超出部分宿主截断不取入（宿主日志如实记录）；插件收到恰好 200 条时须如实提示
+  //     「已达宿主上限 200，超出部分未取入」，不得静默。
+  //   - opts = { title?: string; filters?: [{ name, extensions }] }（与 openFile 同口径，其余忽略）。
+  //   - 旧宿主（≤2.6.0）无此方法 ⇒ 请能力探测（`typeof host.dialog.openFiles === 'function'`），
+  //     缺席时自行降级**并如实说明**（不得静默——「选了文件没反应」是这条通道存在的理由）。
   notify(title: string, body: string): boolean
 
   /** 账号登录态（v2.5 增量接通）：同步签名；未登录 → null；permissions.account !== true 时恒 null。
@@ -285,6 +295,9 @@ export interface PluginHost {
 <!-- contract:v1:host.account -->
 <!-- contract:v1:host.files -->
 <!-- contract:v1:host.entitlement -->
+
+> **host.dialog 语义（v2.6.1 起明写，三条都是契约）**：① **取消与失败必须可分辨**——取消回空值（`openFiles` → `[]`；`openFile` / `openDirectory` → `''`），失败抛带 `code` 的业务错误（`DIALOG_FAILED`），**不得两者都回空**；② **返回的是裸值不是信封**——`host.*` 主进程面的既有约定是返回值语义、异常经 `code` 区分，与渲染桥 `qihebox.*` 的 `ApiResult` 语义不同，别按信封拆（按信封读裸值 = 把用户选好的一批当取消静默丢弃）；③ **只增不改**——`openFile` / `openDirectory` 的形状与取消语义一字不动。`openFiles` 单批上限 200（宿主侧截断，超出部分未取入），可选成员 + 能力探测见上。
+> **`getPathForFile`（稳定 util 契约，v2.6.1 起上台面，实现零变更）**：`window.qihebox.getPathForFile(file: File): string`——把一个渲染层的 `File`（拖放/粘贴来的）换成**本机绝对路径**（宿主 preload 里是 Electron `webUtils.getPathForFile` 的直通，同步返回）。插件渲染层取拖入文件的真实路径**唯一推荐**用它（cloud / tools 两处官方插件已在用）；**不要读 `File.path`**——那是 Electron 32 已移除的旧属性，宿主现锁 ^31 只是暂时还能用。它属渲染层桥（`qihebox.*` 命名空间）但不是 IPC，**没有 ApiResult 包装、也不是 Promise**；非本地文件等异常情形的结果随 Electron 该 API 本身，调用方按需自行兜底。
 
 > **host.account.cloudFetch 错误码（v2.5.7 F4a）**：`PERMISSION_DENIED`（未声明 `permissions.account`）/ `NOT_LOGGED_IN`（未登录）/ `NO_SERVER`（未配置服务器地址）/ `INVALID_NAME`（路径非 `/` 开头相对路径）/ `NOT_ALLOWED`（非 `/api/box/*` 或 `/api/ai/*` 前缀）。以上均带 `code` 属性、不计入熔断计数。响应体处理与超时策略由插件侧负责（宿主只负责代签与转发，不解析业务载荷）。
 
@@ -892,4 +905,4 @@ window.qihebox.ui.openEntity(
 
 ---
 
-*协议版本：v1（API_VERSION = 1，随 v2.5 宿主生效；2026-08-14 增量：syncScope / permissions.account / host.account / host.files / host.entitlement / 侧载收紧，均为向后兼容新增；2026-09-22 补：§二/§八 加「更新即重启」生效口径——非协议变更，仅承诺口径补全；2026-09-23 补：§5.6 `listTree` 条目形状钉死（只认 `kind`）、`STALE` 抛错口径钉死、§三 规则计数勘正——均为口径澄清，非协议变更；**同日 v2.6 批 2 实装**：§5.3 `catalog()` + `PluginCatalogEntry` 形状 + `install({ downloadUrl, sha256 })` 双形态与目录/下载链错误码、§二 安装链、§三.4 选版口径、§5.3 `app.relaunch()`——`catalog()` / 官方索引安装形态从「当前未实现」转为实装口径；同日 **v2.6 批 3 实装**：§一 插件分发口径改写（原「安装包不内置任何插件」→ 支持官方预装）+ §六 新增「官方预装（离线可用）」段——非协议变更（无新字段、无新通道、无新 IPC），仅分发形态与承诺口径补全）；2026-09-23 勘正（2.6 放行审查轮 2）：§〇「权益标记」措辞改为与实现一致（宿主零门槛校验，闸在云端取钥面）、§六 补「取钥失败的用户可见口径」（原因 + 下一步，fail-closed 不变）——仅口径澄清，非协议变更）；**2026-09-24 v2.6.1 增量**：§5.1 `host.workspace.defaultPath?()`（默认工作区**只读**持久指针，可选成员 + 能力探测，零权限位）——向后兼容新增，`API_VERSION` 仍 1，`currentPath()` / `list()` 签名与行为零改动；**2026-09-25 v2.6.2 增量**：§5.3 目录条目新增展示三字段 `images?` / `detail?` / 每版 `releaseNotes?`（官方目录 → 管理页「详情」弹窗：截图可翻、功能介绍、按版更新说明）——同为向后兼容新增，`API_VERSION` 仍 1，承重字段判据一字未动，新增的「宽容只限展示位」边界由单测分两头钉住。**在途：2.6.1 / 2.6.2 未发布**，宿主能力探测为准；发布前以本句为时效标记） · 本文档在公开仓库维护，契约修订与实现同步*
+*协议版本：v1（API_VERSION = 1，随 v2.5 宿主生效；2026-08-14 增量：syncScope / permissions.account / host.account / host.files / host.entitlement / 侧载收紧，均为向后兼容新增；2026-09-22 补：§二/§八 加「更新即重启」生效口径——非协议变更，仅承诺口径补全；2026-09-23 补：§5.6 `listTree` 条目形状钉死（只认 `kind`）、`STALE` 抛错口径钉死、§三 规则计数勘正——均为口径澄清，非协议变更；**同日 v2.6 批 2 实装**：§5.3 `catalog()` + `PluginCatalogEntry` 形状 + `install({ downloadUrl, sha256 })` 双形态与目录/下载链错误码、§二 安装链、§三.4 选版口径、§5.3 `app.relaunch()`——`catalog()` / 官方索引安装形态从「当前未实现」转为实装口径；同日 **v2.6 批 3 实装**：§一 插件分发口径改写（原「安装包不内置任何插件」→ 支持官方预装）+ §六 新增「官方预装（离线可用）」段——非协议变更（无新字段、无新通道、无新 IPC），仅分发形态与承诺口径补全）；2026-09-23 勘正（2.6 放行审查轮 2）：§〇「权益标记」措辞改为与实现一致（宿主零门槛校验，闸在云端取钥面）、§六 补「取钥失败的用户可见口径」（原因 + 下一步，fail-closed 不变）——仅口径澄清，非协议变更）；**2026-09-24 v2.6.1 增量**：§5.1 `host.workspace.defaultPath?()`（默认工作区**只读**持久指针，可选成员 + 能力探测，零权限位）——向后兼容新增，`API_VERSION` 仍 1，`currentPath()` / `list()` 签名与行为零改动；**2026-09-25 v2.6.1 增量（B8）**：§5.1 `host.dialog.openFiles?()`（多选，上限 200 宿主截断，可选成员 + 能力探测）+ §5.1 host.dialog 三条语义（取消≠失败 / 裸值非信封 / 只增不改）明写 + `getPathForFile` 升为稳定 util 契约（实现零变更）——同为向后兼容新增，`openFile` / `openDirectory` 形状与取消语义一字未动。**2026-09-25 v2.6.2 增量**：§5.3 目录条目新增展示三字段 `images?` / `detail?` / 每版 `releaseNotes?`（官方目录 → 管理页「详情」弹窗：截图可翻、功能介绍、按版更新说明）——同为向后兼容新增，`API_VERSION` 仍 1，承重字段判据一字未动，新增的「宽容只限展示位」边界由单测分两头钉住。**在途：2.6.1 / 2.6.2 未发布**，宿主能力探测为准；发布前以本句为时效标记） · 本文档在公开仓库维护，契约修订与实现同步*

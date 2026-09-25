@@ -279,7 +279,20 @@ export interface PluginHost {
     defaultPath?(): string | null
   }
   dialog: {
+    /** 单选一个文件：返回绝对路径裸串；取消 → `''`；失败 → 带 `code` 的业务错误（`DIALOG_FAILED`） */
     openFile(opts: unknown): Promise<string>
+    /**
+     * v2.6.1 增量：多选文件（`properties: ['openFile','multiSelections']`）。
+     * - **返回裸数组不是信封**（host.* 主进程面的既有约定；渲染桥 `qihebox.*` 才是 ApiResult）。
+     * - **取消与失败可分辨**：取消 → `[]`；失败 → 带 `code` 的业务错误（`DIALOG_FAILED`），不得两者都回空。
+     * - **单批上限 200**：超出部分宿主截断不取入（宿主日志如实记录）；插件收到恰好 200 条时应如实提示
+     *   「已达宿主上限 200，超出部分未取入」，不得静默。
+     * - opts：`{ title?: string; filters?: [{ name, extensions }] }`（与 openFile 同口径，其余忽略）。
+     * - **可选成员**：旧宿主（≤2.6.0）无此方法，请能力探测
+     *   （`typeof host.dialog.openFiles === 'function'`），缺席时自行降级并如实说明（不得静默）。
+     */
+    openFiles?(opts: unknown): Promise<string[]>
+    /** 单选一个目录：返回绝对路径裸串；取消 → `''`；失败 → 带 `code` 的业务错误（`DIALOG_FAILED`） */
     openDirectory(opts: unknown): Promise<string>
   }
   notify(title: string, body: string): boolean

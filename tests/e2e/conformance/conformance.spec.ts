@@ -47,6 +47,14 @@ const PAGE_ERROR_TEXTS = [
 ]
 
 /** conformance.selfTest 返回的 checks 结构（宽松声明，逐项断言时判空） */
+interface DialogProbe {
+  ok?: boolean
+  reason?: string
+  len?: number
+  first?: string
+  last?: string
+  code?: string
+}
 interface SelfTestChecks {
   storage?: { ok?: boolean; value?: unknown; error?: string }
   files?: { ok?: boolean; content?: string; error?: string }
@@ -54,6 +62,8 @@ interface SelfTestChecks {
   notify?: { ok?: boolean; returned?: unknown; error?: string }
   entitlement?: { tier?: string; expiresAt?: string | null; quota?: unknown; error?: string }
   workspace?: { path?: string | null; error?: string }
+  /** v2.6.1（B8）：host.dialog.openFiles 四态读数（多选 / 取消 / 截断 / 失败分类） */
+  dialog?: { ok?: boolean; reason?: string; multi?: DialogProbe; cancel?: DialogProbe; cap?: DialogProbe; fail?: DialogProbe }
 }
 
 test.describe('插件协议一致性体检（conformance）', () => {
@@ -199,6 +209,24 @@ test.describe('插件协议一致性体检（conformance）', () => {
       expect(r.success).toBe(true)
     })
 
+    await test.step('前置：host.dialog 桩（v2.6.1 B8；原生文件框在 e2e 里点不动，按 title 哨兵应答）', async () => {
+      // 被测对象是插件经 host.dialog 拿到的回包**语义**（裸数组 / 取消 vs 失败可分辨 / 宿主截断），
+      // 不是 GTK 对话框本身——同一手法见插件仓 e2e-host/zz-tools.spec.ts 的「选择图片真链」。
+      // 哨兵与夹具 com.qihe.conformance.full/main/index.js 的 conformance.selfTest 段成对。
+      await app.evaluate(async ({ dialog }) => {
+        ;(dialog as unknown as { showOpenDialog: unknown }).showOpenDialog = async (a: unknown, b: unknown) => {
+          const o = (b ?? a) as { title?: string }
+          const t = o?.title ?? ''
+          if (t === '__conformance_fail__') throw new Error('conformance: injected dialog failure')
+          if (t === '__conformance_cancel__') return { canceled: true, filePaths: [] }
+          if (t === '__conformance_cap__') {
+            return { canceled: false, filePaths: Array.from({ length: 250 }, (_, i) => `/conformance/cap-${i}.png`) }
+          }
+          return { canceled: false, filePaths: ['/conformance/a.png', '/conformance/b.png'] }
+        }
+      })
+    })
+
     // —— d. 能力抽查（manifest 驱动）——
     if (declaredPages.length > 0) {
       await test.step('d. pages 可达（导航 + 内容非空，manifest 驱动）', async () => {
@@ -276,6 +304,24 @@ test.describe('插件协议一致性体检（conformance）', () => {
       expect(checks.entitlement?.quota).toBeNull()
       expect(typeof checks.workspace?.path, 'workspace.currentPath 非空').toBe('string')
       expect((checks.workspace?.path ?? '').length).toBeGreaterThan(0)
+
+      // —— v2.6.1（B8）：host.dialog.openFiles 真装配链四态（缺该项的插件记跳过，不假绿）——
+      if (!checks.dialog) {
+        console.log('[conformance] 插件自测未覆盖 host.dialog（可选约定），跳过 dialog 往返')
+      } else if (checks.dialog.ok === false && checks.dialog.reason === 'no-openFiles') {
+        console.log('[conformance] 宿主无 host.dialog.openFiles（旧宿主形态），跳过 dialog 往返')
+      } else {
+        expect(checks.dialog.ok, 'dialog 自测应完成四态往返').toBe(true)
+        expect(checks.dialog.multi?.ok, '多选应回裸数组（不是信封）').toBe(true)
+        expect(checks.dialog.multi?.len, '选了 2 条就回 2 条').toBe(2)
+        expect(checks.dialog.multi?.first).toBe('/conformance/a.png')
+        expect(checks.dialog.cancel?.ok, '取消不是失败：静默回空数组').toBe(true)
+        expect(checks.dialog.cancel?.len, '取消 → []（与失败可分辨）').toBe(0)
+        expect(checks.dialog.cap?.len, '单批上限 200（PLUGIN.md 承诺；超出部分未取入）').toBe(200)
+        expect(checks.dialog.cap?.last, '截断保留前 200 条').toBe('/conformance/cap-199.png')
+        expect(checks.dialog.fail?.ok, '对话框抛错 → 失败（不是空数组）').toBe(false)
+        expect(checks.dialog.fail?.code, '失败带稳定 code（DIALOG_FAILED）').toBe('DIALOG_FAILED')
+      }
     })
 
     // —— e2. events 往返（emit → 渲染层 on 收到；仅当声明 ipc 且插件提供 conformance.emit）——

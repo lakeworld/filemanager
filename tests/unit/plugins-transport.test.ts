@@ -239,7 +239,7 @@ async function makeLoader(mainJs: string): Promise<{ loader: PluginLoader }> {
         bus: new HostEventBus(),
         log: () => {},
         workspace: { currentPath: () => null, list: () => null },
-        dialog: { openFile: async () => '', openDirectory: async () => '' },
+        dialog: { openFile: async () => '', openFiles: async () => [], openDirectory: async () => '' },
         notify: () => false,
         emitToRenderer: () => {},
         account: { getToken: () => null, isLoggedIn: () => false },
