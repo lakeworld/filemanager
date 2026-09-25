@@ -251,6 +251,16 @@ export interface CatalogFetchDeps {
 }
 
 /**
+ * 条件取回缓存（v2.6.2 ⑤）：服务端目录响应带强 ETag 且认 `If-None-Match`（服务端半边已就位），
+ * 宿主此前每进一次管理页就整份重拉（目录里现在还有详情长文，全量重传不再可忽略）。
+ *
+ * 键 = 目录绝对 URL（换服务器/换基址即天然隔离）；缓存的是**解析前的 raw 载荷**而不是终态条目——
+ * 304 时仍重新过一遍 `toCatalogEntries(raw, host)`，宿主/产品版本变了不会拿旧的 compatible 判定。
+ * 只活在本进程内存：不落盘、重启即清（目录本来就不是离线数据）。
+ */
+const catalogConditionalCache = new Map<string, { etag: string; raw: RawCatalogEntry[] }>()
+
+/**
  * 拉取官方目录（进入管理页时调用一次；**不后台轮询**——网络常驻红线）。
  * 失败一律抛中文错误（见 §模块头）；成功返回宿主已判兼容性的目录条目。
  */
@@ -259,16 +269,30 @@ export async function fetchCatalog(deps: CatalogFetchDeps, host: HostCompat): Pr
   const token = deps.getToken()
   if (!token) throw new Error(CATALOG_ERRORS.NOT_LOGGED_IN)
   const fetchImpl = deps.fetchImpl ?? fetch
-  const res = await fetchImpl(url, { method: 'GET', headers: { Authorization: `Bearer ${token}` } }).catch((err: unknown) => {
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
+  const cached = catalogConditionalCache.get(url)
+  if (cached) headers['If-None-Match'] = cached.etag
+  const res = await fetchImpl(url, { method: 'GET', headers }).catch((err: unknown) => {
     deps.log?.('warn', `[plugins] 官方目录拉取网络失败：${String(err)}`)
     return null
   })
   if (!res) throw new Error(CATALOG_ERRORS.NETWORK)
+  if (res.status === 304) {
+    // 304 只可能来自我们自己带了 If-None-Match：没有缓存还收到 304 = 服务端行为异常，如实报错不猜。
+    // 用 CATALOG_BAD_PAYLOAD 前缀：渲染层按 CODE 分流时走既有的「未知失败 + 可重试」路，不新增分流面。
+    if (!cached) throw new Error('CATALOG_BAD_PAYLOAD：服务端回了 304 但本进程没有上次目录（不该发生）——请重开插件页重试')
+    deps.log?.('info', '[plugins] 官方目录未变化（304），复用上次结果')
+    return toCatalogEntries(cached.raw, host)
+  }
   if (!res.ok) {
     deps.log?.('warn', `[plugins] 官方目录拉取被拒（HTTP ${res.status}）`)
     throw new Error(catalogHttpError(res.status))
   }
   const json = await res.json().catch(() => null)
   if (json === null) throw new Error(`${CATALOG_ERRORS.BAD_PAYLOAD}（回包不是合法 JSON）`)
-  return toCatalogEntries(parseCatalogPayload(json), host)
+  const raw = parseCatalogPayload(json)
+  const etag = res.headers.get('etag') ?? ''
+  if (etag !== '') catalogConditionalCache.set(url, { etag, raw })
+  else catalogConditionalCache.delete(url) // 服务端没给 ETag ⇒ 别拿旧值硬套条件（下一轮照旧全量）
+  return toCatalogEntries(raw, host)
 }

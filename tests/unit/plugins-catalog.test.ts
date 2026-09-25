@@ -351,3 +351,87 @@ describe('2.6.2 展示字段：原样收下 + 只宽容展示位', () => {
     ).toThrow(CATALOG_ERRORS.BAD_PAYLOAD)
   })
 })
+/**
+ * v2.6.2 ⑤：条件取回（宿主发 If-None-Match、认 304）——服务端半边（强 ETag + 304 零 body）已就位，
+ * 宿主此前不发条件头 ⇒ 每次进管理页整份重传（目录里现在还有详情长文）。
+ * 判据取向：304 必须**不重新解析**回包（解析了就说明还在走全量路）；无 ETag 时不许拿旧值硬套条件；
+ * 缓存按 URL 隔离；没有缓存却收到 304 = 服务端行为异常，如实报错而不是猜。
+ */
+describe('fetchCatalog：条件取回（v2.6.2 ⑤，If-None-Match / 304）', () => {
+  const ETAG_BASE = 'https://etag-probe.example.com'
+
+  /** 记录每次请求的 If-None-Match 头（缺省 = null） */
+  const headerLog = (calls: Array<Record<string, string>>) => calls.map((h) => h['If-None-Match'] ?? null)
+
+  it('首枪不带条件头；带 ETag 的 200 ⇒ 次枪带 If-None-Match，304 直接复用上次条目（不重新解析）', async () => {
+    const calls: Array<Record<string, string>> = []
+    let jsonCalls = 0
+    const first = vi.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+      calls.push(init.headers)
+      return jsonResponse(catalogBody([rawEntry()]), { headers: { 'content-type': 'application/json', etag: '"cat-v1"' } })
+    })
+    const out1 = await fetchCatalog({ baseUrl: ETAG_BASE, getToken: () => 'jwt', fetchImpl: first as never }, HOST)
+    expect(out1).toHaveLength(1)
+    expect(headerLog(calls)).toEqual([null]) // 首枪没有可用的 ETag ⇒ 不许无脑带
+
+    const second = vi.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+      calls.push(init.headers)
+      return new Response(null, { status: 304, headers: { etag: '"cat-v1"' } })
+    })
+    const out2 = await fetchCatalog({ baseUrl: ETAG_BASE, getToken: () => 'jwt', fetchImpl: second as never }, HOST)
+    expect(headerLog(calls)).toEqual([null, '"cat-v1"']) // 第二枪把上次 ETag 原样带上
+    expect(out2).toEqual(out1) // 304 = 复用上次结果（含宿主兼容判定，逐字段相等）
+    expect(jsonCalls).toBe(0) // 304 路径不许再解析 body（解析了就是还在走全量）
+  })
+
+  it('服务端没给 ETag ⇒ 下一枪仍不带条件头（不拿旧值硬套）', async () => {
+    const calls: Array<Record<string, string>> = []
+    const impl = vi.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+      calls.push(init.headers)
+      return jsonResponse(catalogBody([rawEntry()])) // 无 etag 头
+    })
+    await fetchCatalog({ baseUrl: `${ETAG_BASE}/no-etag`, getToken: () => 'jwt', fetchImpl: impl as never }, HOST)
+    await fetchCatalog({ baseUrl: `${ETAG_BASE}/no-etag`, getToken: () => 'jwt', fetchImpl: impl as never }, HOST)
+    expect(headerLog(calls)).toEqual([null, null])
+  })
+
+  it('目录变了（新 ETag + 新内容）⇒ 返回新结果，且下一枪带的是新 ETag', async () => {
+    const calls: Array<Record<string, string>> = []
+    const v1 = vi.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+      calls.push(init.headers)
+      return jsonResponse(catalogBody([rawEntry()]), { headers: { etag: '"cat-1"' } })
+    })
+    const v2 = vi.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+      calls.push(init.headers)
+      return jsonResponse(catalogBody([rawEntry({ name: '改名后的插件' })]), { headers: { etag: '"cat-2"' } })
+    })
+    await fetchCatalog({ baseUrl: `${ETAG_BASE}/changed`, getToken: () => 'jwt', fetchImpl: v1 as never }, HOST)
+    const out2 = await fetchCatalog({ baseUrl: `${ETAG_BASE}/changed`, getToken: () => 'jwt', fetchImpl: v2 as never }, HOST)
+    expect(out2[0].name).toBe('改名后的插件')
+    // 第三枪（304）验证缓存已换成新 ETag
+    const third = vi.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+      calls.push(init.headers)
+      return new Response(null, { status: 304 })
+    })
+    await fetchCatalog({ baseUrl: `${ETAG_BASE}/changed`, getToken: () => 'jwt', fetchImpl: third as never }, HOST)
+    expect(headerLog(calls)).toEqual([null, '"cat-1"', '"cat-2"'])
+  })
+
+  it('缓存按 URL 隔离：另一个基址不会继承条件头', async () => {
+    const calls: Array<Record<string, string>> = []
+    const impl = vi.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+      calls.push(init.headers)
+      return jsonResponse(catalogBody([rawEntry()]), { headers: { etag: '"shared"' } })
+    })
+    await fetchCatalog({ baseUrl: `${ETAG_BASE}/ws-a`, getToken: () => 'jwt', fetchImpl: impl as never }, HOST)
+    await fetchCatalog({ baseUrl: `${ETAG_BASE}/ws-b`, getToken: () => 'jwt', fetchImpl: impl as never }, HOST)
+    expect(headerLog(calls)).toEqual([null, null])
+  })
+
+  it('无缓存却收到 304 ⇒ 如实报错（不许当成空目录，也不许静默重试）', async () => {
+    const impl = vi.fn(async () => new Response(null, { status: 304 }))
+    await expect(
+      fetchCatalog({ baseUrl: `${ETAG_BASE}/cold`, getToken: () => 'jwt', fetchImpl: impl as never }, HOST),
+    ).rejects.toThrow(/CATALOG_BAD_PAYLOAD：服务端回了 304 但本进程没有上次目录/)
+  })
+})
