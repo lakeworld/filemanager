@@ -84,6 +84,8 @@ protocol.registerSchemesAsPrivileged([
 // 修复：e2e 此前与生产应用共享 userData（~/.config/启禾文件管理）——
 // ① 生产应用在跑时，单实例锁把 e2e 实例判为二次启动 → 启动即退（本机 e2e 全灭的根因）；
 // ② e2e 会读写真实缩略图/索引/账号文件，污染生产数据。须在单实例锁之前设置。
+/** e2e 隔离家目录（QIHEBOX_E2E=1 时 = userData 同目录；生产恒 null ⇒ 走 os.homedir()） */
+let e2eHome: string | null = null
 if (process.env.QIHEBOX_E2E === '1') {
   // v2.5.8 A4（台账 D-07 结构收口）：userData 支持按 spec 覆盖——QIHEBOX_E2E_USERDATA 指定
   // tmpdir 下的目录名（各 spec 以 tests/e2e/helpers/launch.ts 的 e2eUserDataDirName(文件名) 自组 env 传入），
@@ -91,10 +93,15 @@ if (process.env.QIHEBOX_E2E === '1') {
   // qihebox-e2e-userdata（兼容未迁移入口）。修的病：共享目录被某一 spec 预置的登录态污染后，
   // 后续登录态敏感套件整批假红（D-07 实录 profile-account 三例）。
   const e2eUserDataName = process.env.QIHEBOX_E2E_USERDATA || 'qihebox-e2e-userdata'
-  app.setPath('userData', path.join(os.tmpdir(), e2eUserDataName))
+  e2eHome = path.join(os.tmpdir(), e2eUserDataName)
+  app.setPath('userData', e2eHome)
   // v2.4.9（S6-2）：日志目录一并隔离（logs 默认随 appData，e2e 不写生产日志；
   // e2e 断言按 <userData>/logs 读取 main-*.log）
-  app.setPath('logs', path.join(os.tmpdir(), e2eUserDataName, 'logs'))
+  app.setPath('logs', path.join(e2eHome, 'logs'))
+  // 家目录级落盘（recents / 兜底工作区根）不住 userData，只把 userData 指到 tmpdir 不够：
+  // 装配层的 WorkspaceService 也吃 e2eHome（见 whenReady 内），跑测从此不碰真实主目录。
+  // 预建目录：recents 的原子写不建父目录，而 e2e 家目录是这里新开的临时路径，首写可能 ENOENT。
+  fs.mkdirSync(e2eHome, { recursive: true })
 }
 
 // —— 单实例锁（替代原 Go CreateMutex）——
@@ -652,8 +659,9 @@ app.whenReady().then(() => {
   // 窗口/托盘/唤醒自愈独立在兜底分支执行，保证装配失败也至少创建窗口、托盘常驻。 ——
   let box: BoxService | null = null
   try {
-    // 单一 workspace 实例贯穿全部服务
-    const workspace = new WorkspaceService()
+    // 单一 workspace 实例贯穿全部服务。e2e 下注入隔离家目录（recents 与兜底工作区根都落
+    // tmpdir 的隔离目录），生产下不传参 ⇒ 行为与 os.homedir() 一字不变
+    const workspace = e2eHome ? new WorkspaceService(e2eHome) : new WorkspaceService()
     // v2.1.0：缩略图缓存根迁移到 userData（工作区不再被 .thumbnails 污染，坚果云不同步缓存）
     const thumbs = new SharpThumbnailService(workspace, {
       userDataThumbsDir: path.join(app.getPath('userData'), 'thumbs'),

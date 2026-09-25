@@ -1,6 +1,8 @@
 import { test, expect, _electron as electron } from '@playwright/test'
 import { e2eUserDataDirName } from './helpers/launch'
+import { RECENT_FILE } from '../../src/main/core/paths'
 import type { ElectronApplication, Page } from '@playwright/test'
+import { createHash } from 'node:crypto'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
@@ -11,20 +13,24 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const userDataDir = (label: string): string => path.join(os.tmpdir(), e2eUserDataDirName(label))
 
 /**
- * 最近工作区落盘位置（唯一真相 `core/paths.ts` 的 `RECENT_FILE`，家目录级、**不在 userData 隔离范围内**）。
- * 本 spec 会经 workspace.create/switch 往这份**真实文件**里写两个临时目录 ⇒ 结尾按快照原样还原（见 recentsBackup）。
- * 这个隔离缺口是既有的（本机该文件里就躺着 conformance 跑出的 /tmp 条目），修它要连带全量 e2e 回归，
- * 不在本批：见 docs/INTERNAL/PLAN-v2.6.1-默认工作区.md §五。
+ * 最近工作区落盘位置（唯一真相 `core/paths.ts` 的 `RECENT_FILE`，家目录级）。
+ * e2e 下 main 把**工作区家目录**也导进本 spec 的隔离目录（`src/main/index.ts` 的 QIHEBOX_E2E 块：
+ * e2eHome 与 userData 同路径），所以应用读写的这份是隔离副本；真实主目录那份本 spec 只读快照比对，
+ * 不写、不还原——跑完必须逐字节未变（变了就是家目录隔离失效，判红）。
  */
-const RECENTS_FILE = path.join(os.homedir(), '.qihefilemanager_recent.json')
+const REAL_HOME_RECENTS = path.join(os.homedir(), RECENT_FILE)
 
-const readRecents = async (): Promise<string | null> => {
+const readBytesOrNull = async (file: string): Promise<Buffer | null> => {
   try {
-    return await fsp.readFile(RECENTS_FILE, 'utf-8')
+    return await fsp.readFile(file)
   } catch {
-    return null // 本来就没有这份文件 → 结尾删掉本次产生的那份
+    return null // 本来就没有这份文件 ⇒ 判据退化为「跑完仍然没有」
   }
 }
+
+/** 逐字节判据（sha256 读数进日志，供报告取证） */
+const digestOrNull = (bytes: Buffer | null): string | null =>
+  bytes === null ? null : createHash('sha256').update(bytes).digest('hex')
 
 const readSettingsRaw = async (label: string): Promise<Record<string, unknown>> => {
   try {
@@ -129,23 +135,27 @@ test.describe('默认工作区（v2.6.1）', () => {
     await expect(page.locator('header button').filter({ hasText: '🏢' }).first()).toBeVisible({ timeout: 10000 })
   }
 
+  /** 本 spec 的隔离家目录（main 侧 e2e 块把它与 userData 指向同一路径），recents 应落在这儿 */
+  const isolatedHome = userDataDir(LABEL)
+
   let tmpA = ''
   let tmpB = ''
-  let recentsBackup: string | null = null
+  /** 跑前对真实主目录那份 recents 的**只读**快照（跑完比对；不写、不还原） */
+  let realRecentsBefore: Buffer | null = null
 
   test.beforeAll(async () => {
-    recentsBackup = await readRecents()
+    // 起点干净：上个失败轮可能留下过期 settings.json（含 defaultWorkspace），会带偏本轮初始落点
+    await fsp.rm(isolatedHome, { recursive: true, force: true }).catch(() => {})
+    realRecentsBefore = await readBytesOrNull(REAL_HOME_RECENTS)
     tmpA = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-dw-a-'))
     tmpB = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-dw-b-'))
   })
 
   test.afterAll(async () => {
-    // 真实家目录那份 recents 原样还原：本 spec 不该在用户机器上留下任何痕迹
-    if (recentsBackup === null) await fsp.rm(RECENTS_FILE, { force: true }).catch(() => {})
-    else await fsp.writeFile(RECENTS_FILE, recentsBackup, 'utf-8').catch(() => {})
+    // 只扫本 spec 自己的产物；真实主目录一律不碰（隔离已生效，无需任何还原兜底）
     await fsp.rm(tmpA, { recursive: true, force: true }).catch(() => {})
     await fsp.rm(tmpB, { recursive: true, force: true }).catch(() => {})
-    await fsp.rm(userDataDir(LABEL), { recursive: true, force: true }).catch(() => {})
+    await fsp.rm(isolatedHome, { recursive: true, force: true }).catch(() => {})
   })
 
   test('设为默认 → 真重启开的是默认，不是最近列表首位', async () => {
@@ -204,5 +214,19 @@ test.describe('默认工作区（v2.6.1）', () => {
     } finally {
       await kill(third.app)
     }
+
+    // —— 家目录隔离实证（正反两条必须成对看，缺一条都可能被假绿蒙混）——
+    // ① 正面：本 spec 该写的 recents 确实写进了隔离目录（若"哪儿都没写"，这条会红）。
+    //    直接读盘上隔离副本，不走应用读口——读口会掩盖盘面。
+    const isolatedRecents = JSON.parse(await fsp.readFile(path.join(isolatedHome, RECENT_FILE), 'utf-8')) as string[]
+    expect(isolatedRecents[0], '隔离目录 recents 首位应是实例二最后切换的 A').toBe(tmpA)
+    expect(isolatedRecents, '隔离目录 recents 应含本 spec 造的两个工作区').toEqual(expect.arrayContaining([tmpA, tmpB]))
+
+    // ② 反面：真实主目录那份逐字节未变（sha256 比对；文件本就不存在 ⇒ 要求跑完仍不存在）。
+    const realAfter = await readBytesOrNull(REAL_HOME_RECENTS)
+    console.log(
+      `[default-workspace] 真实主目录 recents sha256：前=${digestOrNull(realRecentsBefore) ?? '(不存在)'} 后=${digestOrNull(realAfter) ?? '(不存在)'}`,
+    )
+    expect(digestOrNull(realAfter), '真实主目录 recents 被本次 e2e 改写 ⇒ 家目录隔离失效').toBe(digestOrNull(realRecentsBefore))
   })
 })
