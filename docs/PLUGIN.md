@@ -248,6 +248,26 @@ export interface PluginHost {
   //   - opts = { title?: string; filters?: [{ name, extensions }] }（与 openFile 同口径，其余忽略）。
   //   - 旧宿主（≤2.6.0）无此方法 ⇒ 请能力探测（`typeof host.dialog.openFiles === 'function'`），
   //     缺席时自行降级**并如实说明**（不得静默——「选了文件没反应」是这条通道存在的理由）。
+  /** 图像处理（v2.6.1 增量，**可选成员**）：宿主内置图像引擎（sharp/libvips），插件不再自带图像运行时。
+   *  只做「读源 → 内存变换 → 返回编码字节」：**宿主不写盘**——输出文件由插件自己落（命名与存在性
+   *  检查本来就是插件的事）。顺序（三个都给时）：crop → rotate → resize。语义、缺省档与错误码见下方
+   *  host.images 段。 */
+  images?: {
+    transform(req: {
+      source: string          // 源图绝对路径（按内容判，只认 jpeg/png/webp）
+      format?: 'jpeg' | 'png' | 'webp'   // 输出格式；缺省随源：.png→png / .webp→webp / 其余→jpeg；扩展名不认识时看真实格式，仍不认识按 jpeg
+      quality?: number        // 1..100（png 忽略）；缺省 85
+      maxWidth?: number       // contain：等比内缩、绝不放大（默认档）
+      maxHeight?: number
+      scale?: number          // 倍率，优先于 maxWidth/maxHeight
+      stretch?: boolean       // true 且同时给了 maxWidth+maxHeight = 精确宽高（不保比例）
+      rotate?: 0 | 90 | 180 | 270        // 90/270 交换宽高
+      crop?: { x: number; y: number; w: number; h: number }   // 像素矩形（相对源图）；越界按图幅取整求交；无交集 → IMAGES_CROP_OUT_OF_RANGE
+      cropRatio?: number      // 带比例时取交集内最大等比框（锚点 = 交集左上角）
+      flatten?: string        // 非 alpha 输出格式（jpeg）的透明底合成色，缺省 '#ffffff'（与既有白底口径一致）
+      keepMetadata?: boolean  // 缺省 false = 剥 EXIF/ICC 等（与旧 canvas 路径同效）
+    }): Promise<{ data: Uint8Array; width: number; height: number; bytes: number; format: 'jpeg' | 'png' | 'webp' }>
+  }
   notify(title: string, body: string): boolean
 
   /** 账号登录态（v2.5 增量接通）：同步签名；未登录 → null；permissions.account !== true 时恒 null。
@@ -291,12 +311,14 @@ export interface PluginHost {
 <!-- contract:v1:host.events -->
 <!-- contract:v1:host.workspace -->
 <!-- contract:v1:host.dialog -->
+<!-- contract:v1:host.images -->
 <!-- contract:v1:host.notify -->
 <!-- contract:v1:host.account -->
 <!-- contract:v1:host.files -->
 <!-- contract:v1:host.entitlement -->
 
 > **host.dialog 语义（v2.6.1 起明写，三条都是契约）**：① **取消与失败必须可分辨**——取消回空值（`openFiles` → `[]`；`openFile` / `openDirectory` → `''`），失败抛带 `code` 的业务错误（`DIALOG_FAILED`），**不得两者都回空**；② **返回的是裸值不是信封**——`host.*` 主进程面的既有约定是返回值语义、异常经 `code` 区分，与渲染桥 `qihebox.*` 的 `ApiResult` 语义不同，别按信封拆（按信封读裸值 = 把用户选好的一批当取消静默丢弃）；③ **只增不改**——`openFile` / `openDirectory` 的形状与取消语义一字不动。`openFiles` 单批上限 200（宿主侧截断，超出部分未取入），可选成员 + 能力探测见上。
+> **host.images 语义（v2.6.1 起，本段是契约）**：① **只做内存变换、宿主不写盘**——`transform` 只返回 `{ data, width, height, bytes, format }`，**输出文件由插件自己落**（命名与存在性检查本来就是插件的事）；源只按传入的 `source` 绝对路径读，不碰工作区白名单外的任何写面。② **顺序**：`crop → rotate → resize`（三个都给时按此序；`crop` 矩形相对**源图**，越界部分按图幅取整求交，与图幅无交集 → `IMAGES_CROP_OUT_OF_RANGE`；90/270 旋转交换宽高，resize 的 contain/scale 按旋转后的有效宽高算）。③ **默认档**：`quality` 缺省 85（png 忽略）；`maxWidth/maxHeight` 缺省档 = contain **等比内缩、绝不放大**（`scale` 给定时优先于两者；`stretch: true` 且两边都给 = 精确宽高不保比例）；`flatten` 仅对非 alpha 输出格式（jpeg）生效、缺省 `'#ffffff'`（透明底铺白）；`keepMetadata` 缺省 false = 剥 EXIF/ICC。④ **格式与像素闸**：源按**内容**判、只认 jpeg/png/webp（输出格式缺省随源，扩展名不认识时看真实格式）；`w*h > 1e8` 像素在解码前拒（`IMAGES_TOO_LARGE`，文案报实际宽高与上限）。⑤ **错误码表（均带 `code`、不计熔断、中文人话）**：`IMAGES_BAD_REQUEST`（参数非法）/ `IMAGES_UNSUPPORTED_FORMAT`（输出格式值非法，或源内容不是三格式）/ `IMAGES_READ_FAILED`（源读不到：宿主 `readFile` 阶段失败）/ `IMAGES_DECODE_FAILED`（sharp 侧失败：坏图/非图/变换与编码失败）/ `IMAGES_CROP_OUT_OF_RANGE` / `IMAGES_TOO_LARGE` / `IMAGES_ENGINE_UNAVAILABLE`（引擎加载失败；该实例此后**每次调用**都以此码失败）。**引擎原文只进宿主日志、绝不进用户面**（sharp 失败是外层无 `code` 的聚合 Error、文案随 locale 变甚至乱码）。⑥ **可选成员 + 能力探测**：旧宿主（≤2.6.0）无此成员 ⇒ `typeof host.images?.transform === 'function'`，缺席时插件自行降级并如实说明（不得静默）；引擎不可用（旧/坏安装）时调用会以 `IMAGES_ENGINE_UNAVAILABLE` 失败，插件同样要给出中文出路而不是白屏。
 > **`getPathForFile`（稳定 util 契约，v2.6.1 起上台面，实现零变更）**：`window.qihebox.getPathForFile(file: File): string`——把一个渲染层的 `File`（拖放/粘贴来的）换成**本机绝对路径**（宿主 preload 里是 Electron `webUtils.getPathForFile` 的直通，同步返回）。插件渲染层取拖入文件的真实路径**唯一推荐**用它（cloud / tools 两处官方插件已在用）；**不要读 `File.path`**——那是 Electron 32 已移除的旧属性，宿主现锁 ^31 只是暂时还能用。它属渲染层桥（`qihebox.*` 命名空间）但不是 IPC，**没有 ApiResult 包装、也不是 Promise**；非本地文件等异常情形的结果随 Electron 该 API 本身，调用方按需自行兜底。
 
 > **host.account.cloudFetch 错误码（v2.5.7 F4a）**：`PERMISSION_DENIED`（未声明 `permissions.account`）/ `NOT_LOGGED_IN`（未登录）/ `NO_SERVER`（未配置服务器地址）/ `INVALID_NAME`（路径非 `/` 开头相对路径）/ `NOT_ALLOWED`（非 `/api/box/*` 或 `/api/ai/*` 前缀）。以上均带 `code` 属性、不计入熔断计数。响应体处理与超时策略由插件侧负责（宿主只负责代签与转发，不解析业务载荷）。
@@ -905,4 +927,4 @@ window.qihebox.ui.openEntity(
 
 ---
 
-*协议版本：v1（API_VERSION = 1，随 v2.5 宿主生效；2026-08-14 增量：syncScope / permissions.account / host.account / host.files / host.entitlement / 侧载收紧，均为向后兼容新增；2026-09-22 补：§二/§八 加「更新即重启」生效口径——非协议变更，仅承诺口径补全；2026-09-23 补：§5.6 `listTree` 条目形状钉死（只认 `kind`）、`STALE` 抛错口径钉死、§三 规则计数勘正——均为口径澄清，非协议变更；**同日 v2.6 批 2 实装**：§5.3 `catalog()` + `PluginCatalogEntry` 形状 + `install({ downloadUrl, sha256 })` 双形态与目录/下载链错误码、§二 安装链、§三.4 选版口径、§5.3 `app.relaunch()`——`catalog()` / 官方索引安装形态从「当前未实现」转为实装口径；同日 **v2.6 批 3 实装**：§一 插件分发口径改写（原「安装包不内置任何插件」→ 支持官方预装）+ §六 新增「官方预装（离线可用）」段——非协议变更（无新字段、无新通道、无新 IPC），仅分发形态与承诺口径补全）；2026-09-23 勘正（2.6 放行审查轮 2）：§〇「权益标记」措辞改为与实现一致（宿主零门槛校验，闸在云端取钥面）、§六 补「取钥失败的用户可见口径」（原因 + 下一步，fail-closed 不变）——仅口径澄清，非协议变更）；**2026-09-24 v2.6.1 增量**：§5.1 `host.workspace.defaultPath?()`（默认工作区**只读**持久指针，可选成员 + 能力探测，零权限位）——向后兼容新增，`API_VERSION` 仍 1，`currentPath()` / `list()` 签名与行为零改动；**2026-09-25 v2.6.1 增量（B8）**：§5.1 `host.dialog.openFiles?()`（多选，上限 200 宿主截断，可选成员 + 能力探测）+ §5.1 host.dialog 三条语义（取消≠失败 / 裸值非信封 / 只增不改）明写 + `getPathForFile` 升为稳定 util 契约（实现零变更）——同为向后兼容新增，`openFile` / `openDirectory` 形状与取消语义一字未动。**2026-09-25 v2.6.2 增量**：§5.3 目录条目新增展示三字段 `images?` / `detail?` / 每版 `releaseNotes?`（官方目录 → 管理页「详情」弹窗：截图可翻、功能介绍、按版更新说明）——同为向后兼容新增，`API_VERSION` 仍 1，承重字段判据一字未动，新增的「宽容只限展示位」边界由单测分两头钉住。**在途：2.6.1 / 2.6.2 未发布**，宿主能力探测为准；发布前以本句为时效标记） · 本文档在公开仓库维护，契约修订与实现同步*
+*协议版本：v1（API_VERSION = 1，随 v2.5 宿主生效；2026-08-14 增量：syncScope / permissions.account / host.account / host.files / host.entitlement / 侧载收紧，均为向后兼容新增；2026-09-22 补：§二/§八 加「更新即重启」生效口径——非协议变更，仅承诺口径补全；2026-09-23 补：§5.6 `listTree` 条目形状钉死（只认 `kind`）、`STALE` 抛错口径钉死、§三 规则计数勘正——均为口径澄清，非协议变更；**同日 v2.6 批 2 实装**：§5.3 `catalog()` + `PluginCatalogEntry` 形状 + `install({ downloadUrl, sha256 })` 双形态与目录/下载链错误码、§二 安装链、§三.4 选版口径、§5.3 `app.relaunch()`——`catalog()` / 官方索引安装形态从「当前未实现」转为实装口径；同日 **v2.6 批 3 实装**：§一 插件分发口径改写（原「安装包不内置任何插件」→ 支持官方预装）+ §六 新增「官方预装（离线可用）」段——非协议变更（无新字段、无新通道、无新 IPC），仅分发形态与承诺口径补全）；2026-09-23 勘正（2.6 放行审查轮 2）：§〇「权益标记」措辞改为与实现一致（宿主零门槛校验，闸在云端取钥面）、§六 补「取钥失败的用户可见口径」（原因 + 下一步，fail-closed 不变）——仅口径澄清，非协议变更）；**2026-09-24 v2.6.1 增量**：§5.1 `host.workspace.defaultPath?()`（默认工作区**只读**持久指针，可选成员 + 能力探测，零权限位）——向后兼容新增，`API_VERSION` 仍 1，`currentPath()` / `list()` 签名与行为零改动；**2026-09-25 v2.6.1 增量（B8）**：§5.1 `host.dialog.openFiles?()`（多选，上限 200 宿主截断，可选成员 + 能力探测）+ §5.1 host.dialog 三条语义（取消≠失败 / 裸值非信封 / 只增不改）明写 + `getPathForFile` 升为稳定 util 契约（实现零变更）——同为向后兼容新增，`openFile` / `openDirectory` 形状与取消语义一字未动。**2026-09-26 v2.6.1 增量（B14）**：§5.1 `host.images?()`（宿主内置图像引擎口：读源 → 内存变换 → 返回编码字节，**宿主不写盘**；顺序 crop → rotate → resize；七错误码 `IMAGES_*`；可选成员 + 能力探测）——向后兼容新增，`API_VERSION` 仍 1，既有成员零改动。**2026-09-25 v2.6.2 增量**：§5.3 目录条目新增展示三字段 `images?` / `detail?` / 每版 `releaseNotes?`（官方目录 → 管理页「详情」弹窗：截图可翻、功能介绍、按版更新说明）——同为向后兼容新增，`API_VERSION` 仍 1，承重字段判据一字未动，新增的「宽容只限展示位」边界由单测分两头钉住。**在途：2.6.1 / 2.6.2 未发布**，宿主能力探测为准；发布前以本句为时效标记） · 本文档在公开仓库维护，契约修订与实现同步*

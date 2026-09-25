@@ -26,6 +26,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
+import sharp from 'sharp'
 import { API_VERSION, validateManifest, type PluginHost } from '../../src/plugins/types'
 import { createPluginHost, HostEventBus, HOST_EVENT_WHITELIST, DEFAULT_STORAGE_LIMITS } from '../../src/main/plugins/host'
 import { PluginLoader, BREAK_THRESHOLD } from '../../src/main/plugins/loader'
@@ -500,6 +501,34 @@ const CONTRACT: Record<string, ContractEntry> = {
       // 插件拿到的就是 electron 的原始异常形状（无 code），B8 的「失败可分辨」承诺当场破。
       const ipcSrc = readSource('src/main/plugins/ipc.ts')
       expect(ipcSrc).toContain('createDialogCapability')
+    },
+  },
+  'contract:v1:host.images': {
+    stage: 'v1',
+    check: async (deps) => {
+      // v2.6.1（B14）：宿主内置图像引擎口——成员恒挂（装配层必须接线），行为面走真链
+      // （createPluginHost 默认注入：真 sharp 动态 import + 真 fsp；小图现造现转，断言真实编码）。
+      expect(typeof deps.host.images?.transform, 'images 成员须恒挂（可选是给旧宿主插件探测用的）').toBe('function')
+      const src = path.join(deps.stateDir, 'images-contract-src.png')
+      await sharp({ create: { width: 8, height: 4, channels: 3, background: { r: 200, g: 40, b: 40 } } })
+        .png()
+        .toFile(src)
+      const out = await deps.host.images!.transform({ source: src, maxWidth: 2, maxHeight: 2 })
+      expect({ w: out.width, h: out.height }, 'contain 等比内缩（8×4 + 上限 2 → 2×1）').toEqual({ w: 2, h: 1 })
+      expect(out.format, '缺省随源（.png → png）').toBe('png')
+      expect(out.bytes).toBe(out.data.length)
+      expect(Buffer.from(out.data.slice(0, 4)).toString('hex'), 'PNG 魔数（真实编码）').toBe('89504e47')
+      // 分类可分辨：文件级失败 READ_FAILED / 参数非法 BAD_REQUEST（都不靠引擎文案）
+      await expect(
+        deps.host.images!.transform({ source: path.join(deps.stateDir, 'images-missing.png') }),
+      ).rejects.toMatchObject({ code: 'IMAGES_READ_FAILED' })
+      await expect(deps.host.images!.transform({ source: src, rotate: 45 as never })).rejects.toMatchObject({
+        code: 'IMAGES_BAD_REQUEST',
+      })
+      // 接线源断言：装配层若摘掉 createImagesCapability（或不再动态加载真 sharp），能力口当场缺席
+      const hostSrc = readSource('src/main/plugins/host.ts')
+      expect(hostSrc).toContain('createImagesCapability')
+      expect(hostSrc).toContain("import('sharp')")
     },
   },
   'contract:v1:host.notify': {
