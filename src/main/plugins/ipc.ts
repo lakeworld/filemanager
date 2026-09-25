@@ -198,7 +198,9 @@ export function registerPluginHost(
         bus,
         log: (level, msg) => void log(level, `[plugin:${id}] ${msg}`),
         workspace: {
-          currentPath: () => box.workspace.currentWorkspacePath(),
+          // v2.6.1：core 在「没开工作区」时返回空串，而契约承诺 `string | null` ⇒ 装配层归一为 null
+          // （不留空串这条二义：插件按 `!== null` 判「有没有工作区」正是文档教的写法）。
+          currentPath: () => box.workspace.currentWorkspacePath() || null,
           list: () => box.workspace.list(),
           // v2.6.1：默认工作区 = userData/settings.json 的持久指针（不是 currentWS）⇒ 插件在 activate 期
           // 就能知道「本次启动将要打开哪个盘」，不受 registerPluginHost 早于工作区恢复的时序影响。只读。
