@@ -125,7 +125,7 @@ describe('供应商服务（v2.4.9 S2）', () => {
       expect((await fsp.stat(path.join(root2, sub))).isDirectory()).toBe(true)
     }
     // 乙不再建旧固定集
-    await expect(fsp.stat(path.join(root2, '合同'))).rejects.toBeTruthy()
+    await expect(fsp.stat(path.join(root2, '合同'))).rejects.toThrow(/ENOENT/)
   })
 
   it('update：字段更新持久化 + updated_at 刷新；list() 返回一致', async () => {

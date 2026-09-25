@@ -152,4 +152,52 @@ test.describe('回收站恢复子文件夹：界面与 config 同步', () => {
     const tabs = await page.evaluate(() => Array.from(document.querySelectorAll('.seg-item')).map((b) => b.textContent?.trim()))
     expect(tabs, `恢复后子文件夹标签没回来（tab 名单以盘为准，见 A9 刀1b/2a）：当前 tabs=${JSON.stringify(tabs)}`).toContain('恢复验证类')
   })
+
+  /**
+   * 2.6.1/B16（数据丢失类，用户拍板）：回收站期限上屏。
+   * 背景：README 三处写「30 天内可恢复」，而旧界面空态只写「可随时恢复」、行内不显示剩余天数，
+   * 启动时 cleanupExpired() 会静默不可逆清理 ⇒ 用户按界面建立的心智是「放着就还在」。
+   * 本条钉两件事：① 空态写明保留期；② 行内剩余天数按「删除时间 + 保留期」实时算
+   * （把 meta.deletedAt 改到 25 天前 → 必须显示「剩余 5 天」，而不是写死的 30）。
+   */
+  test('B16 期限上屏：空态写明 30 天；行内显示按删除时间算出的剩余天数', async () => {
+    // 1) 空态：先确保回收站无条目（本文件首条用例恢复完已清空；这里显式兜底防用例顺序变化）
+    await page.evaluate(async () => {
+      const r = await (window as any).qihebox.trash.list()
+      if ((r.data?.length ?? 0) > 0) await (window as any).qihebox.trash.empty()
+    })
+    await page.evaluate(() => {
+      window.location.hash = decodeURIComponent('/trash')
+    })
+    await expect(page.getByText(/30 天内可恢复/)).toBeVisible({ timeout: 10000 })
+
+    // 2) 造一条删除（工作区根下的文件 → files.delete 移入回收站）
+    const fileName = '期限取证.md'
+    await fsp.writeFile(path.join(wsDir, fileName), '# 期限取证')
+    const del = await page.evaluate(
+      async (p) => (window as any).qihebox.files.delete([p]),
+      path.join(wsDir, fileName),
+    )
+    expect(del.success).toBe(true)
+
+    // 3) 把该条目 deletedAt 改到 25 天前：30 天窗口内 ⇒ 行内应显示「剩余 5 天」（非写死的 30）
+    const entries = (await page.evaluate(async () => (await (window as any).qihebox.trash.list()).data)) as Array<{ id: string; name: string }>
+    const hit = entries.find((e) => e.name.includes('期限取证'))
+    expect(hit, `回收站里找不到刚删的文件：${JSON.stringify(entries).slice(0, 300)}`).toBeTruthy()
+    const metaPath = path.join(wsDir, '.qihefilemanager', 'trash', hit!.id, 'meta.json')
+    const meta = JSON.parse(await fsp.readFile(metaPath, 'utf-8'))
+    meta.deletedAt = new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString()
+    await fsp.writeFile(metaPath, JSON.stringify(meta, null, 2))
+
+    // 4) 换路由再回来（同 hash 不重新挂载，回收站页在挂载时拉列表）
+    await page.evaluate(() => {
+      window.location.hash = decodeURIComponent('/invoices')
+    })
+    await page.evaluate(() => {
+      window.location.hash = decodeURIComponent('/trash')
+    })
+    const row = page.locator('.card', { hasText: '期限取证' })
+    await expect(row).toBeVisible({ timeout: 10000 })
+    await expect(row, '行内剩余天数必须按删除时间算：25 天前删 → 剩余 5 天').toContainText('剩余 5 天')
+  })
 })

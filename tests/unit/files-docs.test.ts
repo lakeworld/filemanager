@@ -74,7 +74,7 @@ describe('产品集文档目录（v2.5.1 F1：文档/ 与图包/证书并列）'
     }
     await box.files.deleteSubfolder({ product_set: '系列A', file_type: 'doc', name: '安装手册' })
     // 目录已移入回收站（产品集下不再存在）
-    await expect(fsp.stat(path.join(ws, '产品集', '系列A', '文档', '安装手册'))).rejects.toBeTruthy()
+    await expect(fsp.stat(path.join(ws, '产品集', '系列A', '文档', '安装手册'))).rejects.toThrow(/ENOENT/)
     const cfg = await box.workspace.loadConfig(ws)
     expect(cfg.doc_subfolders).toContain('安装手册') // A9 刀2a：删除只作用于本实体，**不动全站模板表**（旧断言钉的正是用户报的「删一个动全身」）
   })

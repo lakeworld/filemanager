@@ -356,7 +356,12 @@ describe('悬案 · 就地改名 renameSubfolderInEntity', () => {
     await expect(
       box.workspace.renameSubfolderInEntity('image', '甲集', '主图', '笔记'),
     ).rejects.toThrow(/不能重命名为/)
-    expect(ws).toBeTruthy()
+    // 三条红线拒了就必须"盘上原样"（旧断言 `expect(ws).toBeTruthy()` 只是占名额的死断言）：
+    // 失败尝试不得留下半成品目录、也不得把源目录真的改走
+    const dirs = (await listActualSubfolders(path.join(ws, '产品集', '甲集', '图包'))).map((e) => e.name)
+    expect(dirs, '①被拒后源目录「占位」必须原样还在').toContain('占位')
+    expect(dirs, '②③被拒后默认目录「主图」必须原样还在').toContain('主图')
+    expect(dirs, '内建名「笔记」不得被红线尝试真的改出来').not.toContain('笔记')
   })
 })
 

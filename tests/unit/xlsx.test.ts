@@ -21,7 +21,7 @@ describe('XLSX 模板导出与批量导入（对照原 xlsx_test.go）', () => {
     await box.xlsxExportTemplate(templatePath)
     await expect(fsp.stat(templatePath)).resolves.toBeTruthy()
 
-    // 填数据（覆盖示例行 + 新增一行）
+    // 填数据（第 2 行起为数据区）
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.readFile(templatePath)
     const sheet = wb.worksheets[0]
@@ -56,5 +56,33 @@ describe('XLSX 模板导出与批量导入（对照原 xlsx_test.go）', () => {
 
     const created = await box.xlsxImport(templatePath)
     expect(created).toHaveLength(1)
+  })
+
+  /**
+   * 2.6.1/B16（用户拍板第三处）：示例行从 A2 挪成 A1 批注。
+   * 旧版模板 A2 写死「示例产品集」，而导入循环从第 2 行起全当真数据 ⇒ 用户下载模板 →
+   * 原样导入（或直接往后接着填）会凭空多出一个「示例产品集」；旧 e2e 夹具恰好把 A2 覆盖掉，
+   * 这条缺陷一直没被看见。本条的承重判据 =「原样导入模板不产出任何产品集」。
+   */
+  it('原样导入模板（不填任何数据）→ 0 个产品集；示例只住在 A1 批注里', async () => {
+    const home = await tmp()
+    const ws = await tmp()
+    const box = buildTestBox(home)
+    await box.workspace.create(ws)
+
+    const templatePath = path.join(ws, 'raw-template.xlsx')
+    await box.xlsxExportTemplate(templatePath)
+
+    // 模板本身没有数据行：A2 为空；示例在 A1 批注（exceljs cell.note，保留教学示例）
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.readFile(templatePath)
+    const sheet = wb.worksheets[0]
+    expect(sheet.getCell('A2').value ?? null).toBeNull()
+    expect(JSON.stringify(sheet.getCell('A1').note ?? '')).toContain('示例产品集')
+
+    // ★ 真链判据：原样导入不产出任何产品集（旧版这里会多出「示例产品集」）
+    const created = await box.xlsxImport(templatePath)
+    expect(created).toHaveLength(0)
+    expect((await box.workspace.productSetList()).map((p) => p.name)).not.toContain('示例产品集')
   })
 })

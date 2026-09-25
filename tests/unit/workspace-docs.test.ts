@@ -61,7 +61,7 @@ describe('产品集文档目录——workspace 侧（v2.5.1 F1）', () => {
     expect(cfg.doc_subfolders).not.toContain('说明书')
     // 系列A 目录真实迁移
     await expect(fsp.stat(path.join(ws, '产品集', '系列A', '文档', '使用说明', 'a.md'))).resolves.toBeTruthy()
-    await expect(fsp.stat(path.join(ws, '产品集', '系列A', '文档', '说明书'))).rejects.toBeTruthy()
+    await expect(fsp.stat(path.join(ws, '产品集', '系列A', '文档', '说明书'))).rejects.toThrow(/ENOENT/)
     // 系列B 未建源目录 → 静默跳过（幂等）
   })
 

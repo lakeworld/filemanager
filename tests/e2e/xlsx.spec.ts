@@ -73,4 +73,32 @@ test.describe('XLSX 批量导入', () => {
 
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
+
+  /**
+   * 2.6.1/B16 真链判据：原样导入下载来的模板不产出任何产品集。
+   * 旧版模板 A2 是数据行「示例产品集」，导入循环从第 2 行起当真数据 ⇒ 直接导入模板会凭空
+   * 多出一个产品集；上一条用例（导出模板 → 填数据）恰好把 A2 覆盖掉，从未走到这一格。
+   * 现模板把示例挪进 A1 批注、不含数据行 ⇒ 本条的 0 就是承诺本身；「填了数据仍能导入」
+   * 由上一条用例守着。
+   */
+  test('B16：原样导入模板 → 0 个产品集、不产出「示例产品集」', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-xlsx-raw-e2e-'))
+    const createRes = await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    expect(createRes.success).toBe(true)
+
+    const templatePath = path.join(wsDir, 'raw.xlsx')
+    const exportRes = await page.evaluate(async (p) => (window as any).qihebox.xlsx.exportTemplate(p), templatePath)
+    expect(exportRes.success).toBe(true)
+
+    // 不填任何数据，原样导入
+    const importRes = await page.evaluate(async (p) => (window as any).qihebox.xlsx.import(p), templatePath)
+    expect(importRes.success).toBe(true)
+    expect(importRes.data).toHaveLength(0)
+
+    const listRes = await page.evaluate(async () => (window as any).qihebox.productSets.list())
+    expect(listRes.data.map((p: { name: string }) => p.name)).not.toContain('示例产品集')
+    expect(listRes.data).toHaveLength(0)
+
+    await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
 })

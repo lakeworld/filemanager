@@ -290,4 +290,74 @@ test.describe('发票台账 e2e（v2.4.7）', () => {
       await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
     }
   })
+
+  /**
+   * 2.6.1/B16 · M2 接线钉（账物分离的 UI 初值）：删除台账记录的弹窗**默认不勾**「同时删除归档文件」，
+   * 勾上才带 deleteFile ⇒ 归档文件才移进回收站。
+   * 主进程 `invoices.remove` 侧两态已有断言；UI 侧的初值（Invoices.tsx `withFile: false`）从未被
+   * 任何测试真点过——把它改成 true，全量单测与相关 e2e 照绿，而用户点「删除记录」就会
+   * 连带把归档 PDF/图片移走（他什么都没勾）。本用例真点弹窗两态：
+   *  ① 不勾 → 确认：记录没了，归档文件仍在盘上；
+   *  ② 勾上 → 确认：记录没了，归档文件从原路径移走、回收站多一条 file 条目。
+   */
+  test('B16：删除记录弹窗默认不勾「同时删除归档文件」——不勾文件仍在，勾上才移走', async () => {
+    const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'qihebox-invoices-del-e2e-'))
+    await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
+    try {
+      /** 造一条「归档文件 + 台账记录」，返回归档相对路径 */
+      const makeRecord = async (number: string, tag: string): Promise<string> => {
+        const src = path.join(wsDir, '..', `e2e-del-${tag}-${Date.now()}.pdf`)
+        await fsp.writeFile(src, '%PDF-1.4')
+        const arc = await page.evaluate(async (p) => (window as any).qihebox.invoices.archiveFile(p, '2026-09-20'), src)
+        expect(arc.success).toBe(true)
+        const c = await page.evaluate(
+          async (req) => (window as any).qihebox.invoices.create(req),
+          {
+            number, code: 'A001', date: '2026-09-20', amount: 66,
+            seller: '开票方甲', buyer: '购买方乙', status: '待报销', file_path: arc.data, tags: [],
+          },
+        )
+        expect(c.success).toBe(true)
+        return arc.data as string
+      }
+      const openDeleteDialog = async (number: string) => {
+        const row = page.locator('.card', { hasText: number }).first()
+        await expect(row).toBeVisible({ timeout: 15000 })
+        await row.hover() // 行内动作钮平时 opacity-0（悬停才显形），先悬停再点
+        await row.getByTitle('删除').click()
+        const dlg = page.getByRole('dialog', { name: '删除发票记录' })
+        await expect(dlg).toBeVisible({ timeout: 5000 })
+        return { row, dlg }
+      }
+
+      // —— ① 默认不勾直接确认 → 归档文件必须仍在盘上 ——
+      const keepRel = await makeRecord('B16-KEEP-001', 'keep')
+      await gotoRoute('/invoices')
+      const keepAbs = path.join(wsDir, ...keepRel.split('/'))
+      const one = await openDeleteDialog('B16-KEEP-001')
+      await expect(one.dlg.locator('input[type="checkbox"]'), '默认必须未勾（账物分离：删记录不动文件）').not.toBeChecked()
+      await one.dlg.getByRole('button', { name: '删除', exact: true }).click()
+      await expect(one.row).toHaveCount(0, { timeout: 8000 })
+      await expect(fsp.stat(keepAbs), '不勾「同时删除归档文件」时归档文件不得被移走').resolves.toBeTruthy()
+
+      // —— ② 勾上再确认 → 归档文件从原路径移入回收站 ——
+      const moveRel = await makeRecord('B16-MOVE-002', 'move')
+      await gotoRoute('/invoices') // 经 IPC 建的记录不在界面列表里，重挂载一次拉新
+      const moveAbs = path.join(wsDir, ...moveRel.split('/'))
+      const two = await openDeleteDialog('B16-MOVE-002')
+      await two.dlg.locator('input[type="checkbox"]').check()
+      await two.dlg.getByRole('button', { name: '删除', exact: true }).click()
+      await expect(two.row).toHaveCount(0, { timeout: 8000 })
+      await expect(fsp.stat(moveAbs), '勾上后归档文件应已移出原路径').rejects.toThrow(/ENOENT/)
+      const inTrash = await page.evaluate(async (abs) => {
+        const r = await (window as any).qihebox.trash.list()
+        return ((r.data ?? []) as Array<{ originalPath?: string; original_path?: string }>).some(
+          (e) => (e.originalPath ?? e.original_path) === abs,
+        )
+      }, moveAbs)
+      expect(inTrash, '勾上后归档文件必须出现在回收站（不是硬删）').toBe(true)
+    } finally {
+      await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+    }
+  })
 })

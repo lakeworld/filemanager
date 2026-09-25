@@ -281,7 +281,7 @@ describe('v2.4.7 files scope（§4.6）', () => {
     }
     await box.files.deleteSubfolder({ product_set: '张三', file_type: 'image', name: '样品', scope: 'customer' })
 
-    await expect(fsp.stat(path.join(ws, '客户', '张三', '样品'))).rejects.toBeTruthy()
+    await expect(fsp.stat(path.join(ws, '客户', '张三', '样品'))).rejects.toThrow(/ENOENT/)
     const cfg = await box.workspace.loadConfig()
     expect(cfg.customer_subfolders).toContain('样品') // A9 刀2a：删除只作用于本实体，**不动全站模板表**（旧断言钉的正是用户报的「删一个动全身」）
     // 回收站条目（kind=subfolder，恢复逻辑按原路径首段回填 customer_subfolders）
@@ -337,7 +337,7 @@ describe('v2.4.7 files scope（§4.6）', () => {
     }
     await box.files.deleteSubfolder({ product_set: '甲', file_type: 'image', name: '样品', scope: 'supplier' })
 
-    await expect(fsp.stat(path.join(ws, '供应商', '甲', '样品'))).rejects.toBeTruthy()
+    await expect(fsp.stat(path.join(ws, '供应商', '甲', '样品'))).rejects.toThrow(/ENOENT/)
     const cfg = await box.workspace.loadConfig()
     expect(cfg.supplier_subfolders).toContain('样品') // A9 刀2a：删除只作用于本实体，**不动全站模板表**（旧断言钉的正是用户报的「删一个动全身」）
     // 回收站条目（kind=subfolder）
