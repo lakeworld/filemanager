@@ -7,6 +7,7 @@ import VirtualGrid from "~/components/VirtualGrid";
 import ConfirmDialog from "~/components/ConfirmDialog";
 import EmptyState from "~/components/EmptyState";
 import Loading from "~/components/Loading";
+import { TRASH_RETENTION_DAYS, trashDaysLeftLabel } from "~/constants/trash";
 import type { TrashEntry } from "~/types";
 
 function formatBytes(bytes: number): string {
@@ -192,8 +193,10 @@ export default function Trash() {
           </span>
         </div>
         <div class="text-xs text-surface-400 truncate mt-0.5">原位置：{relLocation(e.originalPath, currentWorkspace()?.path ?? "")}</div>
+        {/* 2.6.1/B16 期限上屏（数据丢失类）：数据只在回收站活 TRASH_RETENTION_DAYS 天，
+            启动时静默不可逆清理 ⇒ 每条必须显示按「删除时间 + 保留期」算出的剩余天数 */}
         <div class="text-xs text-surface-400 mt-0.5">
-          删除于 {formatTime(e.deletedAt)} · {formatBytes(e.size)}
+          删除于 {formatTime(e.deletedAt)} · {formatBytes(e.size)} · {trashDaysLeftLabel(e.deletedAt)}
         </div>
       </div>
       <div class="flex gap-2 shrink-0">
@@ -249,7 +252,12 @@ export default function Trash() {
         fallback={
           // v2.5.2：首载 loading 兜底，空态不闪现
           <Show when={!loading()} fallback={<Loading text="回收站加载中…" />}>
-            <EmptyState icon="🕳️" title="回收站是空的" desc="删除的文件会先移到这里，可随时恢复" />
+            {/* 2.6.1/B16：空态写明保留期——旧文案「可随时恢复」与启动静默清理相悖（用户以为放着就还在） */}
+            <EmptyState
+              icon="🕳️"
+              title="回收站是空的"
+              desc={`删除的内容会先移到这里，${TRASH_RETENTION_DAYS} 天内可恢复；到期后应用启动时自动清理`}
+            />
           </Show>
         }
       >

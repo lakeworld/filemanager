@@ -39,6 +39,13 @@ export type { TrashEntry, TrashKind } from '../../shared/types'
 
 export const TRASH_DIR = 'trash'
 
+/**
+ * 回收站保留期（天，2.6.1/B16）：`cleanupExpired` 的默认窗口，也是全仓「N 天内可恢复」口径的唯一权威。
+ * 渲染层镜像常量在 `src/renderer/src/constants/trash.ts`（渲染层不能 import core），
+ * 同源钉 = `tests/unit/trash.test.ts`：改主进程默认值而不同步渲染层/README ⇒ 必红。
+ */
+export const TRASH_RETENTION_DAYS = 30
+
 interface TrashMeta extends TrashEntry {}
 
 export class TrashService {
@@ -270,8 +277,9 @@ export class TrashService {
    * （purge 同时清理对应元数据与缩略图缓存，不留残留）。
    * 并发执行加速；单条失败跳过不阻断整体。返回清理条数。
    * 调用时机：应用启动时执行一次即可（运行中不重复扫描，避免误删）。
+   * 2.6.1/B16：默认窗口取常量 `TRASH_RETENTION_DAYS`（生产接线不传参 ⇒ 改这里就是改用户可见的保留期）。
    */
-  async cleanupExpired(maxDays = 30): Promise<number> {
+  async cleanupExpired(maxDays = TRASH_RETENTION_DAYS): Promise<number> {
     const entries = await this.list()
     const cutoff = Date.now() - maxDays * 24 * 60 * 60 * 1000
     const expired = entries.filter((e) => {

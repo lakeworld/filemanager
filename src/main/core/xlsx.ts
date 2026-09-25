@@ -42,11 +42,11 @@ export class XlsxService {
     header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF3B82F6' } }
     header.alignment = { horizontal: 'center', vertical: 'middle' }
 
-    // 示例行：灰色斜体 + 浅灰底
-    const example = ws.getCell('A2')
-    example.value = '示例产品集'
-    example.font = { italic: true, color: { argb: 'FF6B7280' } }
-    example.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }
+    // 2.6.1/B16：示例从 A2 数据行挪成 A1 单元格批注（exceljs `cell.note`）——
+    // 旧版 A2 写死「示例产品集」，而下方导入循环从第 2 行起全当真数据 ⇒ 用户下载模板、
+    // 原样导入（或只在后面接着填）就会凭空多出一个「示例产品集」；旧 e2e 夹具恰好把 A2 覆盖掉，
+    // 这条缺陷一直没被看见。改后模板不含任何数据行：原样导入 = 0 个产品集，示例留在批注里教怎么填。
+    header.note = '示例：示例产品集（每行填一个产品集名称，从第 2 行起填写；本批注只是提示，不会导入）'
 
     ws.getColumn(1).width = 24
 
@@ -55,9 +55,9 @@ export class XlsxService {
     inst.getCell('A1').value = '产品集导入模板使用说明'
     inst.getCell('A1').font = { bold: true, color: { argb: 'FFFFFFFF' } }
     inst.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF3B82F6' } }
-    inst.getCell('A3').value = '1. 在“产品集导入模板”工作表中填写数据，从第 3 行开始。'
+    inst.getCell('A3').value = '1. 在“产品集导入模板”工作表中填写数据，从第 2 行开始。'
     inst.getCell('A4').value = '2. 每行对应一个产品集，导入后仅创建产品集。'
-    inst.getCell('A5').value = '3. 第 2 行为示例数据，填写前请删除或覆盖。'
+    inst.getCell('A5').value = '3. 第 1 行是表头（鼠标悬停可看到示例批注），请勿填写数据。'
     inst.getCell('A6').value = '4. 产品集名称为必填项，不可为空。'
     inst.getColumn(1).width = 80
 
@@ -111,6 +111,8 @@ export class XlsxService {
 
     const created: ProductSetInfo[] = []
     const seen = new Set<string>()
+    // 从第 2 行起全按用户数据读（模板本身不含数据行：示例住在 A1 批注里）——
+    // 「原样导入模板不产出任何产品集」由 tests/unit/xlsx.test.ts 与 tests/e2e/xlsx.spec.ts 钉住。
     for (let r = 2; r <= sheet.rowCount; r++) {
       const row = sheet.getRow(r)
       if (allEmpty(row)) continue
