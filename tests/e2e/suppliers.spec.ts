@@ -424,6 +424,9 @@ test.describe('供应商维度 e2e（v2.4.9 S2）', () => {
     await page.waitForLoadState('domcontentloaded')
     await page.getByRole('button', { name: /设置/ }).click()
     await page.getByRole('heading', { name: '设置' }).waitFor({ timeout: 10000 })
+    // v2.6.1 起「供应商子文件夹」card 住「文件夹模板」页签（默认「通用」里只有开关类设置）
+    await page.getByRole('button', { name: '文件夹模板', exact: true }).first().click()
+    await expect(page.locator('.card', { has: page.getByRole('heading', { name: '供应商子文件夹' }) })).toBeVisible({ timeout: 10000 })
 
     // 供应商子文件夹 card：添加「样品夹」→ 保存设置 → config 落盘
     const card = page.locator('.card', { has: page.getByRole('heading', { name: '供应商子文件夹' }) })

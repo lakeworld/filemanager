@@ -111,7 +111,7 @@ test.describe('v2.5.7 渲染守卫（异常零容忍 + 新面回归）', () => {
   })
 
   test('旧档非法域标签在设置页可见（归全域，不隐身）', async () => {
-    await navigateTo('/settings')
+    await navigateTo('/settings?tab=tags') // v2.6.1 起标签树住「标签」页签（默认「通用」里没有它）
     await expect(page.getByText('标签管理')).toBeVisible({ timeout: 15000 })
     await expect(page.getByText('旧台账标', { exact: true })).toBeVisible()
     await expect(page.getByText('未来域标', { exact: true })).toBeVisible()

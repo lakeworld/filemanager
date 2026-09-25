@@ -53,10 +53,12 @@ test.describe('设置页标签树折叠', () => {
     if (wsDir) await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
   })
 
-  /** 进入设置页（侧边栏「设置」入口为 button，非 link） */
+  /** 进入设置页（侧边栏「设置」入口为 button，非 link）——v2.6.1 起标签树住「标签」页签，落页后先切过去 */
   const openSettings = async () => {
     await page.getByRole('button', { name: /设置/ }).first().click()
     await page.getByRole('heading', { name: '设置' }).waitFor({ timeout: 10000 })
+    await page.getByRole('button', { name: '标签', exact: true }).first().click()
+    await expect(page.getByRole('heading', { name: '标签管理' })).toBeVisible({ timeout: 10000 })
   }
 
   const childRow = (parent: string) => page.getByText(`└ ${parent}/`, { exact: false })

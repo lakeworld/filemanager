@@ -141,7 +141,7 @@ test.describe('删除确认弹窗：三面删除后不崩、且对象真的消�
       const tagRes = await page.evaluate(async () => (window as any).qihebox.tags.create('取证标签甲', '#ff0000'))
       expect(tagRes.success).toBe(true)
 
-      await navigateTo('/settings')
+      await navigateTo('/settings?tab=tags') // v2.6.1 起标签树住「标签」页签（默认「通用」里没有它）
       const tagName = page.locator('span.text-sm.font-medium.flex-1', { hasText: '取证标签甲' })
       await tagName.waitFor({ timeout: 10000 })
       await tagName.locator('..').getByRole('button', { name: '删除', exact: true }).click()
