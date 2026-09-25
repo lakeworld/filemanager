@@ -55,6 +55,13 @@ interface DialogProbe {
   last?: string
   code?: string
 }
+/** v2.6.1（B14）：host.images.transform 两态读数（正路径编码面 + 负路径错误码） */
+interface ImagesProbe {
+  ok?: boolean
+  reason?: string
+  out?: { width?: number; height?: number; bytes?: number; format?: string; magic?: string }
+  missing?: { ok?: boolean; code?: string }
+}
 interface SelfTestChecks {
   storage?: { ok?: boolean; value?: unknown; error?: string }
   files?: { ok?: boolean; content?: string; error?: string }
@@ -64,6 +71,8 @@ interface SelfTestChecks {
   workspace?: { path?: string | null; error?: string }
   /** v2.6.1（B8）：host.dialog.openFiles 四态读数（多选 / 取消 / 截断 / 失败分类） */
   dialog?: { ok?: boolean; reason?: string; multi?: DialogProbe; cancel?: DialogProbe; cap?: DialogProbe; fail?: DialogProbe }
+  /** v2.6.1（B14）：host.images.transform 两态读数（正路径 4×4→2×2 缩放 + 负路径 READ_FAILED） */
+  images?: ImagesProbe
 }
 
 test.describe('插件协议一致性体检（conformance）', () => {
@@ -321,6 +330,24 @@ test.describe('插件协议一致性体检（conformance）', () => {
         expect(checks.dialog.cap?.last, '截断保留前 200 条').toBe('/conformance/cap-199.png')
         expect(checks.dialog.fail?.ok, '对话框抛错 → 失败（不是空数组）').toBe(false)
         expect(checks.dialog.fail?.code, '失败带稳定 code（DIALOG_FAILED）').toBe('DIALOG_FAILED')
+      }
+
+      // —— v2.6.1（B14）：host.images 真装配链两态（缺该项的插件记跳过，不假绿）——
+      if (!checks.images) {
+        console.log('[conformance] 插件自测未覆盖 host.images（可选约定），跳过 images 往返')
+      } else if (checks.images.ok === false && checks.images.reason === 'no-images') {
+        console.log('[conformance] 宿主无 host.images（旧宿主形态），跳过 images 往返')
+      } else {
+        expect(checks.images.ok, 'images 自测应完成两态往返').toBe(true)
+        // 正路径：4×4 源 + maxWidth/maxHeight 2 ⇒ contain 2×2（不放大、等比、真实编码）
+        expect(checks.images.out?.width, 'contain：4×4 源 + 上限 2 → 2×2').toBe(2)
+        expect(checks.images.out?.height, 'contain：4×4 源 + 上限 2 → 2×2').toBe(2)
+        expect(checks.images.out?.format, '缺省随源（.png → png）').toBe('png')
+        expect(checks.images.out?.magic, 'PNG 魔数（返回字节是真编码）').toBe('89504e47')
+        expect(checks.images.out?.bytes, 'bytes 与真实字节数一致').toBeGreaterThan(0)
+        // 负路径：文件级失败必须是可分辨的错误码（不是静默空/黑图）
+        expect(checks.images.missing?.ok, '不存在的源 → 失败（不是空结果）').toBe(false)
+        expect(checks.images.missing?.code, '源读不到 → IMAGES_READ_FAILED').toBe('IMAGES_READ_FAILED')
       }
     })
 

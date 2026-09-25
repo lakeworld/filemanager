@@ -11,9 +11,20 @@
  *   '__conformance_multi__'  → 2 条路径      '__conformance_cancel__' → canceled
  *   '__conformance_cap__'    → 250 条路径     '__conformance_fail__'   → 抛错
  * 旧宿主（无 openFiles）→ checks.dialog = { ok:false, reason:'no-openFiles' }，spec 记跳过不假绿。
+ *
+ * v2.6.1（B14）：selfTest 增 `checks.images`——host.images.transform 真装配链两态：
+ * 正路径 = 写一张内嵌小 PNG（4×4，sharp 现造 96 B）到导出目录 → 以 maxWidth/maxHeight 2 变换，
+ * 回报 宽高/字节/格式/魔数（判据住 spec 侧：宿主最大值/尺寸不抄第二份）；负路径 = 不存在的源
+ * → 回报错误码（应为 IMAGES_READ_FAILED）。旧宿主（无 images）→ { ok:false, reason:'no-images' }，
+ * spec 记跳过不假绿。
+ *
  * 本入口为 CJS（module.exports），宿主经 import() 取 default.activate 握手（见 src/main/plugins/loader.ts）。
  */
 const SELF_ID = 'com.qihe.conformance.full'
+
+/** 4×4 纯色 PNG（96 B，sharp 现造）：images 正路径的源——内嵌避免夹具依赖 Node 图像库 */
+const IMAGES_SRC_PNG_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVQImWNQSFjwHxkzkC4AAGt4IfFcjJB6AAAAAElFTkSuQmCC'
 
 module.exports = {
   async activate(host) {
@@ -106,6 +117,37 @@ module.exports = {
             }
           } catch (err) {
             checks.dialog = { ok: false, reason: 'throw', error: String(err) }
+          }
+
+          // images（v2.6.1 B14）：宿主内置图像引擎口两态，原样回报读数（判据住 spec 侧）
+          try {
+            if (!host.images || typeof host.images.transform !== 'function') {
+              checks.images = { ok: false, reason: 'no-images' }   // 旧宿主形态：spec 记跳过
+            } else {
+              // 正路径：小 PNG 写进导出目录（写导出物是既有白名单能力），再按绝对路径经 images 变换
+              const srcName = 'conformance-images-src.png'
+              await host.files.writeExport(srcName, Buffer.from(IMAGES_SRC_PNG_B64, 'base64'))
+              const ws = String(host.workspace.currentPath() || '').replace(/\/+$/, '')
+              const source = ws + '/导出/' + SELF_ID + '_' + srcName
+              const out = await host.images.transform({ source: source, maxWidth: 2, maxHeight: 2 })
+              const missing = await host.images.transform({ source: source + '.missing.png' }).then(
+                () => ({ ok: true }),
+                (e) => ({ ok: false, code: e && e.code, message: e && e.message }),
+              )
+              checks.images = {
+                ok: true,
+                out: {
+                  width: out.width,
+                  height: out.height,
+                  bytes: out.bytes,
+                  format: out.format,
+                  magic: Buffer.from(out.data.slice(0, 4)).toString('hex'),
+                },
+                missing,
+              }
+            }
+          } catch (err) {
+            checks.images = { ok: false, reason: 'throw', error: String(err) }
           }
 
           return { ok: true, checks }

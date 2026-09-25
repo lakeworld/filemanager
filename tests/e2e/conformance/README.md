@@ -91,12 +91,14 @@ module.exports = {
 
 **可选自证项（v2.6.1 B8）**：`selfTest` 的 `checks` 里再加一项 `dialog` 可覆盖 `host.dialog.openFiles` 的四态往返（多选回裸数组 / 取消回 `[]` / >200 宿主截断 / 失败带 `DIALOG_FAILED`）。套件在步骤 d 之前会把主进程 `dialog.showOpenDialog` 换成按 **title 哨兵**应答的假实现（原生文件框在 e2e 里点不动），四个哨兵与夹具 `com.qihe.conformance.full/main/index.js` 成对：`__conformance_multi__` / `__conformance_cancel__` / `__conformance_cap__` / `__conformance_fail__`。宿主无 `openFiles`（旧宿主）时自测回 `{ ok:false, reason:'no-openFiles' }`，套件记跳过；**不返回 `dialog` 项 = 跳过该项**（不假绿）。
 
+**可选自证项（v2.6.1 B14）**：`selfTest` 的 `checks` 里再加一项 `images` 可覆盖 `host.images.transform` 的两态往返：正路径 = 写一张小 PNG 到导出目录、以绝对路径变换（`maxWidth/maxHeight`）并回报宽高/字节/格式/魔数；负路径 = 不存在的源应回 `IMAGES_READ_FAILED`。宿主无 `images`（旧宿主）时自测回 `{ ok:false, reason:'no-images' }`，套件记跳过；**不返回 `images` 项 = 跳过该项**（不假绿）。
+
 ## 内置夹具
 
 | 夹具 | 路径（构建后） | 用途 |
 |---|---|---|
 | `com.qihe.conformance.bad` | `out/plugins/com.qihe.conformance.bad.qbox` | **负路径**：`transport: 'http'`（非法）→ 断言宿主拒绝安装 |
-| `com.qihe.conformance.full` | `out/plugins/com.qihe.conformance.full.qbox` | **正路径全覆盖**：声明 pages+ipc+commands+全权限，实现 `conformance.selfTest` / `conformance.emit`（含 v2.6.1 的 `checks.dialog` 四态） |
+| `com.qihe.conformance.full` | `out/plugins/com.qihe.conformance.full.qbox` | **正路径全覆盖**：声明 pages+ipc+commands+全权限，实现 `conformance.selfTest` / `conformance.emit`（含 v2.6.1 的 `checks.dialog` 四态与 `checks.images` 两态） |
 
 > 注：插件 `id` 仅允许小写字母/数字/点（`validateManifest` 规则①，连字符非法），故夹具 id 用点分 `conformance.bad` / `conformance.full`（任务示例名中的连字符形为示意，不合法）。
 
