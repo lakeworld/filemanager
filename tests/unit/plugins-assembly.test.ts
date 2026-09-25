@@ -81,6 +81,7 @@ vi.mock('electron', () => {
 
 const { registerPluginHost } = await import('../../src/main/plugins/ipc')
 const { buildTestBox } = await import('./helpers')
+const { createSettings } = await import('../../src/main/settings')
 
 /** 真插件包：activate 注册一个 IPC，回读 host.workspace.currentPath()（值在调用时现读） */
 async function writeProbePlugin(id: string, ipcPrefix: string): Promise<void> {
@@ -123,7 +124,8 @@ describe('registerPluginHost：workspace 注入真链（v2.6.1）', () => {
     const handle = registerPluginHost(
       box,
       { getToken: () => null, isLoggedIn: () => false, getDeviceId: () => null },
-      { getDevMode: () => false, getAll: () => ({}) },
+      // 真 settings（未写过 → 真默认；defaultPath 指针为空）
+      createSettings(path.join(mockState.userData, 'settings')),
       '',
     )
     try {
@@ -150,7 +152,7 @@ describe('registerPluginHost：workspace 注入真链（v2.6.1）', () => {
     const handle = registerPluginHost(
       box,
       { getToken: () => null, isLoggedIn: () => false, getDeviceId: () => null },
-      { getDevMode: () => false, getAll: () => ({}) },
+      createSettings(path.join(mockState.userData, 'settings')),
       '',
     )
     try {
