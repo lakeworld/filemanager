@@ -2,7 +2,7 @@
   qihe-box API 兼容性守护基线（API_VERSION=1 · 只增不删）
   生成器：tests/unit/helpers/apiSurface.ts · 更新：npm run api:update
   TypeScript: 5.9.3
-  break-reason: host.workspace 增补可选成员 defaultPath?()（v2.6.1 默认工作区）与 host.dialog 增补可选成员 openFiles?()（v2.6.1 多选文件对话框）——均只增不删：旧方法签名与行为零破坏，聚合行文本随成员表变动（语义只增不改）
+  break-reason: host.workspace 增补可选成员 defaultPath?()（v2.6.1 默认工作区）、host.dialog 增补可选成员 openFiles?()（v2.6.1 多选文件对话框）与 host.images?()（v2.6.1 宿主内置图像引擎口）——均只增不删：旧方法签名与行为零破坏，聚合行文本随成员表变动（语义只增不改）
 -->
 
 # qihe-box 插件协议 API 面（types / preload / ipc）
@@ -80,6 +80,8 @@
 - PluginHost.files.readText(relPath: string): Promise<string>
 - PluginHost.files.writeExport(fileName: string, data: string | Uint8Array): Promise<void>
 - PluginHost.files: { readText(relPath: string): Promise<string>; readBuffer(relPath: string): Promise<Uint8Array>; writeExport(fileName: string, data: string | Uint8Array): Promise<void>; }
+- PluginHost.images.transform(req: { source: string; format?: 'jpeg' | 'png' | 'webp'; quality?: number; maxWidth?: number; maxHeight?: number; scale?: number; stretch?: boolean; rotate?: 0 | 90 | 180 | 270; crop?: { x: number; y: number; w: number; h: number; }; cropRatio?: number; flatten?: string; keepMetadata?: boolean; }): Promise<{ data: Uint8Array; width: number; height: number; bytes: number; format: 'jpeg' | 'png' | 'webp'; }>
+- PluginHost.images?: { transform(req: { source: string; format?: 'jpeg' | 'png' | 'webp'; quality?: number; maxWidth?: number; maxHeight?: number; scale?: number; stretch?: boolean; rotate?: 0 | 90 | 180 | 270; crop?: { x: number; y: number; w: number; h: number; }; cropRatio?: number; flatten?: string; keepMetadata?: boolean; }): Promise<{ data: Uint8Array; width: number; height: number; bytes: number; format: 'jpeg' | 'png' | 'webp'; }>; }
 - PluginHost.inbound.get(id: string): Promise<InboundProfile | null>
 - PluginHost.inbound.list(since?: string): Promise<InboundProfile[]>
 - PluginHost.inbound: { list(since?: string): Promise<InboundProfile[]>; get(id: string): Promise<InboundProfile | null>; }
