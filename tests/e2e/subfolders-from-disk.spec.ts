@@ -32,11 +32,20 @@ test.describe('A9 · 子文件夹 tab 以盘为准', () => {
 
   const segText = () =>
     page.locator('.seg-item').evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()))
-  const segClass = (name: string) =>
+  /** v2.6.1 B16：读某个 tab 的**计算色**（真读数；判"淡一档"必须比色，token 命中 ≠ 与相邻档有色差） */
+  const segColor = (name: string) =>
     page
       .locator('.seg-item')
       .filter({ hasText: new RegExp(`^${name}$`) })
-      .getAttribute('class')
+      .evaluate((el) => getComputedStyle(el).color)
+  /** 'rgb(r, g, b)' → [r, g, b]（读不出来即红） */
+  const parseRgb = (s: string): [number, number, number] => {
+    const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(s)
+    expect(m, `计算色读不出来：${s}`).not.toBeNull()
+    return [Number(m![1]), Number(m![2]), Number(m![3])]
+  }
+  /** 相对亮度（"淡" = 更浅 ⇒ 亮度更高） */
+  const luma = ([r, g, b]: [number, number, number]) => 0.2126 * r + 0.7152 * g + 0.0722 * b
 
   test.beforeAll(async () => {
     app = await electron.launch({
@@ -86,22 +95,18 @@ test.describe('A9 · 子文件夹 tab 以盘为准', () => {
     // 在甲集用应用自己的删除动作（走 files.deleteSubfolder）
     await gotoFolder('甲集', '共同目录')
     await expect(page.locator('.seg-item', { hasText: '共同目录' }).first()).toBeVisible({ timeout: 15000 })
-    const del = page.locator('button[title*="删除"], button:has-text("删除文件夹")').first()
-    if (await del.count()) {
-      await del.click()
-      const confirm = page.locator('button:has-text("确认删除"), button:has-text("删除")').last()
-      if (await confirm.count()) await confirm.click()
-    } else {
-      // 兜底：直接调同一 IPC（本条判的是"删完之后的可见结果"，不是按钮位置）
-      await page.evaluate(async () => {
-        await (window as any).qihebox.files.deleteSubfolder({
-          product_set: '甲集',
-          file_type: 'image',
-          name: '共同目录',
-          scope: 'productSet',
-        })
-      })
-    }
+    // v2.6.1 B16：删除入口必须是**用户真点得到的那个按钮**——找不到即红。
+    // 旧写法 `if (await count) {点它} else {直接调 IPC}` 在按钮整个消失时静默走兜底、本条仍绿；
+    // 实测旧选择器恒 0（工具栏按钮文案是「🗑️ 删除当前图包类型」，title 也没有"删除"）⇒ 从没点过按钮。
+    const del = page.getByRole('button', { name: /删除当前.*类型/ })
+    await expect(del).toBeVisible({ timeout: 15000 })
+    await del.click()
+    // 删除在确认弹窗之后才发生：弹窗与确认按钮也真点（少一道即红）
+    const confirm = page
+      .getByRole('dialog', { name: '删除子文件夹' })
+      .getByRole('button', { name: '删除', exact: true })
+    await expect(confirm).toBeVisible({ timeout: 10000 })
+    await confirm.click()
 
     // 甲集：那个 tab 消失
     await gotoFolder('甲集', '主图')
@@ -118,8 +123,8 @@ test.describe('A9 · 子文件夹 tab 以盘为准', () => {
     await gotoFolder('甲集', '主图')
     await expect.poll(segText, { timeout: 10000, intervals: [300, 300, 300] }).toContain('空壳壳')
 
-    const cls = await segClass('空壳壳')
-    expect(cls).toContain('text-surface-400') // 淡档
+    // v2.6.1 B16：读**计算色**真读数与相邻基线档断言有色差（且更浅）。
+    // 只判 class 含 text-surface-400 是 token 命中——两档被调成同色（色差静默失效）时照样绿。
     const title = await page
       .locator('.seg-item')
       .filter({ hasText: /^空壳壳$/ })
@@ -134,6 +139,10 @@ test.describe('A9 · 子文件夹 tab 以盘为准', () => {
     await expect.poll(segText, { timeout: 10000, intervals: [300, 300, 300] }).toContain('有货货')
     await page.locator('.seg-item', { hasText: '主图' }).first().click()
     await expect.poll(segText, { timeout: 10000, intervals: [300, 300, 300] }).toContain('有货货')
-    expect(await segClass('有货货')).not.toContain('text-surface-400')
+
+    const emptyColor = await segColor('空壳壳')
+    const baseColor = await segColor('有货货')
+    expect(emptyColor).not.toBe(baseColor) // 与相邻档有色差（读到同色即红）
+    expect(luma(parseRgb(emptyColor))).toBeGreaterThan(luma(parseRgb(baseColor))) // 淡 = 更浅
   })
 })

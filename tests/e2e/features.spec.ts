@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
-/** v2.0.1 新功能 e2e：标签体系 / 拖拽拖出 / 复制路径 / 右键菜单操作 */
+/** v2.0.1 新功能 e2e：标签体系 / 拖拽拖出 / 拖入遮罩 / 复制路径 / 右键菜单操作 */
 test.describe('v2.0.1 新功能', () => {
   let app: ElectronApplication
   let page: Page
@@ -84,11 +84,47 @@ test.describe('v2.0.1 新功能', () => {
     const bad = await page.evaluate(async (p) => (window as any).qihebox.files.startDrag([p]), outside)
     expect(bad.success).toBe(false)
 
-    // 工作区内文件 startDrag 需要真实拖拽会话，此处仅验证 handler 存在且不抛同步错误
-    const hasStartDrag = await page.evaluate(() => typeof (window as any).qihebox.files.startDrag)
-    expect(hasStartDrag).toBe('function')
-
     await fsp.rm(wsDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  /**
+   * v2.6.1 B16：拖入链真判据。原判据是 `typeof qihebox.files.startDrag === 'function'`（存在性），
+   * 而 App.tsx 全局挂载的 GlobalDropOverlay「拖进来 → 遮罩出现 → 关得掉」这条链全仓零覆盖。
+   * 这里合成真 drag 事件链（DataTransfer + File），走组件真实的 `dataTransfer.types` 判据。
+   * 诚实边界：合成 File 没有本机路径（webUtils.getPathForFile 得空串）⇒「落到哪、导入了什么」证不到，
+   * 本 spec 不伪造 drop 落点；只钉"遮罩出现 / 非文件拖拽不出 / dragleave 出窗即关"三段。
+   */
+  test('拖入：合成文件拖拽 → 遮罩出现 → dragleave 出窗即关（GlobalDropOverlay）', async () => {
+    const overlay = page.getByText('释放以导入文件')
+    await expect(overlay).toHaveCount(0) // 起手没有遮罩
+
+    // 负控：不含 Files 的"拖文本"不得出遮罩（组件按 types 判，不是"任何 drag 都亮"）
+    await page.evaluate(() => {
+      const dt = new DataTransfer()
+      dt.setData('text/plain', 'not-a-file')
+      window.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }))
+    })
+    await page.waitForTimeout(200)
+    await expect(overlay).toHaveCount(0)
+
+    // 真合成一次"拖文件进窗口"：DataTransfer 挂 File（types 变含 'Files'）后派发 dragenter/dragover
+    await page.evaluate(() => {
+      const dt = new DataTransfer()
+      dt.items.add(new File(['x'], 'x.txt', { type: 'text/plain' }))
+      window.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }))
+      window.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }))
+    })
+    await expect(overlay).toBeVisible({ timeout: 2000 })
+    await expect(page.getByText('将文件拖放到产品集文件浏览器中可快速导入')).toBeVisible()
+
+    // 关得掉：dragleave 离开窗口（relatedTarget === null）必须收遮罩。
+    // ⚠ timeout 必须小于组件 5s 保险自动收（showOverlay 里那条 setTimeout）——大了就是靠保险丝假绿。
+    await page.evaluate(() => {
+      const dt = new DataTransfer()
+      dt.items.add(new File(['x'], 'x.txt', { type: 'text/plain' }))
+      window.dispatchEvent(new DragEvent('dragleave', { dataTransfer: dt, relatedTarget: null, bubbles: true, cancelable: true }))
+    })
+    await expect(overlay).toHaveCount(0, { timeout: 2000 })
   })
 
   test('复制路径 IPC', async () => {

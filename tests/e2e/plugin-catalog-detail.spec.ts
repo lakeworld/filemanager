@@ -44,6 +44,8 @@ const DEMO_DETAIL =
 const DEMO_RELEASE_NOTES = '演示更新说明：修掉了重复识别同一张单的问题。'
 
 const seenCatalogHeaders: string[] = []
+/** 目录端点逐枪记录的请求路径（钉"没打成 /api/api/… 双段"；双段只会在下面兜底分支吃 200 JSON） */
+const seenCatalogUrls: string[] = []
 let catalogHits = 0
 /** 云 API 基址（含尾 /api，主进程 `resolveApiBase()` 的实际形状） */
 let apiBase = ''
@@ -86,10 +88,11 @@ function catalogPayload(): unknown {
           ],
         },
         {
-          // 图挂了（404）：只把那一张退成占位，行内其余内容与「详情」入口照常
+          // 混装夹具（v2.6.1 B16）：一条目里 1 张好图 + 1 张坏图（404）——坏的那张只退成占位，
+          // 同一行/同一缩略条里的好图必须照渲染（失败态一旦提到父级整块退，下面那条 img 断言必红）
           id: 'com.qihe.brokenimg',
           name: '碎图插件',
-          images: [`${origin}/img/missing.png`],
+          images: [`${origin}/img/good-1.png`, `${origin}/img/missing.png`],
           versions: [
             { version: '1.0.0', apiCompat: [1, 1], sha256: 'c'.repeat(64), downloadUrl: `${origin}/pkg/broken.qbox` },
           ],
@@ -113,12 +116,13 @@ function startMock(): Promise<void> {
       const p = (req.url ?? '').split('?')[0]
       if (p === '/api/box/plugin-catalog') {
         catalogHits += 1
+        seenCatalogUrls.push(p)
         seenCatalogHeaders.push(String(req.headers.authorization ?? ''))
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(catalogPayload()))
         return
       }
-      if (p.startsWith('/img/demo-')) {
+      if (p.startsWith('/img/demo-') || p.startsWith('/img/good-')) {
         res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' })
         res.end(PNG)
         return
@@ -198,20 +202,29 @@ test.describe('插件目录详情化（v2.6.2 真链路）', () => {
     for (const s of mockServers) await new Promise<void>((r) => s.close(() => r()))
   })
 
-  test('目录请求走真实主进程：端点无双段、带 Bearer 登录态、进页面后不轮询', async () => {
+  test('目录请求走真实主进程：端点无双段、带 Bearer 登录态、只由显式动作拉取', async () => {
     // demo 三张图渲染出来 ⇒ 断言的不是"请求发过"，而是"请求成功并驱动了界面"
     await expect(page.locator('[data-testid="catalog-thumb"][src*="/img/demo-"]')).toHaveCount(3, { timeout: 15000 })
-    expect(catalogHits).toBeGreaterThanOrEqual(1)
-    // 双段 /api/api/box/… 是批 2.5 P0-1 踩过的坑：落 SPA 兜底 200 → "目录永远空"，这里钉死
-    expect(seenCatalogHeaders.length).toBe(catalogHits)
-    for (const h of seenCatalogHeaders) expect(h).toBe(`Bearer ${FAKE_TOKEN}`)
-    // 不后台轮询（网络常驻红线）：静置 2.5s 后请求数不再增长
+    // v2.6.1 B16：进页面 = **恰好一枪**（写死条数：重打 / 双段落兜底 / 后台自轮询都会多枪，少一枪也红）。
+    // 旧判据 `seenCatalogHeaders.length === catalogHits` 是同一分支自增的恒真式，永远绿。
+    expect(catalogHits).toBe(1)
+    // 双段 /api/api/box/… 是批 2.5 P0-1 踩过的坑：落桩兜底 200 → "目录永远空"，这里逐枪钉真实路径
+    expect(seenCatalogUrls).toEqual(['/api/box/plugin-catalog'])
+    // 逐条断言 Bearer（不是数条数）
+    expect(seenCatalogHeaders).toEqual([`Bearer ${FAKE_TOKEN}`])
+    // 静置窗口内不增长（单窗口只证"这段窗口内没有"）
     const before = catalogHits
     await page.waitForTimeout(2500)
     expect(catalogHits).toBe(before)
+    // 正控：点「刷新」必须且只多一枪——证明计数与请求链路都是活的（没有这一步，"不增长"
+    // 也可能只是页面没在跑/计数没接上）。两段式 stub「首枪缺数据、次枪补全 ⇒ 界面到完整态」
+    // 在本产品不成立：目录只在进页面/刷新/重试三处显式拉取，无自动重拉（实测首枪回空目录即停在空态）。
+    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    await expect.poll(() => catalogHits, { timeout: 10000 }).toBe(before + 1)
+    expect(seenCatalogHeaders).toEqual([`Bearer ${FAKE_TOKEN}`, `Bearer ${FAKE_TOKEN}`])
   })
 
-  test('缩略图真解码；无素材条目不留空框；坏图只退那一张', async () => {
+  test('缩略图真解码；无素材条目不留空框；坏图只退那一张（混装夹具）', async () => {
     const natural = await page
       .locator('[data-testid="catalog-thumb"][src*="/img/demo-"]')
       .first()
@@ -220,8 +233,14 @@ test.describe('插件目录详情化（v2.6.2 真链路）', () => {
     expect(natural).toBeGreaterThan(0)
     // 无素材条目与不兼容条目都没有缩略块：整页只有 demo 与 broken 两行有块（空框会被读成"图坏了"）
     await expect(page.locator('[data-testid="catalog-thumbs"]')).toHaveCount(2)
-    // 坏图：那一张 <img> 被 onError 换成占位文案，行本身还在（详情入口没被碎图拖走）
-    await expect(page.getByText('图未加载')).toBeVisible({ timeout: 15000 })
+    // 混装夹具（碎图插件 = 1 张好图 + 1 张坏图）：坏的那张退成占位…
+    const brokenThumbs = page.locator('[data-testid="catalog-thumbs"]').filter({ hasText: '图未加载' })
+    await expect(brokenThumbs.getByText('图未加载')).toBeVisible({ timeout: 15000 })
+    // …同一缩略条里的好图必须照常渲染并解码（失败态若提到父级、整块退成占位，这枚 img 根本不在 → 必红）
+    const goodInRow = brokenThumbs.locator('[data-testid="catalog-thumb"][src*="/img/good-"]')
+    await expect(goodInRow).toHaveCount(1)
+    expect(await goodInRow.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+    // 行本身与「详情」入口照常
     await expect(detailButton('碎图插件')).toBeVisible()
   })
 
