@@ -847,6 +847,15 @@ window.qihebox.ui.openEntity(
 
 **首方插件的用户数据区写口（授权例外，v2.6 起）**：上表列的是**通用**隔离面；唯一的例外是官方首方插件 `com.qihe.cloud`（启禾云）——经产品方明确授权，它可以把图片整理结果写入工作区**用户数据区**的产品集图包目录 `产品集/<集名>/图包/**`。该例外受四条自律约束，四条同时成立才允许落盘：① **复制不移动**——源文件只读，不改不删；② **同名加序号、绝不覆盖**既有文件；③ 目标集只限**已存在**的产品集（不在清单即拒）；④ 目标路径经**真实路径（realpath）校验**必须仍在工作区内（拒 `..` 与符号链接逃逸）。**该例外属首方授权，第三方插件不自动适用**——第三方插件要写用户数据区，须另行取得用户明示授权，并在插件说明中披露写面与范围。
 
+**同一位首方插件 v0.9.1 四条自用通道的写面台账（2026-09-25 补录）**：上段授权的落盘只经 `ai.wb.organize.apply` 一条写口；同批另有两条只读腿与一条只写插件自有状态区的腿。四条均为**插件自用 IPC**（完整通道 = `qihebox:plugin:cloud:<action>`；宿主零改动、不新增宿主契约、不占权限位），逐条登记写面：
+
+| 通道 | 入参 → 返回（承重字段） | 写面 |
+|---|---|---|
+| `ai.wb.organize.pickDir` | 无参 → `{ ok, dir }`（取消 = `ok:false` + 空 `dir`） | 无（弹宿主目录框选一个**工作区外**的文件夹，`host.dialog.openDirectory`） |
+| `ai.wb.organize.scan` | `{ dir, limit? }` → `{ ok, dir, files[{name, relPath, absPath, bytes}], found, truncated, skipped, errors, budgetHit, dirsVisited }`（失败 = `{ ok:false, message }`） | 无（只读递归列 jpg/jpeg/png/webp；符号链接不跟随，截断如实报） |
+| `ai.wb.organize.apply` | `{ rows[{name, srcPath, targetSet, newName?}] }` → `{ ok, message?, total, done, failed, results[{ok, name, newPath?/reason?}] }`（逐行成败隔离） | **工作区用户数据区**：`产品集/<集名>/图包/**`——即上段授权例外，受四条自律约束 |
+| `ai.wb.calib` | 一条带字符串 `kind` 的校准记录 → `{ ok }`（`ts` 由主进程现取） | 插件自有区：`userData/plugins/<id>/state/` 的 `ai:calib:v1`（环形封顶 100 条；不出网、不扣额度） |
+
 ---
 
 ## 八、资源与启动承诺
