@@ -26,6 +26,7 @@ import type {
   SupplierProfile,
 } from '../../plugins/types'
 import { EXPORTS_DIR, assertSafeFileName, isPathInsideWorkspaceReal, writeJsonAtomic } from '../core/paths'
+import { createImagesCapability, type SharpFactoryLike } from './images'
 
 /** 宿主事件白名单（插件 host.events.on 仅可订阅这些通道；装配层在此发事件）。
  *  v2.5.1 A1（内部设计文档 §3.1）：+ customerCreated / customerUpdated / fileArchived */
@@ -690,6 +691,18 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
     status: (): EntitlementStatus => ({ tier: 'free', expiresAt: null, quota: null }),
   }
 
+  // —— v2.6.1（B14）：host.images 能力域（宿主内置图像引擎口，PLUGIN.md §5.1）——
+  // 引擎住宿主：动态 import（启动不加载原生库；打包态经 asarUnpack 的 sharp 走 app.asar.unpacked）。
+  // 加载失败由能力自身捕获缓存 → 每次调用 IMAGES_ENGINE_UNAVAILABLE（只记一次日志），本层不做重试。
+  const images = createImagesCapability({
+    loadSharp: async () => {
+      const mod = (await import('sharp')) as unknown as { default?: unknown }
+      return (mod.default ?? mod) as SharpFactoryLike
+    },
+    readFile: (p) => fsp.readFile(p),
+    log: (level, msg) => deps.log(level, msg),
+  })
+
   const host: PluginHost = {
     apiVersion: API_VERSION,
     log: (level, msg) => deps.log(level, msg),
@@ -703,6 +716,7 @@ export async function createPluginHost(deps: PluginHostDeps, limits?: StorageLim
       defaultPath: () => deps.workspace.defaultPath?.() || null,
     },
     dialog: deps.dialog,
+    images,
     notify: deps.notify,
     account,
     files,

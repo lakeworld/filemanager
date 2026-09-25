@@ -295,6 +295,41 @@ export interface PluginHost {
     /** 单选一个目录：返回绝对路径裸串；取消 → `''`；失败 → 带 `code` 的业务错误（`DIALOG_FAILED`） */
     openDirectory(opts: unknown): Promise<string>
   }
+  /** 图像处理（v2.6.1 增量，可选成员）：宿主内置图像引擎（sharp/libvips），插件不再自带图像运行时。
+   *  只做「读源 → 内存变换 → 返回编码字节」：**宿主不写盘**，输出文件由插件自己落（命名与存在性检查
+   *  本来就是插件的事）。旧宿主无此成员 ⇒ 能力探测（`typeof host.images?.transform === 'function'`），
+   *  缺席时插件自行降级并如实说明。
+   *  顺序（三个都给时）：crop → rotate → resize。
+   *  错误码（带 `code` 的业务错误；引擎原文只进宿主日志，绝不进用户面）：
+   *  `IMAGES_BAD_REQUEST` / `IMAGES_UNSUPPORTED_FORMAT` / `IMAGES_READ_FAILED` / `IMAGES_DECODE_FAILED` /
+   *  `IMAGES_CROP_OUT_OF_RANGE` / `IMAGES_TOO_LARGE` / `IMAGES_ENGINE_UNAVAILABLE`。 */
+  images?: {
+    transform(req: {
+      /** 源图绝对路径（按内容判，只认 jpeg/png/webp） */
+      source: string
+      /** 输出格式；缺省随源：.png→png / .webp→webp / 其余→jpeg；扩展名不认识时看真实格式，仍不认识按 jpeg */
+      format?: 'jpeg' | 'png' | 'webp'
+      /** 1..100（png 忽略）；缺省 85 */
+      quality?: number
+      /** contain：等比内缩、**绝不放大**（默认档） */
+      maxWidth?: number
+      maxHeight?: number
+      /** 倍率，优先于 maxWidth/maxHeight */
+      scale?: number
+      /** true 且同时给了 maxWidth+maxHeight = 精确宽高（不保比例） */
+      stretch?: boolean
+      /** 0/90/180/270；90/270 交换宽高 */
+      rotate?: 0 | 90 | 180 | 270
+      /** 像素矩形（相对**源图**）：越界部分按图幅取整求交；与图幅无交集 → IMAGES_CROP_OUT_OF_RANGE */
+      crop?: { x: number; y: number; w: number; h: number }
+      /** 带比例时取交集内**最大等比框**（锚点 = 交集左上角） */
+      cropRatio?: number
+      /** 非 alpha 输出格式（jpeg）的透明底合成色，缺省 '#ffffff'（与既有白底口径一致） */
+      flatten?: string
+      /** 缺省 false = 剥 EXIF/ICC 等（与旧 canvas 路径同效） */
+      keepMetadata?: boolean
+    }): Promise<{ data: Uint8Array; width: number; height: number; bytes: number; format: 'jpeg' | 'png' | 'webp' }>
+  }
   notify(title: string, body: string): boolean
 
   /** 账号登录态（本体能力，v2.5 增量接通 PLAN §3.2）：同步签名，token 来自 AccountService 内存缓存。
