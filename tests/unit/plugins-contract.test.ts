@@ -1285,11 +1285,13 @@ function camelToKebab(s: string): string {
   return s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
 }
 
-/** 从 API 面 types 节提取 PluginHost 接口顶层成员名（仅第一层，嵌套成员如 storage.get 不计）。 */
+/** 从 API 面 types 节提取 PluginHost 接口顶层成员名（仅第一层，嵌套成员如 storage.get 不计）。
+ *  v2.6.1（B14）：可选成员在聚合行写作 `PluginHost.images?: { ... }`，字符类须含 `?`，
+ *  否则可选顶层成员会绕过「实现有、文档无 → 红」这条反查。 */
 function extractHostMemberNames(types: string[]): string[] {
   const names = new Set<string>()
   for (const line of types) {
-    const m = /^PluginHost\.([A-Za-z0-9_]+)[(:]/.exec(line)
+    const m = /^PluginHost\.([A-Za-z0-9_]+)[?(:]/.exec(line)
     if (m) names.add(m[1])
   }
   return [...names]
