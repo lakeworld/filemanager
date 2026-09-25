@@ -4,7 +4,7 @@
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)]()
-[![Version](https://img.shields.io/badge/Version-v2.6.0-green.svg)]()
+[![Version](https://img.shields.io/badge/Version-v2.6.1-green.svg)]()
 
 > **官网下载（Windows / Linux）：https://www.qihebook.cloud/file-manager**
 > 开源免费 · 无需注册 · 下载即用
@@ -67,7 +67,7 @@
 ## 三分钟上手
 
 1. **下载安装**：点上方官网链接，选 Windows 或 Linux 版本（文件夹里有图文安装教程，跟着点就行）
-2. **选工作区**：首次打开会自动创建一个工作区并直接进入；也可手动选一个常用文件夹（比如新建一个"我的图库"），之后还能把它「设为默认」（v2.6.1 随包提供），以后开机就开它
+2. **选工作区**：首次打开会自动创建一个工作区并直接进入；也可手动选一个常用文件夹（比如新建一个"我的图库"），之后还能把它「设为默认」，以后开机就开它
 3. **开始用**：把图片/证书文件夹直接拖进软件 → 建产品集 → 打标签 → 搜索 / 预览 / 一键外发
 
 ## 遇到问题？
