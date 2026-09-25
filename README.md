@@ -67,7 +67,7 @@
 ## 三分钟上手
 
 1. **下载安装**：点上方官网链接，选 Windows 或 Linux 版本（文件夹里有图文安装教程，跟着点就行）
-2. **选工作区**：首次打开会自动创建一个工作区并直接进入；也可手动选一个常用文件夹（比如新建一个"我的图库"），之后还能把它「设为默认」，以后开机就开它
+2. **选工作区**：首次打开会自动创建一个工作区并直接进入；也可手动选一个常用文件夹（比如新建一个"我的图库"），之后还能把它「设为默认」（v2.6.1 随包提供），以后开机就开它
 3. **开始用**：把图片/证书文件夹直接拖进软件 → 建产品集 → 打标签 → 搜索 / 预览 / 一键外发
 
 ## 遇到问题？
@@ -82,7 +82,7 @@
 
 - 与 [启禾 OS](https://www.qihebook.cloud/)（AI 原生 ERP）同生态：文件管理是独立的免费桌面工具，不依赖启禾 OS 账号即可使用
 - 还在选管理方法：[电商产品资料管理工具对比：文件夹、网盘、专用软件](https://www.qihebook.cloud/compare/product-file-management)
-- 详细功能说明见 [HELP.md](HELP.md)；版本更新记录见 [CHANGELOG.md](CHANGELOG.md)；最新版发布说明见 [docs/RELEASE-2.5.9.md](docs/RELEASE-2.5.9.md)
+- 详细功能说明见 [HELP.md](HELP.md)；版本更新记录见 [CHANGELOG.md](CHANGELOG.md)；最新版发布说明见 [docs/RELEASE-2.6.1.md](docs/RELEASE-2.6.1.md)
 
 ---
 
@@ -98,8 +98,8 @@
 ```bash
 npm install          # 安装依赖（.npmrc 已配置国内镜像加速）
 npm run dev          # 开发模式（热更新）
-npm test             # 单元测试（vitest，940 用例）
-npm run test:e2e     # 端到端测试（Playwright，177 用例，含发布轮渲染守卫）
+npm test             # 单元测试（vitest，用例数以本次输出为准）
+npm run test:e2e     # 端到端测试（Playwright，用例数以本次输出为准，含发布轮渲染守卫）
 npm run build        # 构建三段产物到 out/
 npm run build:linux  # 打包 Linux（AppImage + deb）
 npm run build:win    # 打包 Windows（NSIS）
