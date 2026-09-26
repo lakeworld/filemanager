@@ -33,7 +33,7 @@
 | `启禾文件管理 Setup 2.6.2.zip` | 115,717,937 | `8823482c1645647ff3195b0378ae06310c8df0c66ec20dce4fd8a0e8f803ab55` |
 | `启禾文件管理-2.6.2-win-x64.zip` | 156,313,858 | `93f807feb66c67eb424acb0306b475bb8ca508137c9bd4fa88c24d6c6f03667b` |
 
-> deb 的 sha256 与线上 `version.json` 的 `checksum` 一致（`fd000928…`，由发布脚本从真实 deb 现算）；Setup zip 的 sha256 与线上更新面 `latest.yml`（`8823482c…`）及下载面 `manifest.json` 一致。四个数均由本机对产物逐字节实算后填入。
+> deb 的 sha256 与线上 `version.json` 的 `checksum` 一致（`fd000928…`，由发布脚本从真实 deb 现算）；Setup zip 的 sha256 与线上 `version.json` 的 `platforms[win]` 及下载面 `manifest.json` 一致（`8823482c…`）。四个数均由本机对产物逐字节实算后填入。
 
 ---
 
