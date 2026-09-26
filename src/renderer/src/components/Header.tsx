@@ -202,10 +202,13 @@ export default function Header() {
                       </div>
                     </button>
                     {/* v2.6.1：默认工作区开关就地放在挑工作区这一动线上（不进设置页另开一份）。
-                        镜像未拉回前置灰：否则用户在「还没读到磁盘值」的窗口里点了它，会把标记写成假的。 */}
+                        镜像未拉回前置灰：否则用户在「还没读到磁盘值」的窗口里点了它，会把标记写成假的。
+                        2026-09-26 修：`w-auto` 必须留——`.row-btn` 自带 `width:100%`，叠加 `shrink-0` 会把
+                        同行 `flex-1` 的名字钮挤成只剩内边距的空壳（名字 0 宽不可见、整行点击面全成了这枚
+                        钮、还溢出菜单 32px）。几何由 default-workspace.spec.ts 两条断言钉住。 */}
                     <button
                       type="button"
-                      class="row-btn shrink-0 px-3 py-2 text-xs text-surface-400 hover:bg-surface-100 hover:text-primary-700"
+                      class="row-btn w-auto shrink-0 px-3 py-2 text-xs text-surface-400 hover:bg-surface-100 hover:text-primary-700"
                       disabled={!appSettingsReady()}
                       aria-label={isDefaultWs(ws.path) ? "取消默认工作区" : "设为默认工作区"}
                       title={isDefaultWs(ws.path) ? "取消默认（启动回到「开最近用过的那个」）" : "设为默认：以后每次启动都打开这个工作区"}

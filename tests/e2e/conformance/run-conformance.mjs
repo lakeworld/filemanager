@@ -46,9 +46,12 @@ async function main() {
   }
 
   let pluginPath = target
+  /** 现场打包的临时目录（目录入参才有）；跑完清——旧行为只建不删，/tmp 每跑一轮攒一个 */
+  let tmpPackedDir = ''
   if (stat.isDirectory()) {
     // 目录 → 现场打包为临时 .qbox（复用 hello 的 packQbox zip 逻辑）
     const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'conformance-dir-'))
+    tmpPackedDir = tmpDir
     try {
       const r = await packPluginDir(target, tmpDir)
       pluginPath = r.outPath
@@ -72,11 +75,13 @@ async function main() {
     shell: process.platform === 'win32',
   })
 
-  child.on('error', (err) => {
+  child.on('error', async (err) => {
+    await fsp.rm(tmpPackedDir, { recursive: true, force: true }).catch(() => {})
     console.error(`[conformance] 启动 playwright 失败：${err.message}`)
     process.exit(1)
   })
-  child.on('exit', (code, signal) => {
+  child.on('exit', async (code, signal) => {
+    await fsp.rm(tmpPackedDir, { recursive: true, force: true }).catch(() => {})
     if (signal) {
       console.error(`[conformance] playwright 被信号终止：${signal}`)
       process.exit(1)

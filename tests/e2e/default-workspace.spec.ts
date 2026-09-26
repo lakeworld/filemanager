@@ -172,6 +172,25 @@ test.describe('默认工作区（v2.6.1）', () => {
       await refreshWsList(first.page)
 
       await openWsMenu(first.page)
+
+      // 2026-09-26 修（v2.6.1 回归）：**几何必须自己钉**。行为断言（点得中那枚钮、设置写得对、
+      // 重启开得对）在塌陷时全绿——尾部钮的 aria-label 让它照样可点、照样可被 getByRole 找到，
+      // 而名字被挤成 0 宽没人管。病根史：两枚钮共用 `.row-btn`（自带 `width:100%`）+ 尾部 `shrink-0`
+      // ⇒ 名字钮只剩内边距的空壳、名字不可见、动作钮横铺整行并溢出菜单 32px（整行点击面全成了它）。
+      await test.step('布局：名字可见（非 0 宽）、动作钮不溢出菜单', async () => {
+        await expect(
+          first.page.locator('header').getByText(nameB, { exact: true }),
+          '最近工作区行里的名字应可见——被挤成 0 宽时这里会红（exact 是必须的：同排那枚钮写着「设为默认」）',
+        ).toBeVisible()
+        const menuBox = await first.page.getByText('最近工作区').locator('xpath=..').boundingBox()
+        const actionBox = await rowOf(first.page, nameB).getByRole('button', { name: '设为默认工作区' }).boundingBox()
+        expect(menuBox && actionBox, '菜单与动作钮都应量到盒子').toBeTruthy()
+        expect(
+          actionBox!.x + actionBox!.width,
+          '尾部动作钮溢出菜单右缘 ⇒ 名字钮被挤瘪（塌陷复发）',
+        ).toBeLessThanOrEqual(menuBox!.x + menuBox!.width + 0.5)
+      })
+
       await rowOf(first.page, nameB).getByRole('button', { name: '设为默认工作区' }).click()
 
       // 只落 defaultWorkspace 一个键（其余开关保持默认 → 不落盘）

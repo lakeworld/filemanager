@@ -82,6 +82,8 @@ test.describe('插件协议一致性体检（conformance）', () => {
   let manifestValid: boolean
   let validateErrors: string[]
   let manifest: PluginManifest | null
+  /** 本 spec 造的临时工作区（afterAll 逐个清）；此前只建不删，/tmp 每跑一轮攒一个 */
+  const tmpWsDirs: string[] = []
 
   const launchApp = async (): Promise<void> => {
     app = await electron.launch({
@@ -143,6 +145,8 @@ test.describe('插件协议一致性体检（conformance）', () => {
       /* 应用可能已退出 */
     }
     await killApp()
+    // 临时工作区清场：夹具自己造的自己收（旧行为只建不删，历史轮次在 /tmp 攒了几百个）
+    await Promise.all(tmpWsDirs.splice(0).map((d) => fsp.rm(d, { recursive: true, force: true }).catch(() => {})))
   })
 
   test('一致性体检全流程', async () => {
@@ -214,6 +218,7 @@ test.describe('插件协议一致性体检（conformance）', () => {
 
     await test.step('前置：创建工作区（host.files / host.workspace 语义往返依赖）', async () => {
       const wsDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'conformance-ws-'))
+      tmpWsDirs.push(wsDir)
       const r = await page.evaluate(async (dir) => (window as any).qihebox.workspace.create(dir), wsDir)
       expect(r.success).toBe(true)
     })
