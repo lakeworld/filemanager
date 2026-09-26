@@ -82,7 +82,7 @@
 
 - 与 [启禾 OS](https://www.qihebook.cloud/)（AI 原生 ERP）同生态：文件管理是独立的免费桌面工具，不依赖启禾 OS 账号即可使用
 - 还在选管理方法：[电商产品资料管理工具对比：文件夹、网盘、专用软件](https://www.qihebook.cloud/compare/product-file-management)
-- 详细功能说明见 [HELP.md](HELP.md)；版本更新记录见 [CHANGELOG.md](CHANGELOG.md)；最新版发布说明见 [docs/RELEASE-2.6.1.md](docs/RELEASE-2.6.1.md)
+- 详细功能说明见 [HELP.md](HELP.md)；版本更新记录见 [CHANGELOG.md](CHANGELOG.md)；最新版发布说明见 [docs/RELEASE-2.6.2.md](docs/RELEASE-2.6.2.md)
 
 ---
 
