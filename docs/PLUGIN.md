@@ -420,7 +420,7 @@ export interface PluginCatalogVersion {
 }
 ```
 
-**展示字段的宽容边界（v2.6.2）**：`images` / `detail` / `releaseNotes` 属**展示位**——形状不对、类型不对、
+**展示字段的宽容边界（自 v2.6.1 起）**：`images` / `detail` / `releaseNotes` 属**展示位**——形状不对、类型不对、
 内容全坏，一律降级为该字段缺省，**不抛错**（一条截图地址写错不该让整个插件目录变成「目录不可用」）。
 `sha256` / `downloadUrl` / `version` 等**承重字段**照旧严格：任一条坏即整体抛 `CATALOG_BAD_PAYLOAD`。
 两头的分界各有一条单测钉着，防止"宽容"哪天蔓延到承重字段上。
